@@ -1,5 +1,9 @@
 # 一轮对话耗时分析与优化建议（实测报告）
 
+> **阅读提示**：§1–§3 是 2026-08 的**修复前**实测基线（约 20s+/轮、伪流式）；§5 是当轮修复结果，
+> **其中三项措施均已落地且至今有效**（真流式 `_open_stream_with_retry`、按调用类型思考档位
+> `narration_reasoning_effort`、embedding 首次失败后短路）。看现状请直接读 §5。
+>
 > 测量时间：2026-08（perf_tests/bench_round_segments.py / bench_stream_verify.py / bench_effort_levels.py）
 > 线上配置：`deepseek-v4-flash` @ api.deepseek.com，`enable_thinking=true`，`reasoning_effort=medium`，
 > `auto_generate_choices=true (choice_count=3)`，`dialogue_bubble_mode=true`，`max_output_tokens=8192`，`word_limit=500`
