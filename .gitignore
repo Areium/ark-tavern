@@ -22,3 +22,10 @@ perf_tests/results_*.json
 .tmp/
 .workbuddy-ai/
 .pytest_cache/
+.task.md
+
+# archify 架构图导出物：外部工具（archify 2.16.0）生成，非本仓库构建步骤，
+# 且 96% 体积是 vendored viewer 运行时。源文件与分析见 docs/architecture.md §5.1。
+# 本地保留、不入库；如需重新纳入版本控制，先删掉下面两行再 git add -f。
+docs/archive/architecture.html
+docs/archive/architecture.architecture.json

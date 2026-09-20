@@ -202,5 +202,5 @@
 | `redundancy-scan-2026-09-12.md` | 代码冗余扫描报告；其建议已全部落地（死代码删除、导入清理等），结论见当时提交 |
 | `2026-08-06-fengxue-guojing-plan.md`、`2026-08-06-fengxue-guojing-design.md` | 「风雪过境」剧情的实现计划与设计稿；剧情已随程序分发，且文中 `data/combat/encounters/*.md` + 7×7 网格结构已被 JSON 节点 + 自由尺寸取代 |
 | `combat-embedding.html` | 战斗嵌入剧情的讲解图；引用了已删除的 `tests/test_combat_trigger.py` 与作废的 7×7 口径（其「数值权威在引擎、模型零数值授权」原则仍有效，见 `combat-design.md`） |
-| `architecture.html`、`architecture.architecture.json` | 由外部工具 archify 2.16.0 导出的架构图（与边车源文件，需同去同留）；内容停留在 2026-09-05，且 96% 体积是 vendored viewer 运行时。**重新生成不是本仓库的构建步骤**，架构现状见本文件 |
+| `architecture.html`、`architecture.architecture.json` | 由外部工具 archify 2.16.0 导出的架构图（与边车源文件，需同去同留）；内容停留在 2026-09-05，且 96% 体积是 vendored viewer 运行时。**重新生成不是本仓库的构建步骤**，架构现状见本文件。**已加入 `.gitignore`、不再入库**（本地/历史提交里仍有），因此新克隆的仓库里看不到这两个文件 |
 | `rag-retrieval.html`、`two-phase-narration.html` | 上述两篇讲解图的原 HTML；内容已转为等价的 `rag-retrieval.md` / `two-phase-narration.md` 并补上新机制 |
