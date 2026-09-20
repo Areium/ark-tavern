@@ -677,10 +677,8 @@ html.skin-tavern body {
   .home-splash-press { color: rgba(109, 92, 75, 0.85); }
 
   /* ── 对话气泡（chat 页）：手札信笺 ────────────────────────────────────
-     注意：DialogueBubble 的气泡底色/描边、说话人姓名色都是「按角色色号计算的
-     行内样式」（inline style），优先级高于任何类选择器。因此这里刻意只覆盖
-     行内样式未涉及的属性（圆角 / 阴影 / 字体 / 光环），保留每位说话人的色彩
-     标识 —— 行内的 0.18/0.35 透明度会自然与羊皮纸底色叠合成柔和淡彩。
+     气泡底色/描边仍按角色色号计算；姓名标签使用墨水色保证可读性，并由
+     --dlg-accent 圆点保留每位说话人的原始色彩标识。
      ──────────────────────────────────────────────────────────────────── */
   .dlg-bubble {
     /* 保留 tl 小圆角的「气泡指向」形状 */
@@ -691,7 +689,12 @@ html.skin-tavern body {
     font-family: var(--t-serif);
     font-weight: 700;
     letter-spacing: 0.04em;
+    color: var(--t-ink);
+    background: rgba(251, 246, 233, 0.97);
+    border-color: rgba(168, 123, 47, 0.34);
+    box-shadow: 0 1px 3px rgba(64, 52, 42, 0.14);
   }
+  .dlg-name::before { box-shadow: 0 0 0 1px rgba(64, 52, 42, 0.35); }
   .dlg-ava { box-shadow: 0 0 0 1px rgba(168, 123, 47, 0.45); }
 }
 

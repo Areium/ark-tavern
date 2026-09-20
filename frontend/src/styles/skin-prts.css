@@ -930,10 +930,8 @@ html.skin-prts body {
   }
 
   /* ── 对话气泡（chat 页） ──────────────────────────────────────────────
-     注意：DialogueBubble 的气泡底色/描边、说话人姓名色都是「按角色色号计算的
-     行内样式」（inline style），优先级高于任何类选择器。因此这里刻意只覆盖
-     行内样式未涉及的属性（圆角 / 阴影 / 字体 / 光环），保留每位说话人的色彩
-     标识 —— 行内的 0.18/0.35 透明度会自然与皮肤底色叠合。
+     气泡底色/描边仍按角色色号计算；姓名标签使用皮肤前景色保证可读性，并由
+     --dlg-accent 圆点保留每位说话人的原始色彩标识。
      ──────────────────────────────────────────────────────────────────── */
   .dlg-bubble {
     /* 保留 tl 小圆角的「气泡指向」形状 */
@@ -944,7 +942,12 @@ html.skin-prts body {
     font-family: var(--p-display);
     font-weight: 700;
     letter-spacing: 0.06em;
+    color: var(--p-text);
+    background: rgba(11, 21, 36, 0.96);
+    border-color: rgba(56, 189, 248, 0.28);
+    box-shadow: inset 0 1px 0 rgba(56, 189, 248, 0.06), 0 0 8px rgba(56, 189, 248, 0.08);
   }
+  .dlg-name::before { box-shadow: 0 0 0 1px rgba(220, 232, 242, 0.42); }
   .dlg-ava { box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.40); }
 }
 

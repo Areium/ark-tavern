@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import AvatarPlaceholder from "./AvatarPlaceholder";
 
 function hexToRgb(hex: string): [number, number, number] | null {
@@ -14,7 +15,7 @@ interface DialogueBubbleProps {
   sessionId?: string;
 }
 
-const FALLBACK_NAME_COLOR = "#d8b4fe";
+const FALLBACK_ACCENT = "#a78bfa";
 const FALLBACK_BG = "rgba(88, 28, 135, 0.25)";
 const FALLBACK_BORDER = "rgba(147, 51, 234, 0.3)";
 
@@ -22,7 +23,10 @@ export default function DialogueBubble({ text, speaker, color, sessionId }: Dial
   const isUnknown = !speaker;
 
   const rgb = color ? hexToRgb(color) : null;
-  const nameStyle = rgb ? { color } : { color: FALLBACK_NAME_COLOR };
+  // 角色原色只承担身份强调；姓名文字/底板由主题 CSS 提供稳定的高对比配色。
+  const nameStyle = {
+    "--dlg-accent": rgb ? `rgb(${rgb.join(", ")})` : FALLBACK_ACCENT,
+  } as CSSProperties;
   const bubbleBg = rgb
     ? `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.18)`
     : FALLBACK_BG;
