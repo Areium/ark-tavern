@@ -24,6 +24,8 @@
 - 持久证据：[统计与用例结果](evidence/greybridge-audit-summary.json)、
   [18 轮真实模型原始结果](evidence/greybridge-real-llm.json)。后者含文本、分支、提取标记和 token 用量，
   不含 LLM 配置/API 密钥。临时 JUnit 文件名也记录在统计文件中。
+- 原始临时产物另保留在主工作区 `.tmp/story-audit-20260920/`。历史 SHA 来自当时文件；
+  收尾仅统一 CRLF 并去除正文末尾多余空行，剧情内容不变，不因此重跑付费模型。
 
 “通过”仅指表中范围；`xfail` 是**已执行并复现的失败**，不是跳过检查，更不是功能已修好。
 新增用例只把专门的 `KnownProductGap` 异常作为预期失败；夹具异常、意外 TypeError 和普通断言失败仍报错。

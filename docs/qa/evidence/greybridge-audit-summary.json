@@ -2,6 +2,7 @@
   "schema_version": 1,
   "date": "2026-09-20",
   "baseline_commit": "a049ae1",
+  "raw_archive_relative_path": ".tmp/story-audit-20260920",
   "baseline": {
     "tests": 656,
     "failures": 0,
@@ -595,6 +596,7 @@
     "missing_config_real_calls": 0
   },
   "notes": [
+    "Historical source hashes predate CRLF and trailing-blank-line normalization; candidate plot content is otherwise unchanged.",
     "xfail entries executed and raised KnownProductGap; they are known failed acceptance checks, not passed tests.",
     "Baseline reused; no 656-case rerun after adding new tests. Candidate focused test final run supersedes early fixture errors.",
     "Real model run used fresh preinstalled data/packs content, not user-edited data/worldbooks.",
