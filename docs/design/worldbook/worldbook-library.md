@@ -55,6 +55,14 @@
 
 会话绑定通过 `SessionManager` 的**公开契约 `list_sessions()`** 判定（摘要里的 `worldbook_id`），不读私有字段。早期实现误读了不存在的 `sessions` 属性，生产环境下这个判断恒为空 —— 被绑定的书照样能转成资料库。测试替身必须与真实类暴露同一组方法。
 
+**这条闸门 fail closed。** 「无法确认有没有会话在用」**不等于**「确认没有会话在用」：把前者当后者放行，一本仍被会话绑定的书就会被改成资料库，事后那些会话指向一本不参与解析的书。所以只要应用配置了会话服务，出现以下任一情况都**拒绝转换**（503「无法确认会话占用状态，因此未切换用途」，书不落盘）：
+
+- 会话服务没有 `list_sessions()`；
+- `list_sessions()` 抛异常（运行时 I/O / 数据损坏等）；
+- 返回值不是 list/tuple（契约被破坏）。
+
+原始异常写进服务端日志供诊断，响应只给不含堆栈与内部路径的固定措辞。只有 `session_mgr is None`（当前应用根本没有会话服务）按「无绑定」处理；正常返回的**空列表**表示「确认没有绑定」，同样允许转换。`reference → story` 是修复操作，不依赖会话枚举，会话服务坏掉也放行。
+
 ## 摘录的失败语义
 
 `excerpt_entries()` 的「原子」不止是磁盘层面：`load()` 返回的是**内存缓存对象本身**，若在它上面直接改再 `save()`，一旦写盘失败，磁盘没变而缓存已经多了条目、revision 也涨了 —— 下次读到这本书就会看到一个从未落盘的状态。
@@ -68,7 +76,7 @@
 | `GET /api/worldbook` | 摘要新增 `book_type` / `is_reference` |
 | `POST /api/worldbook` | `name`、`budget_tokens`、`book_type`（缺省 `story`，非法值 400） |
 | `POST /api/worldbook/import` | `book_type` 可选；**优先级：显式传入 > 导入物项目扩展 > 默认 `story`**。省略/空串时才会读导入文件自带的用途声明 —— 用户在 UI 上选的用途必须压过文件里写死的值 |
-| `PUT /api/worldbook/<id>` | 支持 `book_type`；非法值 400。**仅 story → reference 会被闸门拦住（409）**：这本资料库正被设为默认或被会话绑定时拒绝转换。reference → story 是修复历史坏状态，直接放行 |
+| `PUT /api/worldbook/<id>` | 支持 `book_type`；非法值 400。**仅 story → reference 会被闸门拦住**：被默认或会话绑定时 409；会话占用状态无法确认时 503（fail closed，不落盘）。reference → story 是修复历史坏状态，直接放行 |
 | `GET /api/worldbook/search` | 新增可选 `book_type` 过滤；不传即搜全部（旧调用行为不变）。命中仍带来源书完整摘要与条目 |
 | `POST /api/worldbook/<id>/excerpt` | 原子摘录。`items[]` 每项含来源定位 + 可选编辑字段。保存失败（写盘错误）→ 500 且磁盘与内存缓存均保持原值 |
 | `POST /api/worldbook/<id>/default` | 资料库返回 409 |
@@ -120,7 +128,8 @@ POST /api/worldbook/<目标剧情书>/excerpt
 
 - `tests/test_worldbook_library.py`：旧书默认 story、用途 round-trip（保存/导出/回灌）、`reference` 禁止默认/绑定/解析（含预装回退与 overlay 绑定）、搜索过滤与旧调用兼容、成功摘录、编辑稿摘录、来源追踪、批内部分失败不落盘、并发摘录不丢条目、目标非 story 拒绝、字段类型与空正文校验、分类收敛。
   - 导入用途优先级：显式传入压过导入物扩展（双向）、未表态时保留扩展用途、两边都无则默认 story。
-  - 转换闸门：仅 story → reference 拦截；reference → story 即便仍是默认书也放行；`list_sessions()` 契约下被绑定返回 409 且状态不变；老替身缺方法时放行而非 500。
+  - 转换闸门：仅 story → reference 拦截；reference → story 即便仍是默认书也放行，且不依赖会话枚举；`list_sessions()` 契约下被绑定返回 409 且状态不变。
+  - 闸门 fail closed：缺 `list_sessions()` / 抛异常 / 返回非 list 类型 → 503，内存与磁盘 `book_type` 均不变；响应不含堆栈与内部路径；正常空列表可转换；无会话服务可转换。
   - 摘录失败语义：`save` 注入 `OSError` 后条目与 revision 在**内存缓存**与**重新加载**后均未变（接口路径返回 500 且不留部分结果）。
 - `scripts/test_worldbook_library_ui.cjs`：用途判定与缺省、筛选/分组/命中摊平、原文照搬 vs 编辑稿的载荷差异、校验文案、详情页签归一（资料库恒为条目页），以及组件 SSR 骨架（两种用途都可选、分类图谱不是第一屏）。
 - 前端生产构建：`frontend/` 下 `npm run build`。

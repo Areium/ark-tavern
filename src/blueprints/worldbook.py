@@ -400,22 +400,42 @@ def register(app, managers):
                 return
             yield copy.deepcopy(book), None
 
+    class SessionOccupancyUnknown(Exception):
+        """无法可靠列举会话占用状态（会话服务存在，但枚举失败）。
+
+        这是**安全边界**上的信号，不是普通错误：把「无法确认有没有会话绑定」
+        当成「确认没有」，会让一本仍被会话绑定的故事书被改成资料库，事后那些会话
+        就指向一本不参与解析的书。所以宁可拒绝转换，也不 fail-open。
+        """
+
     def _sessions_bound_to(book_id: str) -> list:
         """返回绑定了这本书的会话 id（已排序）。
 
         只依赖 SessionManager 的**公开契约** `list_sessions()` —— 它返回会话摘要，
         其中 `worldbook_id` 就是该会话当前绑定的世界书（`None` 表示未绑定）。
         不得读生产类的私有字段：早期版本误读了不存在的 `sessions` 属性，导致真实
-        运行时这本判断永远为空，被绑定的书照样能改成资料库。
+        运行时这个判断永远为空，被绑定的书照样能改成资料库。
+
+        **fail closed**：只要配置了 `session_mgr`，无法可靠拿到会话列表就抛
+        `SessionOccupancyUnknown`，由调用方转成 503 拒绝转换 —— 不能把「无法确认」
+        当成「确认没有」。只有 `session_mgr is None`（当前应用根本没有会话服务）
+        才按「无绑定」处理，正常返回的**空列表**同样表示「确认没有绑定」。
         """
-        if not session_mgr:
+        if session_mgr is None:
             return []
         try:
             summaries = session_mgr.list_sessions()
-        except Exception:
-            return []
+        except Exception as e:
+            # 保留原始异常供诊断，但对外只给「暂时无法确认」这种不泄露内部的措辞
+            logger.exception("列举会话失败，无法确认世界书占用状态")
+            raise SessionOccupancyUnknown(
+                "暂时无法确认会话占用状态，请稍后重试") from e
         if not isinstance(summaries, (list, tuple)):
-            return []
+            logger.error(
+                "list_sessions() 返回了意外的类型 %s，无法确认世界书占用状态",
+                type(summaries).__name__)
+            raise SessionOccupancyUnknown(
+                "暂时无法确认会话占用状态，请稍后重试")
         return sorted(
             str(item.get("id"))
             for item in summaries
@@ -429,6 +449,9 @@ def register(app, managers):
         某些会话绑定，直接改用途就会留下悬空状态（会话指向一本不参与解析的书）。
         这里**拒绝**这次转换并说明要处理什么，而不是静默清空默认指针或改别人的会话 ——
         静默改会话属于「以动作换状态」，用户无法预知自己的会话被动了什么。
+
+        会话占用状态无法确认时抛 `SessionOccupancyUnknown`（调用方转 503），**不是**
+        返回「无冲突」—— 见 `_sessions_bound_to` 的 fail-closed 说明。
         """
         reasons = []
         if wb_mgr.get_default_book_id() == book.id:
@@ -623,7 +646,13 @@ def register(app, managers):
                     # 留下悬空状态。反方向（reference -> story）是**修复**历史坏状态
                     # 的操作，必须放行 —— 否则用户会陷入「改不回去」的死结。
                     if new_type == BOOK_TYPE_REFERENCE:
-                        conflict = _reference_conversion_conflict(book)
+                        try:
+                            conflict = _reference_conversion_conflict(book)
+                        except SessionOccupancyUnknown as e:
+                            # fail closed：查不清有没有会话在用，就不给改 —— 不返回
+                            # 冲突文案（那是 409 的语义），也不落盘（book 尚未改动）
+                            return json_error(
+                                f"无法确认会话占用状态，因此未切换用途：{e}", 503)
                         if conflict:
                             # 不静默改会话/默认书：说清是哪些会话会被悬空，让用户先处理
                             return json_error(conflict, 409)

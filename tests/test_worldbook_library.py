@@ -372,27 +372,113 @@ def test_story_cannot_be_switched_to_reference_while_session_bound(tmp_path):
     assert res.status_code == 200
 
 
-def test_conversion_gate_tolerates_legacy_session_manager(tmp_path):
-    """老版本 SessionManager 没有 list_sessions 时不得炸掉更新接口。
-
-    回到主线：真实类一定有这个方法；这里只保证「契约不匹配」的退化情形是
-    **放行而非 500**，用户仍能改用途（防御性兜底，不是主路径）。
-    """
+def _gate_client(tmp_path, sessions):
+    """构造一个只带 worldbook + 给定会话服务的测试客户端。"""
     from blueprints.worldbook import register
-
-    class LegacySessions:
-        """极老的替身：既没有 list_sessions，也没有别的公开列举方式。"""
 
     book_manager = WorldBookManager(tmp_path)
     app = Flask(__name__)
     app.config["TESTING"] = True
-    register(app, {"worldbook": book_manager, "session": LegacySessions()})
+    register(app, {"worldbook": book_manager, "session": sessions})
+    return app.test_client(), book_manager
+
+
+def test_conversion_gate_fails_closed_when_list_sessions_missing(tmp_path):
+    """会话服务存在但拿不到会话列表时**拒绝**转换（fail closed）。
+
+    旧行为把「无法确认」当成「确认没有绑定」直接放行 —— 一本仍被会话绑定的书
+    会被改成资料库，之后那些会话就指向一本不参与解析的书。这是安全闸门，
+    查不清就必须拦。
+    """
+    class LegacySessions:
+        """老替身：没有 list_sessions，也没有别的公开列举方式。"""
+
+    client, manager = _gate_client(tmp_path, LegacySessions())
+    book = make_story(client, "普通书")
+
+    res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
+    assert res.status_code == 503, res.json
+    # 状态不变：内存缓存与磁盘都还是 story
+    assert manager.load(book["id"]).book_type == BOOK_TYPE_STORY
+    assert WorldBookManager(manager._dir).load(book["id"]).book_type == BOOK_TYPE_STORY
+
+
+def test_conversion_gate_fails_closed_when_list_sessions_raises(tmp_path):
+    """list_sessions() 抛异常 → 503，状态不变。"""
+    class ExplodingSessions:
+        def list_sessions(self):
+            raise RuntimeError("会话索引损坏 at C:\\secret\\path\\sessions.json")
+
+    client, manager = _gate_client(tmp_path, ExplodingSessions())
+    book = make_story(client, "普通书")
+
+    res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
+    assert res.status_code == 503, res.json
+    assert manager.load(book["id"]).book_type == BOOK_TYPE_STORY
+    assert WorldBookManager(manager._dir).load(book["id"]).book_type == BOOK_TYPE_STORY
+    # 响应不泄露内部细节：没有堆栈、没有异常原文里的路径
+    body = str(res.json)
+    assert "Traceback" not in body
+    assert "secret" not in body and "sessions.json" not in body
+
+
+def test_conversion_gate_fails_closed_on_invalid_return_type(tmp_path):
+    """list_sessions() 返回结构类型无效（不是 list/tuple）→ 503，状态不变。"""
+    class WeirdSessions:
+        def list_sessions(self):
+            return {"s1": {"worldbook_id": "whatever"}}   # 旧实现曾想兼容的 dict 形态
+
+    client, manager = _gate_client(tmp_path, WeirdSessions())
+    book = make_story(client, "普通书")
+
+    res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
+    assert res.status_code == 503, res.json
+    assert manager.load(book["id"]).book_type == BOOK_TYPE_STORY
+    assert WorldBookManager(manager._dir).load(book["id"]).book_type == BOOK_TYPE_STORY
+
+
+def test_conversion_gate_allows_conversion_when_no_sessions(tmp_path):
+    """正常返回空列表 = 确认没有绑定 → 允许转换（不能把 fail-closed 用过头）。"""
+    class EmptySessions:
+        def list_sessions(self):
+            return []
+
+    client, manager = _gate_client(tmp_path, EmptySessions())
+    book = make_story(client, "普通书")
+
+    res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
+    assert res.status_code == 200, res.json
+    assert manager.load(book["id"]).book_type == BOOK_TYPE_REFERENCE
+
+
+def test_conversion_gate_without_session_service_allows_conversion(tmp_path):
+    """没有任何会话服务（session_mgr is None）→ 按无绑定处理，允许转换。"""
+    from blueprints.worldbook import register
+
+    book_manager = WorldBookManager(tmp_path)
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+    # 即便不注册 "session"，managers.get("session") 也是 None
+    register(app, {"worldbook": book_manager})
     client = app.test_client()
 
     book = make_story(client, "普通书")
     res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
-    assert res.status_code == 200
+    assert res.status_code == 200, res.json
     assert book_manager.load(book["id"]).book_type == BOOK_TYPE_REFERENCE
+
+
+def test_reference_repair_does_not_need_session_enumeration(tmp_path):
+    """reference -> story 是修复操作，不依赖会话枚举：会话服务坏掉也要放行。"""
+    class ExplodingSessions:
+        def list_sessions(self):
+            raise RuntimeError("会话索引损坏")
+
+    client, manager = _gate_client(tmp_path, ExplodingSessions())
+    ref = make_reference(client, "资料库")
+    res = client.put(f"/api/worldbook/{ref['id']}", json={"book_type": "story"})
+    assert res.status_code == 200, res.json
+    assert manager.load(ref["id"]).book_type == BOOK_TYPE_STORY
 
 
 def test_reference_cannot_bind_session(tmp_path):
