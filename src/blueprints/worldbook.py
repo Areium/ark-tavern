@@ -673,7 +673,7 @@ def register(app, managers):
                     return jsonify({"message": "已删除", "affected": affected})
             return json_error("条目不存在", 404)
 
-    # ── 4.0.1 节点级世界书绑定（docs/node-scoped-worldbook-loading.md） ──
+    # ── 4.0.1 节点级世界书绑定（docs/design/worldbook/node-scoped-worldbook-loading.md） ──
 
     @bp.route("/api/worldbook/<book_id>/lore-bindings", methods=["GET"])
     def get_lore_bindings(book_id):

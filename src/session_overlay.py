@@ -270,7 +270,7 @@ class SessionOverlay:
                 raise
             return copy.deepcopy(updated)
 
-    # ── 节点级世界书作用域（docs/node-scoped-worldbook-loading.md） ──
+    # ── 节点级世界书作用域（docs/design/worldbook/node-scoped-worldbook-loading.md） ──
 
     def get_active_lore_scope(self) -> dict | None:
         """当前生效的节点级世界书作用域；无（功能未启用/自由模式/老会话）返回 None。"""
@@ -426,7 +426,7 @@ class SessionOverlay:
     def get_current_beat_combat_id(self) -> str:
         """从当前节拍的 content 提取确定性战斗目标 `[COMBAT:enc_id]`。
 
-        章节战斗目标由代码确定（docs/combat-core-design.md A2.5 / D2.2），
+        章节战斗目标由代码确定（docs/archive/combat-core-design.md A2.5 / D2.2），
         优先于 LLM 的 combat_trigger 提取；无标记返回空串。
         """
         beat = self.get_current_beat()

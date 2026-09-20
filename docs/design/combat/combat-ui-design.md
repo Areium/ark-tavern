@@ -31,7 +31,7 @@
 
 ### 当前状态（v2.0 已实施）
 
-- **地图**：CSS 3D 俯视棋盘，**自由尺寸**（行列由战斗节点 `map.rows`/`map.cols` 声明，上限 40×40、1200 格，见 `docs/battle-spec.md` §2），rotateX(33deg) 透视，单元格双模式（fullscreen 72px / windowed 56px，见 frontend/src/components/combat/combatConfig.ts），带有 glow 高亮系统
+- **地图**：CSS 3D 俯视棋盘，**自由尺寸**（行列由战斗节点 `map.rows`/`map.cols` 声明，上限 40×40、1200 格，见 `docs/design/combat/battle-spec.md` §2），rotateX(33deg) 透视，单元格双模式（fullscreen 72px / windowed 56px，见 frontend/src/components/combat/combatConfig.ts），带有 glow 高亮系统
 - **单位**：CSS 像素小人（ChibiSprite），职业色 + 武器形状，悬浮 HP 条，部署方向箭头，受击震动动画
 - **卡牌**：双模式卡面（fullscreen 192×259 / windowed 122×166），程序化卡图（CSS 渐变），职业色带（左侧 4px），稀有度金边，选中浮起 + 脉冲光效
 - **状态面板**：角色卡片式面板，头像占位 + HP 条（三级渐变色）+ AP 点阵 + 职业标签

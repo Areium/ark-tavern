@@ -273,10 +273,10 @@ Windows 上该脚本默认调用 `python3`，可用 `PYTHON=python bash scripts/
 | --- | --- |
 | [`AGENTS.md`](AGENTS.md) | 仓库工作流、分支约定与关键约束 |
 | [`docs/architecture.md`](docs/architecture.md) | 系统架构、模块职责、数据位置 |
-| [`docs/battle-spec.md`](docs/battle-spec.md) | 战斗节点 JSON 规格 |
-| [`docs/combat-ui-design.md`](docs/combat-ui-design.md) | 战斗界面设计 |
-| [`docs/content-hub-design.md`](docs/content-hub-design.md) | 内容中心设计 |
-| [`docs/combat-background-prompts.md`](docs/combat-background-prompts.md) | 战斗背景图生成提示词 |
+| [`docs/design/combat/battle-spec.md`](docs/design/combat/battle-spec.md) | 战斗节点 JSON 规格 |
+| [`docs/design/combat/combat-ui-design.md`](docs/design/combat/combat-ui-design.md) | 战斗界面设计 |
+| [`docs/design/content-hub-design.md`](docs/design/content-hub-design.md) | 内容中心设计 |
+| [`docs/design/combat/combat-background-prompts.md`](docs/design/combat/combat-background-prompts.md) | 战斗背景图生成提示词 |
 
 ---
 

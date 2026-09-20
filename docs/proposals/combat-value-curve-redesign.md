@@ -1,8 +1,8 @@
 # 剧情与战斗卡牌数值成长曲线设计方案
 
 > **状态：P0 / P1 已落地，本文档保留 P2 未落地部分与设计依据。**
-> 已落地口径的权威说明不在本文档：CV 预算与系数见 `combat-numerical-design.md` §14，
-> 战斗机制见 `combat-design.md`，节点与敌人字段见 `battle-spec.md`，
+> 已落地口径的权威说明不在本文档：CV 预算与系数见 `docs/design/combat/combat-numerical-design.md` §14，
+> 战斗机制见 `docs/design/combat/combat-design.md`，节点与敌人字段见 `docs/design/combat/battle-spec.md`，
 > 实际落带情况见 `perf_tests/cv_audit_report.md`。
 >
 > **审计基线：** commit `b9dcbe8`（2026-09-12）。本文档残留的 `文件:行号` 锚点均以该基线为准，

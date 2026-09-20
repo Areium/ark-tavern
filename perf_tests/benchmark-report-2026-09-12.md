@@ -5,7 +5,7 @@
 > 线上配置：`deepseek-v4-flash` @ api.deepseek.com，`enable_thinking=true`，`reasoning_effort=medium`，
 > `narration_reasoning_effort=none`，`auto_generate_choices=true (3)`，`dialogue_bubble_mode=true`，
 > `max_output_tokens=8192`，`word_limit=500`
-> 前置背景：2026-08 轮（docs/perf-round-latency.md §5）已落地真流式、按调用类型思考档位、embedding 短路。
+> 前置背景：2026-08 轮（docs/perf/perf-round-latency.md §5）已落地真流式、按调用类型思考档位、embedding 短路。
 > 本轮为修复后的回归复测 + 记忆/前缀缓存两个未量化维度的补测。
 
 ---

@@ -20,7 +20,7 @@ description: 设计/生成一场战斗（战斗节点 JSON）时使用——按�
 
 ## 1. 规格在哪儿、长什么样
 
-- 完整字段说明与示例：`docs/battle-spec.md`（**先读它**）
+- 完整字段说明与示例：`docs/design/combat/battle-spec.md`（**先读它**）
 - 模板：`data/combat/nodes/TEMPLATE_node.json`
 - 参考实例：`data/combat/nodes/enc_training.json`（教学战）、`enc_snow_convoy.json`（剧情战）
 

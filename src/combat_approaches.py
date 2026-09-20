@@ -1,7 +1,7 @@
 """
 战前打法（Approach）解析 — 遭遇战 approaches → 战斗参数 / 剧情投点 / 撤退。
 
-设计目标（见 docs/combat-core-design.md B5）：
+设计目标（见 docs/archive/combat-core-design.md B5）：
   - 打法由数据侧定义（平衡、可预期），LLM 只负责用简报叙述引出，不决定机制。
   - 选定打法后经 POST /combat/start 启动，映射为机械参数：
     enemy_scale（敌人数倍率）、first_strike（首回合共享 AP+1）、

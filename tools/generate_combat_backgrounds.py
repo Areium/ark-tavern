@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """generate_combat_backgrounds.py — 战斗背景 AI 生成工具。
 
-工作流（详见 docs/combat-background-prompts.md）：
+工作流（详见 docs/design/combat/combat-background-prompts.md）：
 
   --scaffold   扫描遭遇战(background)与地点(combat_bg)引用了、但
                data/combat/backgrounds/ 下还不存在的背景 ID，自动创建
@@ -42,7 +42,7 @@ _NEGATIVE_PROMPT = (
     "bright sunny colors, close-up, first-person view"
 )
 
-# 与 docs/combat-background-prompts.md 第 2 节模板保持一致
+# 与 docs/design/combat/combat-background-prompts.md 第 2 节模板保持一致
 _PROMPT_TEMPLATE = (
     "Arknights style anime background art, {scene}, "
     "slightly elevated camera angle looking down at an open empty "

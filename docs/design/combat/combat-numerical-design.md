@@ -342,7 +342,7 @@ pAP  = 1 + floor((MOB - 3) / 3), 钳制 [1, 4]  （个人 AP，玩家移动也�
 
 首批敌人（士兵 HP 90 / PATK 24、术师 HP 70 / MATK 28、狙击手 HP 75 / HIT 8、
 盾卫 HP 140 / DEF 10）已按 v1 数值基线重排，**逐条数值以 `data/enemies/*.md` 的
-frontmatter `combat_stats`/`xp_reward` 为准**，数值锚点见 `docs/battle-spec.md` §4。
+frontmatter `combat_stats`/`xp_reward` 为准**，数值锚点见 `docs/design/combat/battle-spec.md` §4。
 本节不再维护副本表格，避免与敌人库漂移。
 
 ### 6.3 敌人行为模式

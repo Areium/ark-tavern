@@ -51,12 +51,12 @@
 - `world_book.py` — 世界书（酒馆 Lorebook 兼容）：4 源解析（v1/v2/卡内嵌/jsonl）+ 关键词触发匹配 + 注入格式化 + 回灌导出 + `WorldBookManager`（`data/worldbooks/`，gitignored）。
   **注入纪律：常驻 position-0 条目进稳定层，触发型条目一律进动态层（前缀缓存稳定）。**
   `eligible_uids_for` 返回 `EligibleSet`（候选集 + `forced_uids`/`position_overrides` 元数据随集合传递，注入调用点零改动）。
-- `node_lore_scope.py` — 节点级世界书动态载入：书内一条永不注入的 `lore_bindings` 条目（围栏 JSON + extensions 标记）声明「目标 → 条目」绑定；`resolve_scope` 在剧情树节点落盘时把作用域冻结进 `story_tree.nodes[].state.lore_scope`（随回档走），注入时 `eligible_uids_for` 做「会话范围 ∩ 节点作用域」窄化白名单。书内无绑定条目 / 自由模式 / 老会话一律关闭，行为与旧版一致。详见 `node-scoped-worldbook-loading.md`。
-- `worldbook_scope.py` — 多级分类、角色关联与导入策略校验，有向依赖深度遍历。**v2 与 v3 并存**：v2 语义（世界观 / 阵容 / 固定 / 依赖四源去重）逐字保留；v3 把「分类」与「载入」分开——全书一张有向图，起点由 `activation`（always / roster_any / manual）× `expansion`（none / requires_closure / legacy_depth）描述，`requires` 参与闭包遍历、`related` 只浏览，环可终止并回报交叉引用，闭包超限报错而非静默截断。`world_book.py` 提供估算预览、旧书/旧会话快照兼容与**不可变规则版本历史**（`policy_revisions`，会话绑定完整规则版本而不只是版本号），两个 prompt 入口均过滤候选。详见 `worldbook-on-demand.md`。
-- `worldbook_builder.py` — 世界书依赖的 AI 自动构建：元数据索引（复用 `worldbook_classify`）→ 长条目分段（稳定 `chunk_id = uid:index:hash` 断点）→ 明确引用候选对（不被 top-k 丢弃）→ 分析卡 → 依赖判定 → 程序校验（UID / 重复 / 自环 / 证据可定位 / 角色 ID / 高扇出 / 环 / 阵容扩张探测）。**请求按 token/条数自适应装箱**（估算与执行共用 `worldbook_builder_plan.py` 的同一个规划器）；判定只发**引用附近的证据窗口 + 分析卡提炼的有限上下文**，不再重发整段正文，窗口缺失/截断时强制 `unsure`。分析卡与判定分别按 `内容哈希 + 模型 + prompt 版本` 缓存，判定额外绑定双方 uid / 目标哈希 / 卡片上下文指纹 / 证据窗口指纹。后台任务持久化阶段/进度/结果/指标（估算与真实用量分开，provider 不报 usage 记「未知」而非 0），支持取消、失败批次重试、调用预算与有限 JSON 修复；无可用模型时接口返回 503，前端引导去设置。**正文按数据处理，不执行其中的指令**；置信度只用于排序，不宣称语义正确。性能设计与实测见 `worldbook-builder-performance.md`；真实模型验证见 `scripts/verify_worldbook_builder_llm.py`。
+- `node_lore_scope.py` — 节点级世界书动态载入：书内一条永不注入的 `lore_bindings` 条目（围栏 JSON + extensions 标记）声明「目标 → 条目」绑定；`resolve_scope` 在剧情树节点落盘时把作用域冻结进 `story_tree.nodes[].state.lore_scope`（随回档走），注入时 `eligible_uids_for` 做「会话范围 ∩ 节点作用域」窄化白名单。书内无绑定条目 / 自由模式 / 老会话一律关闭，行为与旧版一致。详见 `docs/design/worldbook/node-scoped-worldbook-loading.md`。
+- `worldbook_scope.py` — 多级分类、角色关联与导入策略校验，有向依赖深度遍历。**v2 与 v3 并存**：v2 语义（世界观 / 阵容 / 固定 / 依赖四源去重）逐字保留；v3 把「分类」与「载入」分开——全书一张有向图，起点由 `activation`（always / roster_any / manual）× `expansion`（none / requires_closure / legacy_depth）描述，`requires` 参与闭包遍历、`related` 只浏览，环可终止并回报交叉引用，闭包超限报错而非静默截断。`world_book.py` 提供估算预览、旧书/旧会话快照兼容与**不可变规则版本历史**（`policy_revisions`，会话绑定完整规则版本而不只是版本号），两个 prompt 入口均过滤候选。详见 `docs/design/worldbook/worldbook-on-demand.md`。
+- `worldbook_builder.py` — 世界书依赖的 AI 自动构建：元数据索引（复用 `worldbook_classify`）→ 长条目分段（稳定 `chunk_id = uid:index:hash` 断点）→ 明确引用候选对（不被 top-k 丢弃）→ 分析卡 → 依赖判定 → 程序校验（UID / 重复 / 自环 / 证据可定位 / 角色 ID / 高扇出 / 环 / 阵容扩张探测）。**请求按 token/条数自适应装箱**（估算与执行共用 `worldbook_builder_plan.py` 的同一个规划器）；判定只发**引用附近的证据窗口 + 分析卡提炼的有限上下文**，不再重发整段正文，窗口缺失/截断时强制 `unsure`。分析卡与判定分别按 `内容哈希 + 模型 + prompt 版本` 缓存，判定额外绑定双方 uid / 目标哈希 / 卡片上下文指纹 / 证据窗口指纹。后台任务持久化阶段/进度/结果/指标（估算与真实用量分开，provider 不报 usage 记「未知」而非 0），支持取消、失败批次重试、调用预算与有限 JSON 修复；无可用模型时接口返回 503，前端引导去设置。**正文按数据处理，不执行其中的指令**；置信度只用于排序，不宣称语义正确。性能设计与实测见 `docs/design/worldbook/worldbook-builder-performance.md`；真实模型验证见 `scripts/verify_worldbook_builder_llm.py`。
 - `worldbook_builder_plan.py` — 世界书构建的**确定性请求规划器**：`Unit`（分块/候选对，仅带 key + payload）+ `ExactPacker`（持有生产代码真正的 `render` 回调，**按真实渲染结果**量 token，按输入预算 / 输出预算 / 最大单元数贪心装箱且**保持来源顺序**，超大单元独占请求）+ `plan_cost` / `packs_all_units` 覆盖断言。纯函数、无循环依赖（不 import `worldbook_builder`），被估算与执行共用，因此界面上的请求数与费用预估就是真实开销。
-- `worldbook_reading.py` — 依赖构建的纯本地阅读选择器：全文扫描结构与引用，adaptive 模式选择逐字原文范围并保守回退复杂规则；`worldbook_builder.py` 将同条目的选中范围联合成一张卡，按需补读完整未读补集。模式、实际覆盖、断点与缓存身份持久化，完整设计和真实基准见 `worldbook-selective-reading.md`。
-- `worldbook_classify.py` — 条目自动分类：只认 uid 生成器前缀 / `group` 字段 / 名称括号后缀三类显式线索（取值为白名单，识别不出就不分类），产出分类树、条目归属与 `characters_<角色目录名>_index` → 角色关联。**不改变载入模式**：`from_dict` 只在分类形同未分类时对预装包自动补齐，其余走用户显式的「自动分类」。详见 `worldbook-on-demand.md`。
+- `worldbook_reading.py` — 依赖构建的纯本地阅读选择器：全文扫描结构与引用，adaptive 模式选择逐字原文范围并保守回退复杂规则；`worldbook_builder.py` 将同条目的选中范围联合成一张卡，按需补读完整未读补集。模式、实际覆盖、断点与缓存身份持久化，完整设计和真实基准见 `docs/design/worldbook/worldbook-selective-reading.md`。
+- `worldbook_classify.py` — 条目自动分类：只认 uid 生成器前缀 / `group` 字段 / 名称括号后缀三类显式线索（取值为白名单，识别不出就不分类），产出分类树、条目归属与 `characters_<角色目录名>_index` → 角色关联。**不改变载入模式**：`from_dict` 只在分类形同未分类时对预装包自动补齐，其余走用户显式的「自动分类」。详见 `docs/design/worldbook/worldbook-on-demand.md`。
 - `memory.py` — `VectorMemory`：最近轮次滑动窗口 + ChromaDB 语义搜索，持久化于 `data/memory/`（gitignored）。
 
 ### 2.4 战斗后端
@@ -161,7 +161,7 @@
 | `balance_audit.py` | 敌人分层/XP 单调性/节点预算审计 |
 | `metric_migration_report.py` | 度量迁移前后对照 |
 
-生成流程与硬性约束见 skill `combat-designer`，规格说明见 `docs/battle-spec.md`。
+生成流程与硬性约束见 skill `combat-designer`，规格说明见 `docs/design/combat/battle-spec.md`。
 
 其他脚本：`scripts/generate_builtin_worldbook.py`（世界书整合包）、`scripts/gen_skin_utils.py`（皮肤颜色工具类生成）、`scripts/run_tests.sh`（统一测试入口）、`scripts/benchmark_worldbook_builder.py`（世界书构建的**确定性**老/新成本对照，无网络，低于 50% 降幅即退出码 1）、`scripts/verify_worldbook_builder_llm.py`（世界书 AI 构建的**真实模型**端到端验证，`--config` 指定后端、`--book-path` 指定书；未配置时以退出码 2 明确报告「未做真实验证」）。
 
@@ -169,30 +169,61 @@
 
 ## 5. 设计文档地图（`docs/`）
 
+按用途分目录；根目录只保留「入口 / 用户 / 流程」类文档。
+
+```
+docs/
+├── architecture.md          本文件：架构索引 + 本图
+├── tutorial.md              用户教程（也是 App 内「📘 文档」页的内容）
+├── notes.md                 工程笔记：踩过的坑、口径约定、环境差异、已知未修项
+├── system-update-log.md     变更历史（按时间倒序）+ 尚未实现项
+├── design/                  【现状设计】机制与实现，可作为现状依据
+│   ├── combat/              战斗引擎 / 数值 / UI / 规格 / 背景提示词
+│   ├── worldbook/           按需载入、节点级作用域、构建性能、阅读模式
+│   ├── narrative/           知识召回、两阶段叙述、提示词约定
+│   └── content-hub-design.md
+├── proposals/               【目标态提案 / 路线图】未落地或部分落地
+├── perf/                    性能实测记录
+├── qa/                      验收报告与证据
+├── scenarios/               剧情候选内容（尚未入库）
+├── archive/                 归档：不再维护，仅供追溯
+└── images/                  教程截图
+```
+
+### 5.1 `design/` —— 现状设计
+
 | 文档 | 内容 |
 |---|---|
-| `architecture.md` | 本文件：架构索引 |
-| `rag-retrieval.md` | 知识注入的四条召回通道（依赖预加载 / 关键词世界书 / 预取 Hook / `wiki_query` 按需）、分层注入与记忆系统 |
-| `two-phase-narration.md` | 两阶段叙述：创作与系统层解耦、结构化产物字段、三级 JSON 兜底与按调用类型思考档位 |
-| `combat-design.md` | 战斗引擎架构与机制设计 |
-| `combat-numerical-design.md` | 战斗数值公式与平衡参数 |
-| `combat-ui-design.md` | 战斗界面交互与布局设计 |
-| `battle-spec.md` | 战斗规格（节点 JSON 全字段/地形效果/威胁与阶段带/校验规则/生成闭环），LLM 与设计者共用 |
-| `combat-background-prompts.md` | 战斗背景图生成提示词规范 |
-| `combat-value-curve-redesign.md` | 数值成长曲线提案：**P0/P1 已落地**（对照表见文首），保留 P2 未落地项（卡牌 R0–R3 分支、Boss 阶段机制等） |
-| `content-hub-design.md` | 内容中心整合设计 |
-| `node-scoped-worldbook-loading.md` | 节点级世界书动态载入：`lore_bindings` 绑定面、`会话范围 ∩ 节点作用域` 窄化白名单、快照与回档 |
-| `worldbook-on-demand.md` | 世界书分类与依赖图谱、按需候选范围、快照兼容与 API |
-| `worldbook-builder-performance.md` | 世界书依赖自动构建的性能设计：自适应装箱、证据窗口、缓存失效、指标口径与实测 |
-| `worldbook-selective-reading.md` | 世界书依赖构建的 adaptive/full 阅读模式、补读生命周期、缓存隔离、覆盖报告与离线基准 |
-| `tutorial.md`、`game-experience-roadmap.md`、`perf-round-latency.md` | 教程、体验路线、性能记录 |
-| `prompt.md` | 本项目提示词书写约定（已采用 / 未采用 / 顺序约定），非通用提示词研究摘编 |
-| `system-update-log.md` | 变更历史（按时间倒序）+ 尚未实现项与已知限制；现状不在该文件维护 |
-| `notes.md` | 项目工程笔记：踩过的坑、口径约定、本机环境差异、已知未修项（细节记忆，非目标态设计） |
-| `scenarios/greybridge-echoes/README.md` | 《灰桥回声》完整剧情审阅候选：5 章/12 节拍、任务、选择、3 结局、2 场可避战遭遇；尚未正式入库 |
-| `qa/2026-09-20-story-audit.md` | 剧情与功能验收矩阵、8 项可执行缺陷复现、真实模型未完成记录、战斗平衡观察及修复方案 |
+| `design/combat/combat-design.md` | 战斗引擎架构与机制设计 |
+| `design/combat/combat-numerical-design.md` | 战斗数值公式与平衡参数 |
+| `design/combat/combat-ui-design.md` | 战斗界面交互与布局设计 |
+| `design/combat/battle-spec.md` | 战斗规格（节点 JSON 全字段/地形效果/威胁与阶段带/校验规则/生成闭环），LLM 与设计者共用 |
+| `design/combat/combat-background-prompts.md` | 战斗背景图生成提示词规范 |
+| `design/worldbook/worldbook-on-demand.md` | 世界书分类与依赖图谱、按需候选范围、快照兼容与 API |
+| `design/worldbook/node-scoped-worldbook-loading.md` | 节点级世界书动态载入：`lore_bindings` 绑定面、`会话范围 ∩ 节点作用域` 窄化白名单、快照与回档 |
+| `design/worldbook/worldbook-builder-performance.md` | 世界书依赖自动构建的性能设计：自适应装箱、证据窗口、缓存失效、指标口径与实测 |
+| `design/worldbook/worldbook-selective-reading.md` | 世界书依赖构建的 adaptive/full 阅读模式、补读生命周期、缓存隔离、覆盖报告与离线基准 |
+| `design/narrative/rag-retrieval.md` | 知识注入的四条召回通道（依赖预加载 / 关键词世界书 / 预取 Hook / `wiki_query` 按需）、分层注入与记忆系统 |
+| `design/narrative/two-phase-narration.md` | 两阶段叙述：创作与系统层解耦、结构化产物字段、三级 JSON 兜底与按调用类型思考档位 |
+| `design/narrative/prompt.md` | 本项目提示词书写约定（已采用 / 未采用 / 顺序约定） |
+| `design/content-hub-design.md` | 内容中心整合设计 |
 
-### 5.1 归档区（`docs/archive/`）
+### 5.2 `proposals/` —— 目标态提案
+
+| 文档 | 内容 |
+|---|---|
+| `proposals/combat-value-curve-redesign.md` | 数值成长曲线提案：**P0/P1 已落地**（对照表见文首），保留 P2 未落地项（卡牌 R0–R3 分支、Boss 阶段机制等） |
+| `proposals/game-experience-roadmap.md` | 体验路线图：只保留尚未实现的缺口 |
+
+### 5.3 `perf/`、`qa/`、`scenarios/`
+
+| 文档 | 内容 |
+|---|---|
+| `perf/perf-round-latency.md` | 一轮对话耗时实测；§1–§3 为修复前基线，§5 为已落地的优化 |
+| `qa/2026-09-20-story-audit.md` | 剧情与功能验收矩阵、8 项可执行缺陷复现、真实模型未完成记录、战斗平衡观察及修复方案（持久证据见 `qa/evidence/`） |
+| `scenarios/greybridge-echoes/README.md` | 《灰桥回声》完整剧情审阅候选：5 章/12 节拍、任务、选择、3 结局、2 场可避战遭遇；尚未正式入库 |
+
+### 5.4 归档区（`archive/`）
 
 归档 = 不再维护、不作为现状依据，只为可追溯保留。**找现状请回上面的表。**
 
@@ -201,6 +232,6 @@
 | `combat-core-design.md` | 章节战斗化改造方案，已实现；「7×7 网格不改」条款已作废 |
 | `redundancy-scan-2026-09-12.md` | 代码冗余扫描报告；其建议已全部落地（死代码删除、导入清理等），结论见当时提交 |
 | `2026-08-06-fengxue-guojing-plan.md`、`2026-08-06-fengxue-guojing-design.md` | 「风雪过境」剧情的实现计划与设计稿；剧情已随程序分发，且文中 `data/combat/encounters/*.md` + 7×7 网格结构已被 JSON 节点 + 自由尺寸取代 |
-| `combat-embedding.html` | 战斗嵌入剧情的讲解图；引用了已删除的 `tests/test_combat_trigger.py` 与作废的 7×7 口径（其「数值权威在引擎、模型零数值授权」原则仍有效，见 `combat-design.md`） |
+| `combat-embedding.html` | 战斗嵌入剧情的讲解图；引用了已删除的 `tests/test_combat_trigger.py` 与作废的 7×7 口径（其「数值权威在引擎、模型零数值授权」原则仍有效，见 `design/combat/combat-design.md`） |
 | `architecture.html`、`architecture.architecture.json` | 由外部工具 archify 2.16.0 导出的架构图（与边车源文件，需同去同留）；内容停留在 2026-09-05，且 96% 体积是 vendored viewer 运行时。**重新生成不是本仓库的构建步骤**，架构现状见本文件。**已加入 `.gitignore`、不再入库**（本地/历史提交里仍有），因此新克隆的仓库里看不到这两个文件 |
-| `rag-retrieval.html`、`two-phase-narration.html` | 上述两篇讲解图的原 HTML；内容已转为等价的 `rag-retrieval.md` / `two-phase-narration.md` 并补上新机制 |
+| `rag-retrieval.html`、`two-phase-narration.html` | 上述两篇讲解图的原 HTML；内容已转为等价的 `design/narrative/rag-retrieval.md` / `design/narrative/two-phase-narration.md` 并补上新机制 |

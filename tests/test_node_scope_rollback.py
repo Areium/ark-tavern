@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""节点级世界书作用域的回档一致性回归（docs/node-scoped-worldbook-loading.md §5.4）。
+"""节点级世界书作用域的回档一致性回归（docs/design/worldbook/node-scoped-worldbook-loading.md §5.4）。
 
 不变量：∀ 轮次 r，eligible_uids_for(overlay) == 当前节点快照里的 lore_scope.allowed
 ∩ 会话范围。回档到旧节点后重走同一路径，候选集必须逐字节复现。

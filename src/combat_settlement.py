@@ -1,7 +1,7 @@
 """
 combat_settlement — 战斗结算：数值计算 / 结算数据组装 / 写回会话存档。
 
-设计要点（详见 docs/combat-design.md §10）：
+设计要点（详见 docs/design/combat/combat-design.md §10）：
 
 - **单一数据源**：结算读写的是剧情系统的会话覆盖层 `session.overlay`
   （`data/memory/sessions/{mode}/{session_id}/overrides.json` 的

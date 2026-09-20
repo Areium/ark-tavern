@@ -24,7 +24,7 @@
 - 角色卡 frontmatter 用 `imports` 声明依赖（思路来自 Python `import`）。
 - 会话启动沿依赖链 BFS：入口全文 → 直接依赖的关键章节 → 二度依赖一句话摘要。
 - **必然需要的知识**走确定性注入，用深度衰减控制成本。
-- 世界书侧的对应能力：条目用 `requires`（参与闭包遍历）与 `related`（只作浏览）声明关系，起点用 `activation` × `expansion` 描述；详见 `worldbook-on-demand.md`。
+- 世界书侧的对应能力：条目用 `requires`（参与闭包遍历）与 `related`（只作浏览）声明关系，起点用 `activation` × `expansion` 描述；详见 `docs/design/worldbook/worldbook-on-demand.md`。
 
 ### ② 关键词触发式世界书
 
@@ -77,10 +77,10 @@ flowchart LR
 **节点级窄化（后加机制）**：注入时的候选集不是「整本会话白名单」，而是
 `会话范围 ∩ 当前节点作用域`。绑定面是世界书里一条**永不注入**的 `lore_bindings` 条目，
 作用域在剧情树节点落盘时冻结、随回档一起走，注入路径上零解析。
-书内无绑定条目 / 自由模式 / 老会话一律关闭，行为与旧版一致。详见 `node-scoped-worldbook-loading.md`。
+书内无绑定条目 / 自由模式 / 老会话一律关闭，行为与旧版一致。详见 `docs/design/worldbook/node-scoped-worldbook-loading.md`。
 
 **依赖自动构建（后加机制）**：世界书的起点与依赖可由 AI 自动构建（元数据索引 → 分段 → 明确引用候选对 → 分析卡 → 判定 → 程序校验），
-提效手段是「引用窗口 + 提炼上下文」替代整段正文，并用确定性装箱器统一估算与执行。详见 `worldbook-builder-performance.md`、`worldbook-selective-reading.md`。
+提效手段是「引用窗口 + 提炼上下文」替代整段正文，并用确定性装箱器统一估算与执行。详见 `docs/design/worldbook/worldbook-builder-performance.md`、`docs/design/worldbook/worldbook-selective-reading.md`。
 
 ## 效果基准
 
@@ -88,4 +88,4 @@ flowchart LR
 
 > ⚠️ 该数字**在仓库内没有可复现的基准脚本**，属历史估算，不作为当前承诺。
 > 现在可复现的世界书侧基准是 `scripts/benchmark_worldbook_builder.py`（确定性、无网络）与
-> `scripts/benchmark_worldbook_selective_reading.py`，其口径与实测见 `worldbook-builder-performance.md` §5。
+> `scripts/benchmark_worldbook_selective_reading.py`，其口径与实测见 `docs/design/worldbook/worldbook-builder-performance.md` §5。

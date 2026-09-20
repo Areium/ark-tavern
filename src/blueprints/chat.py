@@ -121,7 +121,7 @@ def _apply_combat_briefing(session, combat_data: dict | None, stream_id: str,
     """从标记提取结果生成战前简报（含打法列表），不再自动开战。
 
     玩家在简报面板选择打法后，由前端 POST /combat/start 启动战斗（见
-    docs/combat-core-design.md C1）。战斗目标优先级：节拍 `[COMBAT:enc_id]`
+    docs/archive/combat-core-design.md C1）。战斗目标优先级：节拍 `[COMBAT:enc_id]`
     （代码确定性解析）> LLM `combat_trigger` 提取。返回 briefing dict 或 None。
     """
     if getattr(session, 'combat_mode', 'narrative') != "tactical":
@@ -253,7 +253,7 @@ def _commit_tree_step(session, narrative: str, summary: str,
     结构自然长成树（可分叉、可多层展开）。
 
     lore_resolver / combat_id_hint：节点级世界书作用域（见
-    docs/node-scoped-worldbook-loading.md §4.1）；resolver 为 None 即功能关闭。
+    docs/design/worldbook/node-scoped-worldbook-loading.md §4.1）；resolver 为 None 即功能关闭。
     """
     overlay = getattr(session, "overlay", None)
     if overlay is None or not hasattr(overlay, "commit_tree_step"):

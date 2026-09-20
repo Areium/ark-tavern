@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """节点级世界书动态载入 —— 绑定解码 + 作用域求解（纯函数，不进注入路径）。
 
-设计文档：docs/node-scoped-worldbook-loading.md（v2.1）。
+设计文档：docs/design/worldbook/node-scoped-worldbook-loading.md（v2.1）。
 
 绑定面是世界书里一条**永不注入**的 `lore_bindings` 条目（围栏 JSON +
 `raw.extensions.arknights_tavern.entry_type` 标记，与 plot_graphs / combat_nodes

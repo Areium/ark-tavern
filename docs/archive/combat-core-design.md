@@ -150,7 +150,7 @@ approaches:
 
 ### B6. 深度机制（实施状态）
 
-> ✅ = 已实现，⚠️ = 未实现，🔜 = Phase 3 备选。详见 `docs/combat-design.md` §14。
+> ✅ = 已实现，⚠️ = 未实现，🔜 = Phase 3 备选。详见 `docs/design/combat/combat-design.md` §14。
 
 1. **敌人意图（Enemy Intent）★ 最高性价比 ✅**：ROUND_START 计算每个敌人意图
    `{type: 攻击/重击/范围攻击/移动/坚守, target, 强度范围}`，前端头顶图标展示；

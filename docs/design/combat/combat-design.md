@@ -4,7 +4,7 @@
 > 数值公式与平衡参数详见 [`combat-numerical-design.md`](combat-numerical-design.md)；
 > 界面交互与布局详见 [`combat-ui-design.md`](combat-ui-design.md)；
 > 背景图提示词规范见 [`combat-background-prompts.md`](combat-background-prompts.md)。
-> 章节战斗化改造方案（战前简报/Approach 打法/敌人意图等）见 [`archive/combat-core-design.md`](archive/combat-core-design.md)（**已实现并归档**；其"7×7 网格明确不改"条款已作废）。
+> 章节战斗化改造方案（战前简报/Approach 打法/敌人意图等）见 [`archive/combat-core-design.md`](../../archive/combat-core-design.md)（**已实现并归档**；其"7×7 网格明确不改"条款已作废）。
 > 代码权威源：`src/combat_engine/`、`src/combat_session.py`、`src/combat_data_loader.py`、`src/blueprints/combat.py`。
 
 ---
@@ -194,7 +194,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 
 **已具备**（批次 2/3）：可视化节点编辑器（地图绘制/敌人编成/血量覆盖/节拍进度）、
 节点随世界书分发、升级属性点成长、节点难度带与威胁预算审计、
-LLM 生成闭环（`docs/battle-spec.md` + `tools/validate_battle_spec.py` +
+LLM 生成闭环（`docs/design/combat/battle-spec.md` + `tools/validate_battle_spec.py` +
 `tools/simulate_battle.py` + `tools/generate_battle_spec.py` + skill `combat-designer`）。
 
 **未实现**：`trigger_plot` 结算联动；肉鸽 run 结构（种子化节点图 + run 内成长，另立批次）。

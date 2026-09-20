@@ -18,7 +18,7 @@
 # size:           建议尺寸（默认 1920x1080）
 # ─────────────────────────────────────────────────────────────────────────────
 # 选用优先级：遭遇战 frontmatter 的 background 字段 → 地点 frontmatter 的
-# combat_bg 字段 → 本 default 背景。提示词写法见 docs/combat-background-prompts.md
+# combat_bg 字段 → 本 default 背景。提示词写法见 docs/design/combat/combat-background-prompts.md
 # ==============================================================================
 name: "雪山战场"
 summary: "谢拉格雪山战场：暴风雪中的冰原与圣山，适配雪境遭遇战。"

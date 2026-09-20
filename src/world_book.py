@@ -514,7 +514,7 @@ class EligibleSet(set):
     - position_overrides: per-target 的 position/depth/group_weight 覆盖，
       collect_matches 排序与 format_injection 分层时用覆盖值。
     普通 set 没有这两个属性——旧调用方传入的集合一律按空处理，向后兼容。
-    详见 docs/node-scoped-worldbook-loading.md（v2.1）。
+    详见 docs/design/worldbook/node-scoped-worldbook-loading.md（v2.1）。
     """
 
     def __init__(self, it=(), forced_uids=frozenset(), position_overrides=None):
@@ -1205,7 +1205,7 @@ class WorldBook:
         """会话候选集 = 会话范围 ∩ 节点作用域（窄化白名单）。
 
         节点作用域来自 overlay.get_active_lore_scope()（冻结在剧情树节点快照里，
-        见 docs/node-scoped-worldbook-loading.md）。返回 None / 无作用域时行为与
+        见 docs/design/worldbook/node-scoped-worldbook-loading.md）。返回 None / 无作用域时行为与
         旧版一致：None 表示不过滤（collect_matches 对 eligible_uids=None 不过滤）；
         无节点作用域（书内无 lore_bindings / 自由模式 / 老会话）返回全量会话范围。
         with_reasons=True 时返回 (集合, 解释 dict)，供编辑器/调试接口用。

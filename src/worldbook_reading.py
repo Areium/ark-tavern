@@ -68,7 +68,7 @@ LONG_PROSE_CHARS = 2400
 # 这类泛用词（角色设定叙事里到处都是，实测 180 条长条目 61 条命中，等于没优化）；
 # 但**结构化形式必须抓到** —— `必须先`、`必须依照`、`必须理解`、`只有…才能`、
 # `取决于`、`以…为前提`。这些是「这条要求先读另一条」的直接语言标记，
-# 漏掉它们等于漏掉 golden 语料里的关键证据（见 `docs/worldbook-selective-reading.md`）。
+# 漏掉它们等于漏掉 golden 语料里的关键证据（见 `docs/design/worldbook/worldbook-selective-reading.md`）。
 QUALIFIER_TERMS = (
     # 显式依赖
     "依赖于", "依赖", "前提条件", "前提", "取决于", "以…为前提", "为基础", "依照",
@@ -91,7 +91,7 @@ QUALIFIER_PATTERN_EN = re.compile(
 # 复杂规则/属性条目：**公式 / 判定式 / 表格**才是可客观识别的信号。
 # 这里刻意不用「系统 / 规则 / 数值 / 属性」这类普通词：它们在角色设定正文里同样常见，
 # 用它们当回退条件会让 180 条长条目里 154 条直接回退全文，目标随之失去意义
-# （见 `docs/worldbook-selective-reading.md` 的取舍说明）。
+# （见 `docs/design/worldbook/worldbook-selective-reading.md` 的取舍说明）。
 FORMULA_CUE_PATTERN = re.compile(
     r"(?:\broll\b|Roll点|骰|1d\d|d\d{1,2}\s*[+-]|\d+\s*d\s*\d+|概率\s*=|阈值\s*[=＝]|\d+\s*[%％]\s*的?\s*概率)",
     re.I)

@@ -1,8 +1,8 @@
 # 系统更新设计与维护文档
 
 > 本文件是**变更历史**：按时间倒序记录架构演进与关键修改。
-> 现状与目标态不在本文件维护——架构见 `architecture.md`、战斗机制见 `combat-design.md`、
-> 数值见 `combat-numerical-design.md`、节点字段见 `battle-spec.md`、工程细节见 `notes.md`。
+> 现状与目标态不在本文件维护——架构见 `architecture.md`、战斗机制见 `docs/design/combat/combat-design.md`、
+> 数值见 `docs/design/combat/combat-numerical-design.md`、节点字段见 `docs/design/combat/battle-spec.md`、工程细节见 `notes.md`。
 
 ---
 
@@ -82,7 +82,7 @@
   - 节点写 `difficulty.apply_band_scaling: true` 时，敌人数值按阶段带倍率缩放
     （T0 ×0.8 … T4 ×1.75/×1.5），一套敌人覆盖多个难度档；默认关闭（数值即文件终值）。
 - **生成 → 校验 → 试跑 → 入库 闭环**（为 LLM 生成铺垫）：
-  - `docs/battle-spec.md`：节点 JSON 全字段、格子效果、威胁与阶段带锚点、硬错误/警告清单、
+  - `docs/design/combat/battle-spec.md`：节点 JSON 全字段、格子效果、威胁与阶段带锚点、硬错误/警告清单、
     世界书分发格式 —— LLM 与设计者共用的规格说明书；
   - `tools/validate_battle_spec.py`：候选规格结构+数值自洽校验（退出码门禁，支持批量/stdin）；
   - `tools/simulate_battle.py`：**未入库候选**也能固定种子试跑，输出胜率/中位回合/P90/
@@ -97,7 +97,7 @@
   （输入格式 `data/combat/encounters|enemies/*.md` 已在批次 1 被 JSON 节点 + 统一敌人库替代）。
   当前审计结论：敌人分层偏差 0、XP 单调性 0 问题、节点 1 处真实偏差
   （`enc_elite_hunt` 实际威胁 11.0 vs 声明预算 7.0，待设计者决定是调预算还是削编排）。
-- **文档对齐**：`docs/combat-numerical-design.md` 升到 v1.2 —— 共享 AP 旧口径
+- **文档对齐**：`docs/design/combat/combat-numerical-design.md` 升到 v1.2 —— 共享 AP 旧口径
   （`2 + (INT-5)//3`、上限 3、AP=3 卡"不可行"）全部改为 v1 实际值（基础 4 / 最高 5），
   网格与距离改为自由尺寸 + 统一曼哈顿。
 - **测试**：新增 `tests/test_combat_growth_balance.py`（24 项：属性点分配/满值封顶/写回载荷/
@@ -184,7 +184,7 @@
 - **删除死代码**：战斗态从不落盘（`session.combat` 仅内存），故删除 `CombatSession.from_dict`（约 100 行）与 `CombatEngine.to_dict/from_dict`（含 v0→v1 平衡迁移分支）、`CombatUnit.from_dict`、`CardPool.from_dict`；`CombatSession.to_dict()` 收敛为结算专用的 `snapshot()`（`blueprints/combat.py` 三处调用点同步）。若将来需要"战斗中恢复"，应以「节点 spec + 命令流重放」实现。
 - **修一处真 bug**：`CombatUnit.to_dict()` 缺 `is_alive`，导致结算侧 `player_alive` 恒为 True（阵亡干员按存活 100% 拿经验）。现已导出 `is_alive`。
 - **删除失效工具**：`tools/migrate_combat_md_to_json.py`、`tools/split_combat_cards.py`（源格式 `combat.md`/index.md 战斗段已不存在）。`scripts/sync_cards_json_from_code.py` **保留**——`scripts/cv_audit.py:226` 依赖它生成 cv 审计基线。
-- **文档口径**：`docs/combat-core-design.md` 归档至 `docs/archive/`（该文档自述"已实现"，而 AGENTS.md 仍称其"未实现的目标态"，两处口径矛盾已修正）；其 B1「7×7 网格明确不改」条款作废，后续以批次 1 的可变地图为准。
+- **文档口径**：`docs/archive/combat-core-design.md` 归档至 `docs/archive/`（该文档自述"已实现"，而 AGENTS.md 仍称其"未实现的目标态"，两处口径矛盾已修正）；其 B1「7×7 网格明确不改」条款作废，后续以批次 1 的可变地图为准。
 - **并发核查**：入场两次 `git status` 快照一致（无并发写）；发现休眠 worktree `../arknights-tavern-ui-preview`（分支 `design/ui-preview-20260912`，11 小时前创建、近 2 小时无写入），未触碰。
 ### 2026-09-12 — Windows 一键重启修复：Electron 二进制自愈 + bat 编码修复
 
@@ -199,7 +199,7 @@
 - **按调用类型显式思考档位**：`ApiLLM.chat`/`LocalLLM.chat` 新增 `thinking` 参数；新增配置 `narration_reasoning_effort`（默认 `none`）控制剧情叙述/角色对话；标记提取、回忆生成、文档摘要批处理固定 `thinking="none"`。此前 `enable_thinking=false` 时不发任何参数，DeepSeek 混合模型仍缺省思考（实测 ~550 tok），现在显式发送 `reasoning_effort=none` 才能真正关闭。
 - **实测收益**：叙述总时长 20.5-23.2s → ~2.7-3.5s；标记提取 3.9-8.0s → ~1.2-2s；提取空/截断重试率明显下降。
 - **设置 UI**：设置页新增「叙述思考档位」（关闭/低/中/高）。
-- **其他**：embedding 端点首次失败后短路跳过（自由模式每轮省 2 次注定失败的网络请求）；`docs/perf-round-latency.md` 记录完整分段测量与前后对比。
+- **其他**：embedding 端点首次失败后短路跳过（自由模式每轮省 2 次注定失败的网络请求）；`docs/perf/perf-round-latency.md` 记录完整分段测量与前后对比。
 
 ### 2026-08-18 — 外部世界书/角色卡导入修复 + 玩家身份角色
 
@@ -220,7 +220,7 @@
 - **来源徽章**：新组件 SourceBadge —— 预装（青）/ 导入（紫），全列表统一标识
 - **生成脚本**：scripts/generate_builtin_worldbook.py 从角色/剧情 index.md 生成整合包（19 角色 + 3 剧情 = 22 条）
 - **测试**：test_world_book.py / test_worldbook_integration.py 全绿（31 用例）；自定义 data_dir 不注入预装包保持测试隔离
-- **文档**：新增 docs/content-hub-design.md 设计文档；README 导航/世界书章节同步
+- **文档**：新增 docs/design/content-hub-design.md 设计文档；README 导航/世界书章节同步
 - **角色卡导入**：POST /api/characters/import（SillyTavern 角色卡 PNG/JSON）→ data/characters/<slug>/index.md（source: imported）+ 头像 + 内嵌世界书自动导入；内容中心「角色·剧情」Tab 顶部「⬆角色卡」一键导入；新模块 src/character_card.py（PNG tEXt 解析/ST v1/v2 规范化）
 
 ### 2026-08-15 — 代码清理与可维护性优化（冗余淘汰）
@@ -308,7 +308,7 @@
 - **修复 dodge bug**：compute_damage 原来只判 miss（自然 1），未达 DC 的 dodge 仍造成全额伤害，导致 HIT/EVA 属性几乎无效；现在 `not hit`（miss 或 dodge）均 0 伤害，play_card 的伤害与状态施加统一改为 `hr.hit`
 - **DC 重平衡**：`10 + EVA` → `6 + EVA`。数据实测：角色 HIT≈13 vs 敌人 EVA≈5、敌人 HIT≈6 vs 角色 EVA≈10，若只修 bug 敌人命中率仅 ~37%（过于无力）；改用 DC=6 后玩家 ~95%（自然 1 仍失手）、敌人 ~56%，命中/闪避真正生效且战斗保持张力
 - **命中结果透出**：damage 事件已含 hit_result（HIT/DODGE/MISS/CRIT），前端 miss/dodge 音效与结果展示复用
-- **文档**：combat-design.md / combat-numerical-design.md 公式同步为 DC=6+EVA
+- **文档**：docs/design/combat/combat-design.md / docs/design/combat/combat-numerical-design.md 公式同步为 DC=6+EVA
 - **测试**：tests/test_hit_fix.py（5 用例：dodge/miss 0 伤害、命中、暴击翻倍、DC=6 判定）+ 修复 test_combat_engine.py SPD 排序测试随机性（monkeypatch roll_d20）
 ### 2026-08-13 — 状态效果运行时（卡组完成度）
 
@@ -364,7 +364,7 @@
 ### 2026-08-12 — 战斗功能工作提交（音频/物品/Spine 工具）
 
 - 新增战斗音效资源（`data/audio/`）与前端 `audio/audioManager.ts`
-- 新增物品数据（源石碎片/急救包等 11 件）、`docs/combat-core-design.md` 设计文档
+- 新增物品数据（源石碎片/急救包等 11 件）、`docs/archive/combat-core-design.md` 设计文档
 - 新增 `tools/download_audio.py`、`tools/import_spine.py`、`frontend/src/components/combat/spineAnimSpecs.ts`、`frontend/src/utils/baseUrl.ts`
 - 战斗计时日志（叙述/提取/回忆的 LLM 调用耗时）与 combat action 类型扩展（物品使用）
 
@@ -385,7 +385,7 @@
 - 数据约定：`data/combat/backgrounds/<bg_id>/index.md`（提示词 + 元信息）+ 图片文件；内置 `default`（含程序化生成的占位图）与 `wasteland_ruins`（待生成）两个条目
 - `session_manager.start_combat()` 传入当前剧情地点；剧情模式战斗背景随场景联动
 - 新增 `tools/generate_combat_backgrounds.py`：`--scaffold` 为被引用但缺失的背景建提示词草稿、`--dry-run` 导出提示词、默认调用 OpenAI 兼容 images 接口批量出图（配置 `config/image_config.json`）
-- 新增 `docs/combat-background-prompts.md`：构图规范（轻微俯视 + 中央开阔地面 + 远景地标 + 无人物无文字 + 偏暗重暗角）、基础提示词模板、场景配方与各平台参数
+- 新增 `docs/design/combat/combat-background-prompts.md`：构图规范（轻微俯视 + 中央开阔地面 + 远景地标 + 无人物无文字 + 偏暗重暗角）、基础提示词模板、场景配方与各平台参数
 - 地点模板 TEMPLATE.md 补充 `combat_bg` 字段说明；遭遇战「初遇整合运动」指定 `background: wasteland_ruins`
 
 
@@ -504,8 +504,8 @@
 | 霜星 | 冰霜之触(★)、冻土的记忆(★★) |
 
 **文档更新**：
-- `combat-design.md`：网格尺寸 9×8→7×7 全面修正
-- `combat-numerical-design.md` v1.0→v1.1：双轨卡牌体系（叙事 vs 引擎）、动态共享 AP 上限表、Buff/Debuff 系统附录
+- `docs/design/combat/combat-design.md`：网格尺寸 9×8→7×7 全面修正
+- `docs/design/combat/combat-numerical-design.md` v1.0→v1.1：双轨卡牌体系（叙事 vs 引擎）、动态共享 AP 上限表、Buff/Debuff 系统附录
 - 已实现功能清单新增：LLM 触发战斗、叙事卡牌体系（30+张）
 
 ### 2026-05-25 — 角色卡牌扩展：临光 / 佐菲娅 / 博士
@@ -608,8 +608,8 @@
 ## 当前状态与后续计划
 
 > 本节只登记**尚未实现**的项与真实限制，不再重复维护「已实现功能清单」——
-> 模块与职责见 `docs/architecture.md`，战斗机制见 `docs/combat-design.md`，
-> 数值口径见 `docs/combat-numerical-design.md`，节点字段见 `docs/battle-spec.md`。
+> 模块与职责见 `docs/architecture.md`，战斗机制见 `docs/design/combat/combat-design.md`，
+> 数值口径见 `docs/design/combat/combat-numerical-design.md`，节点字段见 `docs/design/combat/battle-spec.md`。
 > 各项实现历史见上方「更新记录」。
 
 ### 已知限制
