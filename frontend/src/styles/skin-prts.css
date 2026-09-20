@@ -930,8 +930,8 @@ html.skin-prts body {
   }
 
   /* ── 对话气泡（chat 页） ──────────────────────────────────────────────
-     气泡底色/描边仍按角色色号计算；姓名标签使用皮肤前景色保证可读性，并由
-     --dlg-accent 圆点保留每位说话人的原始色彩标识。
+     气泡底色/描边仍按角色色号计算；姓名色保留角色色相并向白色提亮，适配
+     PRTS 深色底，同时避免额外标签底板破坏全息界面的简洁感。
      ──────────────────────────────────────────────────────────────────── */
   .dlg-bubble {
     /* 保留 tl 小圆角的「气泡指向」形状 */
@@ -942,12 +942,9 @@ html.skin-prts body {
     font-family: var(--p-display);
     font-weight: 700;
     letter-spacing: 0.06em;
-    color: var(--p-text);
-    background: rgba(11, 21, 36, 0.96);
-    border-color: rgba(56, 189, 248, 0.28);
-    box-shadow: inset 0 1px 0 rgba(56, 189, 248, 0.06), 0 0 8px rgba(56, 189, 248, 0.08);
+    color: #c4b5fd;
+    color: color-mix(in srgb, var(--role-color, #a78bfa) 50%, #fff);
   }
-  .dlg-name::before { box-shadow: 0 0 0 1px rgba(220, 232, 242, 0.42); }
   .dlg-ava { box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.40); }
 }
 

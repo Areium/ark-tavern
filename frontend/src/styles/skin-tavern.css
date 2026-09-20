@@ -677,8 +677,8 @@ html.skin-tavern body {
   .home-splash-press { color: rgba(109, 92, 75, 0.85); }
 
   /* ── 对话气泡（chat 页）：手札信笺 ────────────────────────────────────
-     气泡底色/描边仍按角色色号计算；姓名标签使用墨水色保证可读性，并由
-     --dlg-accent 圆点保留每位说话人的原始色彩标识。
+     气泡底色/描边仍按角色色号计算；姓名色保留角色色相并向黑色压深，适配
+     羊皮纸浅色底，同时避免额外标签底板破坏手札排版。
      ──────────────────────────────────────────────────────────────────── */
   .dlg-bubble {
     /* 保留 tl 小圆角的「气泡指向」形状 */
@@ -689,12 +689,9 @@ html.skin-tavern body {
     font-family: var(--t-serif);
     font-weight: 700;
     letter-spacing: 0.04em;
-    color: var(--t-ink);
-    background: rgba(251, 246, 233, 0.97);
-    border-color: rgba(168, 123, 47, 0.34);
-    box-shadow: 0 1px 3px rgba(64, 52, 42, 0.14);
+    color: #5b21b6;
+    color: color-mix(in srgb, var(--role-color, #a78bfa) 40%, #000);
   }
-  .dlg-name::before { box-shadow: 0 0 0 1px rgba(64, 52, 42, 0.35); }
   .dlg-ava { box-shadow: 0 0 0 1px rgba(168, 123, 47, 0.45); }
 }
 

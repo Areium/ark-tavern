@@ -15,7 +15,7 @@ interface DialogueBubbleProps {
   sessionId?: string;
 }
 
-const FALLBACK_ACCENT = "#a78bfa";
+const FALLBACK_ROLE_COLOR = "#a78bfa";
 const FALLBACK_BG = "rgba(88, 28, 135, 0.25)";
 const FALLBACK_BORDER = "rgba(147, 51, 234, 0.3)";
 
@@ -23,9 +23,9 @@ export default function DialogueBubble({ text, speaker, color, sessionId }: Dial
   const isUnknown = !speaker;
 
   const rgb = color ? hexToRgb(color) : null;
-  // 角色原色只承担身份强调；姓名文字/底板由主题 CSS 提供稳定的高对比配色。
+  // 姓名保留角色原色色相，由主题 CSS 根据背景明度自动提亮或压深。
   const nameStyle = {
-    "--dlg-accent": rgb ? `rgb(${rgb.join(", ")})` : FALLBACK_ACCENT,
+    "--role-color": rgb ? `rgb(${rgb.join(", ")})` : FALLBACK_ROLE_COLOR,
   } as CSSProperties;
   const bubbleBg = rgb
     ? `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.18)`
