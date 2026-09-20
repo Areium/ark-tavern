@@ -1,76 +1,41 @@
-一、已被研究证实的 “强遵循” 格式（按效果强度排序）
-1）XML/HTML 标签分区（最强、最稳）
-论文：Microsoft/MIT（2024）、Anthropic（2023）
-把 Prompt 拆成角色、任务、规则、工具、输出格式、示例六大块，每块用唯一标签包裹
-实测：指令遵循率 +15%~25%，长上下文下遗忘率显著降低
-为什么有效：LLM 对标签边界有天然 “分区注意力”，能区分指令 vs 数据 vs 示例，减少被用户输入 “伪指令” 带偏
-xml
-<role>
-你是一个严谨的订单处理Agent，只执行订单相关操作，不闲聊。
-</role>
+# Prompt 工程约定（本项目实际遵循的写法）
 
-<core_rules>
-- MUST：先校验订单号格式（12位数字）
-- MUST：金额必须>0
-- NEVER：修改用户提供的商品ID
-</core_rules>
+> 本文记录本项目提示词里**实际在用**的写法，以及明令不用的写法，供新增 / 修改提示词时对齐。
+> 覆盖范围：`src/SceneManager.py`（叙述与标记提取）、`src/CharacterAgent.py`（角色扮演）、`src/character_card.py`（角色卡解析）。
 
-<tools>
-<tool name="query_order">参数：order_id(str)，返回：status/amount
-</tool>
+## 已采用
 
-<output_format>
-严格JSON：{"thought":"...","action":"...","result":"..."}
-</output_format>
-2）JSON Schema 强结构（机器级遵循）
-论文：ICLR 2024、Microsoft（2024）
-直接给严格 JSON Schema，不是 “建议格式”
-实测：在法律 / 合规类任务中，比 Markdown 高 42%；GPT-3.5 不同格式间最大差 40%
-关键：禁止自由文本，所有字段必填、类型固定、枚举限定
-json
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
-  "required": ["step", "action", "reason", "confidence"],
-  "properties": {
-    "step": {"type": "integer", "minimum": 1},
-    "action": {"type": "string", "enum": ["query", "validate", "confirm", "reject"]},
-    "reason": {"type": "string", "maxLength": 200},
-    "confidence": {"type": "number", "minimum": 0, "maximum": 1}
-  }
-}
-3）关键规则 “首尾放置”（对抗 Lost-in-the-Middle）
-论文：UW/Allen Institute（2023）、Anthropic（2024）
-最关键规则放最前 + 最后再重申；绝对不要埋在中间
-实测：长上下文（>10k token）下，中间规则遗忘率 >60%；首尾重复可将召回率从 30%→85%
-口诀：核心三句放开头，禁忌三句放结尾，中间只放流程与细节
-4）ReAct 思维链（强制 “先思考再行动”）
-论文：Google DeepMind（2022）、Anthropic（2023）
-强制输出：Thought → Action → Observation
-实测：工具调用错误率 -50%，多步任务完成率 +42%
-模板：
-plaintext
-你必须严格按以下格式输出：
-Thought：[你的推理过程，为什么这么做]
-Action：[调用哪个工具+参数]
-Observation：[工具返回结果，无需你生成]
-5）正向命令式语言（MUST/ALWAYS/NEVER）
-论文：Prompt Engineering Guide（2024）、OpenAI（2023）
-用强动词：MUST、ALWAYS、NEVER、STRICTLY、FORBIDDEN
-避免弱词：try、consider、please、you may
-避免纯负面：不说 “不要错”，说 “必须准确”
-实测：规则遵守率 +20%，歧义减少
-6）少样本示例（2–3 个，结构化）
-论文：ICLR 2024、Microsoft（2024）
-给2–3 个完整成功案例，用和输出一致的格式
-不要放错误示例（易被模仿）
-示例放在规则后、输出格式前
-二、优先级排序（写 Prompt 时严格按此顺序）
-1. 角色与核心身份（最前，1–2 句）
-2. 绝对硬规则（MUST/NEVER，前 1/3，首尾重复）
-3. 任务目标与流程（步骤化，清晰）
-4. 工具定义（精确参数 + 示例）
-5. 输出格式（JSON Schema/XML，强制）
-6. 少样本示例（2–3 个，结构化）
-7. 最终重申核心约束（最后一段，简短）
-禁忌：不要把背景故事写太长（研究证明无效，反而稀释权重）
+### 1. XML / 标签分区
+系统提示词拆成 `<role>` / `<core_rules>` / `<output_format>` 等唯一标签块；用户消息同样按 `<narrative>` / `<current_node>` / `<world_background>` / `<encounters>` 分区。
+见 `SceneManager.py` 的 `_NARRATOR_SYSTEM`、`_NARRATOR_SYSTEM_STRUCTURED`、`_MARKER_EXTRACTOR_SYSTEM`、`_build_narration_messages`（docstring 明确「XML 标签分区用户消息」）与 `CharacterAgent` 的角色档案提示词。
+作用：把「指令 / 数据 / 示例」分开，避免模型把玩家输入或世界书正文当成指令执行。
+
+### 2. 强制 JSON 结构（不是「建议格式」）
+提示词内直接给出完整 JSON 骨架 + 逐字段说明，并声明「严格输出 JSON …，禁止其他文字」；解析侧再用 `_parse_extraction_json` / `parse_structured` 做容错（剥离 ```json 包裹、截断修复）。
+见 `_NARRATOR_SYSTEM_STRUCTURED` 的 `<output_format>`、`_MARKER_EXTRACTOR_SYSTEM` 的字段说明、`_build_extraction_messages`。
+
+### 3. 关键规则首尾重申
+硬规则既写在系统提示词开头的 `<core_rules>`，也在用户消息末尾再重申一次——如 `_build_extraction_messages` 结尾追加「MUST：只输出 JSON 对象…」，叙述消息结尾重申字数上限。用于对抗长上下文下的中段遗忘。
+
+### 4. 命令式强约束（MUST / 严禁 / 禁止）
+规则一律用命令式动词书写：`- MUST：…`（`SceneManager.py` 中 20 余处），负面约束用「严禁 / 禁止」（如「严禁在 JSON 文本值中使用英文双引号」「严禁编造节拍 id」）。
+`CharacterAgent.py` 中另有 `NEVER：…` 的两条用法（不得自称 AI/模型、不得虚构角色卡外信息）。
+弱化措辞（try / consider / please）在本项目提示词中不出现。
+
+### 5. 少样本的替代做法
+不设独立的 2–3 条 few-shot 示例块，改用**真实历史作格式示例**：结构化模式下优先取历史中已存的 JSON 片段当示例（`_build_conversation_history`），角色扮演侧直接使用角色卡自带的「对话示例」（`mes_example`，见 `character_card.py`）。
+
+## 未采用
+
+- **ReAct（Thought → Action → Observation）**：本项目提示词不含思维链输出范式，工具与战斗由后端流程驱动，不需要模型自述推理步骤。
+- **把字面 `NEVER` 关键字当统一规范**：仅角色扮演提示词用到，叙述与提取提示词一律用中文「严禁 / 禁止」。
+- **订单处理 Agent 类示例**（`query_order`、订单号校验、为订单编写的 JSON Schema）：与本项目无关，不作为模板参考。
+- **外部研究结论与百分比**（Microsoft/MIT 2024、Anthropic 2023、ICLR 2024 等出处，以及「指令遵循率 +15%~25%」「比 Markdown 高 42%」「召回率 30%→85%」这类数字）：无法在本仓库复现或验证，仅作外部背景，不作为本项目的取舍依据。
+
+## 写提示词的顺序约定
+
+1. `<role>`：身份与职责（1–2 句）。
+2. `<core_rules>`：硬规则（MUST / 严禁，越关键越靠前）。
+3. 任务与流程（步骤化，只放流程与细节）。
+4. `<output_format>`：输出结构（JSON / XML，强制）。
+5. 用户消息末尾重申最关键约束（首尾呼应，不埋中段）。

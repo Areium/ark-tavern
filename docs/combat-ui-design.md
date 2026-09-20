@@ -23,6 +23,7 @@
 14. [附录 A：技术栈](#附录-a技术栈推荐)
 15. [附录 B：CSS 变量](#附录-b样式变量定义css-custom-properties)
 16. [附录 C：实施记录](#附录-c实施记录)
+17. [战斗节点编辑器与剧情图 UI](#十三战斗节点编辑器与剧情图-ui)
 
 ---
 
@@ -30,7 +31,7 @@
 
 ### 当前状态（v2.0 已实施）
 
-- **地图**：CSS 3D 俯视棋盘，7×7 方格，rotateX(33deg) 透视，单元格双模式（fullscreen 72px / windowed 56px，见 frontend/src/components/combat/combatConfig.ts），带有 glow 高亮系统
+- **地图**：CSS 3D 俯视棋盘，**自由尺寸**（行列由战斗节点 `map.rows`/`map.cols` 声明，上限 40×40、1200 格，见 `docs/battle-spec.md` §2），rotateX(33deg) 透视，单元格双模式（fullscreen 72px / windowed 56px，见 frontend/src/components/combat/combatConfig.ts），带有 glow 高亮系统
 - **单位**：CSS 像素小人（ChibiSprite），职业色 + 武器形状，悬浮 HP 条，部署方向箭头，受击震动动画
 - **卡牌**：双模式卡面（fullscreen 192×259 / windowed 122×166），程序化卡图（CSS 渐变），职业色带（左侧 4px），稀有度金边，选中浮起 + 脉冲光效
 - **状态面板**：角色卡片式面板，头像占位 + HP 条（三级渐变色）+ AP 点阵 + 职业标签
@@ -146,7 +147,7 @@
 ### 1.4 地图装饰（预留）
 
 - **部署点标记**：玩家侧发光边框区分玩家区 / 敌方区
-- **行列标签**：行号 0-8（左侧）、列号 0-7（顶部），monospace 字体
+- **行列标签**：不写死行列范围（随 `map.rows/cols` 自适应），空单元格内以 monospace 小字显示该格真实坐标 `行,列`（0 基，见 `GridCell.tsx`）
 - **无障碍网格**：空单元格内显示淡色坐标提示
 
 ---
@@ -441,7 +442,7 @@ Timeline 风格，Unicode 图标：
 手牌重排依赖 React key 稳定性：使用 `${card_id}-${owner}` 代替 `${card_id}-${index}`，
 打出后剩余卡牌 DOM 节点保留，CSS `transition: transform 0.3s ease` 自动处理扇形位置过渡。
 
-### 5.6 战斗结束 Overlay
+### 5.7 战斗结束 Overlay
 
 ```css
 .combat-overlay-enter {
@@ -467,7 +468,7 @@ VICTORY / DEFEAT 使用 Orbitron 字体，金色 / 红色显示，含回合统�
 ├────────┬───────────────────────────────┬────────────┤
 │  我方  │                               │  敌方      │
 │  状态  │      战斗地图（俯视 + 透视）     │  状态      │
-│  面板  │      7 rows × 7 cols          │  面板      │
+│  面板  │   map.rows 行 × map.cols 列   │  面板      │
 │  w-56  │      + ChibiSprite            │  w-56      │
 │        │      + 伤害数字 overlay        │            │
 │        │      + Canvas 粒子层           │            │
@@ -618,7 +619,7 @@ frontend/public/assets/combat/
 - [x] 浅色主题（html.light CSS 覆盖）
 
 ### Phase 5：交互增强 ✅ 已完成
-- [x] 卡牌拖拽到目标格子（HTML5 Drag & Drop + findClosestCell）
+- [x] 卡牌拖拽到目标格子（HTML5 Drag & Drop + `findClosestByCenters`）
 - [x] 拖动中格子高亮（dragCell state + highlight-cursor）
 - [x] 单位悬浮提示框（CombatUnitTooltip：8 属性 + 战斗数值 + 物品）
 - [x] 战斗回写到会话（combat writeback）
@@ -654,14 +655,19 @@ const handleDragStart = (e: React.DragEvent) => {
 };
 
 // CombatGrid.tsx — 放置目标
-const findClosestCell = (clientX, clientY, gridRect, gridSize) => {
-  // 计算鼠标相对网格的位置，映射到最近格子
-  const relX = clientX - gridRect.left;
-  const relY = clientY - gridRect.top;
-  const col = Math.round((relX - CELL) / (CELL + 2)); // 减行列标签宽
-  const row = Math.round(relY / (CELL + 2));
-  if (row >= 0 && row < gridSize && col >= 0 && col < gridSize) return [row, col];
-  return null;
+// 用每格预计算好的屏幕中心点做最近邻匹配，因此对非正方形地图同样成立
+const findClosestByCenters = (clientX, clientY, centers, rows, cols) => {
+  let best = null, bestDist = Infinity;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const pt = centers[r]?.[c];
+      if (!pt) continue;
+      const dx = clientX - pt.x, dy = clientY - pt.y;
+      const dist = dx * dx + dy * dy;
+      if (dist < bestDist) { bestDist = dist; best = [r, c]; }
+    }
+  }
+  return best;   // 无可用格时返回 null
 };
 
 // CombatView.tsx — 拖放处理
@@ -733,6 +739,19 @@ handleCardDragEnd   → 清除拖拽状态
 ```
 
 ---
+
+## 十三、战斗节点编辑器与剧情图 UI
+
+战斗内容侧 UI（节点编辑 / 剧情图 / 会话战斗附加面板），均在 `frontend/src/components/combat/`：
+
+- **BattleNodeForm.tsx**：单节点编辑表单（基本信息 / 地图绘制 / 敌人编成 / 难度奖励 / 校验），保存走 `_hash` 冲突检测
+- **BattleMapCanvas.tsx**：节点内嵌地图绘制（`MapEditMode`：tile 刷子 + 玩家/敌方部署区，行列自由尺寸）
+- **StoryBeatEditor.tsx**：剧情节拍编辑抽屉，直改 `data/plots/<plot_id>/index.md`（Markdown 手术 + `_hash` 保护）
+- **nodeFactory.ts**：节点图唯一创建入口（手动 / 节拍引用 / LLM 生成共用 `createNodes` 契约）
+- **PlotGraphPage.tsx** / **GraphCanvas.tsx** / **graphModel.ts**：剧情图整页（世界书 → 剧情二级选择）、自由平移缩放画布、图模型与撤销栈
+- **CombatSettlement.tsx**：战斗结算面板（纯展示，渲染后端 `CombatSettlementDTO`）；**CombatQuestBar.tsx**：会话战斗顶部任务栏
+- **AttackArrow.tsx** / **CardFlyOverlay.tsx**：攻击弧线指示 / 出牌飞向目标格动画；**CharacterIllustration.tsx**：角色立绘（缺图回退）
+- **fallbackToken.ts** / **spineAnimSpecs.ts**：无 Spine 数据时的职业令牌回退 / Spine 动作名归一；**gridUtils.ts**：前端距离度量与格子几何
 
 ## 附录 A：技术栈推荐
 

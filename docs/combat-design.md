@@ -19,14 +19,14 @@ combat_session.py（会话包装：生命周期/玩家操作/奖励回写/SSE �
         │       ├── grid.py           —— 战场网格、Dijkstra 寻路、视线与目标形状（曼哈顿度量）
         │       ├── card.py           —— Card / CardPool（抽牌堆/手牌/弃牌/消耗）
         │       ├── card_data.py      —— 9 职业 × 8 张基础卡牌（5 basic + 3 elite）
-        │       ├── card_loader.py    —— combat.json / cards.json → 卡牌实例
+        │       ├── card_json_loader.py —— cards.json → 卡牌实例（唯一真相源，带缓存）
         │       └── dice.py           —— d20 命中/伤害/治疗判定
         │
-        └── combat_data_loader.py —— 敌人/遭遇/背景加载（data/combat/）
+        └── combat_data_loader.py —— 敌人/节点/背景加载（节点与背景 `data/combat/` · 敌人 `data/enemies/`）
 ```
 
 数据源：
-- 敌人：`data/combat/enemies/*.md`（frontmatter `name/class/combat_stats/drop_items/drop_rate/xp_reward`）
+- 敌人：`data/enemies/*.md`（frontmatter `name/class/combat_stats/drop_items/drop_rate/xp_reward`）
 - 战斗节点：`data/combat/nodes/<node_id>.json`（地图/波次/条件/奖励/打法/剧情节拍绑定）
 - 格子类型：`data/combat/tiles/<tile_id>.json`（可扩展地形与格子效果；内置 ground/wall/cover/high_ground/hazard_fire）
 - 背景：`data/combat/backgrounds/<bg_id>/index.md` + 图片
@@ -181,7 +181,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 
 - `CombatView.tsx`（主控）+ `CombatGrid.tsx`（CSS 3D 网格，`rotateX(33deg)`）+ `PixiCombatScene.tsx`（Spine 覆盖层，runtime-3.8）+ `CombatHand/DeckViewer/CardEditor` + `audioManager.ts`（音效）。
 - 战前简报/打法卡片在 `ChatPanel.tsx`（`pendingBriefing` + `combat_briefing` SSE）与 `CombatView.tsx`（`approaches`）中渲染。
-- 格子/卡牌双模式尺寸、快捷键（1-5 选牌、F 结束回合、Esc 取消）详见 `combat-ui-design.md`。
+- 格子/卡牌双模式尺寸、快捷键（**1–9 与 0 选牌**，共 10 个绑定，见 `combatConfig.ts` 的 `MAX_CARD_SHORTCUTS = 10`；F 结束回合、Esc 取消）详见 `combat-ui-design.md`。
 
 ## 14. 路线图（现状）
 
@@ -211,7 +211,7 @@ LLM 生成闭环（`docs/battle-spec.md` + `tools/validate_battle_spec.py` +
 | 敌人行动 | 名义 `max_ap=3`，实际每轮 1 次 | **行动槽**：普通 1、精英/Boss 2；循环至槽满或 AP 耗尽 |
 | 保底抽牌 | 可从耗竭堆捞回精英卡 | **绝不取耗竭卡**，也不夺走他人唯一手牌 |
 | 卡表来源 | `card_data.py` 硬编码 + cards.json 双源 | **cards.json 单一真相源**（含 effects/ignore_def/cleanse 等全字段） |
-| 卡牌预算 | 无统一口径 | **24 CV/AP**（`combat_engine/cv.py`）；68/72 卡落带、4 卡带文档化例外 |
+| 卡牌预算 | 无统一口径 | **24 CV/AP**（`combat_engine/cv.py`）；72 张卡中 63 张落在预算 ±20%、9 张有文档化例外、0 张无说明偏离（`perf_tests/cv_audit_report.md`） |
 | 升级收益 | +1 最低未满属性 | **专精点 + 属性点**（各每级 1 点；属性点默认自动加到最低未满属性并写回会话覆盖，可改配置为手动分配；每 3 级解锁职业节点） |
 | 升级阈值 | `level × 100` | `180 + 40 × (level - 1)` |
 | 升级属性成长 | 无 | **属性点**（每级 1，自动分配到最低未满属性 → 战斗数值随之提升） |
@@ -222,6 +222,6 @@ LLM 生成闭环（`docs/battle-spec.md` + `tools/validate_battle_spec.py` +
 机器生成的审计与模拟报告（每次数值变更后重跑）：
 
 - `perf_tests/cv_audit_report.md` — 全卡 CV 审计与例外清单（`scripts/cv_audit.py`）
-- `perf_tests/balance_migration_report.md` — 敌人分层与遭遇预算（`scripts/migrate_balance_v1.py`）
-- `perf_tests/encounter_tuning_report.md` — 遭遇威胁重排（`scripts/tune_encounters_v1.py`）
+- `perf_tests/balance_audit_report.md` — 敌人分层/威胁点与节点 XP 审计（`tools/balance_audit.py`）
+- `perf_tests/metric_migration_report.md` — 切比雪夫 → 曼哈顿度量的对跑对照（`tools/metric_migration_report.py`）
 - `perf_tests/progression_report.md` — 固定种子模拟与验收偏差（`perf_tests/simulate_combat.py`）

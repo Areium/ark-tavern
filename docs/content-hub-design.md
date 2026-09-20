@@ -1,40 +1,30 @@
 # 内容中心（Content Hub）整合设计
 
-> 状态：实施中（2026-08） · 目标：整合「资产 / 世界书 / 索引」三个模块为统一的内容管理体验
+> 状态：已实施（2026-08） · 目标：整合「资产 / 索引」为统一的内容中心，世界书保留独立管理入口
 > 关联目标：内置方舟内容开箱即用 · 导入内容自由扩展 · 无重复入口 · 管理模式统一可解释
 
 ---
 
-## 1. 现状梳理：三个模块的职责与重叠
+## 1. 背景沿革（为什么不再有「三个模块」）
 
-| 模块 | 现有入口 | 职责 | 数据位置 | 可写 |
-|---|---|---|---|---|
-| 资产（DocumentManager） | 顶栏「资产」 | 文档树 + Markdown 编辑、图片资产管理、卡牌编辑、**文档依赖引用（imports）管理** | `data/<category>/`（git 跟踪） | 是 |
-| 世界书（WorldBookManager） | 顶栏「世界书」 | 书 CRUD、酒馆格式导入（文件/粘贴）、条目编辑器、会话绑定、全局默认书 | `data/worldbooks/`（gitignored） | 是 |
-| 索引（IndexManager） | 顶栏「索引」 | 文档关系图（imports）、会话索引白名单、断裂引用验证/修复、YAML 导入导出 | 读取 `data/<category>/` | 会话配置可写 |
-
-**确认的功能重叠（同一能力多处实现 → 数据不一致风险）：**
-
-1. **文档依赖引用管理**：DocumentManager 与 IndexManager 都提供「编辑某文档的 imports / 批量扫描 / 断裂引用检测修复」，走同一组 API（`GET/PUT /api/documents/<cat>/<id>/imports`、`scan`、`verify`），两套 UI、两套状态（DocumentManager 有自己的 brokenRefs 红点 + 批量扫描按钮，IndexManager 有全局 verify + 会话白名单依赖检查）。
-2. **类别元数据**：`CATEGORY_LABELS` 在 DocumentManager 与 IndexManager 中各维护一份。
-3. **会话级内容开关**：索引白名单（会话启用哪些实体）与文档编辑并存于不同页面，用户难以感知联动。
+内容中心最初由「资产 / 索引」两个分立页面合并而来；早期并存的 **文档管理入口（前端 `DocumentManager.tsx`）已移除**——世界观语料改由 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包（`data/packs/arknights.json`），浏览与编辑统一走世界书模块。（后端 `src/document_manager.py` 与 `documents` blueprint 仍保留，继续承担文档 CRUD。）
+世界书**未并入**内容中心，仍是独立入口：其管理页负责书的 CRUD / 导入 / 条目编辑，内容中心的「世界书图谱」只负责依赖关系与图谱视图，两者分工不同。
 
 ## 2. 统一管理模式
 
 ### 2.1 单一入口：内容中心
 
-导航「资产 / 世界书 / 索引」三项合并为 **「内容中心」** 一项，内部按 Tab 组织：
+「资产 / 索引」合并为 **「内容中心」** 一项；**世界书保留独立入口**（其管理页与内容中心的「世界书图谱」分工不同）。内容中心内部按 Tab 组织（当前共五个 Tab）：
 
 | Tab | 内容 | 来源组件 |
 |---|---|---|
-| 角色·剧情（文档） | 文档树 + Markdown 编辑 + 图片/CSS 资源 | DocumentManager（docs Tab） |
-| 世界书 | 书列表/导入/条目编辑/绑定 | WorldBookManager |
-| 索引 | 关系图、会话白名单、断裂验证修复 | IndexManager |
-| 资产 | 图片资产管理（上传/裁剪/默认图） | DocumentManager（images Tab） |
-| 卡牌 | 卡牌编辑 | DocumentManager（cards Tab） |
-| 战斗节点 | 战场地图/敌人编成/血量与难度编辑、剧情节拍进度 | BattleNodeEditor |
+| 世界书图谱 | 节点分类、依赖树与依赖网络、固定导入、导入预览 | WorldBookDependencyPage |
+| 索引 | 文档依赖关系与会话白名单、断裂引用验证/修复 | IndexManager |
+| 资产 | 图片资产上传 / 裁剪 / 默认图 / 按来源世界书筛选 | AssetManager |
+| 卡牌 | 角色卡牌与职业卡牌编辑、所属世界书 | CardManager |
+| 节点图 | 按设定集选择剧情，整页画布编辑节点图 | PlotGraphPage |
 
-依赖引用编辑**收敛到索引 Tab**（它是关系图的天然位置）；文档 Tab 移除重复的 imports 编辑区块，保留查看入口。
+依赖引用编辑**收敛到索引 Tab**（它是关系图的天然位置）。
 
 ### 2.2 统一管理模式：内容包（Content Pack），不做内置/导入分层
 
@@ -86,8 +76,9 @@
 
 - `useApi`：`duplicateWorldbook`、`searchWorldbooks`、`updateWorldbook` 支持 enabled。
 - 新组件 `ContentHub.tsx`、`SourceBadge.tsx`。
-- `GameTopBar` / `HomeMenu`：三项导航合并为「内容中心」。
-- `DocumentManager`：支持 `initialTab` prop；移除重复的 imports 编辑区块（保留轻量跳转）。
+- `GameTopBar` / `HomeMenu`：资产与索引两项导航合并为「内容中心」；世界书保留独立导航入口。
+- 前端 `DocumentManager.tsx` 已删除（后端 `src/document_manager.py` 保留）；其「资产 / 卡牌」Tab 分别独立为 `AssetManager.tsx` / `CardManager.tsx`，
+  文档管理功能并入世界书整合包（见 §1 背景沿革）。
 
 ## 4. 验收对照
 

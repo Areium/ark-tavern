@@ -299,7 +299,7 @@ pAP  = 1 + floor((MOB - 3) / 3), 钳制 [1, 4]  （个人 AP，玩家移动也�
 - 5★ 及以上卡牌附带丰富的剧情/环境影响
 - 编码了角色的身份认同、核心能力和剧情定位
 
-**引擎卡牌**（`src/combat_engine/card_data.py` 中的职业卡牌）：
+**引擎卡牌**（单一真相源 `data/classes/<职业>/cards.json`；`src/combat_engine/card_data.py` 已退化为加载器）：
 - 用于网格战术战斗模拟（自由尺寸网格，地形与视线生效）
 - 消耗共享 AP（基础 4 / 最高 5）
 - 判定方式：固定伤害范围 + ATK × 倍率 - 防御，d20 命中系统
@@ -314,8 +314,8 @@ pAP  = 1 + floor((MOB - 3) / 3), 钳制 [1, 4]  （个人 AP，玩家移动也�
 
 | 维度 | 叙事卡牌 | 引擎卡牌 |
 |------|---------|---------|
-| 所在位置 | `data/characters/<name>/index.md` | `src/combat_engine/card_data.py` |
-| 资源系统 | SP（技能点，每回合 +1） | AP（行动点，共享池 2-3/回合） |
+| 所在位置 | `data/characters/<name>/index.md` | `data/classes/<职业>/cards.json` |
+| 资源系统 | SP（技能点，每回合 +1） | AP（行动点，共享池 4/回合；最高战术规划 ≥8 时 5） |
 | 数值计算 | 角色属性公式 → 基础数值 | 固定伤害范围 + ATK × atk_scale |
 | 判定机制 | d20 + 基础数值 vs DC | d20 + HIT vs 6 + EVA，减防御 |
 | 稀有度体系 | 1-6★（星级） | basic / elite（两级） |
@@ -340,20 +340,18 @@ pAP  = 1 + floor((MOB - 3) / 3), 钳制 [1, 4]  （个人 AP，玩家移动也�
 
 ### 6.2 当前敌人实现（初遇整合运动）
 
-| 敌人 | 等级 | 类型 | HP | PATK | MATK | DEF | RES | SPD | HIT | EVA | XP |
-|------|------|------|-----|------|------|-----|-----|-----|-----|-----|----|
-| 整合运动士兵 | Lv1 | 进攻 | 90 | 12 | 8 | 5 | 4 | 9 | 6 | 5 | 50 |
-| 整合运动术师 | Lv2 | 均衡 | 70 | 6 | 14 | 3 | 8 | 8 | 5 | 4 | 70 |
-| 整合运动狙击手 | Lv2 | 均衡 | 75 | 10 | 5 | 4 | 4 | 12 | 8 | 5 | 65 |
-| 整合运动盾卫 | Lv2 | 防御 | 140 | 7 | 5 | 10 | 6 | 4 | 5 | 3 | 80 |
+首批敌人（士兵 HP 90 / PATK 24、术师 HP 70 / MATK 28、狙击手 HP 75 / HIT 8、
+盾卫 HP 140 / DEF 10）已按 v1 数值基线重排，**逐条数值以 `data/enemies/*.md` 的
+frontmatter `combat_stats`/`xp_reward` 为准**，数值锚点见 `docs/battle-spec.md` §4。
+本节不再维护副本表格，避免与敌人库漂移。
 
 ### 6.3 敌人行为模式
 
-| 类型 | 优先目标 | 攻击倾向 | AI 卡牌 |
-|------|---------|---------|---------|
-| 进攻型 (Aggressive) | 最近目标 | 优先攻击 | enemy_atk (AP=1), enemy_heavy (AP=2) |
-| 均衡型 (Balanced) | 最近目标 | 均衡攻防 | enemy_atk (AP=1), enemy_heavy (AP=2) |
-| 防御型 (Defensive) | 最近目标 | 防守反击 | enemy_atk (AP=1), enemy_aoe (AP=2) |
+敌人行为**完全数据驱动**：可用 AI 卡牌由每个敌人自身 frontmatter 的 `ai_skills` 声明
+（士兵 `enemy_atk/enemy_heavy/enemy_aoe`、术师 `enemy_bolt/enemy_storm/enemy_blast`、
+狙击手 `enemy_shot/enemy_barrage`），未声明时回落到该职业/通用默认集；
+`ai_behavior`（aggressive/balanced/defensive）只影响倾向权重。技能清单以
+`data/enemies/*.md` 为准，本文档不再列举副本。
 
 > 当前实现（`src/combat_engine/engine.py`）：敌人 AI 为**意图驱动**——每回合
 > ROUND_START 计算敌人意图 `{type: 攻击/重击/范围攻击/移动/坚守, target, 强度范围}`
@@ -364,9 +362,11 @@ pAP  = 1 + floor((MOB - 3) / 3), 钳制 [1, 4]  （个人 AP，玩家移动也�
 ### 6.4 遭遇战难度评估（初遇整合运动）
 
 - **我方**：4 名 3★ 角色（HP 75-90, ATK 18-22），共享 AP = 4（基础；最高战术规划 ≥8 时 5）
-- **敌方**：4 名敌人（HP 70-140, 总 HP 375），每人 3AP/回合
+- **敌方**：4 名敌人（HP 70-140, 总 HP 375），按**行动槽**行动：普通敌人 1 槽、精英/Boss 2 槽
 
-敌方总 AP/回合 = 12（4×3），我方 = 2。但敌人 AI 不使用复杂策略，实际效率约 40%。
+敌人不使用共享 AP：frontmatter 里的 `max_ap: 3` 只是描述性字段；运行时以 `action_slots`
+为准（`src/combat_data_loader.py`，未声明时精英/Boss/队长 2 槽、其余 1 槽）。上列四名敌人
+均为 1 槽，即每回合共 4 次行动，威胁总量由 `src/combat_balance.py` 按威胁点核算。
 
 ---
 
@@ -413,9 +413,11 @@ pAP  = 1 + floor((MOB - 3) / 3), 钳制 [1, 4]  （个人 AP，玩家移动也�
 base = random(card.min_damage, card.max_damage)  // 均匀分布
 atk_stat = PATK (物理) / MATK (法术) / HEAL (治疗) / (PATK+MATK)/2 (混合)
 resist = DEF (物理) / RES (法术) / min(DEF, RES) (混合)；治疗完全无视抗性（不按 min(DEF,RES) 减免）
+破甲：物理攻击按卡牌穿甲比例减免防御，resist = round(DEF × (1 - card.ignore_def))
+地形：resist += 守方所在格 defense_bonus；raw_damage += 攻方所在格 damage_bonus（resist 下限 0）
 atk_bonus = atk_stat × card.atk_scale
 
-raw_damage = base + atk_bonus - resist
+raw_damage = base + atk_bonus + terrain_damage_bonus - resist
 if crit: raw_damage *= 2
 final_damage = max(1, round(raw_damage))  // 非治疗最低 1 伤害
 healing = max(0, round(base + atk_bonus))  // 治疗不受防御影响
@@ -424,6 +426,9 @@ healing = max(0, round(base + atk_bonus))  // 治疗不受防御影响
 ---
 
 ## 8. 拉表计算：伤害输出分析
+
+> **口径提示**：本节为 v0 口径，按已废弃的每人 3AP 经济与单卡死表拉出，仅作历史参考；
+> 现行行动经济与预算带见 §10.1、§14。
 
 ### 8.1 各职业单卡期望伤害（3★ 标准配置）
 
@@ -492,20 +497,11 @@ healing = max(0, round(base + atk_bonus))  // 治疗不受防御影响
 | 坦克 3★ | 87 | 11 | 19.3-11=8.3 | 10.5 | 10.4-11→1 | 87 |
 | 重装 4★ | 102 | 13 | 19.3-13=6.3 | 16.2 | 10.4-13→1 | 102 |
 
-### 9.2 标准战斗时间估算
+### 9.2 生存与战斗时长：以模拟实测为准
 
-首场遭遇战（4v4 初遇整合运动）：
-- 敌方总 HP：375（90+70+75+140）
-- 我方 DPR：约 7 伤害/AP × 2 AP/回合 = 14/回合（保守估计，仅用单目标卡）
-- 理想击杀回合：375 ÷ 14 ≈ 27 回合
-- 计入 AOE 和 Elite 卡牌：约 18-22 回合
-
-敌方击杀我方速度：
-- 我方总 HP：约 300（4 人）
-- 敌方 DPR：每人约 8 伤害 × 4 人 × 40% 效率 ≈ 13/回合
-- 理想击杀回合：300 ÷ 13 ≈ 23 回合
-
-**结论**：在仅使用基础卡牌的情况下，双方势均力敌（22 vs 23 回合），战斗结果取决于策略选择。
+静态 TTK 推算建立在已废弃的旧行动经济（每人 3AP/回合）之上，结论已失效，故整节删除。
+v1 的生存能力与回合数由固定种子模拟实测：`perf_tests/simulate_combat.py`，
+报告 `perf_tests/progression_report.md`，验收指标见 §14.4。
 
 ---
 
@@ -526,15 +522,10 @@ healing = max(0, round(base + atk_bonus))  // 治疗不受防御影响
 **关键约束（v1）**：出牌只花共享 AP、移动只花个人 AP；共享 AP 基础 4、上限 5
 （战术规划 ≥8 时 +1）。AP=3 的 Elite 卡牌无需特定编队即可使用。
 
-**动态共享 AP 上限表**：
-
-| 最高战术规划 | 共享 AP 上限 | 可用的 Elite 卡牌 |
-|------------|------------|-----------------|
-| ≤5 | 2 | AP=1, AP=2 |
-| 6-7 | 2 | AP=1, AP=2 |
-| 8-10 | 3 | AP=1, AP=2, AP=3（全部） |
-
-此设计有意为之：AP=3 的终极卡牌需要通过编队搭配（至少一名战术大师）来解锁，而非无条件可用。
+**共享 AP 上限（v1 实装口径）**：基础 **4** 点，队伍存活角色最高战术规划 ≥ 8 时为 **5** 点
+（`src/combat_engine/engine.py` `_recalc_shared_ap_max`，默认值 4）。上限只有 4/5 两档，
+与「战术规划」高低无关的中间档已废弃；AP=3 的 Elite 卡在基础 4 点下即可支付，
+**不存在需要编队解锁的门槛**。
 
 ### 10.2 AP 效率排序（从高到低）
 
@@ -620,11 +611,14 @@ healing = max(0, round(base + atk_bonus))  // 治疗不受防御影响
 |---------|--------|---------|-----------|---------|
 | basic AP=1 | 1 | ∞ | 5.5-7.2 | 稳定输出基准 |
 | basic AP=2 | 2 | ∞ | 4.8-14.9 | 爆发/AOE 选择 |
-| basic AP=3 | 3 | ∞ | 10.7 (AOE) | 需要配合 AP=3 上限 |
+| basic AP=3 | 3 | ∞ | 10.7 (AOE) | 基础共享 AP 4 即可支付 |
 | elite AP=1-2 | 1-2 | 1 | 8.5-20 (治疗) | 决战技，一次性 |
 | elite AP=3 | 3 | 1 | 16.2 (全图) | 终极技能 |
 
-**设计说明**：AP=3 卡牌通过编队搭配解锁。基础共享 AP 为 2，当场上最高战术规划 ≥8 时（博士=10、阿米娅=9、银灰=9、闪灵=9 等），共享 AP 上限提升至 3，AP=3 卡牌可用。此机制鼓励编队中包含高战术规划角色以解锁终极战术选项。详见 10.1 节动态共享 AP 上限表。
+**设计说明**：共享 AP 基础 4 点，队伍存活角色最高战术规划 ≥8 时提升至 5 点
+（博士=10、阿米娅=9、银灰=9、闪灵=9 等会触发），4 点已足够支付 AP=3 的 Elite/大招卡，
+**不存在"必须编队解锁"的门槛**；高战术规划角色的价值体现在第 5 点 AP 的额外行动。
+详见 §10.1。
 
 ### 12.4 6 星稀有度验证
 
@@ -651,7 +645,7 @@ PATK = (str + cbt) × 2           RES = round(emo × 1.5 + org × 0.5)
 MATK = (org + int) × 2           SPD = mob × 2 + int × 0.5
 HEAL = (org + int) × 2           HIT = cbt + mob
 pAP = 1 + floor((mob - 3) / 3)   EVA = round(mob × 1.5)
-共享 AP = 2 + max(0, (最高战术规划 - 5) // 3)，上限 3
+共享 AP = 4（基础）；队伍存活角色最高战术规划 ≥ 8 时为 5（上限 5）
 ```
 
 ### B. 命中公式速查
@@ -670,9 +664,10 @@ pAP = 1 + floor((mob - 3) / 3)   EVA = round(mob × 1.5)
 ```
 基础伤害 = random(min_damage, max_damage)  [均匀分布]
 ATK 加成 = atk_stat × card.atk_scale
-防御减免 = DEF (物理) / RES (法术) / min(DEF,RES) (混合)
+防御减免 = round(DEF × (1 - ignore_def)) (物理，含破甲比例) / RES (法术) / min(DEF,RES) (混合)
+地形修正 = 守方所在格 defense_bonus 加防、攻方所在格 damage_bonus 加伤
 治疗 = max(0, round(base + HEAL × scale))
-伤害 = max(1, round(base + ATK × scale - 防御))
+伤害 = max(1, round(base + ATK × scale + 地形加伤 - 防御))
 暴击伤害 = 伤害 × 2
 ```
 
@@ -697,7 +692,6 @@ ATK 加成 = atk_stat × card.atk_scale
 - Buff 池定义：`data/rules/buff-pool/buffs.md`
 - Debuff 池定义：`data/rules/buff-pool/debuffs.md`
 - Debuff 系统指南：`data/rules/debuff-system/index.md`
-- Buff/Debuff 抽取服务：`src/services/buff_pool.py`
 
 三层 Debuff 严重度体系（叙事层）：
 
@@ -707,7 +701,7 @@ ATK 加成 = atk_stat × card.atk_scale
 | 中度 | 大诅咒 | +5 | 2-4 | 重伤、中毒、恐惧 |
 | 重度 | 致命诅咒 | +8 或自动失败 | 永久 | 断肢、器官损伤、灵魂创伤 |
 
-抽取机制：使用 d20 随机表从 Buff/Debuff 池中抽取，通过 `src/services/buff_pool.py` 的 API 端点触发。
+抽取机制：使用 d20 随机表从 `data/rules/buff-pool/buffs.md` 与 `debuffs.md` 定义的池中抽取（叙事层口径，无独立服务模块）。
 
 **引擎层**（网格战斗内状态效果，`src/combat_engine/entity.py` 已实装）：
 辅助（Supporter）等职业的减速/削弱/束缚等效果已从「纯伤害文案」落地为运行时状态：
@@ -778,10 +772,10 @@ CV    = V单体 × 目标系数 × 射程系数 × 可靠性系数 × 重复系�
 | 精英 elite | 1.60–2.00 | 1.15–1.35 | 2 | 3.2 |
 | Boss | 3.50–5.00 | 1.20–1.50 | 2+ | 6.0–8.0 |
 
-敌人分类落在 `data/combat/enemies/*.md`（`power_tier/role/action_slots/threat_points/
-expected_dpr/expected_effective_hp`），由 `scripts/migrate_balance_v1.py` 生成；
-遭遇威胁预算（教学 2.0–3.5 / 普通 5.0–7.5 / 精英 7.5–11.0 / Boss 10.0–15.0）
-与重排由 `scripts/tune_encounters_v1.py` 维护。
+敌人分类落在 `data/enemies/*.md`（`power_tier/role/action_slots/threat_points/
+expected_dpr/expected_effective_hp` 字段）；威胁点模型、五类模板与节点威胁预算由
+`src/combat_balance.py` 维护，阶段带参考区间与威胁容差（25%）配置在
+`data/combat/rules/difficulty.json`。
 
 ### 14.3 经验与奖励曲线
 

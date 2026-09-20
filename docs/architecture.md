@@ -25,7 +25,7 @@
 | 模块 | 职责 |
 |---|---|
 | `app.py` | Flask factory `create_app()`，注册所有 Blueprint + 全局 Manager（含 WorldBookManager），入口 `main()` |
-| `SceneManager.py` | 多角色场景编排，**两阶段叙述**：先 LLM 生成叙述文本流式推送，再 LLM 提取结构化标记（`[BEAT_COMPLETE]`、`[COMBAT]`、`[CHOICES]`、`[SUMMARY]`）。支持结构化对话输出（`parse_structured()`）用于气泡模式 |
+| `SceneManager.py` | 多角色场景编排，**两阶段叙述**：先 LLM 生成叙述文本流式推送，再 LLM 提取**结构化产物**（单个 JSON：`beat_complete` / `combat` / `choices` / `branches` / `summary`；早期文档说的 `[BEAT_COMPLETE]` 等字面标记已废弃）。支持结构化对话输出（`parse_structured()`）用于气泡模式 |
 | `CharacterAgent.py` | 单角色人设：角色卡 + 6 条行为规则 + Wiki 上下文 + 记忆注入 + function calling（wiki 查询工具，最多 3 轮） |
 | `llm_backend_manager.py` | 多 Provider 编排，主/备自动降级（验证缓存 120s TTL + 真实失败 30s 冷却） |
 | `load_llm.py` | Ollama / OpenAI 兼容 HTTP 客户端。**结构化错误（LLMError 系列，错误绝不伪装成模型回复）+ 连接/429/5xx 指数退避重试 + 请求指纹日志（前缀漂移标尺）+ `on_failure` 降级回调** |
@@ -121,7 +121,7 @@
 
 ### 3.4 管理页
 
-- `components/ContentHub.tsx` — 内容中心（Tab：世界书图谱/索引/资产/卡牌/节点图；文档管理已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包 `data/packs/arknights.json`，浏览与编辑走世界书模块）
+- `components/ContentHub.tsx` — 内容中心（Tab：世界书图谱/索引/资产/卡牌/节点图；文档管理入口已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包 `data/packs/arknights.json`，浏览与编辑走世界书模块；后端 `document_manager.py` + `blueprints/documents.py` 仍在）
 - `components/AssetManager.tsx` — 资产目录：图片上传/裁剪/默认图，实体显示上级目录与来源世界书（frontmatter `worldbook_id`），按书筛选与归类
 - `components/CardManager.tsx` — 卡牌管理：角色/职业卡牌编辑（CardEditor），条目显示所属世界书，按书筛选
 - `components/WorldBookManager.tsx` — 世界书管理：导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、分类图谱 / 条目正文切换、条目编辑器、会话绑定、酒馆格式导出
@@ -172,19 +172,35 @@
 | 文档 | 内容 |
 |---|---|
 | `architecture.md` | 本文件：架构索引 |
+| `rag-retrieval.md` | 知识注入的四条召回通道（依赖预加载 / 关键词世界书 / 预取 Hook / `wiki_query` 按需）、分层注入与记忆系统 |
+| `two-phase-narration.md` | 两阶段叙述：创作与系统层解耦、结构化产物字段、三级 JSON 兜底与按调用类型思考档位 |
 | `combat-design.md` | 战斗引擎架构与机制设计 |
 | `combat-numerical-design.md` | 战斗数值公式与平衡参数 |
 | `combat-ui-design.md` | 战斗界面交互与布局设计 |
 | `battle-spec.md` | 战斗规格（节点 JSON 全字段/地形效果/威胁与阶段带/校验规则/生成闭环），LLM 与设计者共用 |
 | `combat-background-prompts.md` | 战斗背景图生成提示词规范 |
+| `combat-value-curve-redesign.md` | 数值成长曲线提案：**P0/P1 已落地**（对照表见文首），保留 P2 未落地项（卡牌 R0–R3 分支、Boss 阶段机制等） |
 | `content-hub-design.md` | 内容中心整合设计 |
+| `node-scoped-worldbook-loading.md` | 节点级世界书动态载入：`lore_bindings` 绑定面、`会话范围 ∩ 节点作用域` 窄化白名单、快照与回档 |
 | `worldbook-on-demand.md` | 世界书分类与依赖图谱、按需候选范围、快照兼容与 API |
 | `worldbook-builder-performance.md` | 世界书依赖自动构建的性能设计：自适应装箱、证据窗口、缓存失效、指标口径与实测 |
 | `worldbook-selective-reading.md` | 世界书依赖构建的 adaptive/full 阅读模式、补读生命周期、缓存隔离、覆盖报告与离线基准 |
 | `tutorial.md`、`game-experience-roadmap.md`、`perf-round-latency.md` | 教程、体验路线、性能记录 |
-| `prompt.md` | Prompt 工程策略与模板设计 |
-| `system-update-log.md` | 系统更新日志 |
+| `prompt.md` | 本项目提示词书写约定（已采用 / 未采用 / 顺序约定），非通用提示词研究摘编 |
+| `system-update-log.md` | 变更历史（按时间倒序）+ 尚未实现项与已知限制；现状不在该文件维护 |
 | `notes.md` | 项目工程笔记：踩过的坑、口径约定、本机环境差异、已知未修项（细节记忆，非目标态设计） |
 | `scenarios/greybridge-echoes/README.md` | 《灰桥回声》完整剧情审阅候选：5 章/12 节拍、任务、选择、3 结局、2 场可避战遭遇；尚未正式入库 |
 | `qa/2026-09-20-story-audit.md` | 剧情与功能验收矩阵、8 项可执行缺陷复现、真实模型未完成记录、战斗平衡观察及修复方案 |
-| `archive/combat-core-design.md` | 章节战斗化改造方案（**已实现**，2026-08，已归档）。其中「7×7 网格明确不改」的骨架条款**已作废**，现状以代码与 `combat-design.md` 为准 |
+
+### 5.1 归档区（`docs/archive/`）
+
+归档 = 不再维护、不作为现状依据，只为可追溯保留。**找现状请回上面的表。**
+
+| 文件 | 归档原因 |
+|---|---|
+| `combat-core-design.md` | 章节战斗化改造方案，已实现；「7×7 网格不改」条款已作废 |
+| `redundancy-scan-2026-09-12.md` | 代码冗余扫描报告；其建议已全部落地（死代码删除、导入清理等），结论见当时提交 |
+| `2026-08-06-fengxue-guojing-plan.md`、`2026-08-06-fengxue-guojing-design.md` | 「风雪过境」剧情的实现计划与设计稿；剧情已随程序分发，且文中 `data/combat/encounters/*.md` + 7×7 网格结构已被 JSON 节点 + 自由尺寸取代 |
+| `combat-embedding.html` | 战斗嵌入剧情的讲解图；引用了已删除的 `tests/test_combat_trigger.py` 与作废的 7×7 口径（其「数值权威在引擎、模型零数值授权」原则仍有效，见 `combat-design.md`） |
+| `architecture.html`、`architecture.architecture.json` | 由外部工具 archify 2.16.0 导出的架构图（与边车源文件，需同去同留）；内容停留在 2026-09-05，且 96% 体积是 vendored viewer 运行时。**重新生成不是本仓库的构建步骤**，架构现状见本文件 |
+| `rag-retrieval.html`、`two-phase-narration.html` | 上述两篇讲解图的原 HTML；内容已转为等价的 `rag-retrieval.md` / `two-phase-narration.md` 并补上新机制 |

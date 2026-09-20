@@ -1,16 +1,15 @@
 # 系统更新设计与维护文档
 
-> 记录战斗系统的架构演进、关键修改与未来规划方向
-> 最后更新：2026-09-12
+> 本文件是**变更历史**：按时间倒序记录架构演进与关键修改。
+> 现状与目标态不在本文件维护——架构见 `architecture.md`、战斗机制见 `combat-design.md`、
+> 数值见 `combat-numerical-design.md`、节点字段见 `battle-spec.md`、工程细节见 `notes.md`。
 
 ---
 
 ## 目录
 
 1. [更新记录](#更新记录)
-2. [当前系统状态](#当前系统状态)
-3. [未来修改计划](#未来修改计划)
-4. [系统整体架构](#系统整体架构)
+2. [当前状态与后续计划](#当前状态与后续计划)
 
 ---
 
@@ -606,286 +605,21 @@
 
 ---
 
-## 当前系统状态
+## 当前状态与后续计划
 
-### 已实现功能
-
-- [x] 共享卡池系统（全队共用抽牌堆/手牌/弃牌堆/消耗堆）
-- [x] 共享回合制（全队同时行动，自由选择角色出牌）
-- [x] 双 AP 池（共享 AP + 个人 AP）
-- [x] 角色保底机制（每轮每角色至少 1 张可用牌）
-- [x] 敌方 AI（寻敌→出牌→移动）
-- [x] 命中/伤害计算（d20 体系）
-- [x] 网格站位（9×8，Chebyshev 距离）
-- [x] 卡牌目标模式（SINGLE/ADJACENT/CROSS/LINE_3/ROW/ALL_ALLIES/GLOBAL）
-- [x] 角色属性→战斗数值映射
-- [x] 会话 overrides 战斗集成
-- [x] 战斗结算写回
-- [x] SSE 事件流（伤害/治疗/死亡/回合/战斗结束）
-- [x] 浮动伤害数字 + 粒子特效
-- [x] 角色悬浮工具提示（属性+数值）
-- [x] 卡组查看器
-- [x] 战斗测试模式（无需会话）
-- [x] 战斗存档/读档
-- [x] Blueprint 模块化路由架构（13 个功能域）
-- [x] Wiki 文档目录索引 + imports 链预加载
-- [x] LLM 工具调用（wiki_query）
-- [x] 结构化对话输出（JSON narration/dialogue 片段）
-- [x] SSE 流式叙述（Token 级渐进显示）
-- [x] 对话气泡模式（角色主题色）
-- [x] 角色立绘展示（战斗选中时）
-- [x] 会话级 token 累计统计
-- [x] Buff/Debuff 抽取池系统
-- [x] d20 独立掷骰服务
-- [x] LLM 自动触发战斗（[COMBAT:ID] 标记 + SSE 事件）
-- [x] 战斗中对话守卫（423 Locked）
-- [x] 叙事/战术战斗模式切换
-- [x] 叙事卡牌体系（12 角色 × 30+ 张专属卡牌，1-6★）
+> 本节只登记**尚未实现**的项与真实限制，不再重复维护「已实现功能清单」——
+> 模块与职责见 `docs/architecture.md`，战斗机制见 `docs/combat-design.md`，
+> 数值口径见 `docs/combat-numerical-design.md`，节点字段见 `docs/battle-spec.md`。
+> 各项实现历史见上方「更新记录」。
 
 ### 已知限制
 
-- [ ] 敌方 AI 简单（仅攻击最近目标，无策略）
-- [ ] 无角色死亡后的卡组清理
-- [ ] 精英牌消耗后无法回收
-- [ ] 无 buff/debuff 系统
-- [ ] 网格移动无碰撞检测（单位不可重叠但可穿越）
+- **精英牌消耗后不回收**：`tier=elite` 的卡牌打出后进 `exhaust`，重洗牌只从弃牌堆重建牌堆（`src/combat_engine/card.py`）。
+- **敌方无支援/治疗行为**：`ai_behavior` 只有 `aggressive` / `defensive` 两档（`src/combat_engine/entity.py`）。
 
----
+### 待实现
 
-## 未来修改计划
-
-### 短期（下一阶段）
-
-1. **个人 AP 系统完善**
-   - 当前个人 AP 在回合开始时重置，但未在前端展示
-   - 移动消耗个人 AP 而非共享 AP
-   - 角色专属牌消耗个人 AP，通用牌消耗共享 AP
-
-2. **敌方 AI 增强**
-   - 引入行为模式（攻击型/防守型/支援型）
-   - 优先攻击低血量/高威胁目标
-   - 敌方治疗单位 AI
-
-3. **buff/debuff 系统**
-   - 状态效果（眩晕、中毒、脆弱、加固等）
-   - 持续时间与层数
-   - 与卡牌/遗物系统的交互
-
-4. **战斗 UI 打磨**
-   - 攻击动画（弹道/冲击）
-   - 单位受伤/死亡动画
-   - 音效系统接口
-
-### 中期
-
-5. **遗物/物品系统**
-   - 战斗中被动效果（属性加成、触发效果）
-   - 主动物品（一次性/冷却制）
-   - 物品数据从 markdown 加载
-
-6. **多波次遭遇战**
-   - 波次间增援
-   - 波次过渡动画
-   - 波次奖励/回复
-
-7. **战斗回放**
-   - 记录全部行动序列
-   - 回放渲染（步进/自动播放）
-
-### 长期
-
-8. **PvP 框架**
-   - 双方轮流操作的异步对战
-   - 匹配与排行
-
-9. **模组化遭遇战编辑器**
-   - 可视化编辑遭遇配置
-   - 预览敌方站位
-
----
-
-## 系统整体架构
-
-### 技术栈
-
-```
-┌─────────────────────────────────────────────────┐
-│                   Frontend                       │
-│  React 18 + TypeScript + Zustand + Tailwind     │
-│  Vite 构建  ·  Electron 桌面壳（可选）           │
-├─────────────────────────────────────────────────┤
-│                   Backend                        │
-│  Flask (Python 3.12) + REST + SSE               │
-│  Blueprint 架构  ·  WikiManager  ·  SceneManager │
-│  SessionManager  ·  SessionContext  ·  Overlay   │
-├─────────────────────────────────────────────────┤
-│                Combat Engine                     │
-│  纯 Python  ·  独立于 Flask                      │
-│  engine.py  ·  entity.py  ·  card.py            │
-│  grid.py  ·  dice.py  ·  card_data.py           │
-├─────────────────────────────────────────────────┤
-│                   Data                           │
-│  Markdown + YAML Frontmatter                     │
-│  data/characters/  ·  data/combat/              │
-│  Wiki 目录索引  ·  imports 依赖链               │
-│  overrides.json（会话层持久化）                  │
-└─────────────────────────────────────────────────┘
-```
-
-### 前端架构
-
-```
-frontend/src/
-├── components/
-│   ├── ChatPanel.tsx            — 对话面板（SSE 流式、气泡模式、token 统计）
-│   ├── Sidebar.tsx              — 主导航栏
-│   ├── DocumentManager.tsx      — 文档管理（树/内容编辑器）
-│   ├── IndexManager.tsx         — 全局索引配置管理（三栏布局 + 引用树）
-│   ├── SettingsPanel.tsx        — 设置面板
-│   ├── SessionList.tsx          — 会话列表（自动命名、去重）
-│   ├── CharacterPanel.tsx       — 角色面板
-│   ├── chat/                    — 对话气泡组件
-│   │   ├── DialogueBubble.tsx   — 角色对话气泡（主题色边框/背景）
-│   │   ├── AvatarPlaceholder.tsx — 角色头像占位图
-│   │   ├── NarrationText.tsx    — 叙述文本
-│   │   ├── LoadingIndicator.tsx — 等待加载指示器
-│   │   └── TokenUsage.tsx       — 单次响应 token 消耗展示
-│   └── combat/
-│       ├── CombatView.tsx          — 战斗主视图（状态管理、事件中枢）
-│       ├── CombatGrid.tsx          — 网格渲染（等距 3D、拖放、单元格）
-│       ├── GridCell.tsx            — 单个单元格（单位显示、小精灵、高亮）
-│       ├── ChibiSprite.tsx         — 角色小精灵（纯展示，pointer-events-none）
-│       ├── CombatHand.tsx          — 手牌扇形布局
-│       ├── CombatCard.tsx          — 单张卡牌（拖拽源、渐变、AP 消耗）
-│       ├── UnitStatusPanel.tsx     — 角色状态面板（HP/AP/属性摘要）
-│       ├── CombatUnitTooltip.tsx   — 角色悬浮提示（Portal，属性+数值）
-│       ├── CombatEventLog.tsx      — 战斗事件日志
-│       ├── CombatParticles.tsx     — Canvas 粒子特效
-│       ├── CharacterIllustration.tsx — 角色立绘展示（选中时显示）
-│       ├── gridUtils.tsx           — 网格工具函数
-│       └── DeckViewer.tsx          — 卡组查看器（按角色/牌堆分组）
-├── hooks/
-│   └── useApi.ts               — API 客户端（REST + SSE）
-├── utils/
-│   └── dialogueParser.ts       — 对话解析器（「」→ 气泡片段，说话人推断）
-├── stores/
-│   └── appStore.ts             — Zustand 全局状态
-├── types/
-│   └── index.ts                — TypeScript 类型定义
-└── style.css                   — 战斗样式（粒子动画、网格 3D、手牌扇形）
-```
-
-### 后端架构
-
-```
-src/
-├── app.py                      — Flask 应用入口（create_app 工厂模式）
-├── constants.py                — 共享常量（核心章节规则、属性映射）
-├── session_manager.py          — 会话生命周期管理 + token 累计
-├── SceneManager.py             — 场景管理：多角色对话、结构化叙述、SSE 流式生成
-├── CharacterAgent.py           — 角色代理：角色扮演 + wiki_query 工具调用 + 记忆
-├── session_overlay.py          — 会话层数据覆盖（overrides.json）
-├── session_context.py          — 会话文档缓存（imports 链预加载）
-├── wiki_manager.py             — Wiki 文档索引与查询（目录构建、imports 链展开、模糊查询、摘要回填）
-├── index_manager.py            — 全局索引配置管理（CRUD、反向引用树、会话级配置）
-├── avatar_color.py             — 从头像提取主题色，写入角色 frontmatter
-├── combat_session.py           — 战斗会话封装（CombatEngine → REST/SSE）
-├── combat_data_loader.py       — 战斗数据加载（遭遇/敌人）
-├── document_manager.py         — 文档 CRUD + 冲突检测
-├── llm_backend_manager.py      — LLM 多后端检测与自动降级
-├── load_llm.py                 — LLM 加载器（Ollama/API），支持工具调用和 token 追踪
-├── environment_state.py        — 环境状态追踪
-├── memory.py                   — 向量记忆系统（ChromaDB）
-├── blueprints/                  — Flask Blueprints（功能域路由拆分）
-│   ├── sessions.py             — 会话 CRUD + 剧情列表
-│   ├── chat.py                 — 对话/叙述 API（SSE 流式、变体生成）
-│   ├── scene.py                — 场景角色/物品/覆盖管理 + 角色头像/立绘
-│   ├── combat.py               — 会话战斗 + 战斗测试
-│   ├── documents.py            — 文档 CRUD + 冲突检测
-│   ├── index.py                — 索引配置管理
-│   ├── llm.py                  — LLM 后端配置
-│   ├── wiki.py                 — Wiki 目录查询 + 摘要回填
-│   ├── environment.py          — 环境状态
-│   ├── assets.py               — 静态资源
-│   ├── legacy.py               — 旧版路由兼容
-│   ├── memories.py             — 回忆系统
-│   └── status.py               — 健康检查
-├── services/                    — 服务层
-│   ├── dice.py                 — d20 掷骰系统（关键词检测、文本解析）
-│   └── buff_pool.py            — Buff/Debuff 随机抽取池（稀有度分层）
-├── shared/                      — 共享工具
-│   ├── helpers.py              — JSON 错误、SSE 响应、记忆上下文注入
-│   └── cache.py                — 文档变更后缓存失效
-└── combat_engine/
-    ├── __init__.py             — 公开 API 导出
-    ├── engine.py               — 战斗状态机、回合管理、敌方 AI
-    ├── entity.py               — 战斗单位（属性映射、数值换算）
-    ├── card.py                 — 卡牌、卡池（抽牌/弃牌/消耗）
-    ├── card_data.py            — 卡牌数据定义、职业卡池、起始卡组
-    ├── grid.py                 — 网格系统（站位、移动、距离、目标解析）
-    └── dice.py                 — d20 掷骰、命中判定、伤害计算
-```
-
-### 数据流
-
-```
-Markdown 数据 ──→ CombatDataLoader ──→ CombatEngine
-                                          │
-会话 overrides ──→ SessionOverlay ──→ character_metas
-                                          │
-                    ┌─────────────────────┘
-                    ▼
-              CombatSession
-                    │
-        ┌───────────┼───────────┐
-        ▼           ▼           ▼
-   REST API    SSE Stream   状态快照
-   (action)    (events)    (get_state)
-        │           │           │
-        ▼           ▼           ▼
-   CombatView ◄── React State ◄── JSON
-```
-
-
-### 战斗状态机
-
-```
-INIT ──→ ROUND_START ──→ PLAYER_TURN ──（玩家结束回合）──→ ENEMY_TURN
-  ↑                                            │                │
-  │                              轮次+1，抽牌，重置 AP            │
-  │                                            │                │
-  └────────────────────────────────────────────┘                │
-                                                    所有敌方行动完成
-                                                           │
-                                                    检查胜负 ──→ END
-```
-
-### 核心数据模型
-
-```
-CombatUnit                    Card                      CardPool
-├─ unit_id                   ├─ card_id                ├─ deck: list[Card]
-├─ name                      ├─ name                   ├─ hand: list[Card]
-├─ team (player/enemy)       ├─ damage_type            ├─ discard: list[Card]
-├─ char_class                ├─ min/max_damage         ├─ exhaust: list[Card]
-├─ HP / PATK / MATK / ...    ├─ atk_scale              └─ hand_size: int
-├─ AP (personal)             ├─ target (SINGLE/...)
-├─ pos [row, col]            ├─ range
-├─ attributes (raw 1-10)     ├─ cost
-└─ is_alive                  ├─ tier (basic/elite)
-                             ├─ class_required
-                             └─ owner (character name)
-```
-
-### 共享 AP 计算
-
-```
-SHARED_AP_MAX = 2 + max(0, (highest_tactical_planning - 5) // 3)
-                 ───   ──────────────────────────────────────
-                 基础               战术规划加成
-                                   (6-7: +0, 8-10: +1, ...)
-```
-
-### 卡牌保底机制
-
-每轮抽牌后，检测每位存活角色在共享手牌中是否至少有一张归属卡牌。如果没有，从抽牌堆/弃牌堆/消耗堆中随机找一张该角色的卡牌，替换手牌中随机一张。此机制保证每位角色都有可用的行动选择。
+- **遗物系统** —— 战斗中的被动遗物层（物品的主动使用已实现：`data/items/*.md` 的 `combat_effect` + `use_item`）。
+- **角色专属牌消耗个人 AP** —— 当前出牌一律扣共享 AP；移动已经消耗个人 AP。
+- **战斗回放** —— 记录并回放全部行动序列。
+- **PvP 框架** —— 双方轮流操作的异步对战、匹配与排行。
