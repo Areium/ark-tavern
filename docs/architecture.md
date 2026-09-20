@@ -51,6 +51,7 @@
 - `world_book.py` — 世界书（酒馆 Lorebook 兼容）：4 源解析（v1/v2/卡内嵌/jsonl）+ 关键词触发匹配 + 注入格式化 + 回灌导出 + `WorldBookManager`（`data/worldbooks/`，gitignored）。
   **注入纪律：常驻 position-0 条目进稳定层，触发型条目一律进动态层（前缀缓存稳定）。**
   `eligible_uids_for` 返回 `EligibleSet`（候选集 + `forced_uids`/`position_overrides` 元数据随集合传递，注入调用点零改动）。
+  **书用途 `book_type`**：`story`（剧情世界书，可绑定会话/设为默认/参与解析）| `reference`（资料库，只供浏览、检索与摘录）。缺字段的旧数据按 `story` 读取；`resolve()` 与预装回退无条件排除 `reference`；`excerpt_entries()` 提供整批原子摘录（新 UID、来源不被修改、保留 `excerpt_source` 可追溯来源）。详见 `docs/design/worldbook/worldbook-library.md`。
 - `node_lore_scope.py` — 节点级世界书动态载入：书内一条永不注入的 `lore_bindings` 条目（围栏 JSON + extensions 标记）声明「目标 → 条目」绑定；`resolve_scope` 在剧情树节点落盘时把作用域冻结进 `story_tree.nodes[].state.lore_scope`（随回档走），注入时 `eligible_uids_for` 做「会话范围 ∩ 节点作用域」窄化白名单。书内无绑定条目 / 自由模式 / 老会话一律关闭，行为与旧版一致。详见 `docs/design/worldbook/node-scoped-worldbook-loading.md`。
 - `worldbook_scope.py` — 多级分类、角色关联与导入策略校验，有向依赖深度遍历。**v2 与 v3 并存**：v2 语义（世界观 / 阵容 / 固定 / 依赖四源去重）逐字保留；v3 把「分类」与「载入」分开——全书一张有向图，起点由 `activation`（always / roster_any / manual）× `expansion`（none / requires_closure / legacy_depth）描述，`requires` 参与闭包遍历、`related` 只浏览，环可终止并回报交叉引用，闭包超限报错而非静默截断。`world_book.py` 提供估算预览、旧书/旧会话快照兼容与**不可变规则版本历史**（`policy_revisions`，会话绑定完整规则版本而不只是版本号），两个 prompt 入口均过滤候选。详见 `docs/design/worldbook/worldbook-on-demand.md`。
 - `worldbook_builder.py` — 世界书依赖的 AI 自动构建：元数据索引（复用 `worldbook_classify`）→ 长条目分段（稳定 `chunk_id = uid:index:hash` 断点）→ 明确引用候选对（不被 top-k 丢弃）→ 分析卡 → 依赖判定 → 程序校验（UID / 重复 / 自环 / 证据可定位 / 角色 ID / 高扇出 / 环 / 阵容扩张探测）。**请求按 token/条数自适应装箱**（估算与执行共用 `worldbook_builder_plan.py` 的同一个规划器）；判定只发**引用附近的证据窗口 + 分析卡提炼的有限上下文**，不再重发整段正文，窗口缺失/截断时强制 `unsure`。分析卡与判定分别按 `内容哈希 + 模型 + prompt 版本` 缓存，判定额外绑定双方 uid / 目标哈希 / 卡片上下文指纹 / 证据窗口指纹。后台任务持久化阶段/进度/结果/指标（估算与真实用量分开，provider 不报 usage 记「未知」而非 0），支持取消、失败批次重试、调用预算与有限 JSON 修复；无可用模型时接口返回 503，前端引导去设置。**正文按数据处理，不执行其中的指令**；置信度只用于排序，不宣称语义正确。性能设计与实测见 `docs/design/worldbook/worldbook-builder-performance.md`；真实模型验证见 `scripts/verify_worldbook_builder_llm.py`。
@@ -124,7 +125,7 @@
 - `components/ContentHub.tsx` — 内容中心（Tab：世界书图谱/索引/资产/卡牌/节点图；文档管理入口已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包 `data/packs/arknights.json`，浏览与编辑走世界书模块；后端 `document_manager.py` + `blueprints/documents.py` 仍在）
 - `components/AssetManager.tsx` — 资产目录：图片上传/裁剪/默认图，实体显示上级目录与来源世界书（frontmatter `worldbook_id`），按书筛选与归类
 - `components/CardManager.tsx` — 卡牌管理：角色/职业卡牌编辑（CardEditor），条目显示所属世界书，按书筛选
-- `components/WorldBookManager.tsx` — 世界书管理：导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、分类图谱 / 条目正文切换、条目编辑器、会话绑定、酒馆格式导出
+- `components/WorldBookManager.tsx` — 世界书管理：顶层按用途分「剧情世界书 / 资料库」（带筛选与计数），详情默认进入条目正文、分类图谱归入「高级配置」；导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、条目编辑器、剧情书的会话绑定与默认书、酒馆格式导出；资料库以检索/浏览为主，可就地把条目「加入剧情世界书」（提交前可编辑标题/正文/触发词）。纯逻辑在 `utils/worldbookLibrary.ts`
 - `components/session/SessionWorldbookDependencies.tsx` — 会话大厅内的依赖微调：继承/本地/屏蔽关系、实际纳入原因、全局继承更新预览、会话专属 AI 任务预览与应用
 - `components/WorldBookDependencyPage.tsx` / `WorldBookScopeManager.tsx` — 世界书配置工作台：页面给三个视图（**配置概览 / 条目与角色 / 高级图谱**），共用一份**统一草稿**并由右上角一次 `PUT /configuration` 原子写入（409 保留草稿）。`components/worldbook/` 下是配置概览（基础设定 / 角色设定 / 关联补充 / 待处理 + 试选阵容 + 本次范围预览）、条目与角色（四个常见动作）、AI 自动构建面板与共享类型；`hooks/useWorldbookDraft.ts` 提供统一草稿与两个带防抖/过时响应保护的预览钩子。`WorldBookScopeManager` 是高级图谱（保留分类/网络/树/批量），由统一草稿投影而来并写回同一草稿，避免 AI 生成的条件起点被静默清掉；`WorldBookScopePreview.tsx` 同时用于创建向导
 - `components/WorldBookGraphCanvas.tsx` / `utils/worldbookGraph.ts` / `utils/worldbookDependency.ts` / `utils/worldbookBatch.ts` — Neo4j 风格圆形节点图：分类归属与有向依赖、拖动/平移/缩放、多选与框选、关系高亮、确定性布局及大书显示限额；节点角色分类（导入源/固定/中转/叶子/未配置）与按遍历深度展开的依赖树视图；批量策略变换（固定导入 / 导入源 / 建边 / 清边 / 移入分类）是纯函数，只改草稿不写盘；复用内容中心 `--ng-*` 配色，不修改战斗画布
@@ -163,7 +164,7 @@
 
 生成流程与硬性约束见 skill `combat-designer`，规格说明见 `docs/design/combat/battle-spec.md`。
 
-其他脚本：`scripts/generate_builtin_worldbook.py`（世界书整合包）、`scripts/gen_skin_utils.py`（皮肤颜色工具类生成）、`scripts/run_tests.sh`（统一测试入口）、`scripts/benchmark_worldbook_builder.py`（世界书构建的**确定性**老/新成本对照，无网络，低于 50% 降幅即退出码 1）、`scripts/verify_worldbook_builder_llm.py`（世界书 AI 构建的**真实模型**端到端验证，`--config` 指定后端、`--book-path` 指定书；未配置时以退出码 2 明确报告「未做真实验证」）。
+其他脚本：`scripts/generate_builtin_worldbook.py`（世界书整合包）、`scripts/gen_skin_utils.py`（皮肤颜色工具类生成）、`scripts/run_tests.sh`（统一测试入口）、`scripts/test_worldbook_scope_ui.cjs`（世界书图谱/依赖树的纯逻辑与 SSR 检查）、`scripts/test_worldbook_library_ui.cjs`（资料库体验：用途筛选/分组、摘录载荷折算、SSR 骨架）、`scripts/benchmark_worldbook_builder.py`（世界书构建的**确定性**老/新成本对照，无网络，低于 50% 降幅即退出码 1）、`scripts/verify_worldbook_builder_llm.py`（世界书 AI 构建的**真实模型**端到端验证，`--config` 指定后端、`--book-path` 指定书；未配置时以退出码 2 明确报告「未做真实验证」）。
 
 ---
 
@@ -200,6 +201,7 @@ docs/
 | `design/combat/battle-spec.md` | 战斗规格（节点 JSON 全字段/地形效果/威胁与阶段带/校验规则/生成闭环），LLM 与设计者共用 |
 | `design/combat/combat-background-prompts.md` | 战斗背景图生成提示词规范 |
 | `design/worldbook/worldbook-on-demand.md` | 世界书分类与依赖图谱、按需候选范围、快照兼容与 API |
+| `design/worldbook/worldbook-library.md` | 世界书资料库与剧情世界书分离：`book_type` 用途、安全的用途切换、原子摘录与来源追踪、前端资料库体验 |
 | `design/worldbook/node-scoped-worldbook-loading.md` | 节点级世界书动态载入：`lore_bindings` 绑定面、`会话范围 ∩ 节点作用域` 窄化白名单、快照与回档 |
 | `design/worldbook/worldbook-builder-performance.md` | 世界书依赖自动构建的性能设计：自适应装箱、证据窗口、缓存失效、指标口径与实测 |
 | `design/worldbook/worldbook-selective-reading.md` | 世界书依赖构建的 adaptive/full 阅读模式、补读生命周期、缓存隔离、覆盖报告与离线基准 |

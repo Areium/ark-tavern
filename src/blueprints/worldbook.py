@@ -16,9 +16,13 @@ Worldbook blueprint — 世界书（酒馆 Lorebook 兼容）管理 API。
     GET    /api/worldbook/<book_id>/export     导出酒馆 v1 格式（回灌用）
     PUT    /api/worldbook/<book_id>/taxonomy   更新分类树与条目归属
     POST   /api/worldbook/<book_id>/auto-classify  按条目元数据自动分类（预览 / 应用）
-    POST   /api/worldbook/<book_id>/default    设为/取消全局默认书
-    POST   /api/worldbook/<book_id>/bind       绑定到会话（或解绑）
+    POST   /api/worldbook/<book_id>/default    设为/取消全局默认书（资料库禁止设为默认）
+    POST   /api/worldbook/<book_id>/bind       绑定到会话（或解绑；资料库禁止绑定）
+    POST   /api/worldbook/<book_id>/excerpt    从来源书摘录条目到本书（仅 story，整批原子）
     GET    /api/worldbook/resolve              查询会话当前生效的书
+
+用途（`book_type`）：`story` 剧情世界书可绑定会话、设为默认并参与解析；
+`reference` 资料库只供浏览、检索与摘录。缺字段的旧数据按 `story` 读取。
 """
 
 import json
@@ -35,6 +39,7 @@ from shared.helpers import json_error
 from world_book import (
     RESOLVER_VERSION, WorldBook, WorldBookEntry, apply_auto_classification,
     auto_classification_patch, content_revision, estimate_tokens,
+    normalize_book_type,
 )
 from worldbook_classify import classify_entries
 from worldbook_builder import (
@@ -395,12 +400,43 @@ def register(app, managers):
                 return
             yield copy.deepcopy(book), None
 
+    def _reference_conversion_conflict(book) -> str:
+        """把 story 改成 reference 前的安全闸门。
+
+        资料库不能参与解析，也不能被会话绑定。如果这本书当前是全局默认书、或者正被
+        某些会话绑定，直接改用途就会留下悬空状态（会话指向一本不参与解析的书）。
+        这里**拒绝**这次转换并说明要处理什么，而不是静默清空默认指针或改别人的会话 ——
+        静默改会话属于「以动作换状态」，用户无法预知自己的会话被动了什么。
+        """
+        reasons = []
+        if wb_mgr.get_default_book_id() == book.id:
+            reasons.append("它是当前的全局默认世界书")
+        session_ids = []
+        sessions = getattr(session_mgr, "sessions", None)
+        for session in (sessions or {}).values() if isinstance(sessions, dict) else (sessions or []):
+            try:
+                if session.overlay.get_worldbook_id() == book.id:
+                    session_ids.append(session.id)
+            except Exception:
+                continue
+        if session_ids:
+            reasons.append(
+                "它正被 %d 个会话绑定（%s）"
+                % (len(session_ids), "、".join(sorted(session_ids)[:5])))
+        if not reasons:
+            return ""
+        return ("无法把《%s》改为资料库：%s。"
+                "请先改绑这些会话（或取消默认），再切换用途。"
+                % (book.name, "；".join(reasons)))
+
     def _book_detail(book: "WorldBook", include_entries: bool = True) -> dict:
         detail = {
             "id": book.id,
             "name": book.name,
             "source_format": book.source_format,
             "source": book.source,
+            "book_type": book.book_type,
+            "is_reference": book.is_reference,
             "is_preinstalled": wb_mgr.is_preinstalled(book.id),
             "enabled": book.enabled,
             "budget_tokens": book.budget_tokens,
@@ -441,7 +477,13 @@ def register(app, managers):
             budget = int(data.get("budget_tokens", 0) or 0)
         except (TypeError, ValueError):
             budget = 0
-        book = wb_mgr.create_book(name, budget_tokens=max(0, budget))
+        # 用途：缺省 story（普通新建的书就是剧情世界书）；非法值 400，不静默降级。
+        try:
+            book_type = normalize_book_type(data.get("book_type"))
+        except ValueError as e:
+            return json_error(str(e), 400)
+        book = wb_mgr.create_book(name, budget_tokens=max(0, budget),
+                                  book_type=book_type)
         return jsonify({"book": _book_detail(book, include_entries=False)}), 201
 
     # ── 2. 导入 ──
@@ -451,10 +493,12 @@ def register(app, managers):
         name = ""
         source = None
         card_result = None  # 角色卡解析结果；非 None 时连带导入角色（角色/开场白可入队使用）
+        requested_type = None  # 显式指定的用途；导入物自带的项目扩展优先
 
         if "file" in request.files and request.files["file"]:
             f = request.files["file"]
             name = str(request.form.get("name", "") or "").strip() or f.filename
+            requested_type = request.form.get("book_type")
             raw = f.read()
             if raw.startswith(b"\x89PNG"):
                 # PNG 角色卡：提取内嵌世界书 + 角色
@@ -478,10 +522,11 @@ def register(app, managers):
         elif request.json is not None:
             data = request.json
             name = str(data.get("name", "") or "").strip()
+            requested_type = data.get("book_type")
             source = data.get("data") or data.get("book")
             if source is None:
                 # 允许直接把整本书 JSON 作为 body（无 name/data 包装）
-                source = {k: v for k, v in data.items() if k != "name"}
+                source = {k: v for k, v in data.items() if k not in ("name", "book_type")}
             if _looks_like_card(source):
                 card_result = _parse_card_or_error(
                     json.dumps(source, ensure_ascii=False).encode("utf-8"))
@@ -495,7 +540,12 @@ def register(app, managers):
             return json_error("导入内容为空")
 
         try:
-            book, report = wb_mgr.import_book(name, source)
+            book_type = normalize_book_type(requested_type)
+        except ValueError as e:
+            return json_error(str(e), 400)
+
+        try:
+            book, report = wb_mgr.import_book(name, source, book_type=book_type)
         except Exception as e:
             logger.exception("世界书导入失败")
             return json_error(f"导入失败: {e!s}", 500)
@@ -545,6 +595,17 @@ def register(app, managers):
                     return json_error("budget_tokens 必须是整数")
             if "enabled" in data:
                 book.enabled = bool(data["enabled"])
+            if "book_type" in data:
+                try:
+                    new_type = normalize_book_type(data["book_type"])
+                except ValueError as e:
+                    return json_error(str(e), 400)
+                if new_type != book.book_type:
+                    conflict = _reference_conversion_conflict(book)
+                    if conflict:
+                        # 不静默改会话/默认书：说清是哪些会话会被悬空，让用户先处理
+                        return json_error(conflict, 409)
+                    book.book_type = new_type
             wb_mgr.save(book)
             return jsonify({"book": _book_detail(book, include_entries=False)})
 
@@ -1502,6 +1563,8 @@ def register(app, managers):
             return err
         data = request.json or {}
         is_default = bool(data.get("default", True))
+        if is_default and book.is_reference:
+            return json_error("资料库不能设为全局默认书；请选择一本剧情世界书", 409)
         wb_mgr.set_default_book_id(book_id if is_default else None)
         return jsonify({"default_book_id": wb_mgr.get_default_book_id()})
 
@@ -1527,6 +1590,9 @@ def register(app, managers):
                 return err
             if not book.enabled:
                 return json_error("世界书已停用")
+            # 资料库只供浏览/检索/摘录，绑定会话会改变会话的解析结果 → 明确拒绝
+            if book.is_reference:
+                return json_error("资料库不能绑定到会话；请选择一本剧情世界书", 409)
             roster = session.scene_manager.get_scene_characters()
             # v3 书绑定完整规则快照（不只是版本号），会话可据此恢复它创建时的规则。
             scope = (book.session_scope_snapshot(roster) if book.v3_enabled
@@ -1543,14 +1609,52 @@ def register(app, managers):
 
     @bp.route("/api/worldbook/search", methods=["GET"])
     def search_books():
-        """跨书/条目检索：书名、条目名、条目内容、触发词。"""
+        """跨书/条目检索：书名、条目名、条目内容、触发词。
+
+        可选 `book_type=story|reference` 只搜该用途的书（资料库检索是挑条目摘录的主入口）；
+        不传则与旧行为一致，搜全部书。每个命中带来源书完整摘要（含 `book_type`）。
+        """
         q = request.args.get("q", "").strip()
+        book_type = request.args.get("book_type", "").strip()
         limit = request.args.get("limit", "30")
         try:
             limit = max(1, min(100, int(limit)))
         except (TypeError, ValueError):
             limit = 30
-        return jsonify({"results": wb_mgr.search_books(q, limit)})
+        if book_type:
+            try:
+                normalize_book_type(book_type)
+            except ValueError as e:
+                return json_error(str(e), 400)
+        return jsonify({"results": wb_mgr.search_books(q, limit, book_type or None)})
+
+    @bp.route("/api/worldbook/<book_id>/excerpt", methods=["POST"])
+    def excerpt_entries(book_id):
+        """把来源条目摘录进目标剧情世界书（**整批原子**）。
+
+        body:
+            {"items": [
+                {"source_book_id": "...", "source_entry_uid": "...",
+                 # 以下可选：省略即原文照搬
+                 "name": ..., "content": ..., "trigger_keys": [...], "secondary_keys": [...],
+                 "always_active": bool, "position": 0|1, "depth": int, "probability": int,
+                 "category_id": ..., "character_id": ..., "enabled": bool}
+            ]}
+
+        服务端负责：来源书/来源 UID 存在性、目标必须是 story、正文非空、字段类型；
+        目标条目一律生成新 UID，来源不被修改；任一条失败整批不落盘。
+        返回创建条目、目标书新修订与最新摘要。
+        """
+        data = request.json or {}
+        items = data.get("items")
+        with wb_mgr.book_lock(book_id):
+            try:
+                result = wb_mgr.excerpt_entries(book_id, items)
+            except LookupError as e:
+                return json_error(str(e), 404)
+            except ValueError as e:
+                return json_error(str(e), 400)
+        return jsonify(result), 201
 
     @bp.route("/api/worldbook/resolve", methods=["GET"])
     def resolve_book():

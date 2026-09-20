@@ -1,0 +1,115 @@
+# 世界书资料库与剧情世界书分离
+
+大型 IP 世界书（几百上千条设定）整本绑进会话时，候选范围里绝大多数条目跟当前这段剧情无关。解决办法不是让 AI 去猜，而是让**人**从大书里挑几条。
+
+为此把世界书按**用途**分成两类，并提供一个明确的摘录动作把内容从资料库搬进剧情世界书：
+
+| 用途 | `book_type` | 能做什么 |
+|---|---|---|
+| 剧情世界书 | `story` | 绑定会话、设为全局默认、参与候选解析与注入 |
+| 资料库 | `reference` | 浏览、检索、摘录。**不参与任何会话解析**，也不能绑定或设为默认 |
+
+导入一本大书、查阅它、挑选条目、编辑成剧情用稿 —— 全程**不走 AI**。AI 自动构建依赖（`worldbook-on-demand.md`）仍是可选的高级配置，不是这条链路上的必经步骤。
+
+## 数据模型
+
+```jsonc
+{
+  "id": "…", "name": "…",
+  "book_type": "story" | "reference",   // 缺字段按 story 读取
+  "entries": [
+    { "uid": "…", "name": "…", "content": "…",
+      "excerpt_source": {              // 仅摘录进来的条目才有
+        "source_book_id": "…", "source_entry_uid": "…", "source_content_hash": "…",
+        "source_book_name": "…", "source_entry_name": "…", "excerpted_at": 0
+      } }
+  ]
+}
+```
+
+- **缺字段的旧数据一律按 `story` 读取**：既有世界书、会话快照、导出的书全部照旧，不会因为升级就有一本书突然不参与解析。既有 `arknights` 预装包也不会被自动改成资料库。
+- 用途校验只认 `story` / `reference` 两个字面值，非法值直接拒绝（不静默降级 —— 否则用户会以为切换成功了）。
+- 摘录来源三要素（`source_book_id` / `source_entry_uid` / `source_content_hash`）是**最低保留集**：哈希取自来源条目当时正文的 SHA-256，来源后来被改动时可以比对出「这条摘录已过期」。仅在本项目的书 JSON 与项目扩展命名空间内往返，不新增数据库。
+
+## 摘录来源的存放位置
+
+摘录来源既不写进酒馆标准字段，也不丢失：
+
+- **本项目的书 JSON**：条目顶层的 `excerpt_source`。
+- **导出酒馆格式**：只进 `extensions.arknights_tavern.excerpt_source`。酒馆自己认识的字段（`key` / `content` / `constant` / `comment` …）保持干净，其它客户端可忽略该扩展。
+- **回灌**：本应用重新导入自己导出的文件时，`excerpt_source` 与 `book_type` 都能原样读回。
+
+## 不参与解析的保证方式
+
+解析器（`worldbook_scope.py` 的 v2/v3 遍历）是**书内纯计算**，不知道 `book_type`。所以「资料库不参与解析」由**绑定点**保证，而不是去改解析器语义（那会动摇既有会话的范围等价性）：
+
+- 解析入口 `WorldBookManager.resolve()` 无条件排除 `reference`：不因为它被设成默认、被会话绑定、或是预装包就放行。资料库被误设成默认时**宁可显示「没有生效的世界书」**，也不静默换另一本书 —— 换书是用户无法预知的状态变化。
+- 预装回退 `_fallback_preinstalled()` 同样排除。
+- 接口层逐个入口拦住：设为默认（409）、绑定会话（409）、会话创建时绑定（409）。
+
+## 安全的用途切换
+
+把一本**当前是默认书或正被会话绑定**的剧情书改成资料库，会让那些会话指向一本不参与解析的书。这里**拒绝转换并说明原因**（409），列出是默认书、以及被哪些会话绑定，要求用户先处理；而不是静默清空默认指针或改动别人的会话。
+
+反方向（资料库 → 剧情书）没有任何悬空风险，直接允许。
+
+## API
+
+| API | 主要字段 / 行为 |
+|---|---|
+| `GET /api/worldbook` | 摘要新增 `book_type` / `is_reference` |
+| `POST /api/worldbook` | `name`、`budget_tokens`、`book_type`（缺省 `story`，非法值 400） |
+| `POST /api/worldbook/import` | `book_type` 可选；导入物自带的项目扩展优先于调用方传入的缺省值 |
+| `PUT /api/worldbook/<id>` | 支持 `book_type`；非法值 400，会造成悬空状态 409 |
+| `GET /api/worldbook/search` | 新增可选 `book_type` 过滤；不传即搜全部（旧调用行为不变）。命中仍带来源书完整摘要与条目 |
+| `POST /api/worldbook/<id>/excerpt` | 原子摘录。`items[]` 每项含来源定位 + 可选编辑字段 |
+| `POST /api/worldbook/<id>/default` | 资料库返回 409 |
+| `POST /api/worldbook/<id>/bind` | 资料库返回 409 |
+
+### 摘录请求
+
+```jsonc
+POST /api/worldbook/<目标剧情书>/excerpt
+{
+  "items": [
+    { "source_book_id": "…", "source_entry_uid": "…" },              // 原文照搬
+    { "source_book_id": "…", "source_entry_uid": "…",                // 编辑剧情用稿
+      "name": "…", "content": "…", "trigger_keys": ["…"] }
+  ]
+}
+```
+
+可编辑字段：`name` / `content` / `trigger_keys` / `secondary_keys` / `always_active` / `selective` / `enabled` / `position` / `depth` / `scan_depth` / `probability` / `group` / `group_weight` / `case_sensitive` / `match_whole_words` / `category_id` / `character_id`。字段传 `null` 视作「没提供」，沿用来源原值。
+
+服务端校验与服务端职责：
+
+- 来源书存在、来源 UID 存在（404）；缺来源定位、字段类型不对、正文为空 → 400；
+- 目标必须是 `story`（400）；来源可以是 `reference`（主用途）也可以是 `story`（剧情书之间复用）；
+- 目标条目**总是生成新 UID**，来源书不被修改；
+- `trigger_keys` / `secondary_keys` 必须是字符串数组（不接受逗号分隔字符串 —— 正则触发词里含逗号是合法的，切开会静默改掉用户的触发词）；
+- `category_id` 在目标书不存在时退回 `unclassified`；落在角色分类却没给 `character_id` 时拒绝；
+- 摘录来源哈希取自**来源当前正文**（不是编辑稿），所以「来源被改动」可以被检出；
+- **任一条失败整批不落盘**：先在按书锁内全量校验，再一次性保存并递增一次修订号。返回创建条目、目标书最新摘要与新修订号。
+
+## 前端体验
+
+顶层（`WorldBookManager`）明确分成两栏：
+
+- **左侧列表**：`全部 / 剧情世界书 / 资料库` 三档筛选带计数；每本书带用途标签。顶部的「新建 / 导入为」选择器解释两种用途的差别 —— 普通小书直接选「用于剧情」导入即可。
+- **详情默认进入「条目正文」**：分类图谱与 AI 自动构建退到「高级配置」页签，仍是原来的组件与能力，只是不再是第一屏。
+- **资料库详情**：以检索/浏览为主。关键词检索走 `book_type=reference` 的跨书搜索，命中条目可就地「加入剧情世界书」；提交前可改标题、正文、触发词，**默认带入原文**。
+- **资料库不显示**设为默认、会话绑定、启停解析等会误导的动作（它本来就不参与解析）。
+- 条目列表带关键词筛选与分页（每页 50 条 + 「显示更多」），大书不把全书正文一次铺开。
+- 反馈：成功提示带目标书名与新条目数；校验失败（空正文、未选目标、无剧情书可选）与空态（资料库无命中、无条目）都有明确文案。摘录失败时保留草稿，用户不用重填。
+
+纯逻辑集中在 `utils/worldbookLibrary.ts`（无 React、不改入参）：用途判定与缺省、筛选/分组/目标收敛、命中摊平、草稿初始化与载荷折算、提交前校验。
+
+## 与注入纪律的关系
+
+不变：常驻 position-0 条目进稳定层，触发型条目一律进动态层。摘录只是把条目**复制**进剧情世界书，注入行为完全由目标书的既有规则决定；资料库本身不注入。
+
+## 验证
+
+- `tests/test_worldbook_library.py`：旧书默认 story、用途 round-trip（保存/导出/回灌）、`reference` 禁止默认/绑定/解析（含预装回退与 overlay 绑定）、搜索过滤与旧调用兼容、成功摘录、编辑稿摘录、来源追踪、批内部分失败不落盘、并发摘录不丢条目、目标非 story 拒绝、字段类型与空正文校验、分类收敛。
+- `scripts/test_worldbook_library_ui.cjs`：用途判定与缺省、筛选/分组/命中摊平、原文照搬 vs 编辑稿的载荷差异、校验文案，以及组件 SSR 骨架（两种用途都可选、分类图谱不是第一屏）。
+- 前端生产构建：`frontend/` 下 `npm run build`。

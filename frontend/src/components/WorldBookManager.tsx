@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { useAppStore } from "../stores/appStore";
 import type {
@@ -7,6 +7,7 @@ import type {
   WorldBookImportReport,
   WorldBookSummary,
   WorldBookCategoryDTO,
+  WorldBookType,
 } from "../types";
 import SourceBadge from "./SourceBadge";
 import WorldBookGraphIcon from "./WorldBookGraphIcon";
@@ -14,9 +15,27 @@ import "../styles/worldbook-graph.css";
 import { useDialogMinimize } from "../hooks/useDialogMinimize";
 const WorldBookScopeManager = lazy(() => import("./WorldBookScopeManager"));
 import { categoryDescendants, flattenCategoryTree } from "../utils/worldbookScope";
+import {
+  BOOK_TYPE_HINTS,
+  BOOK_TYPE_LABELS,
+  bookTypeOf,
+  draftFromEntry,
+  excerptItemFromDraft,
+  filterBooksByType,
+  flattenLibraryHits,
+  isReference,
+  storyBookTargets,
+  validateExcerptDraft,
+  type BookTypeFilter,
+  type ExcerptDraft,
+  type LibraryHit,
+} from "../utils/worldbookLibrary";
 
 /** 条目编辑器对话框 id（Esc 守卫与恢复入口共用） */
 const ENTRY_EDITOR_DIALOG_ID = "worldbook-entry-editor";
+
+/** 资料库检索一次最多渲染的条目数（大书不把全书正文一次铺开） */
+const LIBRARY_PAGE_SIZE = 50;
 
 /** 条目编辑草稿（触发词/副键用逗号分隔文本编辑） */
 interface EntryDraft {
@@ -111,7 +130,8 @@ export default function WorldBookManager() {
   const [detail, setDetail] = useState<WorldBookDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [detailTab, setDetailTab] = useState<"taxonomy" | "entries">("taxonomy");
+  // 默认进入「条目正文」：分类图谱是高级入口，不该是第一屏
+  const [detailTab, setDetailTab] = useState<"taxonomy" | "entries">("entries");
   useEffect(() => { setCategoryFilter(""); }, [selectedId]);
   const visibleCategories = categoryFilter ? categoryDescendants(detail?.categories || [], categoryFilter) : null;
   const [error, setError] = useState<string | null>(null);
@@ -119,10 +139,28 @@ export default function WorldBookManager() {
   const [importReport, setImportReport] = useState<WorldBookImportReport | null>(null);
   const [importCharacter, setImportCharacter] = useState<{ name: string } | null>(null);
   const [importing, setImporting] = useState(false);
+  const [importType, setImportType] = useState<WorldBookType>("story");
+
+  // 顶层用途筛选 + 新建用途（新建与导入共用同一个「用这本来做什么」选择）
+  const [listFilter, setListFilter] = useState<BookTypeFilter>("all");
 
   // 书元信息编辑
   const [bookName, setBookName] = useState("");
   const [budgetTokens, setBudgetTokens] = useState("0");
+
+  // 条目列表搜索/筛选（大书不一次铺开全文）
+  const [entryQuery, setEntryQuery] = useState("");
+  const [entryLimit, setEntryLimit] = useState(LIBRARY_PAGE_SIZE);
+  useEffect(() => { setEntryQuery(""); setEntryLimit(LIBRARY_PAGE_SIZE); }, [selectedId]);
+
+  // 资料库检索
+  const [libraryQuery, setLibraryQuery] = useState("");
+  const [libraryHits, setLibraryHits] = useState<LibraryHit[]>([]);
+  const [librarySearching, setLibrarySearching] = useState(false);
+  const [librarySearched, setLibrarySearched] = useState(false);
+  const [excerptDraft, setExcerptDraft] = useState<ExcerptDraft | null>(null);
+  const [excerptOriginal, setExcerptOriginal] = useState<WorldBookEntryDTO | null>(null);
+  const [excerptSaving, setExcerptSaving] = useState(false);
 
   // 会话绑定
   const [bindSessionId, setBindSessionId] = useState("");
@@ -144,6 +182,32 @@ export default function WorldBookManager() {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3500);
   }, []);
+
+  // 当前选中的书是否为资料库
+  const detailIsReference = !!detail && isReference(detail);
+  const storyTargets = useMemo(() => storyBookTargets(books), [books]);
+  const visibleBooks = useMemo(() => filterBooksByType(books, listFilter), [books, listFilter]);
+  const counts = useMemo(() => ({
+    all: books.length,
+    story: books.filter((b) => !isReference(b)).length,
+    reference: books.filter((b) => isReference(b)).length,
+  }), [books]);
+
+  // 条目列表：分类筛选 + 关键词筛选（关键词只用于定位，不影响条目本体）
+  const filteredEntries = useMemo(() => {
+    const all = detail?.entries || [];
+    const q = entryQuery.trim().toLowerCase();
+    return all.filter((e) => {
+      if (visibleCategories && !visibleCategories.has(e.category_id || "unclassified")) return false;
+      if (!q) return true;
+      return (
+        (e.name || "").toLowerCase().includes(q)
+        || (e.content || "").toLowerCase().includes(q)
+        || (e.trigger_keys || []).some((k) => k.toLowerCase().includes(q))
+      );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail, categoryFilter, entryQuery]);
 
   // ── 加载书列表 ──
   const loadBooks = useCallback(async () => {
@@ -219,39 +283,46 @@ export default function WorldBookManager() {
 
   // ── 创建书 ──
   const createBook = async () => {
-    const name = window.prompt("新世界书名称：", "未命名世界书");
+    const name = window.prompt(
+      `新${BOOK_TYPE_LABELS[importType]}名称：`,
+      importType === "reference" ? "未命名资料库" : "未命名世界书",
+    );
     if (!name) return;
     try {
-      const res = await api.createWorldbook(name.trim());
+      const res = await api.createWorldbook(name.trim(), 0, importType);
       await loadBooks();
       setSelectedId(res.book.id);
-      showToast("已创建世界书");
+      showToast(`已创建${BOOK_TYPE_LABELS[importType]}`);
     } catch (err: any) {
       showToast(err.message || "创建失败", "error");
     }
   };
 
   // ── 导入 ──
+  const describeImportResult = (res: any) => {
+    if (res.character) {
+      showToast(
+        `角色「${res.character.name}」已导入` +
+        (res.book ? `，内嵌世界书 ${res.report.imported} 条` : "（未发现内嵌世界书）"),
+        "ok"
+      );
+    } else {
+      showToast(`导入完成：${res.report.imported} 条 → ${res.book ? BOOK_TYPE_LABELS[bookTypeOf(res.book)] : ""}`);
+    }
+  };
+
   const onImportFile = async (file: File) => {
     setImporting(true);
     setImportReport(null);
     setImportCharacter(null);
     try {
       const name = file.name.replace(/\.(json|jsonl|txt|png)$/i, "");
-      const res = await api.importWorldbookFile(name, file);
+      const res = await api.importWorldbookFile(name, file, importType);
       setImportReport(res.report);
       if (res.character) setImportCharacter(res.character);
       await loadBooks();
       if (res.book) setSelectedId(res.book.id);
-      if (res.character) {
-        showToast(
-          `角色「${res.character.name}」已导入` +
-          (res.book ? `，内嵌世界书 ${res.report.imported} 条` : "（未发现内嵌世界书）"),
-          "ok"
-        );
-      } else {
-        showToast(`导入完成：${res.report.imported} 条`);
-      }
+      describeImportResult(res);
     } catch (err: any) {
       showToast(err.message || "导入失败", "error");
     } finally {
@@ -271,20 +342,12 @@ export default function WorldBookManager() {
         // 交给后端按 .jsonl 解析
         data = text;
       }
-      const res = await api.importWorldbookJson(name || "导入的世界书", data);
+      const res = await api.importWorldbookJson(name || "导入的世界书", data, importType);
       setImportReport(res.report);
       if (res.character) setImportCharacter(res.character);
       await loadBooks();
       if (res.book) setSelectedId(res.book.id);
-      if (res.character) {
-        showToast(
-          `角色「${res.character.name}」已导入` +
-          (res.book ? `，内嵌世界书 ${res.report.imported} 条` : "（未发现内嵌世界书）"),
-          "ok"
-        );
-      } else {
-        showToast(`导入完成：${res.report.imported} 条`);
-      }
+      describeImportResult(res);
     } catch (err: any) {
       showToast(err.message || "导入失败", "error");
     } finally {
@@ -314,6 +377,77 @@ export default function WorldBookManager() {
       showToast(isDefault ? "已设为全局默认书" : "已取消默认");
     } catch (err: any) {
       showToast(err.message || "操作失败", "error");
+    }
+  };
+
+  /** 切换用途。后端在会造成悬空状态时返回 409，这里原样呈现它的说明。 */
+  const changeBookType = async (id: string, next: WorldBookType) => {
+    const label = BOOK_TYPE_LABELS[next];
+    if (next === "reference" &&
+        !window.confirm(`将这本书改为资料库？\n\n${BOOK_TYPE_HINTS.reference}\n\n现有条目不会被删除。`)) {
+      return;
+    }
+    try {
+      await api.updateWorldbook(id, { book_type: next });
+      await refreshListAfterMutate(id);
+      showToast(`已改为${label}`);
+    } catch (err: any) {
+      showToast(err.message || "切换用途失败", "error");
+    }
+  };
+
+  // ── 资料库检索与摘录 ──
+  const searchLibrary = async () => {
+    const q = libraryQuery.trim();
+    if (!q) {
+      showToast("请输入要检索的关键词", "error");
+      return;
+    }
+    setLibrarySearching(true);
+    try {
+      const res = await api.searchWorldbooks(q, 30, "reference");
+      setLibraryHits(flattenLibraryHits(res.results || []));
+      setLibrarySearched(true);
+    } catch (err: any) {
+      showToast(err.message || "检索失败", "error");
+    } finally {
+      setLibrarySearching(false);
+    }
+  };
+
+  const openExcerpt = (hit: LibraryHit) => {
+    const targets = storyTargets;
+    if (targets.length === 0) {
+      showToast("还没有剧情世界书可加入，请先新建或导入一本「用于剧情」的书。", "error");
+      return;
+    }
+    setExcerptOriginal(hit.entry);
+    setExcerptDraft(draftFromEntry(hit, targets[0].id));
+  };
+
+  const submitExcerpt = async () => {
+    if (!excerptDraft || !excerptOriginal) return;
+    const problem = validateExcerptDraft(excerptDraft, excerptOriginal);
+    if (problem) {
+      showToast(problem, "error");
+      return;
+    }
+    setExcerptSaving(true);
+    try {
+      const res = await api.excerptWorldbookEntries(excerptDraft.targetBookId, [
+        excerptItemFromDraft(excerptDraft, excerptOriginal),
+      ]);
+      const target = res.target;
+      setExcerptDraft(null);
+      setExcerptOriginal(null);
+      await loadBooks();
+      showToast(`已加入《${target.name}》（该书共 ${target.entry_count} 条，修订 ${res.revision}）`);
+      if (selectedId === target.id) await loadDetail(target.id);
+    } catch (err: any) {
+      // 保留草稿：409/400 之后用户还要改
+      showToast(err.message || "加入失败", "error");
+    } finally {
+      setExcerptSaving(false);
     }
   };
 
@@ -509,13 +643,13 @@ export default function WorldBookManager() {
     <div className="flex h-full">
       {/* ═══ 左侧：书列表 + 导入 ═══ */}
       <div className="w-80 border-r border-gray-700 overflow-y-auto p-3 shrink-0">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-2">
           <h2 className="panel-title">世界书</h2>
           <div className="flex gap-1">
             <button
               className="text-xs px-2 py-1 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 transition-colors"
               onClick={createBook}
-              title="新建空书"
+              title={`新建${BOOK_TYPE_LABELS[importType]}`}
             >
               ＋新建
             </button>
@@ -529,6 +663,29 @@ export default function WorldBookManager() {
             </button>
           </div>
         </div>
+
+        {/* 新建 / 导入的用途选择：说清两种用途的差别，普通小书直接当剧情书导入 */}
+        <div className="mb-2 rounded border border-gray-700 bg-gray-800/40 p-2">
+          <p className="text-[11px] text-gray-400 mb-1">新建 / 导入为</p>
+          <div className="flex gap-1 mb-1">
+            {(["story", "reference"] as WorldBookType[]).map((t) => (
+              <button
+                key={t}
+                aria-pressed={importType === t}
+                className={`text-[11px] px-2 py-0.5 rounded ${
+                  importType === t
+                    ? "bg-blue-600/40 text-blue-100"
+                    : "bg-gray-700/60 text-gray-300 hover:bg-gray-600/60"
+                }`}
+                onClick={() => setImportType(t)}
+              >
+                {t === "story" ? "用于剧情" : "存入资料库"}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-gray-500 leading-snug">{BOOK_TYPE_HINTS[importType]}</p>
+        </div>
+
         <input
           ref={fileInputRef}
           type="file"
@@ -540,10 +697,15 @@ export default function WorldBookManager() {
             e.target.value = "";
           }}
         />
-        <p className="text-xs text-gray-500 mb-2 leading-relaxed">
-          支持酒馆世界书导出 JSON（v1/v2）、角色卡内嵌世界书（PNG/JSON，自动连带导入角色）、
-          聊天备份 .jsonl。兼容触发词/副键/常驻/概率/插入位置等语义。
-        </p>
+        <details className="mb-2 text-xs">
+          <summary className="cursor-pointer text-gray-500 hover:text-gray-300 select-none">
+            支持的格式说明
+          </summary>
+          <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+            酒馆世界书导出 JSON（v1/v2）、角色卡内嵌世界书（PNG/JSON，自动连带导入角色）、
+            聊天备份 .jsonl。兼容触发词/副键/常驻/概率/插入位置等语义。
+          </p>
+        </details>
 
         {/* 粘贴导入 */}
         <details className="mb-3 text-xs">
@@ -579,12 +741,29 @@ export default function WorldBookManager() {
 
         {error && <p className="text-red-400 text-xs mb-2">{error}</p>}
 
+        {/* 用途筛选 */}
+        <nav className="wbg-view-tabs mb-2" aria-label="世界书用途筛选">
+          {([["all", "全部"], ["story", "剧情世界书"], ["reference", "资料库"]] as [BookTypeFilter, string][]).map(
+            ([value, label]) => (
+              <button key={value} aria-pressed={listFilter === value} onClick={() => setListFilter(value)}>
+                {label} · {counts[value]}
+              </button>
+            ),
+          )}
+        </nav>
+
         {/* 书列表 */}
         <div className="space-y-1.5">
-          {books.length === 0 && (
-            <p className="text-gray-600 text-xs">还没有世界书，点击「⬆导入」或「＋新建」开始。</p>
+          {visibleBooks.length === 0 && (
+            <p className="text-gray-600 text-xs">
+              {books.length === 0
+                ? "还没有世界书，点击「⬆导入」或「＋新建」开始。"
+                : "该用途下还没有书。"}
+            </p>
           )}
-          {books.map((b) => (
+          {visibleBooks.map((b) => {
+            const reference = isReference(b);
+            return (
             <div
               key={b.id}
               onClick={() => setSelectedId(b.id)}
@@ -592,18 +771,27 @@ export default function WorldBookManager() {
                 selectedId === b.id
                   ? "border-blue-600/60 bg-blue-600/10"
                   : "border-gray-700 bg-gray-800/60 hover:border-gray-600"
-              } ${!b.enabled ? "opacity-60" : ""}`}
+              } ${!b.enabled && !reference ? "opacity-60" : ""}`}
             >
               <div className="flex items-center justify-between gap-1">
                 <span className="text-sm text-gray-200 truncate">{b.name}</span>
                 <span className="flex items-center gap-1 shrink-0">
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      reference
+                        ? "bg-cyan-700/30 text-cyan-200"
+                        : "bg-emerald-700/30 text-emerald-200"
+                    }`}
+                  >
+                    {BOOK_TYPE_LABELS[bookTypeOf(b)]}
+                  </span>
                   <SourceBadge source={b.source} size="xs" />
                   {b.is_default && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600/30 text-amber-300">
                       默认
                     </span>
                   )}
-                  {!b.enabled && (
+                  {!b.enabled && !reference && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">
                       停用
                     </span>
@@ -613,20 +801,24 @@ export default function WorldBookManager() {
               <div className="flex items-center justify-between mt-1 text-[11px] text-gray-500">
                 <span>{b.entry_count} 条 · {sourceLabel(b.source_format)}</span>
                 <span className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    className="hover:text-gray-300"
-                    title={b.enabled ? "停用（不再参与解析）" : "启用"}
-                    onClick={() => toggleEnabled(b)}
-                  >
-                    {b.enabled ? "⏸" : "▶"}
-                  </button>
-                  <button
-                    className="hover:text-gray-300"
-                    title="设为全局默认书"
-                    onClick={() => toggleDefault(b.id, true)}
-                  >
-                    ⭐
-                  </button>
+                  {!reference && (
+                    <button
+                      className="hover:text-gray-300"
+                      title={b.enabled ? "停用（不再参与解析）" : "启用"}
+                      onClick={() => toggleEnabled(b)}
+                    >
+                      {b.enabled ? "⏸" : "▶"}
+                    </button>
+                  )}
+                  {!reference && (
+                    <button
+                      className="hover:text-gray-300"
+                      title="设为全局默认书"
+                      onClick={() => toggleDefault(b.id, true)}
+                    >
+                      ⭐
+                    </button>
+                  )}
                   <button
                     className="hover:text-gray-300"
                     title="导出酒馆格式"
@@ -660,7 +852,8 @@ export default function WorldBookManager() {
                 </span>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -677,6 +870,15 @@ export default function WorldBookManager() {
             {/* ── 书元信息 ── */}
             <div className="mb-4 p-3 rounded-lg bg-gray-800/60 border border-gray-700">
               <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className={`text-[11px] px-2 py-0.5 rounded ${
+                    detailIsReference
+                      ? "bg-cyan-700/40 text-cyan-100"
+                      : "bg-emerald-700/40 text-emerald-100"
+                  }`}
+                >
+                  {BOOK_TYPE_LABELS[bookTypeOf(detail)]}
+                </span>
                 <input
                   className="flex-1 min-w-[160px] bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
                   value={bookName}
@@ -699,11 +901,25 @@ export default function WorldBookManager() {
                 >
                   保存
                 </button>
+                {/* 资料库不显示设为默认：它不参与解析 */}
+                {!detailIsReference && (
+                  <button
+                    className="text-xs px-2 py-1 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40"
+                    onClick={() => toggleDefault(detail.id, !detail.is_default)}
+                  >
+                    {detail.is_default ? "取消默认" : "设为全局默认"}
+                  </button>
+                )}
                 <button
-                  className="text-xs px-2 py-1 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40"
-                  onClick={() => toggleDefault(detail.id, !detail.is_default)}
+                  className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
+                  onClick={() => changeBookType(detail.id, detailIsReference ? "story" : "reference")}
+                  title={
+                    detailIsReference
+                      ? "改为剧情世界书：可绑定会话、设为默认并参与解析"
+                      : "改为资料库：只供浏览、检索与摘录，不参与解析"
+                  }
                 >
-                  {detail.is_default ? "取消默认" : "设为全局默认"}
+                  {detailIsReference ? "改为剧情世界书" : "改为资料库"}
                 </button>
                 <button
                   className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
@@ -730,13 +946,83 @@ export default function WorldBookManager() {
                 <SourceBadge source={detail.source} size="xs" />
                 <span>
                   {detail.entry_count} 条 · 来源 {sourceLabel(detail.source_format)} ·
-                  生效规则：会话绑定 &gt; 全局默认书{detail.is_preinstalled ? " &gt; 预装整合包" : ""}
+                  {detailIsReference
+                    ? "资料库：只供浏览、检索与摘录，不参与会话解析"
+                    : `生效规则：会话绑定 > 全局默认书${detail.is_preinstalled ? " > 预装整合包" : ""}`}
                 </span>
-                {!detail.enabled && <span className="text-red-400">（已停用，不参与解析）</span>}
+                {!detail.enabled && !detailIsReference && (
+                  <span className="text-red-400">（已停用，不参与解析）</span>
+                )}
               </p>
             </div>
 
-            {/* ── 会话绑定 ── */}
+            {/* ── 资料库：跨书检索 + 加入剧情世界书 ── */}
+            {detailIsReference && (
+              <div className="mb-4 p-3 rounded-lg bg-cyan-900/10 border border-cyan-800/40">
+                <h3 className="text-xs text-cyan-200 mb-2">检索资料库，挑条目加入剧情世界书</h3>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input
+                    className="flex-1 min-w-[200px] bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                    placeholder="关键词：角色名 / 地点 / 触发词…"
+                    value={libraryQuery}
+                    onChange={(e) => setLibraryQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") searchLibrary(); }}
+                  />
+                  <button
+                    className="text-xs px-2 py-1 rounded bg-cyan-700/40 text-cyan-100 hover:bg-cyan-700/60 disabled:opacity-50"
+                    onClick={searchLibrary}
+                    disabled={librarySearching}
+                  >
+                    {librarySearching ? "检索中…" : "检索全部资料库"}
+                  </button>
+                  {storyTargets.length === 0 && (
+                    <span className="text-[11px] text-amber-400">
+                      还没有剧情世界书可加入，先新建或导入一本「用于剧情」的书。
+                    </span>
+                  )}
+                </div>
+
+                {librarySearched && libraryHits.length === 0 && (
+                  <p className="text-[11px] text-gray-500 mt-2">
+                    没有匹配的资料条目。换个关键词，或在左侧「全部」里确认资料库已被导入。
+                  </p>
+                )}
+                {libraryHits.length > 0 && (
+                  <div className="mt-2 space-y-1.5 max-h-80 overflow-y-auto">
+                    <p className="text-[11px] text-gray-500">
+                      命中 {libraryHits.length} 条（最多展示 100 条）
+                    </p>
+                    {libraryHits.slice(0, 100).map((hit) => (
+                      <div
+                        key={`${hit.bookId}:${hit.entry.uid}`}
+                        className="flex items-start justify-between gap-2 p-2 rounded border border-gray-700 bg-gray-800/60"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-xs text-gray-200 truncate">
+                            {hit.entry.name || hit.entry.content.slice(0, 24) || "(未命名)"}
+                            <span className="text-[10px] text-gray-500 ml-1.5">
+                              《{hit.bookName}》
+                            </span>
+                          </p>
+                          <p className="text-[11px] text-gray-500 line-clamp-2 mt-0.5">
+                            {hit.entry.content.slice(0, 120)}
+                          </p>
+                        </div>
+                        <button
+                          className="text-xs px-2 py-1 rounded bg-emerald-700/30 text-emerald-200 hover:bg-emerald-700/50 shrink-0"
+                          onClick={() => openExcerpt(hit)}
+                        >
+                          加入剧情世界书
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── 会话绑定：资料库不参与解析，不显示 ── */}
+            {!detailIsReference && (
             <div className="mb-4 p-3 rounded-lg bg-gray-800/60 border border-gray-700">
               <h3 className="text-xs text-gray-400 mb-2">会话绑定</h3>
               <div className="flex items-center gap-2 flex-wrap">
@@ -778,37 +1064,55 @@ export default function WorldBookManager() {
                 )}
               </div>
             </div>
+            )}
 
             <div className="flex items-center justify-between gap-3 mb-3">
               <nav className="wbg-view-tabs" aria-label="世界书管理视图">
-                <button aria-pressed={detailTab === "taxonomy"} onClick={() => { setDetailTab("taxonomy"); setCategoryFilter(""); }}><WorldBookGraphIcon name="graph" size={14} />分类图谱</button>
+                {!detailIsReference && (
+                  <button aria-pressed={detailTab === "taxonomy"} onClick={() => { setDetailTab("taxonomy"); setCategoryFilter(""); }}><WorldBookGraphIcon name="graph" size={14} />高级配置</button>
+                )}
                 <button aria-pressed={detailTab === "entries"} onClick={() => setDetailTab("entries")}><WorldBookGraphIcon name="folder" size={14} />条目正文 · {detail.entries.length}</button>
               </nav>
               {categoryFilter && detailTab === "entries" && <button className="text-xs text-gray-400 hover:text-gray-200" onClick={() => setCategoryFilter("")}>清除分类筛选 ×</button>}
             </div>
 
-            {detailTab === "taxonomy" && <div className="wbg-taxonomy-shell"><Suspense fallback={<p className="text-xs text-gray-400">加载分类图谱…</p>}><WorldBookScopeManager key={detail.id} detail={detail} view="taxonomy" onChanged={() => loadDetail(detail.id)} onCategoryChange={setCategoryFilter} onEditEntry={openEdit} /></Suspense></div>}
+            {detailTab === "taxonomy" && !detailIsReference && <div className="wbg-taxonomy-shell"><Suspense fallback={<p className="text-xs text-gray-400">加载分类图谱…</p>}><WorldBookScopeManager key={detail.id} detail={detail} view="taxonomy" onChanged={() => loadDetail(detail.id)} onCategoryChange={setCategoryFilter} onEditEntry={openEdit} /></Suspense></div>}
 
             {/* ── 条目区 ── */}
             {detailTab === "entries" && <>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
               <h3 className="panel-title">条目（{detail.entries.length}）</h3>
-              <button
-                className="text-xs px-2 py-1 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40"
-                onClick={openCreate}
-              >
-                ＋新增条目
-              </button>
+              <div className="flex items-center gap-2">
+                <input
+                  className="w-48 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200"
+                  placeholder="筛选条目名 / 正文 / 触发词"
+                  value={entryQuery}
+                  onChange={(e) => setEntryQuery(e.target.value)}
+                />
+                <button
+                  className="text-xs px-2 py-1 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40"
+                  onClick={openCreate}
+                >
+                  ＋新增条目
+                </button>
+              </div>
             </div>
 
             {loadingDetail && <p className="text-gray-500 text-xs">加载中…</p>}
 
-            {/* 条目列表 */}
+            {/* 条目列表：先筛选再分页渲染，大书不一次铺开全书正文 */}
             {!loadingDetail && detail.entries.length === 0 && (
-              <p className="text-gray-600 text-xs">本书暂无条目。</p>
+              <p className="text-gray-600 text-xs">
+                {detailIsReference
+                  ? "这本资料库还没有条目。可用上方检索从其它资料库摘录，或在此新增。"
+                  : "本书暂无条目。"}
+              </p>
+            )}
+            {!loadingDetail && detail.entries.length > 0 && filteredEntries.length === 0 && (
+              <p className="text-gray-600 text-xs">没有匹配「{entryQuery}」的条目。</p>
             )}
             <div className="space-y-2">
-              {detail.entries.filter((e) => !visibleCategories || visibleCategories.has(e.category_id || "unclassified")).map((e) => (
+              {filteredEntries.slice(0, entryLimit).map((e) => (
                 <div
                   key={e.uid}
                   className={`p-2.5 rounded-lg border transition-colors ${
@@ -828,6 +1132,14 @@ export default function WorldBookManager() {
                       {e.always_active && (
                         <span className="text-[10px] px-1 py-0.5 rounded bg-purple-600/30 text-purple-300 ml-1">
                           常驻
+                        </span>
+                      )}
+                      {e.excerpt_source && (
+                        <span
+                          className="text-[10px] px-1 py-0.5 rounded bg-cyan-700/30 text-cyan-200 ml-1"
+                          title={`摘录自《${e.excerpt_source.source_book_name || e.excerpt_source.source_book_id}》的条目 ${e.excerpt_source.source_entry_uid}`}
+                        >
+                          摘录
                         </span>
                       )}
                     </span>
@@ -877,6 +1189,17 @@ export default function WorldBookManager() {
                 </div>
               ))}
             </div>
+            {filteredEntries.length > entryLimit && (
+              <div className="mt-2 flex items-center justify-between text-[11px] text-gray-500">
+                <span>已显示 {entryLimit} / {filteredEntries.length} 条（其余仍可被触发词命中）</span>
+                <button
+                  className="px-2 py-0.5 rounded bg-gray-700/60 text-gray-300 hover:bg-gray-600/60"
+                  onClick={() => setEntryLimit((n) => n + LIBRARY_PAGE_SIZE)}
+                >
+                  显示更多
+                </button>
+              </div>
+            )}
             </>}
           </>
         )}
@@ -898,6 +1221,19 @@ export default function WorldBookManager() {
           onChange={handleDraftChange}
           onCancel={cancelEditor}
           onSave={saveEntry}
+        />
+      )}
+
+      {/* ── 摘录：加入剧情世界书（默认带入原文，可先编辑再提交） ── */}
+      {excerptDraft && excerptOriginal && (
+        <ExcerptModal
+          draft={excerptDraft}
+          original={excerptOriginal}
+          targets={storyTargets}
+          saving={excerptSaving}
+          onChange={(patch) => setExcerptDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
+          onCancel={() => { setExcerptDraft(null); setExcerptOriginal(null); }}
+          onSubmit={submitExcerpt}
         />
       )}
 
@@ -1126,6 +1462,146 @@ function EntryEditorModal({
           <span className="ml-auto text-[10px] text-gray-600 self-center">
             Ctrl+Enter 保存 · Esc 关闭
           </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 摘录模态框：选目标剧情世界书 + 提交前编辑标题/正文/触发词（默认带入原文） */
+function ExcerptModal({
+  draft,
+  original,
+  targets,
+  saving,
+  onChange,
+  onCancel,
+  onSubmit,
+}: {
+  draft: ExcerptDraft;
+  original: WorldBookEntryDTO;
+  targets: WorldBookSummary[];
+  saving: boolean;
+  onChange: (patch: Partial<ExcerptDraft>) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const dialog = useDialogMinimize("worldbook-excerpt", "加入剧情世界书", true);
+  const contentChanged = draft.content !== (original.content || "");
+  const item = excerptItemFromDraft(draft, original);
+  const editedFields = Object.keys(item).filter(
+    (key) => key !== "source_book_id" && key !== "source_entry_uid",
+  );
+
+  return (
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 ${dialog.minimizedClass}`}
+      onClick={onCancel}
+    >
+      <div
+        ref={dialog.containerRef}
+        tabIndex={-1}
+        className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-lg border border-cyan-700/40 bg-gray-900 shadow-2xl outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 shrink-0">
+          <h3 className="text-sm text-cyan-200 truncate">加入剧情世界书</h3>
+          <div className="flex items-center gap-1">
+            <button
+              className="text-gray-400 hover:text-gray-200 text-sm px-1 shrink-0"
+              onClick={dialog.minimize}
+              title="最小化（保留草稿）"
+              aria-label="最小化对话框"
+            >
+              —
+            </button>
+            <button
+              className="text-gray-400 hover:text-gray-200 text-sm px-1 shrink-0"
+              onClick={onCancel}
+              title="关闭（Esc）"
+              aria-label="关闭对话框"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-y-auto p-4">
+          <p className="text-[11px] text-gray-500 mb-3">
+            来源：《{draft.sourceBookName}》 · 条目 {draft.sourceEntryUid}
+            <span className="ml-1">（来源书不会被修改；目标书会生成新 UID）</span>
+          </p>
+          <div className="grid grid-cols-1 gap-3">
+            <label className="text-xs text-gray-400">
+              加入哪本剧情世界书
+              <select
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                value={draft.targetBookId}
+                onChange={(e) => onChange({ targetBookId: e.target.value })}
+              >
+                {targets.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}（{b.entry_count} 条）
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-gray-400">
+              标题
+              <input
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                value={draft.name}
+                onChange={(e) => onChange({ name: e.target.value })}
+              />
+            </label>
+            <label className="text-xs text-gray-400">
+              正文
+              {contentChanged && <span className="ml-1 text-amber-400">（已改写）</span>}
+              <textarea
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 min-h-[140px]"
+                value={draft.content}
+                onChange={(e) => onChange({ content: e.target.value })}
+              />
+            </label>
+            <label className="text-xs text-gray-400">
+              触发词（逗号分隔）
+              <input
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                value={draft.triggerKeysText}
+                onChange={(e) => onChange({ triggerKeysText: e.target.value })}
+              />
+            </label>
+            <label className="text-xs text-gray-400">
+              副键（逗号分隔）
+              <input
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                value={draft.secondaryKeysText}
+                onChange={(e) => onChange({ secondaryKeysText: e.target.value })}
+              />
+            </label>
+          </div>
+          <p className="mt-3 text-[11px] text-gray-500">
+            {editedFields.length === 0
+              ? "未做任何编辑：将完整复制原文条目。"
+              : `将按你的编辑提交：${editedFields.join("、")}`}
+          </p>
+        </div>
+
+        <div className="flex gap-2 px-4 py-3 border-t border-gray-700 shrink-0">
+          <button
+            className="text-xs px-3 py-1 rounded bg-cyan-700 text-white hover:bg-cyan-600 disabled:opacity-50"
+            onClick={onSubmit}
+            disabled={saving || !draft.targetBookId}
+          >
+            {saving ? "提交中…" : "加入剧情世界书"}
+          </button>
+          <button
+            className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-50"
+            onClick={onCancel}
+            disabled={saving}
+          >
+            取消
+          </button>
         </div>
       </div>
     </div>

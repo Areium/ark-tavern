@@ -149,6 +149,9 @@ def register(app, managers):
             book = wb_mgr.load(worldbook_id) if worldbook_id and wb_mgr else None
             if worldbook_id and (book is None or not book.enabled):
                 return json_error("世界书不存在或已停用", 404)
+            # 资料库只供浏览/检索/摘录，不能参与会话解析，也不能被会话绑定。
+            if book is not None and book.is_reference:
+                return json_error("资料库不能绑定到会话；请选择一本剧情世界书", 409)
             # 旧客户端未传此字段时沿用默认书；新客户端空字符串表示明确不绑定。
             if "worldbook_id" not in data and wb_mgr:
                 book = wb_mgr.resolve()

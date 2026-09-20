@@ -388,14 +388,14 @@ export function useApi() {
     // ── 世界书（酒馆 Lorebook 兼容） ──
     listWorldbooks: () =>
       request<{ books: import("../types").WorldBookSummary[] }>("/api/worldbook"),
-    createWorldbook: (name: string, budgetTokens = 0) =>
+    createWorldbook: (name: string, budgetTokens = 0, bookType?: import("../types").WorldBookType) =>
       request<{ book: import("../types").WorldBookSummary }>("/api/worldbook", {
         method: "POST",
-        body: JSON.stringify({ name, budget_tokens: budgetTokens }),
+        body: JSON.stringify({ name, budget_tokens: budgetTokens, book_type: bookType }),
       }),
     getWorldbook: (id: string) =>
       request<import("../types").WorldBookDetail>(`/api/worldbook/${encodeURIComponent(id)}`),
-    updateWorldbook: (id: string, data: { name?: string; budget_tokens?: number; enabled?: boolean }) =>
+    updateWorldbook: (id: string, data: { name?: string; budget_tokens?: number; enabled?: boolean; book_type?: import("../types").WorldBookType }) =>
       request<{ book: import("../types").WorldBookSummary }>(`/api/worldbook/${encodeURIComponent(id)}`, {
         method: "PUT",
         body: JSON.stringify(data),
@@ -411,16 +411,23 @@ export function useApi() {
     reinstallWorldbook: (id: string) =>
       request<{ book: import("../types").WorldBookSummary }>(
         `/api/worldbook/${encodeURIComponent(id)}/reinstall`, { method: "POST" }),
-    searchWorldbooks: (q: string, limit = 30) =>
+    searchWorldbooks: (q: string, limit = 30, bookType?: import("../types").WorldBookType) =>
       request<{ results: import("../types").WorldBookSearchHit[] }>(
-        `/api/worldbook/search?q=${encodeURIComponent(q)}&limit=${limit}`),
-    importWorldbookJson: (name: string, data: any) =>
+        `/api/worldbook/search?q=${encodeURIComponent(q)}&limit=${limit}` +
+        (bookType ? `&book_type=${encodeURIComponent(bookType)}` : "")),
+    importWorldbookJson: (name: string, data: any, bookType?: import("../types").WorldBookType) =>
       request<import("../types").WorldBookImportResult>("/api/worldbook/import", {
         method: "POST",
-        body: JSON.stringify({ name, data }),
+        body: JSON.stringify({ name, data, book_type: bookType }),
       }),
-    importWorldbookFile: (name: string, file: File) =>
-      uploadMultipart("/api/worldbook/import", { name }, file),
+    importWorldbookFile: (name: string, file: File, bookType?: import("../types").WorldBookType) =>
+      uploadMultipart("/api/worldbook/import", { name, book_type: bookType || "" }, file),
+    excerptWorldbookEntries: (targetBookId: string, items: import("../types").WorldBookExcerptItemDTO[]) =>
+      request<import("../types").WorldBookExcerptResultDTO>(
+        `/api/worldbook/${encodeURIComponent(targetBookId)}/excerpt`, {
+          method: "POST",
+          body: JSON.stringify({ items }),
+        }),
     exportWorldbook: (id: string) =>
       request<{ name: string; format: string; data: any }>(
         `/api/worldbook/${encodeURIComponent(id)}/export`),

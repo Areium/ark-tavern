@@ -68,6 +68,33 @@ SOURCE_JSONL = "chat_backup_jsonl"
 SOURCE_MANUAL = "manual"
 SOURCE_PREINSTALLED = "preinstalled"
 
+# ── 书用途（book_type）──
+# story     ：剧情世界书，可绑定会话、设为默认并参与解析
+# reference ：资料库，只供浏览 / 检索 / 摘录，不参与任何会话解析
+BOOK_TYPE_STORY = "story"
+BOOK_TYPE_REFERENCE = "reference"
+BOOK_TYPES = (BOOK_TYPE_STORY, BOOK_TYPE_REFERENCE)
+
+# 旧数据缺字段时一律按 story 读取（既有世界书、会话快照与导出保持兼容）
+DEFAULT_BOOK_TYPE = BOOK_TYPE_STORY
+
+
+def normalize_book_type(value, default: str = DEFAULT_BOOK_TYPE) -> str:
+    """把外部传入的用途值规范化为合法取值；非法值抛 ValueError。
+
+    `None` / 空串代表「未指定」，回落到 default —— 这是缺字段的兼容路径。
+    非空但不在白名单内的值一律拒绝，不静默降级成 story（否则用户会以为
+    一本资料库已经变成剧情书）。
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return default
+    if not isinstance(value, str):
+        raise ValueError("book_type 必须是字符串")
+    value = value.strip()
+    if value not in BOOK_TYPES:
+        raise ValueError(f"book_type 必须是 {' 或 '.join(BOOK_TYPES)}")
+    return value
+
 DEFAULT_CATEGORIES = [
     {"id": "worldview", "parent_id": None, "name": "世界观设定", "scope_type": "worldview", "sort_order": 10},
     {"id": "characters", "parent_id": None, "name": "角色", "scope_type": "character", "sort_order": 20},
@@ -139,10 +166,13 @@ class WorldBookEntry:
     # 应用私有元数据；不参与酒馆匹配语义，仅用于会话按需载入。
     category_id: str = ""
     character_id: str = ""
+    # 摘录来源追踪：从资料库（或其它书）摘录入口条目时保留可追溯来源。
+    # 只在本项目的 book JSON 与项目扩展命名空间内往返，不写进酒馆标准字段。
+    excerpt_source: dict = field(default_factory=dict)
     raw: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "uid": self.uid,
             "name": self.name,
             "content": self.content,
@@ -163,6 +193,10 @@ class WorldBookEntry:
             "character_id": self.character_id,
             "raw": self.raw,
         }
+        # 只有真的摘录过的条目才带来源，普通条目序列化形态保持不变
+        if self.excerpt_source:
+            data["excerpt_source"] = copy.deepcopy(self.excerpt_source)
+        return data
 
     @staticmethod
     def from_dict(data: dict) -> "WorldBookEntry":
@@ -185,8 +219,29 @@ class WorldBookEntry:
             match_whole_words=bool(data.get("match_whole_words", False)),
             category_id=str(data.get("category_id", "") or ""),
             character_id=str(data.get("character_id", "") or ""),
+            excerpt_source=_normalize_excerpt_source(data.get("excerpt_source")),
             raw=dict(data.get("raw") or {}),
         )
+
+
+#: 摘录来源追踪的最小字段集（round-trip 不丢失）
+EXCERPT_SOURCE_FIELDS = ("source_book_id", "source_entry_uid", "source_content_hash")
+
+
+def _normalize_excerpt_source(value) -> dict:
+    """规范化摘录来源；缺关键字段时返回空 dict（视作没有来源）。"""
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    for key in EXCERPT_SOURCE_FIELDS:
+        text = str(value.get(key) or "").strip()
+        if not text:
+            return {}
+        result[key] = text
+    for key in ("source_book_name", "source_entry_name", "excerpted_at"):
+        if value.get(key) not in (None, ""):
+            result[key] = value[key]
+    return result
 
 
 # ─────────────────────────────────────────────────────────────
@@ -315,6 +370,7 @@ def _normalize_entry(raw_entry: dict, index: int, warnings: list) -> Optional[Wo
                                           default=False), False),
         category_id=str(scope_meta.get("category_id", "") or ""),
         character_id=str(scope_meta.get("character_id", "") or ""),
+        excerpt_source=_normalize_excerpt_source(scope_meta.get("excerpt_source")),
         raw=copy.deepcopy(raw_entry),
     )
 
@@ -604,6 +660,9 @@ class WorldBook:
 
     source: "preinstalled"（随程序分发的整合包安装副本）| "imported"（用户导入/新建）
     enabled: 书级启用开关，停用的书不参与解析。
+    book_type: "story"（剧情世界书，可绑定会话/设为默认/参与解析）|
+               "reference"（资料库，只供浏览、检索与摘录，不参与任何解析）。
+               缺字段的旧数据一律按 story 读取。
     pack_rev: 预装包内容指纹（安装/刷新时写入）。用于判断安装副本是否落后于分发源；
               随书持久化，这样用户在界面上编辑预装书后不会被下次启动误判成「旧版本」而覆盖。
     所有书统一管理、统一可写；预装包删除后可从分发源一键重装。
@@ -616,11 +675,12 @@ class WorldBook:
                  categories: list = None, dependency_edges: list = None,
                  import_config: dict = None, scope_mode: str = None,
                  dependency_rules: dict = None, related_edges: list = None,
-                 policy_revisions: list = None):
+                 policy_revisions: list = None, book_type: str = DEFAULT_BOOK_TYPE):
         self.id = book_id
         self.name = name or book_id
         self.source_format = source_format
         self.budget_tokens = budget_tokens  # 0 = 不限制
+        self.book_type = normalize_book_type(book_type)
         # source: "preinstalled"（随程序分发的整合包，安装副本）| "imported"（用户导入）
         self.source = source if source in (SOURCE_PREINSTALLED, "imported") else "imported"
         self.enabled = bool(enabled)
@@ -684,6 +744,11 @@ class WorldBook:
     def v3_enabled(self) -> bool:
         """是否按 v3 规则解析（否则沿用 v2 语义，旧会话不受影响）。"""
         return self.dependency_rules is not None
+
+    @property
+    def is_reference(self) -> bool:
+        """资料库：只浏览、检索、摘录，不参与会话解析，也不能设为默认或被绑定。"""
+        return self.book_type == BOOK_TYPE_REFERENCE
 
     def rules_snapshot(self, revision: int = None) -> dict:
         """返回可恢复的规则快照：优先取指定修订的不可变版本，否则用当前规则。"""
@@ -806,6 +871,7 @@ class WorldBook:
             "budget_tokens": self.budget_tokens,
             "source": self.source,
             "enabled": self.enabled,
+            "book_type": self.book_type,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "entries": [e.to_dict() for e in self.entries],
@@ -846,6 +912,8 @@ class WorldBook:
             dependency_rules=data.get("dependency_rules"),
             related_edges=data.get("related_edges"),
             policy_revisions=data.get("policy_revisions"),
+            # 缺字段 → story（既有世界书 / 会话快照 / 导出全部照旧）
+            book_type=data.get("book_type"),
         )
         book.created_at = float(data.get("created_at", time.time()))
         book.updated_at = float(data.get("updated_at", time.time()))
@@ -1390,13 +1458,18 @@ class WorldBook:
             out["matchWholeWords"] = entry.match_whole_words
             out["displayIndex"] = out.get("displayIndex", i)
             extensions = out.get("extensions")
+            meta = {"category_id": entry.category_id, "character_id": entry.character_id}
+            # 摘录来源只进项目扩展命名空间：酒馆标准字段保持干净，
+            # 本应用再次导入时可原样回灌（见 export_st 顶部的兼容说明）。
+            if entry.excerpt_source:
+                meta["excerpt_source"] = copy.deepcopy(entry.excerpt_source)
             out["extensions"] = {**(extensions if isinstance(extensions, dict) else {}),
-                                 EXTENSION_KEY: {"category_id": entry.category_id,
-                                                 "character_id": entry.character_id}}
+                                 EXTENSION_KEY: meta}
             key = str(out.get("uid", i))
             entries_map[key] = out
         extension = {EXTENSION_KEY: {
             "schema_version": self.schema_version, "scope_mode": self.scope_mode,
+            "book_type": self.book_type,
             "categories": copy.deepcopy(self.categories),
             "dependency_edges": copy.deepcopy(self.dependency_edges),
             "import_config": copy.deepcopy(self.import_config),
@@ -1463,6 +1536,120 @@ def apply_auto_classification(book: WorldBook, first_install: bool = False):
     if first_install:
         book.scope_mode = "selective"
     return result
+
+
+# ─────────────────────────────────────────────────────────────
+# 摘录（资料库 → 剧情世界书）
+# ─────────────────────────────────────────────────────────────
+
+#: 摘录时允许覆盖的编辑字段（其余字段一律沿用来源条目）
+EXCERPT_EDITABLE_FIELDS = (
+    "name", "content", "trigger_keys", "secondary_keys", "always_active",
+    "selective", "enabled", "position", "depth", "scan_depth", "probability",
+    "group", "group_weight", "case_sensitive", "match_whole_words",
+    "category_id", "character_id",
+)
+
+
+def _coerce_excerpt_list(value, field: str, index: int) -> list[str]:
+    """把摘录请求里的关键词字段规范化为字符串数组；类型不对就报错。
+
+    接口契约是数组：这里**不接受**逗号分隔的字符串 —— 关键词里含逗号是完全合法的
+    （正则触发词很常见），把字符串当分隔符切开会静默改掉用户的触发词。
+    """
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"第 {index + 1} 条摘录的 {field} 必须是字符串数组")
+    result = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"第 {index + 1} 条摘录的 {field} 只能包含字符串")
+        text = item.strip()
+        if text:
+            result.append(text)
+    return result
+
+
+def _coerce_excerpt_text(value, field: str, index: int) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"第 {index + 1} 条摘录的 {field} 必须是字符串")
+    return value
+
+
+def _coerce_excerpt_int(value, field: str, index: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"第 {index + 1} 条摘录的 {field} 必须是整数")
+    return value
+
+
+def _coerce_excerpt_bool(value, field: str, index: int) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"第 {index + 1} 条摘录的 {field} 必须是布尔值")
+    return value
+
+
+def _build_excerpt_entry(target: WorldBook, source_book: WorldBook,
+                         source_entry: WorldBookEntry, request: dict,
+                         index: int) -> WorldBookEntry:
+    """按「原文照搬 + 可选编辑字段」构造一条属于目标书的新条目。
+
+    新条目总是拿新 UID；来源不被修改；来源追踪三要素（source_book_id /
+    source_entry_uid / source_content_hash）取自**来源条目的当前正文**，
+    因此摘录之后来源被改动时能比对出「这条摘录已过期」。
+    """
+    entry = WorldBookEntry(uid="", content=source_entry.content)
+    for field_name in EXCERPT_EDITABLE_FIELDS:
+        if field_name in request and request[field_name] is not None:
+            setattr(entry, field_name, request[field_name])
+        else:
+            setattr(entry, field_name, copy.deepcopy(getattr(source_entry, field_name)))
+
+    # ── 逐字段校验（构造阶段一口气验完，不留半成品） ──
+    entry.name = _coerce_excerpt_text(entry.name, "name", index)
+    entry.content = _coerce_excerpt_text(entry.content, "content", index)
+    entry.trigger_keys = _coerce_excerpt_list(entry.trigger_keys, "trigger_keys", index)
+    entry.secondary_keys = _coerce_excerpt_list(entry.secondary_keys, "secondary_keys", index)
+    entry.group = _coerce_excerpt_text(entry.group, "group", index)
+    entry.category_id = _coerce_excerpt_text(entry.category_id or "", "category_id", index)
+    entry.character_id = _coerce_excerpt_text(entry.character_id or "", "character_id", index)
+    for bool_field in ("always_active", "selective", "enabled",
+                       "case_sensitive", "match_whole_words"):
+        setattr(entry, bool_field, _coerce_excerpt_bool(getattr(entry, bool_field), bool_field, index))
+    for int_field in ("position", "depth", "scan_depth", "probability",
+                      "group_weight"):
+        setattr(entry, int_field, _coerce_excerpt_int(getattr(entry, int_field), int_field, index))
+
+    if not entry.content.strip():
+        raise ValueError(f"第 {index + 1} 条摘录的正文不能为空")
+    if entry.probability < 0 or entry.probability > 100:
+        raise ValueError(f"第 {index + 1} 条摘录的 probability 必须在 0–100 之间")
+    if entry.position not in (0, 1):
+        raise ValueError(f"第 {index + 1} 条摘录的 position 只能是 0 或 1")
+    for int_field in ("depth", "scan_depth", "group_weight"):
+        if getattr(entry, int_field) < 0:
+            raise ValueError(f"第 {index + 1} 条摘录的 {int_field} 不能为负数")
+
+    # 分类必须在目标书里真实存在；否则退回未分类（不把条目放进不存在的分类）
+    known_categories = {c["id"] for c in target.categories}
+    if entry.category_id not in known_categories:
+        entry.category_id = "unclassified"
+    if target.category_scope_type(entry.category_id) != "character":
+        # 非角色分类不得带角色关联（与 _validate_entry_scope 同口径）
+        entry.character_id = ""
+    elif not entry.character_id.strip():
+        raise ValueError(f"第 {index + 1} 条摘录落在角色分类，必须指定关联角色")
+
+    entry.uid = uuid.uuid4().hex[:12]
+    entry.raw = copy.deepcopy(source_entry.raw)
+    entry.excerpt_source = {
+        "source_book_id": source_book.id,
+        "source_book_name": source_book.name,
+        "source_entry_uid": source_entry.uid,
+        "source_entry_name": source_entry.name,
+        "source_content_hash": hashlib.sha256(
+            source_entry.content.encode("utf-8")).hexdigest(),
+        "excerpted_at": time.time(),
+    }
+    return entry
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1623,6 +1810,16 @@ class WorldBookManager:
         return self._load_settings().get("default_book_id")
 
     def set_default_book_id(self, book_id: Optional[str]):
+        """设置全局默认书。
+
+        资料库不得成为默认书（它不参与解析）。读取旧 settings 时也做防御性校验：
+        即便默认指针指向一本资料库（历史数据 / 手工编辑），这里也只记录下来，
+        真正的拦截在 `resolve()` —— 见那里的说明。
+        """
+        if book_id:
+            book = self.load(book_id)
+            if book is not None and book.is_reference:
+                raise ValueError("资料库不能设为全局默认书；请在剧情世界书中选择")
         settings = self._load_settings()
         settings["default_book_id"] = book_id
         self._save_settings(settings)
@@ -1660,6 +1857,8 @@ class WorldBookManager:
             "name": book.name,
             "source_format": book.source_format,
             "source": book.source,
+            "book_type": book.book_type,
+            "is_reference": book.is_reference,
             "is_preinstalled": self.is_preinstalled(book.id),
             "enabled": book.enabled,
             "budget_tokens": book.budget_tokens,
@@ -1702,16 +1901,23 @@ class WorldBookManager:
 
     def create_book(self, name: str, entries: list = None,
                     source_format: str = SOURCE_MANUAL,
-                    budget_tokens: int = 0) -> WorldBook:
+                    budget_tokens: int = 0,
+                    book_type: str = DEFAULT_BOOK_TYPE) -> WorldBook:
         book_id = uuid.uuid4().hex[:12]
         book = WorldBook(book_id, name=name, entries=entries,
                          source_format=source_format, budget_tokens=budget_tokens,
-                         source="imported", categories=copy.deepcopy(DEFAULT_CATEGORIES))
+                         source="imported", categories=copy.deepcopy(DEFAULT_CATEGORIES),
+                         book_type=book_type)
         self.save(book)
         return book
 
-    def import_book(self, name: str, source) -> tuple[WorldBook, ImportReport]:
-        """解析并创建一本书。source 为 dict 或 str（JSON/JSONL 文本）。"""
+    def import_book(self, name: str, source,
+                    book_type: str = DEFAULT_BOOK_TYPE) -> tuple[WorldBook, ImportReport]:
+        """解析并创建一本书。source 为 dict 或 str（JSON/JSONL 文本）。
+
+        `book_type` 默认 story（普通小书直接当剧情书导入）；导入物自带项目扩展时以
+        扩展里的用途为准 —— 那才是这本书自己的声明，显式参数只作为缺省。
+        """
         entries, report = parse_lorebook(source)
         obj = source
         if isinstance(source, str):
@@ -1720,8 +1926,12 @@ class WorldBookManager:
             except ValueError:
                 obj = None
         extension = find_scope_extension(obj)
+        resolved_type = book_type
+        if extension and extension.get("book_type") is not None:
+            resolved_type = normalize_book_type(extension.get("book_type"), book_type)
         book = WorldBook(uuid.uuid4().hex[:12], name or "导入的世界书", entries,
-                         source_format=report.source_format, scope_mode="legacy")
+                         source_format=report.source_format, scope_mode="legacy",
+                         book_type=resolved_type)
         if extension:
             if not isinstance(extension.get("import_config", {}), dict):
                 raise ValueError("导入的 import_config 必须是对象")
@@ -1770,6 +1980,7 @@ class WorldBookManager:
             dependency_rules=copy.deepcopy(book.dependency_rules),
             related_edges=copy.deepcopy(book.related_edges),
             policy_revisions=copy.deepcopy(book.policy_revisions),
+            book_type=book.book_type,
         )
         new_book.created_at = time.time()
         new_book.updated_at = time.time()
@@ -1808,9 +2019,17 @@ class WorldBookManager:
 
     # ── 检索 ──
 
-    def search_books(self, q: str, limit: int = 30) -> list[dict]:
-        """跨书/条目检索：书名、条目名、条目内容、触发词（仅检索已安装的书）。"""
+    def search_books(self, q: str, limit: int = 30, book_type: str = None) -> list[dict]:
+        """跨书/条目检索：书名、条目名、条目内容、触发词（仅检索已安装的书）。
+
+        `book_type` 为空时检索全部书（旧调用行为不变）；传 `story` / `reference`
+        时只返回该用途的书 —— 资料库检索是「挑条目摘录」的主要入口。
+        每个命中都带来源书的完整摘要（含 `book_type`），前端据此展示来源与可用动作。
+        """
         q = (q or "").strip().lower()
+        wanted = normalize_book_type(book_type, default="") if book_type else None
+        if wanted == "":
+            wanted = None
         if not q:
             return []
         default_id = self.get_default_book_id()
@@ -1823,6 +2042,10 @@ class WorldBookManager:
             try:
                 book = self.load(path.stem)
             except Exception:
+                continue
+            if book is None:
+                continue
+            if wanted is not None and book.book_type != wanted:
                 continue
             matched_entries = [
                 e for e in book.entries
@@ -1843,10 +2066,88 @@ class WorldBookManager:
                 break
         return results
 
+    # ── 条目摘录（资料库 → 剧情世界书） ──
+
+    def excerpt_entries(self, target_book_id: str, items: list) -> dict:
+        """把来源条目复制到目标书，**整批原子生效**。
+
+        每条 `items[i]` 形如：
+            {"source_book_id": "...", "source_entry_uid": "...",
+             # 可选编辑字段，缺省即原文照搬
+             "name": ..., "content": ..., "trigger_keys": [...], "secondary_keys": [...],
+             "always_active": bool, "position": int, "depth": int, "probability": int,
+             "category_id": ..., "character_id": ..., "enabled": bool}
+
+        语义与校验：
+        - 来源可以是 `reference`（资料库，主用途）也可以是 `story`，便于剧情书之间复用；
+        - 目标必须是 `story`：资料库不接受摘录写入（否则会把资料库变成剧情内容载体）；
+        - 目标条目**总是生成新 UID**，来源书不被修改；
+        - 正文非空、来源书/来源 UID 必须存在、`content` 为字符串、关键词为非字符串数组时
+          直接拒绝；
+        - 任一条失败 → 整批不落盘（在按书锁内先全量校验，再一次性保存）。
+
+        返回 `{"entries": [...], "target": {...摘要...}, "revision": 新修订号, "warnings": []}`。
+        """
+        items = items if isinstance(items, list) else None
+        if not items:
+            raise ValueError("excerpt 需要至少一条条目")
+
+        target = self.load(target_book_id)
+        if target is None:
+            raise LookupError("目标世界书不存在")
+        if target.is_reference:
+            raise ValueError("资料库不能作为摘录目标；请选择一本剧情世界书")
+
+        # 来源书按 id 缓存，避免一本多摘时重复读盘；全部解析完再动手，保证「要么全成」
+        source_cache: dict[str, WorldBook] = {}
+        prepared: list[dict] = []
+
+        for index, raw in enumerate(items):
+            if not isinstance(raw, dict):
+                raise ValueError(f"第 {index + 1} 条摘录请求必须是对象")
+            source_book_id = str(raw.get("source_book_id") or "").strip()
+            source_entry_uid = str(raw.get("source_entry_uid") or "").strip()
+            if not source_book_id or not source_entry_uid:
+                raise ValueError(f"第 {index + 1} 条摘录缺少来源书或来源条目 UID")
+            if source_book_id not in source_cache:
+                book = self.load(source_book_id)
+                if book is None:
+                    raise LookupError(f"来源世界书不存在：{source_book_id}")
+                source_cache[source_book_id] = book
+            source_book = source_cache[source_book_id]
+            source_entry = next(
+                (e for e in source_book.entries if e.uid == source_entry_uid), None)
+            if source_entry is None:
+                raise LookupError(
+                    f"来源条目不存在：{source_book_id} / {source_entry_uid}")
+            prepared.append(
+                _build_excerpt_entry(target, source_book, source_entry, raw, index))
+
+        # ── 到这里为止都还没写盘：任一条不合法都已抛出 ──
+        created = []
+        for built in prepared:
+            target.entries.append(built)
+            created.append(built)
+        target.import_config["revision"] = target.import_config.get("revision", 1) + 1
+        self.save(target)
+
+        return {
+            "entries": [e.to_dict() for e in created],
+            "target": self._summary(target, self.get_default_book_id()),
+            "revision": target.import_config["revision"],
+            "warnings": [],
+        }
+
     # ── 会话绑定解析 ──
 
     def resolve(self, overlay=None) -> Optional[WorldBook]:
         """解析会话当前生效的世界书：会话绑定 > 全局默认书 > 已安装且启用的预装包。
+
+        **资料库（book_type=reference）在这里被无条件排除**，无论它是不是默认书、
+        有没有被会话绑定、或者是不是预装包 —— 资料库只供浏览、检索与摘录。
+        正常情况下接口层已拒绝把资料库设为默认/绑定到会话；这里的判断是防御性的
+        兜底（历史数据、手工改过的 settings、并发改名等），保证「不参与解析」这条
+        硬约束不依赖任何一个入口的校验。
 
         Args:
             overlay: SessionOverlay 实例（可空）。
@@ -1858,7 +2159,7 @@ class WorldBookManager:
             if scope is not None:
                 book_id = scope.get("book_id")
                 book = self.load(book_id) if book_id else None
-                return book if book and book.enabled else None
+                return book if book and book.enabled and not book.is_reference else None
             try:
                 book_id = overlay.get_worldbook_id()
             except Exception:
@@ -1876,11 +2177,16 @@ class WorldBookManager:
         if book is None or not book.enabled:
             logger.info("世界书 %s 不存在或已停用，回退预装包", book_id)
             return self._fallback_preinstalled()
+        if book.is_reference:
+            # 不静默换成另一本书：资料库被误设成默认时宁可显示「没有生效的世界书」
+            logger.warning("世界书 %s 是资料库（reference），不参与解析", book_id)
+            return None
         return book
 
     def _fallback_preinstalled(self) -> Optional[WorldBook]:
         for bid in _PACK_FALLBACK_IDS:
             book = self.load(bid)
-            if book is not None and book.source == SOURCE_PREINSTALLED and book.enabled:
+            if (book is not None and book.source == SOURCE_PREINSTALLED
+                    and book.enabled and not book.is_reference):
                 return book
         return None

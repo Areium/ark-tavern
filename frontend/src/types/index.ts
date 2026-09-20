@@ -644,6 +644,9 @@ export interface SessionResourcesDTO {
 
 // ── 世界书（酒馆 Lorebook 兼容） ──
 
+/** 世界书用途：story 剧情世界书（可绑定会话/设为默认/参与解析）；reference 资料库（只浏览、检索、摘录） */
+export type WorldBookType = "story" | "reference";
+
 /** 世界书摘要（列表项） */
 export interface WorldBookSummary {
   id: string;
@@ -651,6 +654,10 @@ export interface WorldBookSummary {
   source_format: string;
   /** 来源：preinstalled（预装整合包）/ imported（用户导入）——统一管理，均可编辑 */
   source: "preinstalled" | "imported";
+  /** 用途：剧情世界书 / 资料库。缺字段的旧数据按 story 读取 */
+  book_type: WorldBookType;
+  /** `book_type === "reference"` 的便捷标记 */
+  is_reference?: boolean;
   /** 是否存在分发源（预装包可一键重装还原） */
   is_preinstalled: boolean;
   /** 书级启用开关，停用不参与解析 */
@@ -667,6 +674,16 @@ export interface WorldBookSearchHit {
   book: WorldBookSummary;
   matches: WorldBookEntryDTO[];
   match_count: number;
+}
+
+/** 摘录来源追踪（从资料库/其它书摘录时保留的可追溯来源） */
+export interface WorldBookExcerptSourceDTO {
+  source_book_id: string;
+  source_entry_uid: string;
+  source_content_hash: string;
+  source_book_name?: string;
+  source_entry_name?: string;
+  excerpted_at?: number;
 }
 
 /** 世界书条目（规范化格式） */
@@ -689,8 +706,35 @@ export interface WorldBookEntryDTO {
   match_whole_words: boolean;
   category_id?: string;
   character_id?: string;
+  /** 摘录来源（仅摘录进来的条目有） */
+  excerpt_source?: WorldBookExcerptSourceDTO;
   /** 酒馆原始字段（导出回灌用） */
   raw?: Record<string, any>;
+}
+
+/** 一条摘录请求：来源定位 + 可选编辑字段（省略即原文照搬） */
+export interface WorldBookExcerptItemDTO {
+  source_book_id: string;
+  source_entry_uid: string;
+  name?: string;
+  content?: string;
+  trigger_keys?: string[];
+  secondary_keys?: string[];
+  always_active?: boolean;
+  position?: number;
+  depth?: number;
+  probability?: number;
+  category_id?: string;
+  character_id?: string;
+  enabled?: boolean;
+}
+
+/** 摘录结果：创建条目 + 目标书新修订 */
+export interface WorldBookExcerptResultDTO {
+  entries: WorldBookEntryDTO[];
+  target: WorldBookSummary;
+  revision: number;
+  warnings: string[];
 }
 
 /** 世界书详情（含条目） */
