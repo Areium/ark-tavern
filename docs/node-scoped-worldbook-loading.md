@@ -1,19 +1,19 @@
-# 节点级世界书动态载入 — 技术方案
+# 节点级世界书动态载入 — 实现说明
 
-> 目标：把「整本世界书常驻注入」改成「会话走到哪个节点，才把该节点绑定的条目放进候选集」，
-> 从而削减常驻 Token 与生成干扰，同时保证回档、分支、重入等场景下条目集合可预测、可复现。
+> **状态：已实现**（提交 `c062238`）。现状以代码为准；
+> 实现位置：`src/node_lore_scope.py` + `src/session_overlay.py` + `src/world_book.py`。
 >
-> 本文档基于当前代码（`src/world_book.py` / `src/session_overlay.py` / `src/combat_nodes.py` /
-> `src/blueprints/chat.py` 等）写成，所有结论都标注了落点文件与行号，可直接据此提单。
-> 现状与本文档冲突时，以代码现状为准。
+> 本文档最初是一份技术方案。功能落地后，用于解决设计取舍的辩论、改造前现状、
+> 落地清单与求解器伪代码等已过时章节均已删除，只保留沉淀下来的语义约定，
+> 作为 `lore_bindings` 格式与生命周期规则的详细参考。
 >
-> **v2 修订**：核对代码后修正了若干事实与两处设计缺陷，见文末修订记录。
+> 本文档描述的机制都标注了落点文件与函数；与代码冲突时，以代码现状为准。
 
 ---
 
 ## 0. 结论速览（TL;DR）
 
-| 议题 | 推荐结论 |
+| 议题 | 结论（现行规则） |
 |---|---|
 | 绑定方式 | **节点直接引用条目 UID（显式绑定）为基座**，叠加「世界书侧关系图（`graph["related_edges"]`）自动展开」做作者体验兜底；**不引入**新的关键词二次触发、不引入标签批次绑定（标签只作为编辑器批量**工具**，落盘仍是 UID 列表） |
 | 载入时机 | **轮末 `commit_tree_step` 一次性解析并冻结**（`advance_beat`/`jump_to_beat` 在轮末先于它执行，快照拍到的就是新节拍，天然同帧）；**回档从节点快照整体还原**；注入时**零解析**（只做集合交集） |
@@ -23,9 +23,9 @@
 | 触发与位置 | 绑定默认只**解锁候选资格**（仍需关键词命中）；target 可设 `inject:"always"` **到达即注入**动态层、`inject_position` **按节点覆盖** position/depth/group_weight（就近原则，且永远落不进稳定层） |
 | 优先级，冲突 | 同一条目被多个节点载入是**正常态不是冲突**。`dormant_uids` 是**书级**的"默认休眠"，任何 target 把它显式写进 `entry_uids` 即当场解禁 |
 | 幂等性 | 冻结作用域内存 `bindings_fingerprint`（= 绑定条目的 `content_revision`）+ 求解器版本号；指纹未变 → 重入/同节点多轮直接复用，不重算 |
-| 兼容性 | **默认关闭**：书内没有 `lore_bindings` 条目 → `_active_lore_scope` 恒为 `None`，注入行为与现状**字节不变**；老会话 `worldbook_scope is None` → 走现有 `legacy_full_scope` 全量兼容路径；自由模式（无剧情树）恒为 `None` |
+| 兼容性 | **默认关闭**：书内没有 `lore_bindings` 条目 → `get_active_lore_scope()` 恒为 `None`，注入行为与现状**字节不变**；老会话 `worldbook_scope is None` → 走现有 `legacy_full_scope` 全量兼容路径；自由模式（无剧情树）恒为 `None` |
 
-一句话概括实现路线：
+一句话概括：
 
 > **把现有的「会话级白名单」升级成「会话级白名单 ∩ 节点级作用域」，并把节点级作用域存进剧情树节点的快照里跟着回档一起走。**
 
@@ -33,9 +33,9 @@
 
 ## 1. 架构设计
 
-### 1.1 现状：三层"节点"与一处缺口
+### 1.1 三个"节点"概念的对齐
 
-项目里目前有三个彼此独立的"节点"概念，讨论前必须先对齐，否则方案会做错层：
+项目里有三个彼此独立的"节点"概念，讨论绑定面之前必须先对齐：
 
 | # | 概念 | 载体 | 是否注入叙事上下文 | 代码位置 |
 |---|---|---|---|---|
@@ -43,7 +43,7 @@
 | B | **战斗节点** | `data/combat/nodes/<id>.json` | **是**（`trigger_keys = [name, node_id]`，被提及才触发） | `src/combat_nodes.py` `encode_node_for_worldbook` |
 | C | **剧情树节点 / 作者节拍** | `overlay._data["story_tree"]["nodes"]` + `beat_state` | 间接（渲染成 `plot_state.md` / `plot_log.md`） | `src/session_overlay.py` |
 
-而"按需载入"要挂的钩子，在 C 上：
+绑定面挂在 **C** 上，它自身又有两层载体：
 
 - **剧情树节点**（`n_root` + LLM 生成的子节点，`_tree_node_id(parent, label)` 决定复用）——
   分支维度的载体，一个节点 = 一段已发生的剧情；
@@ -51,19 +51,6 @@
   章节维度的载体，`advance_beat()` / `jump_to_beat()` 驱动。
   注意：`beat_state` **不存 beat_id**，beat_id 需由 `(chapter_idx, beat_idx)` 经
   `_ensure_narrative_beats()` 反查（`src/session_overlay.py:681` `_beat_index`）。
-
-**当前的缺口**：世界书的"作用域"机制已经存在，但它是**会话静态**的。
-
-```
-src/world_book.py:1187  eligible_uids_for(overlay)
-    → 读 overlay.get_worldbook_scope()["resolved_entry_uids"]      # 会话级白名单，全局一套
-    → collect_matches(...) 用 eligible_uids 做成员过滤             # src/world_book.py:1216
-```
-
-`resolved_entry_uids` 由 `session_scope_snapshot()`（`src/world_book.py:1054`）算一次，
-依据是「固定导入 + 剧情世界观 + 出场阵容 + 依赖边展开」，**整个会话生命周期内不变**。
-它管的是"这本会话能看见这本书的哪些条目"，而不是"这一刻该看见哪些条目"。
-你要的正好是后者。
 
 ### 1.2 目标架构：两层作用域 + 单向数据流
 
@@ -76,7 +63,7 @@ flowchart TD
         WB["世界书条目<br/>uid / trigger_keys"]
     end
 
-    subgraph BIND["绑定面（新增，静态）"]
+    subgraph BIND["绑定面（静态）"]
         LB["lore_bindings"]
     end
 
@@ -111,64 +98,23 @@ flowchart TD
 2. **激活作用域属于会话数据**，与 `character_states` / `quest_states` / `environment` 同级，
    存进 `overlay._data`，随 `_save()` 落盘。它是**单值**（当前节点的那一份冻结作用域），
    不是栈——历史作用域都在各自节点的快照里，不需要运行时再维护一份。
-3. **节点快照必须包含激活作用域**（`_tree_state_snapshot` 现状快照 **8 个键**——
+3. **节点快照必须包含激活作用域**（`_tree_state_snapshot` 的 **9 个键**——
    `round_start` / `round_end` / `narration_round` / `plot_log_len` / `environment` /
-   `character_states` / `quest_states` / `beat_state`，
-   见 `src/session_overlay.py:977`，**要加第 9 个 `lore_scope`**）。
-
-### 1.3 为什么不复用现有 `eligible_uids_for` 签名改结构
-
-三个候选落点，对比如下：
-
-| 方案 | 做法 | 优 | 劣 | 结论 |
-|---|---|---|---|---|
-| **① 改 `eligible_uids_for` 内部** | 函数体里读激活作用域，返回 `SCOPE ∩ ACT` | 两个注入点（`SceneManager._build_worldbook_parts:279`、`CharacterAgent:175`）**一处不改**；兜住所有未来调用点 | 调用者看不到"为什么这条没了" | ✅ **推荐** |
-| ② 调用点各自算交集 | 在两个注入点各写一遍 `& active` | 显式 | 漏一处就静默失效；`CharacterAgent` 与 `SceneManager` 语义漂移风险高 | ❌ |
-| ③ 新增 `node_scope` 参数 | 改签名 `eligible_uids_for(overlay, node_scope=None)` | 最显式 | 要改 2 个调用点 + 全部测试；漏传即退化成旧行为，**静默错误** | ⚠️ 可作为①的补充（调试用） |
-
-选 ①，同时在 ① 里加一个**可观测出口**弥补它的缺点：
-
-```python
-# src/world_book.py
-def eligible_uids_for(self, overlay, *, with_reasons: bool = False):
-    scope = getattr(overlay, "get_worldbook_scope", lambda: None)()
-    if scope is None:
-        ...  # 现状：legacy 全量兼容快照，一行不改
-        # 注意：overlay 无 set_worldbook_scope 时现状返回 None，
-        # collect_matches 对 eligible_uids=None 不过滤 —— 该语义必须保留。
-    base = set(scope.get("resolved_entry_uids", [])) if scope.get("book_id") == self.id else set()
-    node_scope = _active_lore_scope(overlay, self.id)   # 新；无绑定/自由模式/老会话 → None
-    if node_scope is None:
-        return base if not with_reasons else (base, {"node_scope": None})
-    allowed = base & set(node_scope["allowed"])
-    if not with_reasons:
-        return allowed
-    return allowed, {
-        "node_id": node_scope["node_id"],
-        # 仅为调试/编辑器解释，注入路径不构造（with_reasons=False 时零成本）
-        "dropped_by_scope": sorted(base - allowed),
-        "missing_uids": sorted(set(node_scope["allowed"]) - base),
-    }
-```
-
-`_active_lore_scope` 返回 `None` 的三种情形（**默认关闭原则**，详见 §5.5）：
-书内无 `lore_bindings` 条目、会话无剧情树（自由模式）、老会话未显式升级。
-任一情形下注入行为与现状字节一致。
+   `character_states` / `quest_states` / `beat_state` / `lore_scope`，
+   见 `src/session_overlay.py:1007`）。
 
 ---
 
 ## 2. 绑定机制
 
-### 2.1 四种候选对比
+### 2.1 最终绑定方式
 
-| 方案 | 语义 | 优 | 劣 | 适合做 |
-|---|---|---|---|---|
-| **A. 节点直接引用 UID** | `{"entry_uids": ["uid1", "uid2"]}` | 意图精确、可静态校验、写入即生效、无隐式行为 | 作者要手动挑条目，条目改名/重建后 UID 断裂 | ✅ **基座** |
-| **B. 关键词二次触发** | 节点触发时把该节点的 `trigger_keys` 丢给世界书再匹配 | 复用现有 `_entry_matches` | ① 与现有触发流程**语义重叠**，会出现"节点已到但关键词没出现 → 条目仍不载入"的二级不确定性；② 无法预测 Token 预算；③ 调试成本高（两个变量：到没到节点、提没提到词） | ❌ 不做 |
-| **C. 标签/分类批量绑定** | 节点标 `tags: ["风雪过境","谢拉格"]` → 展开成所有该类条目 | 作者省事、新增条目自动纳入 | ① 不可预测（世界书增删会偷偷改变已跑会话的注入）；② 无法表达"只要这一条不要那条"；③ 与"会话范围不随世界书变更而漂移"的既有纪律（`refresh_session_scope`，`src/world_book.py:1117`）冲突 | ⚠️ 只做**编辑器批量工具**，落盘仍是 UID |
-| **D. 关系图展开** | 复用 `graph["related_edges"]` 从节点引用的根条目 BFS 带出邻居 | 与现有依赖机制同构、少写一堆 UID | 展开结果受世界书侧编辑影响 → 会话不可复现 | ⚠️ 作为 A 的**可选糖**，且展开结果**在节点落盘时冻结** |
-
-### 2.2 推荐：A 为基座 + D 为可选糖 + C 只做工具
+- **基座：节点直接引用条目 UID**（`entry_uids`）——意图精确、可静态校验、写入即生效、无隐式行为。
+- **兜底：世界书侧关系图自动展开**（`expand`，复用 `graph["related_edges"]`）——少写一堆 UID，
+  且展开结果**在节点落盘时冻结**，此后不随世界书变更漂移。
+- **不引入关键词二次触发**：绑定默认只解锁候选资格，是否注入仍按现有 `_entry_matches` /
+  `probability` 流程决定（需要"到达即注入"时用 `inject: "always"`，见下「触发与位置」）。
+- **标签只作为编辑器批量工具**：点击标签的结果立刻物化成 UID 列表，**落盘仍是 UID**。
 
 **落盘格式**（世界书侧，与 `plot_graphs` / `combat_nodes` 同一套"围栏 JSON + raw.extensions 标记"模式，保证无损往返）：
 
@@ -187,7 +133,7 @@ def eligible_uids_for(self, overlay, *, with_reasons: bool = False):
   "targets": {
     // ① 剧情树节点：根节点由 init_story_tree 播种，id 固定 n_root；
     //    子节点是 LLM 生成的，id 是 sha1(parent|label) 派生的 hash，
-    //    作者无法预知 → 所以此处只绑 n_root，其余走 beat / chapter 继承（见 §2.3）
+    //    作者无法预知 → 所以此处只绑 n_root，其余走 beat / chapter 继承（见 §2.2）
     "tree:n_root": {
       "entry_uids": ["uid_lore_worldview_core"],
       "sticky": true,                       // 默认 true：路径粘滞
@@ -232,7 +178,7 @@ def eligible_uids_for(self, overlay, *, with_reasons: bool = False):
 - `validate_bindings()` 逐 uid 检查「存在且 `enabled` 且 `content` 非空」，
   口径对齐 `resolve_import_scope`（`src/world_book.py:876`）。
 
-**触发与位置：两个可选 target 字段**（v2.1 新增，回答"到达节点能否保证条目出现、
+**触发与位置：两个可选 target 字段**（回答"到达节点能否保证条目出现、
 能否按节点自由定位置"）：
 
 - `"inject": "match"`（**默认**）：条目只进候选集，仍按现状走关键词命中
@@ -266,15 +212,13 @@ overrides = {uid: inject_position}，同一条目多处覆盖时就近（当前�
 ```
 
 注意 `dormant` 的语义是**默认休眠**，而不是**永久封印**；且它是**书级**的，
-不分节点（v1 不做 per-target dormant，需要局部排除时用 sticky=false 控制传播范围即可）。
+不分节点（不做 per-target dormant，需要局部排除时用 `sticky=false` 控制传播范围即可）。
 
-### 2.3 绑定到哪一层最合适：三种目标的分工
+### 2.2 绑定目标与继承
 
-**问题**：剧情树节点是 LLM 生成的，`_tree_node_id(parent_id, label)` 由
-`sha1(parent|label)[:10]` 决定（`src/session_overlay.py:903`）。作者的绑定文件**不可能预先知道**
-这些 hash。所以"绑定到剧情树节点"这条路对 LLM 生成节点是**天然不可能**的。
-
-**结论：绑定面必须挂在"作者可命名"的对象上**，然后把作用域**继承**到 LLM 生成节点：
+绑定面必须挂在**作者可命名**的对象上：剧情树节点 id 由 `_tree_node_id(parent_id, label)`
+即 `sha1(parent|label)[:10]` 决定（`src/session_overlay.py:903`），作者的绑定文件
+**不可能预先知道**这些 hash，所以 LLM 生成的节点靠**继承**拿到作用域。
 
 | 绑定目标 | 可命名性 | 稳定性 | 承担什么 |
 |---|---|---|---|
@@ -282,7 +226,7 @@ overrides = {uid: inject_position}，同一条目多处覆盖时就近（当前�
 | `beat:beat_*` | ✅ 作者命名 | ✅ | **主力**：这一拍发生的剧情需要的设定 |
 | `chapter:<plot_id>#<章节标题>` | ✅ | ⚠️ 标题改名即断（校验器兜底） | 整章共享背景 |
 | `combat:<node_id>` | ✅ | ✅ | 战斗相关（敌人、地形、机制）；时机见 §4.1 |
-| `tree:n_<hash>` | ❌ LLM 生成 | ❌ 换措辞即变 hash | **不绑**（仅允许运行期由 UI 手挂，见 §6.4） |
+| `tree:n_<hash>` | ❌ LLM 生成 | ❌ 换措辞即变 hash | **不绑**（仅允许运行期由 UI 手挂，见 §6） |
 
 **继承语义**（关键，决定 §5 分支跳转的正确性）：
 
@@ -292,14 +236,13 @@ overrides = {uid: inject_position}，同一条目多处覆盖时就近（当前�
 ```
 
 即：**树节点从"它落盘那一刻的 beat / chapter / combat"继承作用域**。
-这是可行的，因为轮末的执行顺序是固定的（已核对 `src/blueprints/chat.py:520-597`）：
-`_apply_beat_complete`（→ `advance_beat` / `jump_to_beat`，推进 beat_state）
-**先于** `_commit_tree_step` 执行，所以 `_tree_state_snapshot` 拍到的
-`beat_state` 就是新节拍——两者天然同帧，不需要额外同步机制。
+轮末 `_apply_beat_complete`（→ `advance_beat` / `jump_to_beat`，推进 `beat_state`）
+**先于** `_commit_tree_step` 执行，所以 `_tree_state_snapshot` 拍到的 `beat_state`
+就是新节拍——两者天然同帧，不需要额外同步机制。
 
-### 2.4 编辑器侧：标签只做"批量勾选"工具
+### 2.3 编辑器侧：标签只做"批量勾选"工具
 
-方案 C 的正确形态不是运行时机制，而是编辑器交互：
+标签绑定的正确形态不是运行时机制，而是编辑器交互：
 
 ```
 [剧情图节点] 选中 → 侧栏「设定」页签
@@ -318,33 +261,25 @@ overrides = {uid: inject_position}，同一条目多处覆盖时就近（当前�
 
 ## 3. 生命周期
 
-### 3.1 四种候选生命周期
-
-| 模式 | 语义 | 优 | 劣 |
-|---|---|---|---|
-| **L1 仅当前节点** | 离开节点即卸载 | 最省 Token | 相邻节点重复加载/卸载；叙事跨节点时设定会"闪断"，LLM 上一轮刚知道的设定下一轮失忆 |
-| **L2 路径粘滞** | 进入即载入，沿当前路径向下保留，回档到引入点之前才卸载 | Token 与连贯性的平衡点；与"分支=重新走一条路"的直觉一致 | 长路径上会累积（需要预算护栏） |
-| **L3 会话常驻** | 一旦载入，本会话再不卸载 | 零闪断 | **等于回到现状**（路径走完 = 全书加载），不解决问题 |
-| **L4 手动卸载** | 用户显式移除 | 补救手段 | 不能作为默认（要用户每轮做决策） |
-
-### 3.2 推荐：**L2 为默认 + L4 为补充 + L1 为逐 target 覆盖**
+### 3.1 生命周期：路径粘滞（path-sticky）
 
 ```jsonc
 {"entry_uids": [...], "sticky": true}
 ```
 
+- **`sticky: true`（默认）= 路径粘滞**：进入节点即载入，沿当前路径向下保留，
+  **回档到引入该条目的节点之前时自动卸载**。这是 Token 与连贯性的平衡点，
+  与"分支 = 重新走一条路"的直觉一致（代价是长路径上会累积，见 §3.3 预算护栏）。
 - `sticky` 是 **target 级**属性（不是节点级）。同一节点命中的多个 target 可以混合：
-  章节绑定 sticky=true、战斗绑定 sticky=false，互不干扰。
-  实现上，节点冻结作用域里存 `sticky_uids`（来自 sticky target 的条目子集），
-  **后代只继承祖先的 `sticky_uids`**——这避免了 v1 稿里"单 flag 折叠混合绑定"的缺陷。
-- `sticky: true`（默认）→ L2 路径粘滞。
-- `sticky: false` → L1：只影响本节点的 `allowed`，不进 `sticky_uids`，
+  章节绑定 sticky=true、战斗绑定 sticky=false，互不干扰。实现上，节点冻结作用域里存
+  `sticky_uids`（来自 sticky target 的条目子集），**后代只继承祖先的 `sticky_uids`**。
+- `sticky: false` = 只影响本节点的 `allowed`，不进 `sticky_uids`，
   下一个节点落盘时自然消失。适用于：战斗节点、一次性闪回、
   剧透性揭示（"他其实是XX"这种只在那一拍说一次就够）。
-- ~~`unload_at` 扩展点~~：**v1 不做**。等实际剧本跑出"想让它早点消失"的具体案例再加
+- ~~`unload_at` 扩展点~~：**不做**。等实际剧本跑出"想让它早点消失"的具体案例再加
   （避免设计过度）。
 
-### 3.3 卸载不是删除：为什么用"窄化白名单"
+### 3.2 卸载不是删除：为什么用"窄化白名单"
 
 严格意义上的"卸载"有两条实现路径：
 
@@ -356,7 +291,7 @@ overrides = {uid: inject_position}，同一条目多处覆盖时就近（当前�
 采用窄化白名单后，"卸载"这个动作在代码里根本不存在：**ACT 变小 = 卸载**。
 这一条直接消掉了 §5 里一半的边界情况。
 
-### 3.4 预算护栏
+### 3.3 预算护栏
 
 路径粘滞会累积。三层护栏，从软到硬：
 
@@ -369,13 +304,13 @@ overrides = {uid: inject_position}，同一条目多处覆盖时就近（当前�
    （排序键 `(position, -group_weight, depth, uid)`，`src/world_book.py:1229`）——
    这样被裁掉的永远是节点载入的、而不是常驻的。这是免费的优先级机制，要利用好。
 3. **可观测**：调试接口给 `dropped_by_scope` 与 `missing_uids` 两个列表
-   （§1.3 的 `with_reasons`）。
+   （`eligible_uids_for` 的 `with_reasons=True` 出口）。
 
 ---
 
 ## 4. 触发与注入逻辑
 
-### 4.1 写入口与执行顺序（已核对代码）
+### 4.1 写入口与执行顺序
 
 `commit_tree_step` 只被叙事 SSE 流调用（`src/blueprints/chat.py:593,777`），
 **战斗回合不落树节点**——战斗期间 ACT 不会变（见 §5.7）。
@@ -390,13 +325,13 @@ overrides = {uid: inject_position}，同一条目多处覆盖时就近（当前�
   │      # beat_state 推进到新节拍
   ├─ ④ update_beat_progress（超 8 轮也会自动 advance_beat）    # chat.py:571
   └─ ⑤ _commit_tree_step → overlay.commit_tree_step           # chat.py:593
-         ├─ _tree_state_snapshot()          # 现状 8 个键；拍到的是【新】beat_state
-         ├─ resolve_scope(..., combat_id_hint=beat_combat_id)  # 新增
-         ├─ node["state"]["lore_scope"] = … # 新增：随快照进节点
-         └─ overlay.set_active_lore_scope(...)                 # 新增
+         ├─ _tree_state_snapshot()          # 拍到的是【新】beat_state
+         ├─ resolve_scope(..., combat_id_hint=beat_combat_id)
+         ├─ node["state"]["lore_scope"] = … # 随快照进节点
+         └─ overlay.set_active_lore_scope(...)
 ```
 
-**⚠️ combat 绑定的时机坑（v1 稿的缺陷，已修正）**：
+**⚠️ combat 绑定的时机坑**：
 战斗是由**推进前那个节拍**上的 `[COMBAT:enc_id]` 触发的（②先于③，
 这是现有代码刻意安排的），而节点快照里的 `beat_state` 是**推进后**的新节拍。
 如果 `resolve_scope` 从节点自己的 `beat_state` 反查 `[COMBAT:]`，战斗条目会
@@ -419,17 +354,17 @@ overrides = {uid: inject_position}，同一条目多处覆盖时就近（当前�
 不要试图在轮首"预判"玩家会选哪个分支去提前加载 —— 那会把分支结果污染进注入
 （分支的文案本身就是 LLM 生成的，轮首根本不知道）。
 
-### 4.3 注入衔接：唯一改动是取交集，层级纪律不变
+### 4.3 注入衔接：取交集，层级纪律不变
 
 ```python
-# src/SceneManager.py:279  _build_worldbook_parts —— 函数体只改一行日志，逻辑不改
+# src/SceneManager.py:279  _build_worldbook_parts
 eligible_uids = worldbook.eligible_uids_for(self._overlay)   # 现在内部已含 ∩ ACT
 matched = worldbook.collect_matches(recent_text, current_input, eligible_uids=eligible_uids)
 return worldbook.format_injection(matched, identity=identity, active_char=active_char)
 ```
 
 ```python
-# src/CharacterAgent.py:175 —— 同一处三连，同样零改动
+# src/CharacterAgent.py:175 —— 同一处三连
 eligible_uids = worldbook.eligible_uids_for(getattr(self._session_context, "overlay", None))
 ```
 
@@ -455,11 +390,11 @@ else:
   给它们 `position=1` 即可；`SceneManager` 已经把 `wb_after` 放在
   `<world_book>` 块里、位于收尾指令之前（`src/SceneManager.py:1093` 附近）。
 
-**`pinned` / `overrides` 的注入实现**（§2.2 的两个 target 字段）：
+**`pinned` / `overrides` 的注入实现**（§2.1 的两个 target 字段）：
 
 - `collect_matches` 对 `pinned` 集合内的条目跳过 `_entry_matches` 与
   `probability` 掷骰，其余过滤（`enabled`、候选集成员）不变。
-  为守住方案 ①"调用点零改动"的收益，`pinned` 随候选集一起传递：
+  为守住"调用点零改动"的收益，`pinned` 随候选集一起传递：
   `eligible_uids_for` 返回的 set 上附带 `forced_uids` 属性
   （普通 set 无此属性 → 默认空，向后兼容），`collect_matches` 用
   `getattr(eligible_uids, "forced_uids", frozenset())` 读取。
@@ -467,7 +402,7 @@ else:
   做轻量拷贝（`copy.copy` + 属性替换，不改 `self.entries` 里的原条目），
   用覆盖值参与 `(position, -group_weight, depth, uid)` 排序；
   `format_injection` 的稳定/动态层判断同样看覆盖后的值——
-  校验器已保证覆盖结果不可能落进稳定层（§2.2），运行期再 clamp 一次兜底。
+  校验器已保证覆盖结果不可能落进稳定层（§2.1），运行期再 clamp 一次兜底。
 
 ### 4.4 分支生成（Call 2）的复用
 
@@ -483,147 +418,14 @@ worldbook_text=session.scene_manager._recent_worldbook_text()   # src/blueprints
 与 Call 1 完全一致。唯一要注意：`_recent_worldbook_text` 只回传 `after`（动态层），
 若节点把条目放进了 `before`（不应发生，见 4.3 的纪律），Call 2 会看不到。
 
-### 4.5 求解器伪代码
+### 4.5 求解器：实现位置
 
-```python
-# src/node_lore_scope.py —— 新模块（建议独立，避免 world_book.py 继续膨胀，现已 1803 行）
-
-LORE_BINDINGS_FENCE = "arknights_tavern_lore_bindings"
-_EXT_NAMESPACE = "arknights_tavern"
-SCOPE_RESOLVER_VERSION = 1
-
-
-def decode_bindings(entry: dict) -> dict | None:
-    """从世界书条目解出 lore_bindings；非该类型返回 None（不抛错，对齐 combat_nodes 惯例）。"""
-    raw = (entry or {}).get("raw") or {}
-    ext = ((raw.get("extensions") or {}).get(_EXT_NAMESPACE) or {})
-    if ext.get("entry_type") == "lore_bindings":
-        return dict(ext.get("payload") or {})
-    body = _extract_fenced(entry.get("content") or "", LORE_BINDINGS_FENCE)
-    if body is None:
-        return None
-    try:
-        return json.loads(body)
-    except ValueError:
-        logger.warning("lore_bindings 围栏块解析失败，忽略")
-        return None
-
-
-def find_bindings(book) -> tuple[dict | None, str]:
-    """在书里找唯一的 lore_bindings 条目（§2.2：至多一条）。
-
-    返回 (payload, fingerprint)；书内无绑定条目 → (None, "")，
-    这是「默认关闭」的判定来源（§5.5）。多条 → 取第一条并告警。
-    fingerprint = 该条目的 content_revision，决定重入是否重算（§5.2）。
-    """
-
-
-def resolve_scope(*, node_id: str, path_scopes: list[dict],
-                  beat_id: str, plot_id: str, chapter_title: str,
-                  combat_id_hint: str,
-                  bindings: dict, graph: dict, known_uids: set[str],
-                  bindings_fingerprint: str) -> dict:
-    """算出一个节点的冻结作用域。**只在节点落盘 / 惰性补算时调用**，不在注入路径上。
-
-    Args:
-        path_scopes:  祖先链（root→父）各节点已冻结的 lore_scope，顺序稳定。
-        beat_id:      由调用方用 (chapter_idx, beat_idx) 经 _beat_index 反查得到
-                      （beat_state 本身不存 beat_id，见 §1.1）。
-        combat_id_hint: 本轮推进节拍【之前】读到的 [COMBAT:id]（§4.1 的时机坑），
-                      由 chat.py 透传；不从节点 beat_state 反查。
-        known_uids:   会话范围 resolved_entry_uids ∩ enabled 且非空（§2.2 口径）。
-
-    返回结构直接进 story_tree.nodes[nid].state.lore_scope。
-    """
-    keys = [f"tree:{node_id}"]
-    if beat_id:
-        keys.append(f"beat:{beat_id}")
-    if plot_id and chapter_title:
-        keys.append(f"chapter:{plot_id}#{chapter_title}")
-    if combat_id_hint:
-        keys.append(f"combat:{combat_id_hint}")
-
-    # ① 祖先链上 sticky 的条目（路径粘滞）——只继承 sticky_uids，
-    #    祖先的 sticky=false 条目（战斗、一次性揭示）到此为止，不下传。
-    #    祖先的 pinned/overrides 也按同一 sticky 边界下传（§2.2）。
-    inherited: set[str] = set()
-    pinned: set[str] = set()
-    overrides: dict[str, dict] = {}
-    for sc in path_scopes:                      # root → 父，顺序稳定
-        sticky_up = set((sc or {}).get("sticky_uids") or [])
-        inherited |= sticky_up
-        pinned |= set((sc or {}).get("pinned") or []) & sticky_up   # 非 sticky 的钉入不下传
-        for uid, ov in ((sc or {}).get("overrides") or {}).items():
-            if uid in sticky_up:
-                overrides[uid] = ov   # 就近原则：更近的祖先顶替更远的；当前节点最后再顶
-
-    # ② 当前节点命中的 target；sticky 是 target 级属性，分开收集
-    explicit: set[str] = set()
-    sticky_new: set[str] = set()
-    expand_jobs: list[dict] = []
-    for k in keys:
-        tgt = (bindings.get("targets") or {}).get(k) or {}
-        uids = {u for u in (tgt.get("entry_uids") or []) if u in known_uids}
-        explicit |= uids
-        if tgt.get("sticky", True):
-            sticky_new |= uids
-        if tgt.get("inject") == "always":
-            pinned |= uids
-        pos = tgt.get("inject_position")
-        if isinstance(pos, dict):               # 就近原则：当前节点覆盖祖先
-            for uid in uids:
-                overrides[uid] = {kk: vv for kk, vv in pos.items()
-                                  if kk in ("position", "depth", "group_weight")}
-        if tgt.get("expand"):
-            expand_jobs.append(tgt)
-
-    # ③ 关系图展开：冻结当时的结果，此后不再随世界书变更漂移
-    expanded: set[str] = set()
-    for tgt in expand_jobs:
-        exp = tgt["expand"]
-        grown = _freeze_neighbours(explicit, graph, int(exp.get("depth") or 1),
-                                   str(exp.get("relation") or "related"), known_uids)
-        expanded |= grown
-        if tgt.get("sticky", True):
-            sticky_new |= grown
-
-    dormant = set(bindings.get("dormant_uids") or [])
-    allowed = (inherited | explicit | expanded) - dormant
-    allowed |= explicit & dormant          # 显式写名 = 当场解禁（§2.2）
-
-    return {
-        "node_id": node_id,
-        "keys": keys,
-        "explicit": sorted(explicit),
-        "sticky_uids": sorted(sticky_new),   # 后代只继承这个
-        "inherited": sorted(inherited),
-        "expanded": sorted(expanded),
-        "allowed": sorted(allowed),
-        "pinned": sorted(pinned & allowed),          # 钉入也不能突破休眠
-        "overrides": {u: overrides[u] for u in sorted(overrides) if u in allowed},
-        "bindings_fingerprint": bindings_fingerprint,   # §5.2 幂等键
-        "revision": SCOPE_RESOLVER_VERSION,
-    }
-```
-
-随后：
-
-```python
-# src/session_overlay.py  _tree_state_snapshot —— 加一个字段
-def _tree_state_snapshot(self, round_num, prev=None):
-    return {
-        ... 现状 8 个键 ...
-        # 由 commit_tree_step 在 resolve_scope 之后填入；
-        # 复访/同节点续走时 prev 里的值原样带过（配合 §5.2 的指纹复用）
-        "lore_scope": (prev or {}).get("lore_scope"),
-    }
-```
-
-```python
-# src/session_overlay.py  rollback_to_tree_node —— 回档时一并还原（对齐现有 4 个字段的写法）
-if "lore_scope" in st:
-    self._data["lore_scope_active"] = copy.deepcopy(st["lore_scope"])
-```
+求解器落在独立模块 `src/node_lore_scope.py`（避免 `world_book.py` 继续膨胀）。入口：
+`resolve_scope`（算出一个节点的冻结作用域）、`build_overlay_resolver`（overlay 侧闭包）、
+`decode_bindings` / `find_bindings` / `validate_bindings`（绑定面的解码、查找与校验）。
+冻结作用域写入 `story_tree.nodes[].state.lore_scope`，当前生效的那一份镜像在
+`overlay._data["lore_scope_active"]`（`get_active_lore_scope` / `set_active_lore_scope` /
+`lore_scope_active`）。
 
 ---
 
@@ -638,7 +440,7 @@ if "lore_scope" in st:
 **回跳到另一条分支**（`tree["current_id"] = 另一支的节点`）：
 
 不要在跳转时"增量卸载"。正确做法是**从目标节点的快照整体还原**——
-其实也不用重算，因为每个节点都存了自己的 `lore_scope`（§3.3 的窄化白名单）：
+其实也不用重算，因为每个节点都存了自己的 `lore_scope`（§3.2 的窄化白名单）：
 
 ```python
 def activate_from_node(overlay, node_id):
@@ -660,7 +462,7 @@ def activate_from_node(overlay, node_id):
 **这是"不做增量"最重要的收益。**
 
 **与 `keep_on_deviate` 的关系**（`src/combat_nodes.py:582`：括号里含 `false` 即为假，缺省为真）：
-v1 稿曾计划"绑定自动继承 keep_on_deviate 语义"，v2 **取消这个隐式耦合**——
+**不从 `keep_on_deviate` 自动推导 `sticky`**——
 两个默认值天然对齐（`keep_on_deviate` 缺省 true ↔ `sticky` 缺省 true），
 显式不一致时由 `validate_bindings()` 告警（"该节拍 keep_on_deviate=false 但绑定 sticky=true，
 剧情偏离后设定可能残留"），把决定权留给作者，不做运行期推导。
@@ -704,9 +506,9 @@ def _resolve_or_reuse(self, node, prev_scope):
 | 场景 | 语义 | 处理 |
 |---|---|---|
 | A 节点引入 X，B 节点引入 X | 正常并集 | `set` 去重，无动作 |
-| X 在书级 `dormant_uids` 里，同时被某 target 显式写进 `entry_uids` | 休眠 vs 当场解禁 | **显式写名胜出**：`allowed = (...) − dormant ∪ (explicit ∩ dormant)`（§4.5）。继承/展开带入的 X 仍被休眠拦住，只有显式写名能解禁 |
+| X 在书级 `dormant_uids` 里，同时被某 target 显式写进 `entry_uids` | 休眠 vs 当场解禁 | **显式写名胜出**：`allowed = (...) − dormant ∪ (explicit ∩ dormant)`（§2.1 的叠加规则）。继承/展开带入的 X 仍被休眠拦住，只有显式写名能解禁 |
 | 同一条目被多处引用且 `group_weight` 不同 | 排序歧义 | 见下 |
-| 同一条目被多个 target 设了不同的 `inject_position` / `inject` | 覆盖冲突 | **就近原则**：当前节点命中的 target 优先于祖先继承的（§4.5 ①②），与 `dormant` 的显式解禁同构 |
+| 同一条目被多个 target 设了不同的 `inject_position` / `inject` | 覆盖冲突 | **就近原则**：当前节点命中的 target 优先于祖先继承的（§2.1），与 `dormant` 的显式解禁同构 |
 
 第三种要用上已有的组机制：`WorldBookEntry` 有 `group` / `group_weight`，
 `collect_matches` 的排序键是 `(position, -group_weight, depth, uid)`
@@ -726,7 +528,7 @@ def _resolve_or_reuse(self, node, prev_scope):
 ∀ 轮次 r：注入时用到的 ACT(r)  ==  story_tree.nodes[current_id(r)].state.lore_scope
 ```
 
-验证手段（建议直接写成测试，见 §6）：
+验证手段（回归测试见 `tests/test_node_scope_rollback.py`）：
 
 1. 走 3 轮 → 记下每轮的 `eligible_uids` 快照；
 2. 回档到第 1 轮的节点；
@@ -741,12 +543,12 @@ def _resolve_or_reuse(self, node, prev_scope):
 
 ### 5.5 老会话兼容与"默认关闭"原则
 
-功能必须**默认关闭**，三种情形 `_active_lore_scope` 一律返回 `None`，
+功能必须**默认关闭**，三种情形 `overlay.get_active_lore_scope()` 一律返回 `None`，
 注入行为与现状字节一致：
 
 1. **书内没有 `lore_bindings` 条目**（`find_bindings` 返回 None）——
    绝大多数世界书永远不会有绑定条目，它们的行为必须零变化；
-2. **会话无剧情树**（自由模式 / 沙盒）——本方案 v1 不覆盖自由模式；
+2. **会话无剧情树**（自由模式 / 沙盒）——自由模式不在覆盖范围内；
 3. **老会话** `overlay.get_worldbook_scope()` 返回 `None`——
    `eligible_uids_for` 里 `scope is None` 分支会写一份 `legacy_full_scope: True`
    的快照（`src/world_book.py:1189-1196`），**这个分支一行都不改**；
@@ -778,49 +580,7 @@ def _resolve_or_reuse(self, node, prev_scope):
 
 ---
 
-## 6. 落地清单
-
-### 6.1 新增文件
-
-| 文件 | 内容 |
-|---|---|
-| `src/node_lore_scope.py` | `decode_bindings` / `find_bindings` / `resolve_scope` / `build_resolver` / `build_overlay_resolver` / `encode_bindings_for_worldbook` / `validate_bindings` / `is_lore_bindings_entry` |
-| `tests/test_node_lore_scope.py` | 求解器单测（纯函数，好写） |
-| `tests/test_node_scope_rollback.py` | §5.4 的不变量回归 |
-| `tests/test_lore_bindings_api.py` | 绑定 API 契约（隔离 WorldBookManager(tmp_path)） |
-
-### 6.2 改动文件（精确到行）
-
-| 文件 | 位置 | 改动 |
-|---|---|---|
-| `src/world_book.py` | `eligible_uids_for`（1187） | 加 `node_scope` 交集 + `with_reasons`；保留 legacy/`None` 语义 |
-| `src/session_overlay.py` | `_tree_state_snapshot`（977） | 加第 9 个键 `lore_scope`（从 `prev` 带过） |
-| `src/session_overlay.py` | `commit_tree_step`（1006） | 落快照前调 `resolve_scope`（或复用，§5.2）；接受 `combat_id_hint` 参数 |
-| `src/session_overlay.py` | `rollback_to_tree_node`（1153） | 还原 `lore_scope_active` |
-| `src/session_overlay.py` | 新方法 | `get/set_active_lore_scope()`，与 `get/set_worldbook_scope` 同构（240/246 的写法照抄） |
-| `src/session_overlay.py` | `to_dict`（1715） | 导出 `lore_scope_active`（调试/前端用） |
-| `src/blueprints/chat.py` | 593 / 777 两处 `_commit_tree_step` | 把 529 行已读出的 `beat_combat_id` 透传下去（§4.1 时机坑的修复点） |
-| `src/blueprints/worldbook.py` | 新增路由 | `GET/PUT /api/worldbook/<book_id>/lore-bindings`，PUT 前跑 `validate_bindings()`；`targets` 为空 = 关闭功能（`find_bindings` 视为无绑定） |
-| 前端剧情图编辑器 | 节点侧栏 | 「设定」页签（§2.4） |
-
-**不改**：`src/SceneManager.py:279` 的调用体、`src/CharacterAgent.py:175` 的调用体
-（方案 ① 的收益在这里兑现）。但要在两处各加一行日志，便于观测：
-
-```python
-logger.debug("世界书候选 %d 条（节点作用域 %s）", len(eligible_uids), node_id)
-```
-
-### 6.3 实施顺序（每步都可独立合并、可独立验证）
-
-1. **纯求解器 + 单测**（`node_lore_scope.py` + `test_node_lore_scope.py`）——零集成风险。
-2. **overlay 存储 + 快照 + 回档**（`test_node_scope_rollback.py` 的不变量必须绿）。
-3. **`eligible_uids_for` 交集**——此时功能才真正生效。**先跑全套基线**
-   （`bash scripts/run_tests.sh`，含 `tests/legacy/`），确认无绑定条目的书行为字节不变。
-4. **绑定 API + 编辑器 UI**（含 `validate_bindings`：uid 存在性、`always_active` 拒绝、
-   章节 key 校验、`keep_on_deviate` 冲突告警、`inject_position` 不得落入稳定层）。
-5. **老会话显式升级入口**（可选，最后做）。
-
-### 6.4 明确不做的事（写进设计以防后人加回来）
+## 6. 明确不做的事
 
 - ❌ 不在运行时把 `entry.always_active` 设 True（会打碎前缀缓存）。
 - ❌ 不绑 LLM 生成的 `tree:n_<hash>`（hash 不稳定）。
@@ -829,19 +589,19 @@ logger.debug("世界书候选 %d 条（节点作用域 %s）", len(eligible_uids
 - ❌ 不做"同组只取一条"的互斥语义（现有 `group` 只是排序权重，语义不相容）。
 - ❌ 不从 `keep_on_deviate` 自动推导 `sticky`（默认值已对齐，冲突交给校验器告警）。
 - ❌ 不做 per-target 的 `dormant`（书级够用，局部控制用 `sticky=false`）。
-- ❌ 不覆盖自由模式（无剧情树，`_active_lore_scope` 恒为 `None`）。
+- ❌ 不覆盖自由模式（无剧情树，`get_active_lore_scope()` 恒为 `None`）。
 
 ---
 
 ## 附录 A：与现有机制的语义对照
 
-| 现有机制 | 本方案中的角色 |
+| 现有机制 | 在节点级作用域中的角色 |
 |---|---|
 | `resolved_entry_uids` | 会话级**粗筛**（能做多大），保留不动 |
-| `lore_bindings`（新） | 节点级**细筛**（此刻要什么）；本身是一条永不注入的世界书条目 |
+| `lore_bindings` | 节点级**细筛**（此刻要什么）；本身是一条永不注入的世界书条目 |
 | 注入时 `SCOPE ∩ ACT` | 粗筛 ∩ 细筛 |
 | `suppressed_edges` | 作者在绑定层临时禁掉一条关系边 |
-| `dormant_uids`（新） | 书级"默认休眠"，显式写名可当场解禁 |
+| `dormant_uids` | 书级"默认休眠"，显式写名可当场解禁 |
 | `root_expansions` | 节点作用域里降级为 `related`（弱关联），不用 `requires` |
 | `content_revision` | 复用为 `bindings_fingerprint`，决定重入是否重算 |
 | `_tree_state_snapshot` | 承载 `lore_scope`，让回档天然正确 |
@@ -893,44 +653,3 @@ logger.debug("世界书候选 %d 条（节点作用域 %s）", len(eligible_uids
                                                         不进 sticky_uids，下一节点即消失）
   全程 ending_spoiler 永不出现，除非某 target 显式把它写进 entry_uids（当场解禁）
 ```
-
----
-
-## 修订记录
-
-**v2.1（2026-09-18）**：补齐"到达节点即触发 + 按节点定位置"能力——
-
-- 澄清原方案语义：绑定只解锁**候选资格**，实际注入仍受 `_entry_matches` 关键词
-  与 `probability` 约束，`always_active` 又被前缀缓存纪律禁止，"到达必现"原本做不到。
-- target 新增 `"inject": "always"`（默认 `"match"`）：条目进冻结作用域的 `pinned`
-  集合，`collect_matches` 对其跳过关键词/掷骰，仍受预算截断、仍进动态层；
-  `pinned` 随候选集经 `forced_uids` 属性传递，两个注入调用点保持零改动（§4.3）。
-- target 新增 `"inject_position"`：per-target 覆盖 `position`/`depth`/`group_weight`，
-  冻结进 `overrides`，排序/分层用覆盖值；多处覆盖就近原则；校验器 + 运行期 clamp
-  双保险保证绑定条目落不进稳定层（§2.2 / §4.3）。
-- `pinned`/`overrides` 随 `sticky_uids` 同一边界继承（非 sticky 的钉入不下传），
-  且都不能突破 `dormant_uids`（§4.5）。
-
-**v2（2026-09-18）**：核对代码后修订——
-
-- 修正事实：`_tree_state_snapshot` 现状为 8 个键（原写 6）；`to_dict` 在
-  `session_overlay.py:1715`（原写 1717）；`beat_state` 不存 beat_id，需经
-  `_beat_index` 反查；`CharacterAgent.py` 调用点精确为 175 行。
-- 修正设计缺陷 ①（sticky 折叠）：`sticky` 从节点级单 flag 改为 **target 级**，
-  冻结作用域改存 `sticky_uids`，后代只继承它——避免混合 sticky 绑定时互相污染。
-- 修正设计缺陷 ②（combat 时机）：战斗由推进**前**的节拍触发（`chat.py:529` 先于
-  `_apply_beat_complete`），而节点快照拍到的是推进**后**的 `beat_state`；
-  `combat:` key 改用显式透传的 `combat_id_hint`，不再从节点 beat_state 反查。
-- 补齐「默认关闭」原则：无绑定条目 / 自由模式 / 老会话三种情形行为字节不变（§5.5）。
-- 补齐绑定条目自身约束：每书至多一条、永不注入、禁止自引用（§2.2）。
-- 修正伪代码不一致：`resolve_scope` 返回值补 `bindings_fingerprint`（§5.2 依赖它）；
-  删掉未定义的 `explain_pool` / `targets_for` / `_combat_id_of`；`dropped_by_scope`
-  改为查询时现算。
-- `dormant_uids` 语义收敛为书级（原 §5.3 的"A 引入 B 休眠"场景在 per-node dormant
-  下才成立，与落盘格式矛盾）。
-- 取消 `keep_on_deviate` → `sticky` 的自动推导，改为校验器告警（§5.1）。
-- 明确战斗期间 ACT 不变是现有结构的自然结果（战斗回合不落树节点），
-  `set_active_lore_scope` 的战斗守卫降级为纵深防御（§5.7）。
-
-*v1（2026-09-18）：初版。基于 `world_book.py`(1803 行) / `session_overlay.py`(2182 行) /
-`combat_nodes.py`(719 行) / `plot_graphs.py`(348 行) 写成。*
