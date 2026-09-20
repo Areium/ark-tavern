@@ -24,8 +24,10 @@ import {
   filterBooksByType,
   flattenLibraryHits,
   isReference,
+  normalizeDetailTab,
   storyBookTargets,
   validateExcerptDraft,
+  type BookDetailTab,
   type BookTypeFilter,
   type ExcerptDraft,
   type LibraryHit,
@@ -131,8 +133,11 @@ export default function WorldBookManager() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("");
   // 默认进入「条目正文」：分类图谱是高级入口，不该是第一屏
-  const [detailTab, setDetailTab] = useState<"taxonomy" | "entries">("entries");
+  const [detailTab, setDetailTab] = useState<BookDetailTab>("entries");
   useEffect(() => { setCategoryFilter(""); }, [selectedId]);
+  // 换书回到条目页：否则在剧情书里停在「分类图谱」再切到资料库，两个页签互相
+  // 把对方藏掉，详情区会空成一片白。真正的可用性收敛在 normalizeDetailTab。
+  useEffect(() => { setDetailTab("entries"); }, [selectedId]);
   const visibleCategories = categoryFilter ? categoryDescendants(detail?.categories || [], categoryFilter) : null;
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; type: "ok" | "error" } | null>(null);
@@ -185,6 +190,8 @@ export default function WorldBookManager() {
 
   // 当前选中的书是否为资料库
   const detailIsReference = !!detail && isReference(detail);
+  // 防御性收敛：即便某条路径漏了重置，资料库也只会落在条目页
+  const effectiveDetailTab = normalizeDetailTab(detailTab, detail);
   const storyTargets = useMemo(() => storyBookTargets(books), [books]);
   const visibleBooks = useMemo(() => filterBooksByType(books, listFilter), [books, listFilter]);
   const counts = useMemo(() => ({
@@ -1069,17 +1076,17 @@ export default function WorldBookManager() {
             <div className="flex items-center justify-between gap-3 mb-3">
               <nav className="wbg-view-tabs" aria-label="世界书管理视图">
                 {!detailIsReference && (
-                  <button aria-pressed={detailTab === "taxonomy"} onClick={() => { setDetailTab("taxonomy"); setCategoryFilter(""); }}><WorldBookGraphIcon name="graph" size={14} />高级配置</button>
+                  <button aria-pressed={effectiveDetailTab === "taxonomy"} onClick={() => { setDetailTab("taxonomy"); setCategoryFilter(""); }}><WorldBookGraphIcon name="graph" size={14} />高级配置</button>
                 )}
-                <button aria-pressed={detailTab === "entries"} onClick={() => setDetailTab("entries")}><WorldBookGraphIcon name="folder" size={14} />条目正文 · {detail.entries.length}</button>
+                <button aria-pressed={effectiveDetailTab === "entries"} onClick={() => setDetailTab("entries")}><WorldBookGraphIcon name="folder" size={14} />条目正文 · {detail.entries.length}</button>
               </nav>
-              {categoryFilter && detailTab === "entries" && <button className="text-xs text-gray-400 hover:text-gray-200" onClick={() => setCategoryFilter("")}>清除分类筛选 ×</button>}
+              {categoryFilter && effectiveDetailTab === "entries" && <button className="text-xs text-gray-400 hover:text-gray-200" onClick={() => setCategoryFilter("")}>清除分类筛选 ×</button>}
             </div>
 
-            {detailTab === "taxonomy" && !detailIsReference && <div className="wbg-taxonomy-shell"><Suspense fallback={<p className="text-xs text-gray-400">加载分类图谱…</p>}><WorldBookScopeManager key={detail.id} detail={detail} view="taxonomy" onChanged={() => loadDetail(detail.id)} onCategoryChange={setCategoryFilter} onEditEntry={openEdit} /></Suspense></div>}
+            {effectiveDetailTab === "taxonomy" && !detailIsReference && <div className="wbg-taxonomy-shell"><Suspense fallback={<p className="text-xs text-gray-400">加载分类图谱…</p>}><WorldBookScopeManager key={detail.id} detail={detail} view="taxonomy" onChanged={() => loadDetail(detail.id)} onCategoryChange={setCategoryFilter} onEditEntry={openEdit} /></Suspense></div>}
 
             {/* ── 条目区 ── */}
-            {detailTab === "entries" && <>
+            {effectiveDetailTab === "entries" && <>
             <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
               <h3 className="panel-title">条目（{detail.entries.length}）</h3>
               <div className="flex items-center gap-2">

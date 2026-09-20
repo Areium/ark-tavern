@@ -129,13 +129,41 @@ def test_reference_export_keeps_type(manager):
 
 
 def test_explicit_book_type_wins_over_import_payload(manager):
-    """导入物自带的用途是它自己的声明，优先于调用方的缺省值。"""
+    """调用方明确表态时，导入物自带的用途不再优先。
+
+    用户的导入选择（「用于剧情 / 存入资料库」）是他在这次操作里的决定，不能被文件里
+    写死的用途推翻 —— 否则「导入为资料库」对一个本项目导出的 story 文件完全失效。
+    """
+    story = manager.create_book("剧情", book_type=BOOK_TYPE_STORY)
+    exported = story.export_st()
+    # 文件声明 story，但调用方说 reference → 以调用方为准
+    reimported, _ = manager.import_book("回灌", json.dumps(exported),
+                                        book_type=BOOK_TYPE_REFERENCE)
+    assert reimported.book_type == BOOK_TYPE_REFERENCE
+
+    reference = manager.create_book("资料", book_type=BOOK_TYPE_REFERENCE)
+    exported_ref = reference.export_st()
+    # 反方向同样成立：文件声明 reference，调用方说 story → 以调用方为准
+    reimported, _ = manager.import_book("回灌2", json.dumps(exported_ref),
+                                        book_type=BOOK_TYPE_STORY)
+    assert reimported.book_type == BOOK_TYPE_STORY
+
+
+def test_import_payload_type_used_when_caller_silent(manager):
+    """调用方未表态（None / 空串）时才读取导入物扩展里的用途声明。"""
     reference = manager.create_book("资料", book_type=BOOK_TYPE_REFERENCE)
     exported = reference.export_st()
-    # 调用方说 story，但导入物声明 reference → 以导入物为准
-    reimported, _ = manager.import_book("回灌", json.dumps(exported),
-                                        book_type=BOOK_TYPE_STORY)
+
+    reimported, _ = manager.import_book("缺省", json.dumps(exported))
     assert reimported.book_type == BOOK_TYPE_REFERENCE
+
+    reimported, _ = manager.import_book("空串", json.dumps(exported), book_type="")
+    assert reimported.book_type == BOOK_TYPE_REFERENCE
+
+    # 两边都没声明 → 默认 story（普通小书直接当剧情书）
+    plain = {"entries": {"0": {"uid": "e1", "content": "正文", "key": ["k"]}}}
+    reimported, _ = manager.import_book("平凡", plain)
+    assert reimported.book_type == BOOK_TYPE_STORY
 
 
 def test_normalize_book_type_rejects_unknown_values():
@@ -199,6 +227,36 @@ def test_update_book_type_round_trips(api):
     res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "story"})
     assert res.status_code == 200
     assert res.json["book"]["book_type"] == "story"
+
+
+def test_reference_can_be_repaired_to_story_even_when_referenced(api):
+    """reference -> story 是**修复**操作，不能被「转换为资料库」闸门拦住。
+
+    历史坏状态（旧数据/手工改过 settings）下，一本 reference 可能仍是全局默认书或
+    被会话绑定。此时用户想把它改回剧情世界书应当放行 —— 闸门只针对会把状态搞坏的
+    story -> reference 方向，否则用户会陷入「改不回去」的死结。
+    """
+    client, manager = api
+    ref = make_reference(client, "被误设为默认的资料库")
+    # 强行制造坏状态：默认指针指向资料库
+    # （公开的 set_default_book_id 会拒绝资料库，这里直接写底层 settings 模拟历史数据）
+    manager._save_settings({"default_book_id": ref["id"]})
+    assert manager.get_default_book_id() == ref["id"]
+
+    # 即便这本资料库还是默认书，改回 story 也必须成功
+    res = client.put(f"/api/worldbook/{ref['id']}", json={"book_type": "story"})
+    assert res.status_code == 200, res.json
+    assert res.json["book"]["book_type"] == "story"
+    assert manager.load(ref["id"]).is_reference is False
+
+
+def test_conversion_gate_still_blocks_story_to_reference_when_default(api):
+    """对照用例：反方向仍被拦截，证明上面的放行不是把闸门整个拆掉。"""
+    client, manager = api
+    book = make_story(client, "默认剧情书")
+    client.post(f"/api/worldbook/{book['id']}/default", json={"default": True})
+    res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
+    assert res.status_code == 409
 
 
 def test_update_book_type_rejects_invalid_value(api):
@@ -272,35 +330,69 @@ def test_story_cannot_be_switched_to_reference_while_default(api):
 
 
 def test_story_cannot_be_switched_to_reference_while_session_bound(tmp_path):
-    """会话绑定存在时拒绝转换，且明确列出受影响的会话。"""
+    """会话绑定存在时拒绝转换，且明确列出受影响的会话。
+
+    测试替身**只暴露真实 SessionManager 的公开契约** `list_sessions()`（返回带
+    `id` / `worldbook_id` 的摘要字典），不提供私有 `_sessions` 或杜撰的 `sessions`
+    属性 —— 早期版本误读了后者，测试一路通过而生产判断永远为空。
+    """
     from blueprints.worldbook import register
 
-    book_manager = WorldBookManager(tmp_path)
-    bound = {"id": "s1", "overlay": None}
-
-    class FakeOverlay:
-        def get_worldbook_id(self):
-            return bound["book"].id
-
-    class FakeSession:
-        id = "s1"
-        overlay = FakeOverlay()
-
     class FakeSessions:
-        sessions = {"s1": FakeSession()}
+        """契约与 src/session_manager.py 的公开面一致。"""
 
+        def __init__(self):
+            self.bound_book_id = None
+
+        def list_sessions(self):
+            return [{"id": "s1", "name": "会话一", "worldbook_id": self.bound_book_id}]
+
+    sessions = FakeSessions()
+    assert not hasattr(sessions, "sessions")
+    assert not hasattr(sessions, "_sessions")
+
+    book_manager = WorldBookManager(tmp_path)
     app = Flask(__name__)
     app.config["TESTING"] = True
-    register(app, {"worldbook": book_manager, "session": FakeSessions()})
+    register(app, {"worldbook": book_manager, "session": sessions})
     client = app.test_client()
 
     book = make_story(client, "被绑定的书")
-    bound["book"] = book_manager.load(book["id"])
+    sessions.bound_book_id = book["id"]
 
     res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
     assert res.status_code == 409
     assert "s1" in res.json["error"]
+    # 状态没被动过：用途、磁盘、缓存一致
     assert book_manager.load(book["id"]).book_type == BOOK_TYPE_STORY
+
+    # 会话改绑到别的书之后就能转换
+    sessions.bound_book_id = "another-book"
+    res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
+    assert res.status_code == 200
+
+
+def test_conversion_gate_tolerates_legacy_session_manager(tmp_path):
+    """老版本 SessionManager 没有 list_sessions 时不得炸掉更新接口。
+
+    回到主线：真实类一定有这个方法；这里只保证「契约不匹配」的退化情形是
+    **放行而非 500**，用户仍能改用途（防御性兜底，不是主路径）。
+    """
+    from blueprints.worldbook import register
+
+    class LegacySessions:
+        """极老的替身：既没有 list_sessions，也没有别的公开列举方式。"""
+
+    book_manager = WorldBookManager(tmp_path)
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+    register(app, {"worldbook": book_manager, "session": LegacySessions()})
+    client = app.test_client()
+
+    book = make_story(client, "普通书")
+    res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
+    assert res.status_code == 200
+    assert book_manager.load(book["id"]).book_type == BOOK_TYPE_REFERENCE
 
 
 def test_reference_cannot_bind_session(tmp_path):
@@ -320,7 +412,7 @@ def test_reference_cannot_bind_session(tmp_path):
                 raise AssertionError("资料库不得被写入会话绑定")
 
     class FakeSessions:
-        sessions = {"s1": FakeSession()}
+        """只暴露 bind 路由真正使用的公开契约：get_session()。"""
 
         @staticmethod
         def get_session(session_id):
@@ -648,6 +740,74 @@ def test_excerpt_persists_through_reload(api):
     reloaded = fresh.load(story["id"])
     assert len(reloaded.entries) == 1
     assert reloaded.entries[0].excerpt_source["source_entry_uid"] == "r1"
+
+
+def test_excerpt_save_failure_leaves_cache_and_disk_unchanged(api, monkeypatch):
+    """保存失败时不得污染内存缓存 —— 否则「失败不留半成品」只是磁盘上的假象。
+
+    `load()` 返回的是缓存对象本身；如果先往它上面 append 再 save，而 save 在临时
+    文件写入/替换时抛错，磁盘没变、缓存却已经多了条目、revision 也更高了。下次
+    读这本书（同一 manager 命中缓存）就会看到一个从未落盘的状态。
+    """
+    client, manager = api
+    reference = make_reference(client, "资料库")
+    story = make_story(client, "剧情书")
+    seed(manager, reference["id"], [make_entry("r1", "正文。")])
+
+    target_id = story["id"]
+    before = manager.load(target_id)
+    before_revision = before.import_config.get("revision", 1)
+    # 先加载一次，确保后续断言读到的确实是缓存对象
+    assert manager.load(target_id) is before
+
+    def boom(_book):
+        raise OSError("磁盘写满（故障注入）")
+
+    monkeypatch.setattr(manager, "save", boom)
+    with pytest.raises(OSError):
+        manager.excerpt_entries(target_id, [
+            {"source_book_id": reference["id"], "source_entry_uid": "r1"}])
+    monkeypatch.undo()
+
+    # 内存缓存没变
+    after = manager.load(target_id)
+    assert after is before
+    assert after.entries == []
+    assert after.import_config.get("revision", 1) == before_revision
+
+    # 重新从磁盘加载也没变
+    fresh = WorldBookManager(manager._dir)
+    reloaded = fresh.load(target_id)
+    assert reloaded.entries == []
+    assert reloaded.import_config.get("revision", 1) == before_revision
+
+
+def test_excerpt_save_failure_through_api_returns_500_and_keeps_state(tmp_path):
+    """走接口路径：保存失败 → 500，书保持原样（不返回 201 的假成功）。"""
+    from blueprints.worldbook import register
+
+    book_manager = WorldBookManager(tmp_path)
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+    register(app, {"worldbook": book_manager})
+    client = app.test_client()
+
+    reference = make_reference(client, "资料库")
+    story = make_story(client, "剧情书")
+    seed(book_manager, reference["id"], [make_entry("r1", "正文。")])
+
+    def boom(_book):
+        raise OSError("磁盘写满（故障注入）")
+
+    book_manager.save = boom
+    res = client.post(f"/api/worldbook/{story['id']}/excerpt",
+                      json=_excerpt_body(reference["id"], "r1"))
+    assert res.status_code == 500
+    del book_manager.save  # 移除实例属性，回到真实方法
+
+    assert book_manager.load(story["id"]).entries == []
+    fresh = WorldBookManager(book_manager._dir)
+    assert fresh.load(story["id"]).entries == []
 
 
 def test_concurrent_excerpts_do_not_lose_entries(api):

@@ -1912,11 +1912,13 @@ class WorldBookManager:
         return book
 
     def import_book(self, name: str, source,
-                    book_type: str = DEFAULT_BOOK_TYPE) -> tuple[WorldBook, ImportReport]:
+                    book_type: str = None) -> tuple[WorldBook, ImportReport]:
         """解析并创建一本书。source 为 dict 或 str（JSON/JSONL 文本）。
 
-        `book_type` 默认 story（普通小书直接当剧情书导入）；导入物自带项目扩展时以
-        扩展里的用途为准 —— 那才是这本书自己的声明，显式参数只作为缺省。
+        用途（`book_type`）优先级：**显式传入 > 导入物项目扩展 > 默认 story**。
+        显式传入是用户在这次导入里做出的选择（前端「用于剧情 / 存入资料库」），必须
+        压过文件里写死的用途；只有调用方**没有表态**（`None` 或空串）时，才把导入物
+        扩展里的 `book_type` 当作这本书自己的声明。
         """
         entries, report = parse_lorebook(source)
         obj = source
@@ -1926,9 +1928,17 @@ class WorldBookManager:
             except ValueError:
                 obj = None
         extension = find_scope_extension(obj)
-        resolved_type = book_type
-        if extension and extension.get("book_type") is not None:
-            resolved_type = normalize_book_type(extension.get("book_type"), book_type)
+        requested = str(book_type).strip() if book_type is not None else ""
+        payload_type = extension.get("book_type") if extension else None
+        if requested:
+            # 调用方（前端导入选择）明确表态：以它为准，压过文件里写死的用途
+            resolved_type = normalize_book_type(requested)
+        elif payload_type is not None:
+            # 调用方未表态：把导入物扩展里的用途当作这本书自己的声明
+            resolved_type = normalize_book_type(payload_type)
+        else:
+            # 两边都没有：旧数据缺字段，按剧情世界书处理
+            resolved_type = DEFAULT_BOOK_TYPE
         book = WorldBook(uuid.uuid4().hex[:12], name or "导入的世界书", entries,
                          source_format=report.source_format, scope_mode="legacy",
                          book_type=resolved_type)
@@ -2124,17 +2134,23 @@ class WorldBookManager:
                 _build_excerpt_entry(target, source_book, source_entry, raw, index))
 
         # ── 到这里为止都还没写盘：任一条不合法都已抛出 ──
+        #
+        # **在独立副本上完成变更**：`load()` 返回的是内存缓存对象本身，如果直接往它
+        # 上面 append 再 save，而 save 在临时文件写入/替换时抛错（磁盘没变），缓存里
+        # 却已经多了条目、revision 也更了 —— 不满足「失败不留半成品」。所以在副本上
+        # 组装，`save()` 成功之后才让缓存指向新对象；失败则缓存与磁盘都保持原值。
+        staged = copy.deepcopy(target)
         created = []
         for built in prepared:
-            target.entries.append(built)
+            staged.entries.append(built)
             created.append(built)
-        target.import_config["revision"] = target.import_config.get("revision", 1) + 1
-        self.save(target)
+        staged.import_config["revision"] = staged.import_config.get("revision", 1) + 1
+        self.save(staged)
 
         return {
             "entries": [e.to_dict() for e in created],
-            "target": self._summary(target, self.get_default_book_id()),
-            "revision": target.import_config["revision"],
+            "target": self._summary(staged, self.get_default_book_id()),
+            "revision": staged.import_config["revision"],
             "warnings": [],
         }
 

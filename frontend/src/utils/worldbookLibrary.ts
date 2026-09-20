@@ -40,6 +40,26 @@ export function isReference(book: Pick<WorldBookSummary, "book_type"> | null | u
   return bookTypeOf(book) === "reference";
 }
 
+/** 世界书详情的两个页签 */
+export type BookDetailTab = "entries" | "taxonomy";
+
+/**
+ * 把「期望的页签」收敛到当前这本书**真实可用**的页签。
+ *
+ * 存在的坑：切换所选书时若沿用上一个页签，用户在剧情书里打开「分类图谱」（advanced）
+ * 再切到资料库，页签按钮与图谱内容都被隐藏，而条目页也因为 tab 仍是 taxonomy 不渲染
+ * —— 详情区就空成一片白。所以 rules 如下：
+ * - 资料库（`reference`）永远归一到 `entries`：它没有分类图谱这个入口；
+ * - 其余按原样返回（只接受已知值，脏值兜底到 `entries`）。
+ */
+export function normalizeDetailTab(
+  tab: BookDetailTab | string | null | undefined,
+  book: Pick<WorldBookSummary, "book_type"> | null | undefined,
+): BookDetailTab {
+  if (isReference(book)) return "entries";
+  return tab === "taxonomy" ? "taxonomy" : "entries";
+}
+
 /** 按用途筛选书列表；`all` 返回原顺序（不重排、不改入参） */
 export function filterBooksByType(
   books: readonly WorldBookSummary[],

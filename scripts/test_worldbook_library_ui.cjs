@@ -23,7 +23,7 @@ const { renderToStaticMarkup } = fromFrontend("react-dom/server");
 const {
   BOOK_TYPE_HINTS, BOOK_TYPE_LABELS, bookTypeOf, draftFromEntry, excerptItemFromDraft,
   filterBooksByType, flattenLibraryHits, groupBooksByType, isReference,
-  resolveCategoryForTarget, validateExcerptDraft,
+  normalizeDetailTab, resolveCategoryForTarget, validateExcerptDraft,
 } = require(path.join(root, "frontend/src/utils/worldbookLibrary.ts"));
 const WorldBookManager = require(path.join(root, "frontend/src/components/WorldBookManager.tsx")).default;
 
@@ -120,6 +120,19 @@ assert.equal(resolveCategoryForTarget("source-only", targetCategories), "unclass
 assert.equal(resolveCategoryForTarget(undefined, targetCategories), "unclassified");
 assert.equal(resolveCategoryForTarget("worldview", []), "worldview", "没有分类信息时不乱改");
 
+// ── 详情页签归一：资料库永远落在条目页 ──
+// 回归场景：用户在剧情书里停在「高级配置」（taxonomy），再切到资料库 —— 页签按钮与
+// 图谱内容对资料库都隐藏了，若 tab 仍是 taxonomy，条目页也不会渲染，详情区整个空白。
+assert.equal(normalizeDetailTab("taxonomy", { book_type: "reference" }), "entries");
+assert.equal(normalizeDetailTab("entries", { book_type: "reference" }), "entries");
+assert.equal(normalizeDetailTab("taxonomy", { book_type: "story" }), "taxonomy");
+assert.equal(normalizeDetailTab("entries", { book_type: "story" }), "entries");
+// 缺字段（旧数据）按 story 处理；脏值兜底到 entries，不会渲染出不存在的视图
+assert.equal(normalizeDetailTab("taxonomy", {}), "taxonomy");
+assert.equal(normalizeDetailTab("taxonomy", null), "taxonomy");
+assert.equal(normalizeDetailTab(undefined, { book_type: "story" }), "entries");
+assert.equal(normalizeDetailTab("bogus", { book_type: "story" }), "entries");
+
 // ── SSR：组件骨架 ──
 const summary = (over) => ({
   id: "x", name: "书", source_format: "manual", source: "imported",
@@ -138,4 +151,5 @@ assert.ok(markup.includes("剧情世界书 · 0") && markup.includes("资料库 
 assert.ok(!markup.includes("分类图谱 · "), "分类图谱不该是第一屏默认视图");
 
 console.log("Worldbook library UI: type filtering/grouping, hit flattening, "
-  + "verbatim vs edited excerpt payloads, validation and SSR skeleton passed.");
+  + "verbatim vs edited excerpt payloads, validation, detail-tab normalization "
+  + "and SSR skeleton passed.");

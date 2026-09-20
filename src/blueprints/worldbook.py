@@ -37,9 +37,9 @@ from flask import Blueprint, jsonify, request, g
 
 from shared.helpers import json_error
 from world_book import (
-    RESOLVER_VERSION, WorldBook, WorldBookEntry, apply_auto_classification,
-    auto_classification_patch, content_revision, estimate_tokens,
-    normalize_book_type,
+    BOOK_TYPE_REFERENCE, RESOLVER_VERSION, WorldBook, WorldBookEntry,
+    apply_auto_classification, auto_classification_patch, content_revision,
+    estimate_tokens, normalize_book_type,
 )
 from worldbook_classify import classify_entries
 from worldbook_builder import (
@@ -400,6 +400,28 @@ def register(app, managers):
                 return
             yield copy.deepcopy(book), None
 
+    def _sessions_bound_to(book_id: str) -> list:
+        """返回绑定了这本书的会话 id（已排序）。
+
+        只依赖 SessionManager 的**公开契约** `list_sessions()` —— 它返回会话摘要，
+        其中 `worldbook_id` 就是该会话当前绑定的世界书（`None` 表示未绑定）。
+        不得读生产类的私有字段：早期版本误读了不存在的 `sessions` 属性，导致真实
+        运行时这本判断永远为空，被绑定的书照样能改成资料库。
+        """
+        if not session_mgr:
+            return []
+        try:
+            summaries = session_mgr.list_sessions()
+        except Exception:
+            return []
+        if not isinstance(summaries, (list, tuple)):
+            return []
+        return sorted(
+            str(item.get("id"))
+            for item in summaries
+            if isinstance(item, dict) and item.get("worldbook_id") == book_id
+        )
+
     def _reference_conversion_conflict(book) -> str:
         """把 story 改成 reference 前的安全闸门。
 
@@ -411,14 +433,7 @@ def register(app, managers):
         reasons = []
         if wb_mgr.get_default_book_id() == book.id:
             reasons.append("它是当前的全局默认世界书")
-        session_ids = []
-        sessions = getattr(session_mgr, "sessions", None)
-        for session in (sessions or {}).values() if isinstance(sessions, dict) else (sessions or []):
-            try:
-                if session.overlay.get_worldbook_id() == book.id:
-                    session_ids.append(session.id)
-            except Exception:
-                continue
+        session_ids = _sessions_bound_to(book.id)
         if session_ids:
             reasons.append(
                 "它正被 %d 个会话绑定（%s）"
@@ -539,8 +554,11 @@ def register(app, managers):
         if not source:
             return json_error("导入内容为空")
 
+        # 用户没选用途（缺字段/空串）时传 None 而不是补默认值 —— 让 import_book 能区分
+        # 「用户明确选了剧情」和「用户没表态」，后者要保留导入文件自带的用途声明。
+        has_requested = requested_type is not None and str(requested_type).strip() != ""
         try:
-            book_type = normalize_book_type(requested_type)
+            book_type = normalize_book_type(requested_type) if has_requested else None
         except ValueError as e:
             return json_error(str(e), 400)
 
@@ -601,10 +619,14 @@ def register(app, managers):
                 except ValueError as e:
                     return json_error(str(e), 400)
                 if new_type != book.book_type:
-                    conflict = _reference_conversion_conflict(book)
-                    if conflict:
-                        # 不静默改会话/默认书：说清是哪些会话会被悬空，让用户先处理
-                        return json_error(conflict, 409)
+                    # 闸门只针对 story -> reference：资料库一旦被默认/会话引用就会
+                    # 留下悬空状态。反方向（reference -> story）是**修复**历史坏状态
+                    # 的操作，必须放行 —— 否则用户会陷入「改不回去」的死结。
+                    if new_type == BOOK_TYPE_REFERENCE:
+                        conflict = _reference_conversion_conflict(book)
+                        if conflict:
+                            # 不静默改会话/默认书：说清是哪些会话会被悬空，让用户先处理
+                            return json_error(conflict, 409)
                     book.book_type = new_type
             wb_mgr.save(book)
             return jsonify({"book": _book_detail(book, include_entries=False)})
@@ -1654,6 +1676,10 @@ def register(app, managers):
                 return json_error(str(e), 404)
             except ValueError as e:
                 return json_error(str(e), 400)
+            except OSError as e:
+                # 写盘失败（磁盘满/权限/临时文件替换失败）：整批没落盘，缓存也没被污染
+                logger.exception("摘录保存失败")
+                return json_error(f"摘录保存失败，未写入任何条目：{e!s}", 500)
         return jsonify(result), 201
 
     @bp.route("/api/worldbook/resolve", methods=["GET"])
