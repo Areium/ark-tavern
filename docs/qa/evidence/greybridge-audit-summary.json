@@ -1,0 +1,605 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-20",
+  "baseline_commit": "a049ae1",
+  "baseline": {
+    "tests": 656,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "time_s": 178.868,
+    "groups": [
+      {
+        "name": "tests.test_character_card_import",
+        "count": 5
+      },
+      {
+        "name": "tests.test_combat_api",
+        "count": 8
+      },
+      {
+        "name": "tests.test_combat_complete_timeout",
+        "count": 2
+      },
+      {
+        "name": "tests.test_combat_engine",
+        "count": 6
+      },
+      {
+        "name": "tests.test_combat_golden",
+        "count": 18
+      },
+      {
+        "name": "tests.test_combat_growth_balance",
+        "count": 24
+      },
+      {
+        "name": "tests.test_combat_map",
+        "count": 34
+      },
+      {
+        "name": "tests.test_combat_nodes",
+        "count": 22
+      },
+      {
+        "name": "tests.test_combat_resume",
+        "count": 18
+      },
+      {
+        "name": "tests.test_combat_sim_golden",
+        "count": 17
+      },
+      {
+        "name": "tests.test_deck_building",
+        "count": 5
+      },
+      {
+        "name": "tests.test_embed_fallback_log",
+        "count": 4
+      },
+      {
+        "name": "tests.test_evade_blind",
+        "count": 3
+      },
+      {
+        "name": "tests.test_grid_terrain",
+        "count": 13
+      },
+      {
+        "name": "tests.test_hit_fix",
+        "count": 5
+      },
+      {
+        "name": "tests.test_llm_backend_reuse",
+        "count": 5
+      },
+      {
+        "name": "tests.test_llm_client",
+        "count": 8
+      },
+      {
+        "name": "tests.test_lore_bindings_api",
+        "count": 5
+      },
+      {
+        "name": "tests.test_node_graph_worldbook",
+        "count": 10
+      },
+      {
+        "name": "tests.test_node_lore_scope",
+        "count": 19
+      },
+      {
+        "name": "tests.test_node_scope_rollback",
+        "count": 6
+      },
+      {
+        "name": "tests.test_pierce_cleanse",
+        "count": 3
+      },
+      {
+        "name": "tests.test_plot_graphs",
+        "count": 12
+      },
+      {
+        "name": "tests.test_session_worldbook_dependencies",
+        "count": 14
+      },
+      {
+        "name": "tests.test_story_branches_rollback",
+        "count": 10
+      },
+      {
+        "name": "tests.test_story_tree_full_flow",
+        "count": 2
+      },
+      {
+        "name": "tests.test_story_tree_nodes",
+        "count": 11
+      },
+      {
+        "name": "tests.test_terrain_effects",
+        "count": 17
+      },
+      {
+        "name": "tests.test_world_book",
+        "count": 30
+      },
+      {
+        "name": "tests.test_worldbook_builder",
+        "count": 24
+      },
+      {
+        "name": "tests.test_worldbook_builder_perf",
+        "count": 30
+      },
+      {
+        "name": "tests.test_worldbook_classify",
+        "count": 30
+      },
+      {
+        "name": "tests.test_worldbook_config_api",
+        "count": 43
+      },
+      {
+        "name": "tests.test_worldbook_integration",
+        "count": 3
+      },
+      {
+        "name": "tests.test_worldbook_review_fixes",
+        "count": 28
+      },
+      {
+        "name": "tests.test_worldbook_scene_scope",
+        "count": 7
+      },
+      {
+        "name": "tests.test_worldbook_scope",
+        "count": 39
+      },
+      {
+        "name": "tests.test_worldbook_selective_reading",
+        "count": 31
+      },
+      {
+        "name": "tests.test_worldbook_v3_scope",
+        "count": 27
+      },
+      {
+        "name": "perf_tests.test_combat_runtime_v1.ActionEconomyTests",
+        "count": 7
+      },
+      {
+        "name": "perf_tests.test_combat_runtime_v1.GuaranteeDrawTests",
+        "count": 4
+      },
+      {
+        "name": "perf_tests.test_combat_runtime_v1.EnemyActionSlotTests",
+        "count": 7
+      },
+      {
+        "name": "perf_tests.test_combat_runtime_v1.ShieldSemanticsTests",
+        "count": 4
+      },
+      {
+        "name": "perf_tests.test_combat_runtime_v1.TelemetryTests",
+        "count": 3
+      },
+      {
+        "name": "perf_tests.test_combat_data_v1.EnemyDataTests",
+        "count": 4
+      },
+      {
+        "name": "perf_tests.test_combat_data_v1.EncounterDataTests",
+        "count": 4
+      },
+      {
+        "name": "perf_tests.test_settlement_v1.XPCurveTests",
+        "count": 4
+      },
+      {
+        "name": "perf_tests.test_settlement_v1.GrowthDecouplingTests",
+        "count": 5
+      },
+      {
+        "name": "perf_tests.test_settlement_v1.RewardRollTests",
+        "count": 2
+      },
+      {
+        "name": "perf_tests.test_card_json_roundtrip.EquivalenceTests",
+        "count": 4
+      },
+      {
+        "name": "perf_tests.test_card_json_roundtrip.RoundTripTests",
+        "count": 3
+      },
+      {
+        "name": "perf_tests.test_card_json_roundtrip.HashTests",
+        "count": 1
+      },
+      {
+        "name": "perf_tests.test_cv_budget.CVBudgetTests",
+        "count": 6
+      }
+    ]
+  },
+  "focused": {
+    "tests": 18,
+    "passed": 10,
+    "xfail": 8,
+    "failures": 0,
+    "errors": 0,
+    "time_s": 85.197,
+    "cases": [
+      {
+        "name": "test_candidate_parses_all_chapters_beats_quests_and_battle_bindings",
+        "result": "passed",
+        "reason": null,
+        "time_s": 6.728
+      },
+      {
+        "name": "test_create_respects_explicit_roster_and_identity[roster0]",
+        "result": "passed",
+        "reason": null,
+        "time_s": 3.904
+      },
+      {
+        "name": "test_create_respects_explicit_roster_and_identity[roster1]",
+        "result": "passed",
+        "reason": null,
+        "time_s": 3.659
+      },
+      {
+        "name": "test_create_respects_explicit_roster_and_identity[roster2]",
+        "result": "passed",
+        "reason": null,
+        "time_s": 4.147
+      },
+      {
+        "name": "test_scripted_full_spine_and_manual_quest_state_export[narrative]",
+        "result": "passed",
+        "reason": null,
+        "time_s": 5.483
+      },
+      {
+        "name": "test_scripted_full_spine_and_manual_quest_state_export[tactical]",
+        "result": "passed",
+        "reason": null,
+        "time_s": 7.391
+      },
+      {
+        "name": "test_archive_import_roundtrip_preserves_state_with_existing_dependencies",
+        "result": "passed",
+        "reason": null,
+        "time_s": 5.949
+      },
+      {
+        "name": "test_variant_generation_does_not_commit_a_new_story_round",
+        "result": "passed",
+        "reason": null,
+        "time_s": 4.456
+      },
+      {
+        "name": "test_environment_item_and_character_overrides_stay_session_local",
+        "result": "passed",
+        "reason": null,
+        "time_s": 3.437
+      },
+      {
+        "name": "test_candidate_combat_suspend_resume_and_combat_guard",
+        "result": "passed",
+        "reason": null,
+        "time_s": 4.513
+      },
+      {
+        "name": "test_opening_context_does_not_contain_the_epilogue",
+        "result": "xfail",
+        "reason": "QA-01: opening section leaks later chapters",
+        "time_s": 4.637
+      },
+      {
+        "name": "test_narrated_quest_completion_is_persisted",
+        "result": "xfail",
+        "reason": "QA-02: no automatic quest transition in narration",
+        "time_s": 4.581
+      },
+      {
+        "name": "test_final_beat_completion_has_a_terminal_state",
+        "result": "xfail",
+        "reason": "QA-03: last beat does not enter a terminal state",
+        "time_s": 4.361
+      },
+      {
+        "name": "test_tree_rollback_preserves_branch_destination",
+        "result": "xfail",
+        "reason": "QA-04: tree rollback loses branch target_beat_id",
+        "time_s": 4.393
+      },
+      {
+        "name": "test_explicit_empty_roster_survives_session_reload",
+        "result": "xfail",
+        "reason": "QA-05: restoring empty story roster reloads initial_characters",
+        "time_s": 4.515
+      },
+      {
+        "name": "test_unknown_quest_cannot_be_created_by_status_patch",
+        "result": "xfail",
+        "reason": "QA-06: unknown quest IDs accepted by PATCH",
+        "time_s": 4.568
+      },
+      {
+        "name": "test_listed_flat_item_can_be_added_to_scene",
+        "result": "xfail",
+        "reason": "QA-07: listed flat Markdown items cannot be read/added",
+        "time_s": 3.693
+      },
+      {
+        "name": "test_variant_update_uses_frontend_contract_and_persists_selected_round",
+        "result": "xfail",
+        "reason": "QA-08: narration update frontend/backend contract mismatch",
+        "time_s": 4.065
+      }
+    ]
+  },
+  "simulations": [
+    {
+      "label": "enc_gb_gate.json",
+      "node_id": "enc_gb_gate",
+      "team": "standard",
+      "runs": 30,
+      "seed_base": 20260920,
+      "summary": {
+        "runs": 30,
+        "win_rate": 1,
+        "median_rounds": 4,
+        "p90_rounds": 5,
+        "mean_rounds": 3.9,
+        "first_round_kill_rate": 0,
+        "healing_overflow_rate": 0.033,
+        "hp_loss_rate": 0.037,
+        "cards_played_total": 248,
+        "distinct_cards_used": 23,
+        "dead_card_ratio": 0.696,
+        "player_card_ap_per_round": 2.7,
+        "player_move_ap_per_round": 3.73,
+        "enemy_actions_per_round": 1.19
+      },
+      "threat": {
+        "total": 3.2,
+        "by_wave": [
+          {
+            "wave": 1,
+            "threat": 3.2,
+            "units": 2
+          }
+        ],
+        "units": 2,
+        "band": "T1",
+        "band_hint": "T1",
+        "declared_budget": 3.2,
+        "declared_band": "T1",
+        "warnings": [],
+        "budget_ratio": 0
+      },
+      "verdict": [],
+      "pass": true
+    },
+    {
+      "label": "enc_gb_gate.json",
+      "node_id": "enc_gb_gate",
+      "team": "low",
+      "runs": 30,
+      "seed_base": 20260920,
+      "summary": {
+        "runs": 30,
+        "win_rate": 1,
+        "median_rounds": 5.5,
+        "p90_rounds": 6,
+        "mean_rounds": 5.47,
+        "first_round_kill_rate": 0,
+        "healing_overflow_rate": 0.141,
+        "hp_loss_rate": 0.127,
+        "cards_played_total": 323,
+        "distinct_cards_used": 31,
+        "dead_card_ratio": 0.839,
+        "player_card_ap_per_round": 2.31,
+        "player_move_ap_per_round": 2.35,
+        "enemy_actions_per_round": 1.39
+      },
+      "threat": {
+        "total": 3.2,
+        "by_wave": [
+          {
+            "wave": 1,
+            "threat": 3.2,
+            "units": 2
+          }
+        ],
+        "units": 2,
+        "band": "T1",
+        "band_hint": "T1",
+        "declared_budget": 3.2,
+        "declared_band": "T1",
+        "warnings": [],
+        "budget_ratio": 0
+      },
+      "verdict": [],
+      "pass": true
+    },
+    {
+      "label": "enc_gb_evacuation.json",
+      "node_id": "enc_gb_evacuation",
+      "team": "standard",
+      "runs": 30,
+      "seed_base": 20260920,
+      "summary": {
+        "runs": 30,
+        "win_rate": 1,
+        "median_rounds": 7,
+        "p90_rounds": 8,
+        "mean_rounds": 6.4,
+        "first_round_kill_rate": 0,
+        "healing_overflow_rate": 0.085,
+        "hp_loss_rate": 0.054,
+        "cards_played_total": 442,
+        "distinct_cards_used": 30,
+        "dead_card_ratio": 0.733,
+        "player_card_ap_per_round": 3.22,
+        "player_move_ap_per_round": 3.65,
+        "enemy_actions_per_round": 1.05
+      },
+      "threat": {
+        "total": 5.8,
+        "by_wave": [
+          {
+            "wave": 1,
+            "threat": 3.2,
+            "units": 2
+          },
+          {
+            "wave": 2,
+            "threat": 2.6,
+            "units": 2
+          }
+        ],
+        "units": 4,
+        "band": "T2",
+        "band_hint": "T1",
+        "declared_budget": 6.4,
+        "declared_band": "T2",
+        "warnings": [],
+        "budget_ratio": 0.094
+      },
+      "verdict": [],
+      "pass": true
+    },
+    {
+      "label": "enc_gb_evacuation.json",
+      "node_id": "enc_gb_evacuation",
+      "team": "low",
+      "runs": 30,
+      "seed_base": 20260920,
+      "summary": {
+        "runs": 30,
+        "win_rate": 1,
+        "median_rounds": 8,
+        "p90_rounds": 9,
+        "mean_rounds": 7.8,
+        "first_round_kill_rate": 0,
+        "healing_overflow_rate": 0.208,
+        "hp_loss_rate": 0.144,
+        "cards_played_total": 601,
+        "distinct_cards_used": 34,
+        "dead_card_ratio": 0.853,
+        "player_card_ap_per_round": 3.2,
+        "player_move_ap_per_round": 2.56,
+        "enemy_actions_per_round": 1.13
+      },
+      "threat": {
+        "total": 5.8,
+        "by_wave": [
+          {
+            "wave": 1,
+            "threat": 3.2,
+            "units": 2
+          },
+          {
+            "wave": 2,
+            "threat": 2.6,
+            "units": 2
+          }
+        ],
+        "units": 4,
+        "band": "T1",
+        "band_hint": "T1",
+        "declared_budget": 5.8,
+        "declared_band": "T1",
+        "warnings": [],
+        "budget_ratio": 0
+      },
+      "verdict": [],
+      "pass": true
+    }
+  ],
+  "real_llm": {
+    "artifact": "greybridge-real-llm.json",
+    "model": "deepseek-v4-flash",
+    "rounds": 18,
+    "http_ok_count": 18,
+    "expected_beats": 12,
+    "completed_beats": 3,
+    "visited_beats": 4,
+    "verdict": "incomplete",
+    "median_round_s": 3.2655,
+    "actual_usage": {
+      "prompt_tokens": 520090,
+      "completion_tokens": 6971,
+      "total_tokens": 527061
+    },
+    "original_plot_sha256": "229fd938eec0567bd87c77a419afc6552d9fe259ee241970c38a799846f560c7"
+  },
+  "source_artifacts": [
+    {
+      "source": ".tmp/story-audit/baseline.xml",
+      "sha256": "acd8e99873cc0e55f23d10b80eed14be12ac73bae228f2caf754a165eaf36214"
+    },
+    {
+      "source": ".tmp/story-audit/greybridge-verified.xml",
+      "sha256": "7995ebc7d148869b3edca93a989a24887c7f67e52256c3ecb5d8e5d5c7a30136"
+    },
+    {
+      "source": ".tmp/story-audit/real-llm.json",
+      "sha256": "0b816da808bb81ba1b8c59066f5a5040655a9d6dd43bee653ccb029d65e1df0b"
+    },
+    {
+      "source": ".tmp/story-audit/gate-standard.json",
+      "sha256": "c49dc099f94256a37b594ef2526b7b19bd37095b9a6fb45431da1f2d2a3abb4c"
+    },
+    {
+      "source": ".tmp/story-audit/gate-low.json",
+      "sha256": "e141f5278f1ed31e642675f94167df4c423c4115399bbccecb9908d15e15fe89"
+    },
+    {
+      "source": ".tmp/story-audit/evacuation-standard.json",
+      "sha256": "b8a0db8d252e0627fc0bfe91b5dac94fd6b846ef4bd4ecbd72226c161e4d3b79"
+    },
+    {
+      "source": ".tmp/story-audit/evacuation-low.json",
+      "sha256": "4fffb0a56ffd1dc1a25ef45055adf5d9c79bd3ea465e07568964e0c8da3e123f"
+    }
+  ],
+  "legacy": {
+    "result": "4 exited zero",
+    "rerun_during_closeout": false,
+    "source": "task execution log",
+    "scripts": [
+      "api_integration.py",
+      "full_import_flow.py",
+      "player_identity_opening.py",
+      "repro_card_import.py"
+    ]
+  },
+  "frontend": {
+    "build": "passed",
+    "node_graph_non_browser_check": "passed",
+    "gui": "not_run_approval_service_blocked",
+    "source": "task execution log",
+    "warnings": [
+      "Vite CJS API deprecated",
+      "main chunk about 656 kB exceeds 600 kB advisory"
+    ]
+  },
+  "tooling": {
+    "py_compile": "passed",
+    "missing_config_exit": 2,
+    "missing_config_real_calls": 0
+  },
+  "notes": [
+    "xfail entries executed and raised KnownProductGap; they are known failed acceptance checks, not passed tests.",
+    "Baseline reused; no 656-case rerun after adding new tests. Candidate focused test final run supersedes early fixture errors.",
+    "Real model run used fresh preinstalled data/packs content, not user-edited data/worldbooks.",
+    "evacuation-standard simulation retains historical difficulty declaration 6.4/T2; current candidate is 5.8/T1. Layout, enemies and numerical stats unchanged; no band scaling.",
+    "Scripts later tightened model availability unpacking and success exit conditions; the saved 18-round live run was not repeated.",
+    "No production runtime source files changed; no candidate registered in live data directories."
+  ]
+}

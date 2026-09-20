@@ -26,9 +26,21 @@
     剧情开场角色不会兜底（向导里已就这条给出提示）。
 - **证据**：`.tmp/repro_story_roster.py` 风格的端到端复现：`POST /api/sessions`
   （`plot_id=near_light`、`roster_character_ids=["临光"]`）→ `characters == ["临光"]`。
-- **已知未修（同方向隐患）**：`session_manager._restore_scene()` 在 story 会话持久化场景角色为空时，
-  会回退加载**整份** `initial_characters`，同样绕过玩家阵容。当前未触发（正常创建路径会落盘场景状态），
-  改动前请先确认该回退是否仍需要。
+- **已知未修（2026-09-20，基线 `a049ae1` 已复现）**：`session_manager._restore_scene()` 在 story 会话
+  持久化场景角色为空时，会回退加载**整份** `initial_characters`。显式空阵容创建后重载确实触发，
+  不再只是未验证隐患；应区分字段缺失与显式空数组。见 `tests/test_greybridge_acceptance.py`
+  的 `test_explicit_empty_roster_survives_session_reload` 及剧情验收报告 QA-05。
+
+### 剧情完整体验的已知缺口（2026-09-20，基线 `a049ae1`）
+
+- **现象**：普通回归通过不等于剧情通关。新候选《灰桥回声》真实模型 18 轮完成 3/12 节拍，
+  五任务仍 hidden；变体选择同步返回 500，开场上下文泄露后续章节，树回滚丢分支目的地。
+- **根因**：开场章节边界正则、前后端变体参数合同、快照字段保存各有明确缺陷；自动任务与
+  剧情终态尚缺状态提交链路。另有非法任务 ID 被接受、平铺 `急救包.md` 列出却无法读入的问题。
+- **现状口径**：本轮只交付设计、复现测试和修复方案；未修改运行时，未注册候选剧情。
+  `xfail` 表示缺陷复现，不能计入通过。战斗模拟 120 次通过结构/执行检查，但普通战压力偏低。
+- **证据**：[完整功能矩阵与修复顺序](qa/2026-09-20-story-audit.md)、
+  [剧情设计](scenarios/greybridge-echoes/README.md)、`tests/test_greybridge_acceptance.py`。
 
 ## 测试
 
