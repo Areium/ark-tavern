@@ -198,6 +198,7 @@
 .wbnv-chip.is-loose { color: var(--ng-muted); border: 1px solid var(--wbnv-line); background: none; }
 .wbnv-chip.is-problem { color: var(--wbnv-cycle); background: color-mix(in srgb, var(--wbnv-cycle) 12%, transparent); }
 .wbnv-chip.is-gray { border: 1px dashed var(--ng-muted); background: none; }
+.wbnv-chip.is-repeat-hint { border: 1px solid var(--wbnv-line); background: none; color: var(--wbnv-related); }
 .wbnv-chip.is-edge { border: 1px solid var(--wbnv-line); background: none; font-family: ui-monospace, monospace; }
 .wbnv-handle, .wbnv-jump {
   position: absolute;

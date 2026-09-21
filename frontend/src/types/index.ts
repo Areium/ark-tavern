@@ -1110,7 +1110,11 @@ export interface WorldBookDependencyTreeDTO {
   entry_uids: string[];
   nodes: WorldBookDependencyTreeNodeDTO[];
   edges: WorldBookDependencyTreeEdgeDTO[];
-  /** 环内边的集合（"from|to"），供前端标红 */
+  /**
+   * 依赖环清单（契约 R-26）：每个元素是**一条环**，环上节点按环序排列且**首尾同一 uid**，
+   * 例如 `[["a","b","c","a"]]`；自环为 `["x","x"]`；无环为 `[]`。
+   * 前端按相邻对推出环内边（供节点视图标红）。同一强连通分量只产出一条环。
+   */
   cycles: string[][];
   issues: WorldBookIssueDTO[];
 }

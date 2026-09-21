@@ -110,9 +110,26 @@ export interface InjectionBlock {
   index: number;
 }
 
-export function parseInjectionBlocks(text: string | null | undefined): InjectionBlock[] {
+/**
+ * 解析一层拼装文本。
+ *
+ * **真实数据事实**：条目正文自己也会写 markdown 小标题。预装整合包 arknights 的
+ * 「控制中枢（地点设定）」正文里就有 `### 视觉` / `### 氛围` / `### 声音` / `### 细节`，
+ * 技能条目正文里有 `### 劈砍` 之类；一次真实预览里 70 个 `### ` 头只有 20 个是条目锚点。
+ * 所以只要调用方给得出**本轮注入的条目名**（`order[].name`），就只认这些名字当锚点，
+ * 其余 `### ` 行留在正文里 —— 否则中栏会把一条条目劈成四块，还会长出点不开的死锚点。
+ *
+ * 不给 `knownNames`（或给空集合）时退回「按所有 `### ` 行切分」的老口径，用于
+ * 不知道条目名、只拿到一段文本的场景。
+ */
+export function parseInjectionBlocks(
+  text: string | null | undefined,
+  knownNames?: Iterable<string> | null,
+): InjectionBlock[] {
   const raw = typeof text === "string" ? text : "";
   if (!raw.trim()) return [];
+  const candidates = knownNames ? new Set([...knownNames].filter(Boolean)) : null;
+  const known = candidates && candidates.size ? candidates : null;
   const blocks: InjectionBlock[] = [];
   let name = "";
   let heading = "";
@@ -126,7 +143,8 @@ export function parseInjectionBlocks(text: string | null | undefined): Injection
   };
   for (const line of raw.split(/\r?\n/)) {
     const match = /^###\s+(.*)$/.exec(line);
-    if (match) {
+    // known 非空时，只有命中已知条目名的 `### ` 行才是锚点
+    if (match && (!known || known.has(match[1].trim()))) {
       flush();
       open = true;
       heading = line.trim();

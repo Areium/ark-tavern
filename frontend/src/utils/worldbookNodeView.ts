@@ -3,14 +3,20 @@
  *
  * 三条纪律，读代码前先读这里：
  *
- * 1. **去重口径不属于本模块**。谁在候选闭包里、谁被 `best` 表（最大剩余深度）判定为重复，
- *    全部由服务端 `resolve_v3_scope` 的读时派生字段给出：`display_tree[].repeated /
- *    first_parent_uid / display_index`（契约 R-10）与 `resolved_edges[].status`（R-11）。
+ * 1. **去重口径不属于本模块**。谁在候选闭包里、谁有多个到达，全部由服务端 `resolve_v3_scope`
+ *    的读时派生字段给出（契约 R-10 / R-11）：
+ *    - `resolved_edges[].status`：`skeleton` 主路径 / `cross` 边生效但目标已被别处覆盖 /
+ *      `capped` 上游到了但深度用尽（**没有**被遍历）/ `idle` 上游不在闭包里；
+ *    - `display_tree[].first_parent_uid`：该 uid 的**主到达**来自哪个父；
+ *    - `display_tree[].repeated`：闭包内 requires 入边多于一条 → 预告这个 uid 还会以灰节点出现；
+ *    - `display_tree[].display_index`：`display_tree` 中的 0-based 稳定位次。
  *    这里**不做第二套去重**，只把服务端字段投影成渲染模型。
- * 2. 前端唯一的判断是提案 §3.4.3.1 写死的「主节点唯一」规则：**同一 uid 只有一个主节点，
- *    轨道上的出现优先**；轨道上没有它的位置时（例如条目已停用 / 空正文），取最早到达的
- *    那个展开位置。其余出现位置一律是灰节点 —— 这是「同一个 uid 的多个出现位置里哪个是主
- *    节点」的显示规则，不是重新判定谁在闭包里。
+ * 2. 前端唯一的判断是提案 §3.4.3.1 的「主节点唯一」规则，R-10 澄清后的精确口径是：
+ *    - **轨道上的 uid**：轨道节点是唯一主节点，它的**所有**向下展开出现位置一律是灰节点；
+ *    - **不在轨道上的 uid**（例如条目已停用 / 正文为空）：主到达 = `from_uid === first_parent_uid`
+ *      的那次展开位置，其余到达（`cross` 边带来的）一律灰节点。
+ *    每个到达都是一次「出现位置」：主到达节点是 `display_tree` 的那一行（挂在 `first_parent_uid` 下），
+ *    其余到达来自 `resolved_edges` 里指向同一 uid 的 `cross` 边（挂在边起点的主节点下）。
  * 3. 全部是纯函数：不改入参、同输入同输出。布局不含随机数、不含时间、不读 DOM、不做动画，
  *    所以同一份输入永远得到同一张图（提案 §3.4.6「布局完全确定性」）。
  */
@@ -105,6 +111,8 @@ export function trackOrder(entries: WorldBookEntryDTO[] | null | undefined): Nod
 export const trackNodeKey = (uid: string) => `track#${uid}`;
 export const rowNodeKey = (uid: string, index: number) => `tree#${uid}#${index}`;
 export const ghostNodeKey = (uid: string) => `ghost#${uid}`;
+/** `cross` 边带来的那次到达：同一 uid 可能从多个上游被重复到达，key 里带上 from_uid */
+export const crossNodeKey = (uid: string, fromUid: string) => `cross#${uid}#${fromUid}`;
 
 /* ── 渲染模型（服务端字段 → 渲染模型 的纯投影）──────────────────────────────── */
 
@@ -136,10 +144,16 @@ export interface NodeViewNode {
   uid: string;
   name: string;
   kind: NodeViewNodeKind;
-  /** 主节点：同一 uid 唯一的那个正式节点（轨道优先） */
+  /** 主节点：同一 uid 唯一的那个正式节点（轨道优先，否则 first_parent_uid 指向的那次到达） */
   isPrimary: boolean;
-  /** 灰节点：该 uid 在本视图里的非首次到达 */
+  /** 灰节点：该 uid 在本视图里的非主到达 */
   isRepeated: boolean;
+  /** 这条出现位置由 `cross` 边带来（即「边生效但目标已被别处覆盖」的那次到达） */
+  isExtraArrival: boolean;
+  /** 服务端 `display_tree[].repeated`：闭包内 requires 入边多于一条 → 该 uid 还会另有灰出现 */
+  hasRepeatedArrival: boolean;
+  /** 这次到达的 `from_uid`（轨道节点为 null） */
+  arrivalFrom: string | null;
   onTrack: boolean;
   /** 被任何起点覆盖（出现在 display_tree 里） */
   covered: boolean;
@@ -240,9 +254,10 @@ function badgeOf(root: WorldBookRootDTO | undefined): NodeViewRootBadge | null {
  * 把 `display_tree` / `resolved_edges` / `active_roots` / `issues` / Prompt 预览顺序
  * 投影成渲染模型。纯函数，不改入参。
  *
- * 主节点规则（提案 §3.4.3.1）：轨道上的出现优先；轨道上没有时取最早到达的展开位置。
- * 服务端派生字段缺失时**优雅降级**：`repeated` 视为 false、`display_index` 用数组下标、
- * `first_parent_uid` 回落 `parent_uid` —— 只做投影，不在这里重新推导去重。
+ * 主/灰判定（R-10 澄清后的精确口径，见文件头纪律 2）：轨道上的 uid 以轨道节点为唯一主节点、
+ * 其余出现位置全灰；不在轨道上的 uid 以 `from_uid === first_parent_uid` 的那次到达为主节点、
+ * 其余到达全灰。服务端派生字段缺失时**优雅降级**（`repeated` 视为 false、`display_index` 用
+ * 数组下标、`first_parent_uid` 缺失时回落「最早到达」），降级都会写进 `warnings`。
  */
 export function buildNodeViewModel(
   preview: WorldBookScopePreviewDTO | null,
@@ -264,10 +279,12 @@ export function buildNodeViewModel(
   const warnings: string[] = [];
   if (treeRows.length && treeRows.some((row) => typeof row.repeated !== "boolean"
     || typeof row.display_index !== "number" || row.first_parent_uid === undefined)) {
-    warnings.push("display_tree 缺少服务端读时派生字段（repeated / first_parent_uid / display_index）：按「首次到达」降级渲染，不额外自算去重。");
+    warnings.push("display_tree 缺少服务端读时派生字段（repeated / first_parent_uid / display_index）："
+      + "主到达按 display_index 最小的一次降级判定、无法预告重复到达，不额外自算去重。");
   }
   if (!treeRows.length && (resolvedEdges.length > 0 || (preview?.scope?.resolved_entry_uids || []).length > 0)) {
-    warnings.push("服务端没有返回 display_tree（这本书可能还没启用按需载入）：节点视图只渲染轨道，不画依赖展开（capped 边仍会给出深度用尽的只读占位节点）。");
+    warnings.push("服务端没有返回 display_tree（这本书可能还没启用按需载入）：节点视图只渲染轨道，"
+      + "不画依赖展开、也不画 cross 重复到达（capped 边仍会给出深度用尽的只读占位节点）。");
   }
 
   interface RowRef { row: WorldBookDisplayNodeDTO; index: number; displayIndex: number }
@@ -288,11 +305,34 @@ export function buildNodeViewModel(
   const rowKeyOf = (ref: RowRef): string =>
     (trackByUid.has(ref.row.uid) && isRootRow(ref.row) ? trackNodeKey(ref.row.uid) : rowNodeKey(ref.row.uid, ref.index));
 
-  const primaryKeyOf = (uid: string): string | null => {
-    if (trackByUid.has(uid)) return trackNodeKey(uid);
+  /**
+   * 该 uid 的主到达渲染节点（R-10）。
+   *
+   * - 轨道上有它 → 轨道节点（轨道优先，唯一主节点）；
+   * - 轨道上没有 → `from_uid === first_parent_uid` 的那次展开位置，也就是 `display_tree`
+   *   里这一行（服务端保证 `first_parent_uid === parent_uid`）。
+   *
+   * **回落条件**（都会写进 `warnings`，且只是降级、不改语义）：服务端没给 `first_parent_uid`
+   * （旧 payload / 字段缺失），或 `display_tree` 里根本没有这个 uid 的行时，才回落到
+   * 「`display_index` 最小的那次到达」即数组里最早的那一行。只要服务端给了字段，
+   * 主/灰就完全按 `first_parent_uid` 判定，前端不自行推导去重。
+   */
+  const mainArrivalKeyOf = (uid: string): { key: string | null; fallback: boolean } => {
+    if (trackByUid.has(uid)) return { key: trackNodeKey(uid), fallback: false };
     const ref = earliestRef(uid);
-    return ref ? rowKeyOf(ref) : null;
+    if (!ref) return { key: null, fallback: false };
+    const key = rowNodeKey(uid, ref.index);
+    const parentUid = ref.row.parent_uid ?? null;
+    const serverParent = ref.row.first_parent_uid;
+    const hasField = serverParent !== undefined;      // null 是「根」的合法值，不算缺失
+    const matches = hasField && (serverParent ?? null) === parentUid;
+    return { key, fallback: !matches };
   };
+
+  const primaryKeyOf = (uid: string): string | null => mainArrivalKeyOf(uid).key;
+  if (rows.some((ref) => mainArrivalKeyOf(ref.row.uid).fallback)) {
+    warnings.push("display_tree 没有可用的 first_parent_uid（字段缺失，或与 parent_uid 不一致）：主到达按 display_index 最小的一次降级判定。");
+  }
 
   const problemsByUid = new Map<string, NodeViewProblem[]>();
   for (const issue of (preview?.issues || []) as WorldBookIssueDTO[]) {
@@ -332,7 +372,9 @@ export function buildNodeViewModel(
     const fields = entryFields(row.uid);
     addNode({
       key: row.key, uid: row.uid, name: fields.name, kind: "track",
-      isPrimary: true, isRepeated: false, onTrack: true,
+      isPrimary: true, isRepeated: false, isExtraArrival: false,
+      hasRepeatedArrival: ref?.row.repeated === true, arrivalFrom: null,
+      onTrack: true,
       covered: !!ref, loose: !ref, ghost: false,
       trackSeq: row.seq, displayIndex: null,
       parentUid: null, firstParentUid: null, parentKey: null, childKeys: [],
@@ -358,23 +400,21 @@ export function buildNodeViewModel(
     node.loose = false;
   }
 
-  // ── 3) 展开位置：非首次到达的一律是灰节点 ──
+  // ── 3) 主到达的展开位置：轨道上的 uid 一律灰（轨道节点才是它的唯一主节点），
+  //      轨道上没有的 uid 以「from_uid === first_parent_uid 的那次到达」为主节点 ──
   for (const ref of rows) {
     if (rowKeyOf(ref) === trackNodeKey(ref.row.uid)) continue;
     const uid = ref.row.uid;
     const onTrack = trackByUid.has(uid);
-    const earliest = earliestRef(uid);
-    const earliestIndex = earliest ? earliest.index : ref.index;
-    // 轨道已有主节点 → 这次展开必然是非首次到达；
-    // 轨道上没有它 → 最早到达的那次是主节点，其余（含服务端标 repeated 的）是灰节点。
-    const isRepeated = onTrack
-      || ref.index !== earliestIndex
-      || ref.row.repeated === true;
+    const isPrimary = !onTrack;
     const fields = entryFields(uid);
     addNode({
       key: rowNodeKey(uid, ref.index), uid, name: ref.row.name || fields.name,
       kind: isRootRow(ref.row) ? "orphan" : "expansion",
-      isPrimary: !isRepeated, isRepeated, onTrack,
+      isPrimary, isRepeated: !isPrimary, isExtraArrival: false,
+      hasRepeatedArrival: ref.row.repeated === true,
+      arrivalFrom: ref.row.first_parent_uid ?? ref.row.parent_uid ?? null,
+      onTrack,
       covered: true, loose: false, ghost: false,
       trackSeq: null, displayIndex: ref.displayIndex,
       parentUid: ref.row.parent_uid ?? null,
@@ -392,6 +432,51 @@ export function buildNodeViewModel(
     });
   }
 
+  // ── 3b) 其余到达：`cross` 边（边生效、但目标的主到达在别处）带来的出现位置一律是灰节点。
+  //       它们挂在**边起点的主节点**下，所以「cross 边 → 灰节点」在图上直接可见（§3.4.4）。
+  //       没有 display_tree 时整体跳过：那时连闭包与主到达都不知道，画孤立的灰节点只会误导，
+  //       于是降级成「只渲染轨道」（见上面的 warnings）。
+  //       服务端 `repeated === true` 精确预告「这个 uid 会另有灰出现」：这里据此做一致性检查，
+  //       只报警告、不改判定（多父边可能被深度截断成 capped，那时那次到达根本没发生）。
+  const extraArrivalsByUid = new Map<string, string[]>();
+  const crossRequiresEdges = rows.length
+    ? resolvedEdges.filter((edge) => edge.relation !== "related" && edge.status === "cross")
+    : [];
+  for (const edge of crossRequiresEdges) {
+    const fromUid = edge.from_uid;
+    const toUid = edge.to_uid;
+    const parentKey = primaryKeyOf(fromUid);
+    if (!parentKey || !byKey[parentKey]) continue;
+    const key = crossNodeKey(toUid, fromUid);
+    if (byKey[key]) continue;
+    const fields = entryFields(toUid);
+    addNode({
+      key, uid: toUid, name: fields.name, kind: "expansion",
+      isPrimary: false, isRepeated: true, isExtraArrival: true,
+      hasRepeatedArrival: false, arrivalFrom: fromUid, onTrack: trackByUid.has(toUid),
+      covered: true, loose: false, ghost: false,
+      trackSeq: null, displayIndex: null,
+      parentUid: fromUid, firstParentUid: fromUid, parentKey, childKeys: [],
+      depth: (byKey[parentKey]?.depth ?? 0) + 1,
+      remaining: null, isRoot: false, rootBadge: null, arrivalStatus: "cross",
+      problems: problemsByUid.get(toUid) || [],
+      position: fields.position, groupWeight: fields.groupWeight, entryDepth: fields.entryDepth,
+      categoryId: fields.categoryId, categoryName: fields.categoryName,
+      actualSeq: null, actualLayer: null, path: [],
+    });
+    const list = extraArrivalsByUid.get(toUid);
+    if (list) list.push(key); else extraArrivalsByUid.set(toUid, [key]);
+  }
+  const undocumentedRepeat = rows
+    .filter((ref) => ref.row.repeated === true && !(extraArrivalsByUid.get(ref.row.uid) || []).length)
+    .map((ref) => ref.row.uid)
+    .sort(compareUid);
+  if (undocumentedRepeat.length) {
+    warnings.push(`服务端标记了 repeated 但 resolved_edges 里没有对应的 cross 边（多父边可能已被深度截断）：`
+      + `${undocumentedRepeat.slice(0, 5).join("、")}${undocumentedRepeat.length > 5 ? " 等" : ""}`
+      + "，这些 uid 在本视图里没有额外的灰出现位置。");
+  }
+
   // ── 4) capped（深度用尽）目标若在别处都没有出现位置，给一个只读占位节点 ──
   const requiresEdges = resolvedEdges.filter((edge) => edge.relation !== "related");
   for (const edge of requiresEdges) {
@@ -404,7 +489,9 @@ export function buildNodeViewModel(
     const fields = entryFields(edge.to_uid);
     addNode({
       key, uid: edge.to_uid, name: fields.name, kind: "ghost",
-      isPrimary: false, isRepeated: true, onTrack: false,
+      isPrimary: false, isRepeated: true, isExtraArrival: false,
+      hasRepeatedArrival: false, arrivalFrom: edge.from_uid,
+      onTrack: false,
       covered: false, loose: false, ghost: true,
       trackSeq: null, displayIndex: null,
       parentUid: edge.from_uid, firstParentUid: edge.from_uid, parentKey, childKeys: [],
@@ -416,7 +503,7 @@ export function buildNodeViewModel(
     });
   }
 
-  // ── 5) 父子关系：display_tree 的父子是骨架；capped 占位节点挂在它的上游下面 ──
+  // ── 5) 父子关系：display_tree 的父子是骨架；cross 出现位置与 capped 占位节点挂在各自的上游主节点下 ──
   const childrenOf = new Map<string, string[]>();
   const pushChild = (parentKey: string, childKey: string) => {
     const list = childrenOf.get(parentKey);
@@ -433,7 +520,7 @@ export function buildNodeViewModel(
     pushChild(parentKey, childKey);
   }
   for (const node of nodes) {
-    if (node.kind !== "ghost" || !node.parentKey || !byKey[node.parentKey]) continue;
+    if ((node.kind !== "ghost" && !node.isExtraArrival) || !node.parentKey || !byKey[node.parentKey]) continue;
     pushChild(node.parentKey, node.key);
   }
   for (const node of nodes) {
@@ -477,20 +564,13 @@ export function buildNodeViewModel(
     const ghost = ghostNodeKey(uid);
     return byKey[ghost] ? ghost : null;
   };
-  /** 该 uid 的展开出现位置（根行与轨道主节点合并时就是轨道节点） */
-  const rowKeyForUid = (uid: string): string | null => {
-    const ref = earliestRef(uid);
-    if (!ref) return null;
-    const key = rowKeyOf(ref);
-    return byKey[key] ? key : null;
-  };
   for (const edge of requiresEdges) {
     if (edge.status !== "cross" && edge.status !== "capped") continue;
     const fromKey = primaryKeyOf(edge.from_uid);
-    // cross：边确实生效了，但目标在别处已经被覆盖 → 指向目标在展开里的那个（灰）出现位置；
+    // cross：边确实生效了，但目标的主到达在别处 → 指向这次到达自己的（灰）出现位置（§3.4.4）；
     // capped：目标这次根本没被遍历 → 指向它的主节点（轨道位置 / 展开位置），都没有就给只读占位节点。
     const toKey = edge.status === "cross"
-      ? (rowKeyForUid(edge.to_uid) || nodeKeyForUid(edge.to_uid))
+      ? (byKey[crossNodeKey(edge.to_uid, edge.from_uid)] ? crossNodeKey(edge.to_uid, edge.from_uid) : nodeKeyForUid(edge.to_uid))
       : nodeKeyForUid(edge.to_uid);
     if (!fromKey || !toKey || !byKey[fromKey] || !byKey[toKey] || fromKey === toKey) continue;
     addEdge({
@@ -671,6 +751,14 @@ export function findCycleEdgeKeys(
 }
 
 /* ── 边与节点的视觉映射（提案 §3.4.4，集中一处，不散落在 JSX 里）──────────── */
+
+/**
+ * 裁定来源（编排者 2026-09-21 同意，提案 §3.4.4 未定义这两种情况）：
+ * - `requires · idle`（上游不在候选闭包里）**不画**：大书上这类边会让轨道糊成一片，
+ *   而它不参与任何展开；只在右侧属性栏按 `edgeVisual("idle", "requires")` 的文案列出。
+ * - `related` 只在两端都在候选闭包内时才画（点线「仅图示」）；画在闭包外同样只会糊成一片。
+ * 其余四种视觉严格按提案 §3.4.4 的表格：实线箭头 skeleton / 灰实线 cross / 灰虚线 capped / 红虚线环内。
+ */
 
 export type EdgeLineStyle = "solid" | "dashed" | "dotted";
 export type EdgeColorRole = "primary" | "muted" | "related" | "idle" | "cycle";

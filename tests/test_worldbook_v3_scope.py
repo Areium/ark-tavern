@@ -273,7 +273,10 @@ def test_resolved_edge_related_status_is_always_idle():
 
 
 def test_display_tree_repeated_marks_multi_parent_arrivals_and_diamonds():
-    """`repeated` = 闭包内存在多于一条 requires 入边（多源到达 / 菱形都成立）。"""
+    """`repeated` = 存在**超过一次到达**（多源到达 / 菱形 / 根被回指都成立）。
+
+    到达次数 = 被实际遍历的 requires 入边条数 + 该 uid 自己作为起点被激活的那一次。
+    """
     entries = [E(u) for u in ("r1", "r2", "solo", "shared", "leaf", "x", "y", "z")]
     result = resolve(
         entries,
@@ -289,12 +292,91 @@ def test_display_tree_repeated_marks_multi_parent_arrivals_and_diamonds():
     assert by_uid["z"]["repeated"] is True
     # 单链：只有主路径父一个入边
     assert by_uid["leaf"]["repeated"] is False
-    # 起点没有父
+    # 根 + 无入边：只有「作为起点被激活」这一次到达
     assert by_uid["r1"]["repeated"] is False
+    assert by_uid["r1"]["first_parent_uid"] is None
+    assert by_uid["r2"]["repeated"] is False
     assert by_uid["solo"]["repeated"] is False
     assert by_uid["solo"]["first_parent_uid"] is None
     # first_parent_uid 就是主路径父（保留字段名，供前端判定「哪次到达是主到达」）
     assert all(n["first_parent_uid"] == n["parent_uid"] for n in result["display_tree"])
+
+    # 根 + 一条**被遍历**的入边 → 2 次到达 → true（旧口径只看入边条数会错判成 false）
+    rooted = resolve([E(u) for u in ("a", "b")], [always("a")],
+                     requires=[("a", "b"), ("b", "a")])
+    by_uid = {n["uid"]: n for n in rooted["display_tree"]}
+    assert by_uid["a"]["first_parent_uid"] is None and by_uid["a"]["is_root"] is True
+    assert by_uid["a"]["repeated"] is True
+    assert by_uid["b"]["repeated"] is False
+
+    # 非根 + 两条入边、但其中一条是 capped（未被遍历）→ 只有 1 次到达 → false
+    # （旧口径按 requires 入边条数会错判成 true）
+    capped = resolve(
+        [E(u) for u in ("r", "d", "w", "y", "c")],
+        [always("r", EXPANSION_LEGACY_DEPTH, max_depth=3)],
+        requires=[("r", "d"), ("d", "w"), ("w", "y"), ("y", "c"), ("d", "c")],
+    )
+    by_uid = {n["uid"]: n for n in capped["display_tree"]}
+    statuses = {(e["from_uid"], e["to_uid"]): e["status"] for e in capped["resolved_edges"]}
+    assert statuses[("y", "c")] == "capped"        # y 的剩余深度已用尽，边没被遍历
+    assert statuses[("d", "c")] == "skeleton"
+    assert by_uid["c"]["repeated"] is False        # 只有 d → c 这一次真实到达
+    assert by_uid["y"]["repeated"] is False
+
+
+def test_repeated_equals_second_traversed_arrival_invariant():
+    """不变量：`repeated` ⟺ 「除主到达之外还存在至少一次**被遍历的**到达」。
+
+    到达次数按 `resolved_edges` 里 `active is True`（＝被实际遍历）的 requires 入边条数
+    计算，再加「该 uid 自己作为起点被激活」那一次（`active_roots` 的入口）。
+    这条不变量是「灰节点预告」与「灰节点真的对应一次重复到达」之间的对应关系：
+    只要它成立，节点视图就不会出现「标了重复到达、却没有第二次到达」的假灰节点。
+
+    附带条件（同样逐 uid 断言）：每个 `repeated == True` 的 uid，要么在
+    `resolved_edges` 里有一条 `status == "cross"` 的入边，要么自己是根且有一条
+    被遍历的入边。
+    """
+    entries = [E(u) for u in ("r1", "r2", "p", "d1", "d2", "x", "leaf", "w", "y", "c")]
+    result = resolve(
+        entries,
+        [always("r1", EXPANSION_LEGACY_DEPTH, max_depth=3),
+         always("r2", EXPANSION_LEGACY_DEPTH, max_depth=3)],
+        requires=[("r1", "p"), ("p", "r1"),        # 回指起点：根 r1 二次到达
+                  ("r1", "d1"), ("r1", "d2"),
+                  ("d1", "x"), ("d2", "x"),        # 菱形：x 二次到达
+                  ("x", "leaf"),
+                  ("d1", "c"), ("d1", "w"), ("w", "y"),
+                  ("y", "c")],                     # y 深度用尽 → capped，不算到达
+    )
+    tree = result["display_tree"]
+    roots = {root["entry_uid"] for root in result["active_roots"]}
+    traversed_in = {}
+    cross_in = {}
+    for edge in result["resolved_edges"]:
+        if edge["relation"] != "requires" or not edge["active"]:
+            continue
+        traversed_in.setdefault(edge["to_uid"], set()).add(edge["from_uid"])
+        if edge["status"] == "cross":
+            cross_in.setdefault(edge["to_uid"], set()).add(edge["from_uid"])
+
+    for node in tree:
+        uid = node["uid"]
+        arrivals = len(traversed_in.get(uid, ())) + (1 if uid in roots else 0)
+        assert node["repeated"] == (arrivals > 1), (
+            f"{uid}: repeated={node['repeated']} 但到达次数={arrivals}")
+        if node["repeated"]:
+            assert cross_in.get(uid) or (node["is_root"] and traversed_in.get(uid)), (
+                f"{uid}: 声称有重复到达，却既没有 cross 入边也不是「根 + 被遍历的入边」")
+
+    # 四类边界在同一份夹具里各自成立
+    by_uid = {n["uid"]: n for n in tree}
+    assert by_uid["r1"]["repeated"] is True        # 根 + 一条被遍历入边
+    assert by_uid["r2"]["repeated"] is False       # 根 + 无入边
+    assert by_uid["leaf"]["repeated"] is False     # 非根 + 一条入边（树父）
+    assert by_uid["x"]["repeated"] is True         # 非根 + 两条被遍历入边
+    assert by_uid["c"]["repeated"] is False        # 非根 + 一条被遍历 + 一条 capped
+    # 「repeated 为假却存在 cross 灰出现」在本次解析里为 0 条
+    assert [n["uid"] for n in tree if not n["repeated"] and cross_in.get(n["uid"])] == []
 
 
 def test_display_tree_display_index_follows_depth_uid_order():
@@ -322,3 +404,28 @@ def test_closure_too_large_branch_keeps_derived_field_shape(monkeypatch):
     assert result["resolved_edges"] == []
     assert result["display_tree"] == []
     assert result["issues"][0]["code"] == "closure_too_large"
+
+
+def test_existing_result_fields_are_neither_removed_nor_renamed(monkeypatch):
+    """读时派生字段只做追加：既有返回键、既有边 / 节点字段一个都没删或改名。"""
+    import worldbook_scope as module
+    top_level = {"book_id", "schema_version", "policy_revision", "content_revision",
+                 "roster_character_ids", "active_roots", "resolved_entry_uids",
+                 "resolved_edges", "selection_reasons", "display_tree",
+                 "cross_references", "issues", "manual_entry_uids", "resolved_at"}
+    edge_fields = {"from_uid", "to_uid", "relation", "active"}
+    node_fields = {"uid", "name", "root_uid", "depth", "parent_uid", "child_uids",
+                   "remaining", "is_root"}
+
+    entries = [E("a"), E("b"), E("c")]
+    result = resolve(entries, [always("a")], requires=[("a", "b"), ("b", "c")],
+                     related=[("a", "c")])
+    assert set(result) == top_level
+    for edge in result["resolved_edges"]:
+        assert edge_fields <= set(edge)
+    for node in result["display_tree"]:
+        assert node_fields <= set(node)
+
+    monkeypatch.setattr(module, "MAX_CLOSURE_NODES", 1)
+    oversized = resolve(entries, [always("a")], requires=[("a", "b"), ("b", "c")])
+    assert set(oversized) == top_level

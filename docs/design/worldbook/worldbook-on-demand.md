@@ -8,7 +8,7 @@
 
 - **配置概览**：把「这本书怎么载入」压成四组——**基础设定**（所有会话候选）/ **角色设定**（入队时选用）/ **关联补充** / **待处理**，外加「试选阵容」与「本次范围预览」。待处理只列真要动手的项（依赖引用了不存在的条目、角色分类缺角色关联、起点指定的角色不在目录里、必要依赖成环等）；**条目没被当前试选阵容选中不算错误**。
 - **条目与角色**：条目列表 + 详情，四个常见动作覆盖绝大多数情况（见下）。显示角色名与头像，实际写入配置的仍然是角色目录 ID。
-- **分类树列表**：分类树 + 条目归属表 + 批量操作（圆形分类/条目节点的画布与连线已删）。它显示的是**统一草稿的投影**，保存走同一条 `PUT /configuration`；因此条件起点（`roster_any` / `manual` / `requires_closure`）不会被静默清掉。
+- **分类结构**：分类树 + 条目归属表 + 批量操作（圆形分类/条目节点的画布与连线已删）。它显示的是**统一草稿的投影**，保存走同一条 `PUT /configuration`；因此条件起点（`roster_any` / `manual` / `requires_closure`）不会被静默清掉。
 
 四个常见动作（条目与角色视图）：
 
@@ -19,7 +19,7 @@
 | 选用此条时同时选用… | `requires` 边 | 参与遍历，对方被一起补上 |
 | 仅标记相关 | `related` 边 | 只作浏览，**不展开** |
 
-**世界书 → 分类与载入**：分类树列表、条目归属与角色关联，工具栏提供「自动分类」（先预览再应用）。切到 `条目` 页签可浏览和编辑原有条目正文。
+**世界书 → 分类与载入** 的 **分类结构**：分类树、条目归属与角色关联，工具栏提供「自动分类」（先预览再应用）。切到 `条目` 页签可浏览和编辑原有条目正文。
 
 **创建会话**：选定世界书和阵容后展示服务端真实解析的候选统计、载入树与选用原因；创建时一次性初始化剧情、阵容、绑定与范围快照，失败不会留下半成品会话。创建全程**不调用任何 LLM**。
 
@@ -72,7 +72,7 @@ v3 把「分类」和「载入」彻底分开：**分类只负责组织内容，
 - **角色设定**（character）由 `characters_<角色目录名>_index` 推导出 `character_id`；推导不出目录名的条目落到 **角色条目（未关联）**（other），因为角色分类的条目必须带角色关联才能保存。
 - **物品 / 敌人 / 剧情设定 / 节点图**（other）沿用旧约定，不参与世界观候选。
 
-入口在 `分类与载入` 页签的**分类树列表**工具栏「自动分类」：先出方案（可归类/无线索条数、将写入的分类与条目数、线索来源、冲突与未识别明细），再点「应用分类」写入。预装整合包在分类形同未分类时会自动补齐，**不覆盖用户已编辑过的分类**；外部的酒馆书没有这类元数据，一律保持原样，需要时走这个显式入口。
+入口在 `分类与载入` 页签的**分类结构**工具栏「自动分类」：先出方案（可归类/无线索条数、将写入的分类与条目数、线索来源、冲突与未识别明细），再点「应用分类」写入。预装整合包在分类形同未分类时会自动补齐，**不覆盖用户已编辑过的分类**；外部的酒馆书没有这类元数据，一律保持原样，需要时走这个显式入口。
 
 **自动分类只改「条目属于哪一类」与随之而来的角色关联，不改载入模式、固定导入与依赖策略**——旧书仅修分类不会自动启用按需载入（与 `PUT taxonomy` 的纪律一致）。
 
@@ -102,7 +102,7 @@ v3 把「分类」和「载入」彻底分开：**分类只负责组织内容，
 
 导入策略使用草稿：预览通过后点击「保存策略」，也可「撤销草稿」。切换世界书或关闭页面时会提醒未保存策略。`分类与载入` 页签里的分类与归属动作也只修改统一草稿，右上角保存一次提交；旧书仅编辑分类不会自动启用 v3。
 
-> **与 v3 的关系**：分类树列表与批量操作仍沿用「固定导入 / 导入源」这套旧词汇（它们是 v2 兼容字段 `fixed_entry_uids` / `dependency_sources` 的界面表述），读写的是**同一份统一草稿**——固定导入 ↔ 起点 `always + none`，导入源 ↔ 起点 `always + legacy_depth`，依赖边 ↔ `requires` 边。写回时只替换这两类起点，`roster_any` / `manual` / `requires_closure` 这些条件起点（原先多由 AI 生成，现在由人工配置）原样保留；保存走页面的统一 `PUT /configuration`。
+> **与 v3 的关系**：分类结构与批量操作仍沿用「固定导入 / 导入源」这套旧词汇（它们是 v2 兼容字段 `fixed_entry_uids` / `dependency_sources` 的界面表述），读写的是**同一份统一草稿**——固定导入 ↔ 起点 `always + none`，导入源 ↔ 起点 `always + legacy_depth`，依赖边 ↔ `requires` 边。写回时只替换这两类起点，`roster_any` / `manual` / `requires_closure` 这些条件起点（原先多由 AI 生成，现在由人工配置）原样保留；保存走页面的统一 `PUT /configuration`。
 
 ## 批量操作
 
@@ -123,7 +123,7 @@ v3 把「分类」和「载入」彻底分开：**分类只负责组织内容，
 | 设为导入源（深度 N） / 取消导入源 | 批量写 `dependency_sources`，深度按输入框取值（0–32），并保持按 UID 稳定排序 |
 | 所选 → 目标 / 目标 → 所选 | 用下拉框选定目标后一次建立整批有向边；已存在的边与自环自动跳过并在提示里报数 |
 | 清空所选依赖 | 删除所有一端落在所选条目上的依赖边 |
-| 批量移入该分类 | 分类树列表专用，走 `PUT taxonomy` 的 `entry_moves`，因此需要一次服务端保存 |
+| 批量移入该分类 | 分类结构专用，走 `PUT taxonomy` 的 `entry_moves`，因此需要一次服务端保存 |
 
 **分类级操作**：分类行 `⋯` 菜单与分类属性栏都能对整棵子树执行「整类设为导入源（深度按工具栏取值）」「整类固定导入」「整类连线到指定目标」「清空整类依赖」，以及「选中这些条目」——后者把整类变成一次普通批量选择，其余操作（如批量移入分类）随之可用。
 
@@ -217,7 +217,7 @@ v2 书（未启用 v3）沿用旧语义：
 
 后端：`src/worldbook_scope.py` 负责纯校验与遍历（v2 与 v3 并存，v2 函数逐字保留）；`src/worldbook_classify.py` 负责条目自动分类（纯函数，只读条目元数据）；`src/world_book.py` 负责候选解析、预览、迁移、兼容、不可变规则版本与存储。
 
-前端：`WorldBookManager` 是工作台容器（页签 `entries` / `load` / `prompt` / `nodes` / `index`，跨组件页签状态收敛为一套 `worldbookTab`）；`components/worldbook/tabs/LoadTab.tsx`（原 `WorldBookDependencyPage`）管配置概览 / 条目与角色 / 分类树列表与统一草稿的保存条；`components/worldbook/tabs/PromptPreviewTab.tsx` 是三栏 + 骨架条 + 未插入区的 Prompt 预览；`components/worldbook/tabs/NodeViewTab.tsx` 是节点视图（虚拟化横向轨道 + 向下展开 + 灰节点 + 属性栏 + 与 `Prompt 预览` 联动）；`components/worldbook/EntryDependencyTree.tsx` 是两处列表共用的依赖展开树；`hooks/useWorldbookDraft.ts` 提供统一草稿（`draftFrom` / `policyFromDraft` / `patchFromPolicy`）与两个预览钩子（均带防抖 + 序号过时响应保护）；`utils/worldbookNodeView.ts` / `utils/worldbookDependencyTree.ts` / `utils/worldbookPromptPreview.ts` 是三个页签的纯逻辑。图谱画布（`WorldBookGraphCanvas` 与 `utils/worldbookGraph.ts`）已整文件删除；节点视图沿用纯 SVG + DOM，不依赖额外图形库，也不改动战斗画布。
+前端：`WorldBookManager` 是工作台容器（页签 `entries` / `load` / `prompt` / `nodes` / `index`，跨组件页签状态收敛为一套 `worldbookTab`）；`components/worldbook/tabs/LoadTab.tsx`（原 `WorldBookDependencyPage`）管配置概览 / 条目与角色 / 分类结构三个子视图；统一草稿与页头保存条在容器 `WorldBookManager` 里；`components/worldbook/tabs/PromptPreviewTab.tsx` 是三栏 + 骨架条 + 未插入区的 Prompt 预览；`components/worldbook/tabs/NodeViewTab.tsx` 是节点视图（虚拟化横向轨道 + 向下展开 + 灰节点 + 属性栏 + 与 `Prompt 预览` 联动）；`components/worldbook/EntryDependencyTree.tsx` 是两处列表共用的依赖展开树；`hooks/useWorldbookDraft.ts` 提供统一草稿（`draftFrom` / `policyFromDraft` / `patchFromPolicy`）与两个预览钩子（均带防抖 + 序号过时响应保护）；`utils/worldbookNodeView.ts` / `utils/worldbookDependencyTree.ts` / `utils/worldbookPromptPreview.ts` 是三个页签的纯逻辑。图谱画布（`WorldBookGraphCanvas` 与 `utils/worldbookGraph.ts`）已整文件删除；节点视图沿用纯 SVG + DOM，不依赖额外图形库，也不改动战斗画布。
 
 `utils/worldbookDependency.ts` 的布局、节点角色分类与依赖树建模已随画布删除，只保留批量策略变换等纯函数；**遍历语义现在只有服务端一处**（`worldbook_scope.py` 的 `resolve_v3_scope`），条目依赖展开树与节点视图都读它的结果，前端不再复制第二套会话遍历。它不写盘、不改策略，只读 `WorldBookDetail` + `WorldBookPolicyDraft`。`worldbook_classify.py` 同样不写盘：`from_dict` 的自动补齐与接口的显式应用都通过同一份方案，前者额外受「预装包 + 分类形同未分类」两个条件约束。
 
@@ -229,7 +229,7 @@ v2 书（未启用 v3）沿用旧语义：
 角色刷新、schema2 局部升级、全局更新冲突、跨会话隔离、保存重载与并发门禁（会话侧
 AI 微调任务相关的 stale / 取消 / 预算中断恢复 / scoped LLM 用例已随提案 §2.4 删除）。
 
-前端纯工具与真实 React SSR 检查可单独运行 `node scripts/test_worldbook_scope_ui.cjs`（节点视图的轨道排序与灰节点去重、依赖展开树、Prompt 预览的纯函数与 SSR 断言）。前端构建在 `frontend/` 运行 `npm run build`。
+前端纯工具与真实 React SSR 检查可单独运行两个脚本：`node scripts/test_worldbook_scope_ui.cjs`（分类树工具 / 批量起点与依赖与归属 / 候选范围预览 / 分类结构 SSR / 工作台页签骨架，以及依赖展开树与 Prompt 预览的纯函数与 SSR 断言）与 `node scripts/test_worldbook_node_view_ui.cjs`（**节点视图**：轨道排序键、灰节点去重口径、确定性布局、规模截断、六项统计、五种边视觉的纯函数与 SSR 断言）。节点视图断言单独成文件，是为了让两个前端单元不再争同一个脚本（`test_worldbook_scope_ui.cjs` 保留分类树 / 批量 / 依赖展开树 / Prompt 预览的断言）。前端构建在 `frontend/` 运行 `npm run build`。
 
 > AI 构建的真实模型验证脚本 `scripts/verify_worldbook_builder_llm.py` 已随该功能删除（同批删除的还有 `scripts/benchmark_worldbook_builder.py` 与 `scripts/benchmark_worldbook_selective_reading.py`）。Prompt 预览与依赖展开的验收改为确定性用例：同输入两次请求**字节一致**、`dropped.reason` 九类覆盖、零写盘（请求前后书文件哈希与 mtime 不变）、依赖树与 `display_tree` 同构、灰节点去重口径与 `best` 表逐条一致。
 
@@ -245,6 +245,6 @@ SSR 与 stub 都不代替浏览器验收。浏览器还需验证：五个页签�
 - 手动追加作为临时根参与同一次必要依赖遍历，产生树、原因与问题信息。related 边保存在项目扩展中；「人工锁定 / 拒绝记录 / 正式边证据」是 AI 构建时代的字段，**停写不删**——旧书里的值照常透传与载入，界面不再产生新值。
 - 高级分类、归属、角色关联均可统一撤销；切书提供保存 / 放弃 / 取消。（原「按书恢复最近/活跃任务、拒绝同书重复构建、切视图不需重建付费任务」的 AI 构建口径已随之移除。）
 
-浏览器回归：`scripts/test_worldbook_review_ui.cjs` 使用真实 Chromium 和生产 React 组件、确定性 API 响应，覆盖空闲预览计数、409 草稿保留、高级分类/归属没有旧写接口、三向切书选择与切书后的页签归一（任务恢复、孤儿任务续跑、完整根物化、人工锁定冲突待复核等 AI 构建用例已随提案 §2.4 删除）。需要本地 Vite web server 与 Playwright；`WB_UI_URL`、`PLAYWRIGHT_MODULE`、`WB_BROWSER` 可指定运行环境。生产 Flask/SceneManager 和真实全书结构验证分别见 `tests/test_worldbook_config_api.py`、`tests/test_worldbook_scene_scope.py`、`tests/test_worldbook_review_fixes.py`。
+浏览器回归：`scripts/test_worldbook_review_ui.cjs` 使用真实 Chromium 和生产 React 组件、确定性 API 响应，覆盖默认落在 `条目` 页签、空转预览必须停下来、分类结构里的分类与归属改动不调用旧写接口、保存 409 后草稿跨页签与跨子视图完整保留（且不再下发 AI 构建字段 `proposal`）、切书三选一对话框与撤销回基线、已删除接口不再被调用。需要本地 Vite web server 与 Playwright；`WB_UI_URL`、`PLAYWRIGHT_MODULE`、`WB_BROWSER` 可指定运行环境。生产 Flask/SceneManager 和真实全书结构验证分别见 `tests/test_worldbook_config_api.py`、`tests/test_worldbook_scene_scope.py`、`tests/test_worldbook_review_fixes.py`。
 
 > 原「全书 stub 验证只证明结构 / 覆盖 / 预算与断点」「6 条样本 2 次真实调用、缓存再跑 0 次」等 AI 构建验收记录已随提案 §2.4 删除，不再是现状依据。

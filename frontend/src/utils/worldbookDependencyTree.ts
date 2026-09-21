@@ -70,6 +70,7 @@ export function cycleNodeSet(cycles: string[][] | null | undefined): Set<string>
 
 // ── 多源到达 ────────────────────────────────────────────────────────────────
 
+/** 导出供脚本直接断言；生产路径用 `normalizeArrivals`（组件走它对整棵树做归一）。 */
 export function pickStrongestArrival<T extends { remaining?: number | null }>(
   arrivals: T[] | null | undefined,
 ): T | null {

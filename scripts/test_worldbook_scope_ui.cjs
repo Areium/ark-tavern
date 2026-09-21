@@ -172,8 +172,7 @@ assert.deepEqual(managerModule.visibleWorldbookTabs({ book_type: "reference" }).
 assert.deepEqual(managerModule.visibleWorldbookTabs({ book_type: "story" }).map((tab) => tab.id),
   ["entries", "load", "prompt", "nodes", "index"], "剧情书的五个页签都可达");
 
-// WU-F: 节点视图纯函数断言（轨道排序 key 与灰节点去重口径）—— `utils/worldbookNodeView.ts`
-//       落地后补在下方；本单元只落 NodeViewTab 桩，不引用尚未存在的模块。
+// 节点视图断言见 `scripts/test_worldbook_node_view_ui.cjs`（R-23：独立脚本，避免与本文件争用）。
 // ── WU-E · Prompt 预览纯函数（A-2）──────────────────────────────────────────
 const promptModule = require(path.join(root, "frontend/src/utils/worldbookPromptPreview.ts"));
 const {
@@ -233,6 +232,20 @@ assert.deepEqual(fallbackBlock.map((block) => [block.name, block.body]), [["", "
 assert.deepEqual(parseInjectionBlocks(""), []);
 assert.deepEqual(parseInjectionBlocks(null), []);
 assert.deepEqual(parseInjectionBlocks("   \n  "), []);
+
+// 真实数据回归（E-2 发现）：条目正文自己也会写 `### ` 小标题 —— 预装整合包 arknights 的
+// 「控制中枢（地点设定）」正文里就有 `### 视觉` / `### 氛围`，一次真实预览 70 个 `### ` 头
+// 只有 20 个是条目锚点。给得出本轮条目名时只认这些名字，否则中栏会把一条条目劈成几块。
+const headingsInBody = "【世界书】\n### 控制中枢（地点设定）\n正文\n\n### 视觉\n中央主屏幕……\n\n### 氛围\n空气……\n\n### 宿舍（地点设定）\n正文";
+assert.equal(parseInjectionBlocks(headingsInBody).length, 5, "不给条目名时按所有 `### ` 行切分（老口径）");
+const strictBlocks = parseInjectionBlocks(headingsInBody, ["控制中枢（地点设定）", "宿舍（地点设定）"]);
+assert.deepEqual(strictBlocks.map((block) => block.name), ["", "控制中枢（地点设定）", "宿舍（地点设定）"],
+  "给得出本轮注入的条目名时，正文里的 `### ` 小标题不再当锚点");
+assert.ok(strictBlocks[1].body.includes("### 视觉") && strictBlocks[1].body.includes("### 氛围"),
+  "正文小标题原样留在正文里，内容不丢");
+assert.equal(parseInjectionBlocks(headingsInBody, []).length, 5, "条目名列表为空时退回老口径");
+assert.equal(parseInjectionBlocks(headingsInBody, ["别的东西"]).length, 1,
+  "没有任何名字命中时兜底成一个无锚点块，整段正文不丢");
 
 // 锚点 → 右栏条目：字符串完全相等，绝不把条目名当正则
 const orderFixture = [
@@ -544,5 +557,6 @@ assert.ok(!renderToStaticMarkup(React.createElement(entryTreeModule.DependencyTr
   tree: deep, requiresOnly: false,
 })).includes("世界书图谱"), "R-22：旧说法不出现在依赖展开里");
 
-console.log("Worldbook UI: 分类树工具、批量起点/依赖/归属、候选范围预览、分类结构 SSR 与新工作台页签骨架通过；"
-  + "画布与依赖树断言已随 D-1/D-3 删除，节点视图 / 依赖展开树 / Prompt 预览断言留给 WU-F 与 WU-E。");
+console.log("Worldbook UI: 分类树工具、批量起点/依赖/归属、候选范围预览、分类结构 SSR、工作台页签骨架、"
+  + "Prompt 预览与依赖展开树的纯函数与 SSR 断言全部通过；"
+  + "节点视图断言见 scripts/test_worldbook_node_view_ui.cjs（R-23）。");

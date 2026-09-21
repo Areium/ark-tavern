@@ -155,10 +155,26 @@ export default function PromptPreviewTab({ ctx, onNotice }: WorldBookTabProps) {
   const droppedGroups = useMemo(() => groupDropped(preview?.dropped), [preview]);
   const skeletonInsert = useMemo(() => new Map(
     findSkeletonWorldbookBlocks(preview?.skeleton).map((block) => [block.index, block])), [preview]);
-  const stableBlocks = useMemo(() => (textOpen ? parseInjectionBlocks(preview?.stable_text) : []),
-    [preview, textOpen]);
-  const dynamicBlocks = useMemo(() => (textOpen ? parseInjectionBlocks(preview?.dynamic_text) : []),
-    [preview, textOpen]);
+  /**
+   * 本轮注入的条目名（按层）：条目正文自己也会写 `### ` 小标题，锚点只认这些名字，
+   * 否则中栏会把一条条目劈成几块、还长出点不开的死锚点（见 `parseInjectionBlocks` 注释）。
+   */
+  const anchorNames = useMemo(() => {
+    const stable: string[] = [];
+    const dynamic: string[] = [];
+    for (const entry of preview?.order || []) {
+      const list = entry.layer === "stable" ? stable : dynamic;
+      if (entry.name) list.push(entry.name);
+      list.push(entry.uid);
+    }
+    return { stable, dynamic };
+  }, [preview]);
+  const stableBlocks = useMemo(
+    () => (textOpen ? parseInjectionBlocks(preview?.stable_text, anchorNames.stable) : []),
+    [preview, anchorNames, textOpen]);
+  const dynamicBlocks = useMemo(
+    () => (textOpen ? parseInjectionBlocks(preview?.dynamic_text, anchorNames.dynamic) : []),
+    [preview, anchorNames, textOpen]);
 
   const dialogueCount = recentDialogueCount(sessionMessages);
   const canFill = !!activeSessionId && dialogueCount > 0;

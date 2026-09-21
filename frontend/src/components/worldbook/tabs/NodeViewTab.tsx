@@ -17,10 +17,12 @@ export const NODE_VIEW_ORDER_NOTE =
   + "不是「本轮一定按这个顺序全部插入」：每轮实际命中是关键词 / 概率 / token 预算决定的子集，"
   + "轨道顺序表达的是「若都被命中时的插入次序」。";
 
-/** 灰节点口径（提案 §3.4.3.3 / §3.4.3.6）——必须写死，避免被读成「绝对不会注入」 */
+/** 灰节点口径（提案 §3.4.3 + 契约 R-10 澄清）——必须写死，避免被读成「绝对不会注入」 */
 export const NODE_VIEW_GRAY_NOTE =
-  "灰节点 = 同一 uid 的非首次到达：已插入过（路径 A → B → X），不重复插入；它不重复进入候选范围，"
-  + "但是否实际注入仍由关键词、概率、token 预算决定，见「Prompt 预览」。";
+  "灰节点 = 同一 uid 的非主到达：已插入过（路径 A → B → X），不重复插入。判定口径与服务端一致——"
+  + "条目在轨道上有位置的，轨道节点是唯一主节点，它向下的出现位置（含 cross 边带来的重复到达）一律灰；"
+  + "轨道上没有位置的（已停用 / 空正文），只有 first_parent_uid 指向的那次到达是主节点，其余到达为灰。"
+  + "灰节点不重复进入候选范围，但是否实际注入仍由关键词、概率、token 预算决定，见「Prompt 预览」。";
 
 /** 空态（提案 §3.4.5） */
 export const NODE_VIEW_EMPTY_HINT =
@@ -63,8 +65,8 @@ const pathText = (node: NodeViewNode) => node.path.map((step) => step.name || st
  * 所有布局 / 去重投影 / 统计都在 `utils/worldbookNodeView.ts` 的纯函数里，组件只负责渲染与交互
  * （且交互全部只读：不改条目、不连线、不拖拽、不持久化节点位置）。
  *
- * `initialSelectedKey` 是可选的**附加**属性（不属冻结契约 `WorldBookTabProps`，工作台不传）：
- * 只用于 SSR 断言与将来可能的深链，浏览器里首次 effect 仍按当前草稿重置选中。
+ * `initialSelectedKey` 是**非契约字段**：不属冻结的 `WorldBookTabProps`，工作台不传，
+ * 只供本单元在 SSR 里预设选中节点以断言右侧属性栏，不参与任何线上行为。
  */
 export default function NodeViewTab(
   { ctx, onNotice, onReload, initialSelectedKey = "" }:
@@ -448,7 +450,15 @@ export default function NodeViewTab(
                           title={problem.message}>{PROBLEM_LABELS[problem.code] || problem.code}</span>
                       ))}
                       {node.isRepeated && (
-                        <span className="wbnv-chip is-gray" title={`已插入过（路径 ${pathText(node)}），不重复插入`}>灰色 · 不重复插入</span>
+                        <span className="wbnv-chip is-gray" title={`已插入过（路径 ${pathText(node)}），不重复插入`}>
+                          {node.isExtraArrival ? "重复到达 · 不重复插入" : "灰色 · 不重复插入"}
+                        </span>
+                      )}
+                      {node.isPrimary && node.hasRepeatedArrival && (
+                        <span className="wbnv-chip is-repeat-hint"
+                          title="服务端 display_tree.repeated：这个条目在闭包内有多条 requires 入边，因此在本视图里还会以灰节点出现">
+                          另有灰出现
+                        </span>
                       )}
                       {node.actualSeq !== null && (
                         <span className="wbnv-hit" title={`本轮实际命中序号 #${node.actualSeq + 1}（${LAYER_LABELS[node.actualLayer || ""] || "—"}）`}>
@@ -517,6 +527,12 @@ export default function NodeViewTab(
                   ? `${selected.rootBadge.activationLabel} · ${selected.rootBadge.expansionLabel}`
                   : "不是起点"}</dd></div>
                 <div><dt>下游规模</dt><dd>{downstream} 条（requires 闭包去重）</dd></div>
+                <div><dt>这次到达</dt><dd>{selected.kind === "track" ? "轨道自身（注入位次）"
+                  : selected.isExtraArrival ? `cross 边重复到达 ← ${selected.arrivalFrom || "?"}`
+                    : `主到达 ← ${selected.arrivalFrom || "起点"}`}</dd></div>
+                {selected.hasRepeatedArrival && (
+                  <div><dt>重复到达</dt><dd>闭包内有多条 requires 入边，另有灰出现</dd></div>
+                )}
               </dl>
 
               <section className="wbnv-block">

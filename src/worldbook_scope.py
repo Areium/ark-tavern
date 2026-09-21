@@ -481,7 +481,6 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
         if parent is not None and parent in best:
             children.setdefault(parent, []).append(uid)
 
-    requires_pairs = {(e["from_uid"], e["to_uid"]) for e in requires_edges}
     display_tree = []
     for display_index, uid in enumerate(ordered):
         info = path_of[uid]
@@ -492,20 +491,32 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
         #   (depth, uid) 稳定排序，位次因此也稳定）；
         # - `first_parent_uid`：该 uid 的**主路径父**（即 `parent_uid`，根为 null），
         #   前端用它判断「哪一次到达是主到达」；
-        # - `repeated`：闭包内是否**存在多于一条 requires 入边**（除主路径父之外还有
-        #   别的闭包内节点指向它）—— 预告该 uid 会在节点视图里另外以**灰节点**出现。
-        #   判据：parents = {a | (a, b) in requires_edges, b == uid, a in best}，
-        #   repeated = len(parents) > 1。
+        # - `repeated`：该 uid 是否**有超过一次到达** —— 预告它会在节点视图里另外以
+        #   **灰节点**出现。判定基于「到达次数」而不是「入边条数」：
+        #
+        #     到达次数 = 被**实际遍历**的 requires 入边条数（`used_edges`）
+        #              + 它自己作为起点被激活的那一次（`root_reasons`）
+        #
+        #   两个边界必须守住，否则会画出「标了重复到达、却没有第二次到达」的假灰节点：
+        #   1. 用 `used_edges` 而不是 `requires_edges`：`capped` 边（上游那次到达的
+        #      剩余深度是 0，边没被遍历）**不构成一次到达**，不能算进来；
+        #   2. 起点被激活本身也是一次到达：一个根若还被一条被遍历的边指向，
+        #      它就有 2 次到达（自己作为根 + 来自那条边），不能只看入边条数。
+        #
+        #   五类边界：根+无入边=1(false)；根+一条被遍历入边=2(true)；
+        #   非根+一条入边（它的树父）=1(false)；非根+两条被遍历入边=2(true)；
+        #   非根+两条入边但其中一条 capped（未遍历）=1(false)。
         # 注：`repeated` 只说「会有重复到达」；主到达 = 轨道上的出现优先，轨道上
         # 没有时取 `first_parent_uid` 指向的那次。
-        parents = {a for (a, b) in requires_pairs if b == uid and a in best}
+        traversed_in = {a for (a, b) in used_edges if b == uid}
+        arrivals = len(traversed_in) + (1 if uid in root_reasons else 0)
         display_tree.append({
             "uid": uid, "name": field(uid, "name", "") or uid,
             "root_uid": info["root"], "depth": info["depth"], "parent_uid": info["parent"],
             "child_uids": sorted(children.get(uid, [])),
             "remaining": best[uid],
             "is_root": uid in root_reasons,
-            "repeated": len(parents) > 1,
+            "repeated": arrivals > 1,
             "first_parent_uid": info["parent"],
             "display_index": display_index,
         })

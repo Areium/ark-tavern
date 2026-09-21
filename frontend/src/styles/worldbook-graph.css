@@ -381,8 +381,6 @@ html.light .wbg-page, html.light .wbg-config, html.light .wbg-entries { color-sc
 
 /* 条目依赖逐层展开（A-3）在两处列表里的挂载点 */
 .wbg-entry-card-wrap { display: flex; flex-direction: column; gap: 2px; }
-.wbg-dep-tree { display: flex; align-items: center; gap: 7px; padding: 2px 0 4px 38px; }
-.wbg-dep-tree-chevron { display: inline-block; width: 10px; color: var(--ng-muted); }
 
 /* ── 节点视图与 Prompt 预览（WU-F/WU-E 追加区段，勿在其上方插入） ── */
 
