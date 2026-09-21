@@ -726,9 +726,16 @@ def _preview_drop_reason(entry: WorldBookEntry, scan_text: str, scoped_uids: set
         return "budget_exceeded"
     if entry.probability < 100:
         return "probability_miss"
-    # 兜底（关键词通过、概率 100 且未被预算跳过时理论上不可达）：
-    # 宁可报「被预算跳过」也不让条目在 dropped[] / order[] 里都没有解释。
-    return "budget_exceeded"
+    # 安全网（**不可达**）：走到这里意味着「条目在候选范围内、启用、有正文、关键词
+    # 通过（或常驻）、概率也过了，却既没进 order[] 也没有 trace 的 included=False」，
+    # 按上游不变量不可能发生（候选 ⊆ 可注入集合，任何没进 order[] 的候选条目必然落在
+    # keyword / secondary / probability / budget 四类之一）；**真被触发即说明上游有 bug**。
+    # 这里刻意报 `not_in_scope`（「不在候选范围内」）而**不是** `budget_exceeded`：
+    # 后者的语义由 `trace` 里 `included=False` 精确定义，乱报会让
+    # `totals.truncated`（= trace 存在 included=False）与 `dropped[]` 自相矛盾 ——
+    # 例如「整本书已停用」的边界上曾出现 2 条 budget_exceeded 而 truncated=false。
+    # 保留这个分支只为守住「每条书内条目在 order[]/dropped[] 中都有解释」的不变量。
+    return "not_in_scope"
 
 
 def _preview_sites(mode: str) -> list[dict]:
@@ -809,6 +816,32 @@ class _PromptPreviewOverlay:
 
     def get_active_lore_scope(self):
         return self._lore_scope
+
+
+#: 「整本书已停用」的排除原因：与条目级原因（停用 / 空正文）区分开。
+#: 它只在**整本书**不参与解析时出现，因此 Prompt 预览要把它排除在
+#: `not_in_scope` 的判定基准之外（见 `preview_prompt_injection`）。
+EXCLUDED_REASON_BOOK_DISABLED = "世界书已停用"
+
+
+def _excluded_reason(entry: WorldBookEntry) -> str:
+    """条目「被选中却没进候选」的原因，取**最具体**的那个。
+
+    条目级原因（`条目已停用` / `内容为空`）优先于书级原因（`世界书已停用`）：
+    前者是「即使这本书被启用，这条也不会注入」这一更可操作的事实。
+    这个区分被 Prompt 预览的未插入原因分类依赖：书级原因的条目必须落回
+    `not_in_scope`（整本书不在候选范围内），条目级原因的条目要报
+    `disabled` / `empty_content`。
+
+    只对**停用**的书有影响：书启用时，被排除的条目必然命中的是条目级原因
+    （`resolved` 的条件正是 `self.enabled and e.enabled and e.content.strip()`）。
+    """
+    if not entry.enabled:
+        return "条目已停用"
+    if not (entry.content or "").strip():
+        return "内容为空"
+    # 条目本身没问题却被排除 → 只可能是整本书被停用
+    return EXCLUDED_REASON_BOOK_DISABLED
 
 
 class WorldBook:
@@ -1120,13 +1153,49 @@ class WorldBook:
                 "selection_reasons": {uid: [reason for reason, uids in reasons.items() if uid in uids]
                                       for uid in sorted(selected)},
                 "excluded_entries": [{"uid": e.uid, "name": e.name,
-                                      "reason": "世界书已停用" if not self.enabled else "条目已停用" if not e.enabled else "内容为空"}
+                                      "reason": _excluded_reason(e)}
                                      for e in self.entries if e.uid in selected and e.uid not in resolved]}
+
+    # ── 显式全量兼容（full_scope）的**唯一真源** ──
+
+    def _full_scope_entries(self) -> list[WorldBookEntry]:
+        """「本次会话显式全量兼容」包含的条目（**书内顺序**）：启用且有正文。
+
+        这是 `full_scope` 语义的唯一真源。v2 / v3 的预览、`scope-preview` 路由侧的
+        `_apply_full_scope`、以及会话快照都用它，否则同一个开关在不同接口上会给出
+        不同答案（v2 书的 Prompt 预览曾经完全忽略这个开关，页签上的「全量兼容」点了
+        没有任何反应）。
+
+        注意与 `legacy_full_scope` 的区别：legacy 书（`scope_mode == "legacy"`）的
+        全量口径额外要求**书级** `enabled`，那是旧语义，不走这里。
+        """
+        return [e for e in self.entries if e.enabled and (e.content or "").strip()]
+
+    def full_scope_uids(self) -> list[str]:
+        """显式全量兼容的条目 UID（排序后的稳定列表）。"""
+        return sorted(e.uid for e in self._full_scope_entries())
+
+    def _full_scope_scope(self, scope: dict) -> dict:
+        """把一个已解析的候选范围换成「显式全量兼容」范围。
+
+        与路由侧 `_apply_full_scope`（`src/blueprints/worldbook.py`）**同源**：两者
+        都取 `full_scope_uids()`，因此「Prompt 预览」的 `candidate_count` 与
+        `scope-preview` 的 `entry_count` 在同一个 `full_scope` 开关下必然相等。
+        区别只在于本方法产出的是**解析结果** dict：全量范围没有起点与依赖解释，
+        所以 `active_roots` / `resolved_edges` / `display_tree` / `cross_references`
+        / `issues` 一并置空，`legacy_full_scope` 置真（与 v3 预览原有行为逐字一致）。
+        其余键（`book_id` / 策略修订 / `excluded_entries` 等）原样保留。
+        """
+        uids = self.full_scope_uids()
+        return {**scope, "resolved_entry_uids": uids,
+                "selection_reasons": {uid: ["full_scope"] for uid in uids},
+                "active_roots": [], "resolved_edges": [], "display_tree": [],
+                "cross_references": [], "issues": [], "legacy_full_scope": True}
 
     def preview_scope(self, roster_character_ids=None) -> dict:
         scope = self.resolve_import_scope(roster_character_ids)
         resolved = set(scope["resolved_entry_uids"])
-        full = [e for e in self.entries if e.enabled and e.content.strip()]
+        full = self._full_scope_entries()
         costs = {e.uid: estimate_tokens(e.content) for e in full}
         total, selected = sum(costs.values()), sum(costs.get(uid, 0) for uid in resolved)
         warnings = []
@@ -1206,13 +1275,10 @@ class WorldBook:
         因此这里必须真的把范围换成全量，而不是只加一句提示。
         """
         scope = self.resolve_v3_import_scope(roster_character_ids, revision, manual_entry_uids)
-        full = [e for e in self.entries if e.enabled and e.content.strip()]
+        full = self._full_scope_entries()
         if full_scope:
-            uids = sorted(e.uid for e in full)
-            scope = {**scope, "resolved_entry_uids": uids,
-                     "selection_reasons": {uid: ["full_scope"] for uid in uids},
-                     "active_roots": [], "resolved_edges": [], "display_tree": [],
-                     "cross_references": [], "issues": [], "legacy_full_scope": True}
+            # 与 v2 分支共用同一段「全量兼容范围」构造（`_full_scope_scope`）
+            scope = self._full_scope_scope(scope)
         resolved = set(scope["resolved_entry_uids"])
         costs = {e.uid: estimate_tokens(e.content) for e in self.entries}
         total = sum(costs.get(e.uid, 0) for e in full)
@@ -1342,7 +1408,7 @@ class WorldBook:
         })
         if not full_scope:
             return result
-        uids = sorted(e.uid for e in self.entries if e.enabled and (e.content or "").strip())
+        uids = self.full_scope_uids()          # 与预览共用同一真源
         result.update({
             "resolved_entry_uids": uids,
             "selection_reasons": {uid: ["full_scope"] for uid in uids},
@@ -1622,6 +1688,12 @@ class WorldBook:
             scope = self.preview_v3_scope(roster, manual, None, bool(full_scope))["scope"]
         else:
             scope = self.preview_scope(roster)["scope"]
+            # v2 书也要认 `full_scope`（提案 §3.2 的请求字段之一）：与 v3 分支共用同一段
+            # 全量范围构造，否则同一个开关在两个接口/两种书上口径不一致 —— v2 书上
+            # 「全量兼容」会静默无效，`candidate_count` 与 `scope-preview` 的
+            # `entry_count` 对不上。
+            if full_scope:
+                scope = self._full_scope_scope(scope)
 
         # 2) 合成 overlay（一次性、不触碰真实会话）：候选范围 ∩ 节点作用域
         overlay = _PromptPreviewOverlay(scope, lore_scope)
@@ -1692,7 +1764,11 @@ class WorldBook:
         # 它已经是起点了）。
         scoped_uids = set(scope_uids)
         for item in scope.get("excluded_entries") or []:      # v2：{"uid","name","reason"}
-            if isinstance(item, dict) and isinstance(item.get("uid"), str):
+            # 「整本书已停用」是**书级**原因，不是条目级排除：整本书不在候选范围内时
+            # 条目应报 `not_in_scope`（九类里没有「整本书已停用」这一档），否则它们会
+            # 走到 `_preview_drop_reason` 的兜底分支，产出与 `totals.truncated` 矛盾的原因。
+            if (isinstance(item, dict) and isinstance(item.get("uid"), str)
+                    and item.get("reason") != EXCLUDED_REASON_BOOK_DISABLED):
                 scoped_uids.add(item["uid"])
         for issue in scope.get("issues") or []:               # v3：防御性并集
             # v3 的 `best` 本就包含停用 / 空正文条目（只以 issues 形式报告），

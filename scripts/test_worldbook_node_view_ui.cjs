@@ -275,7 +275,19 @@ assert.deepEqual(summarize(model, preview, 0),
 assert.deepEqual(model.cycleGroups, [["loop1", "loop2"]], "loop1 ↔ loop2 是一个环（两条边）");
 assert.equal(findCycleGroups([{ from_uid: "a", to_uid: "b" }, { from_uid: "b", to_uid: "a" },
   { from_uid: "c", to_uid: "c" }, { from_uid: "d", to_uid: "e" }]).length, 2,
-  "两个二元环算 2 个环、一个自环算 1 个环，互不合并");
+  "两个二元环算 2 个环、一个孤立自环算 1 个环，互不合并");
+// F-9：自环若已在规模 > 1 的分量里，不能再单独成组（否则同一个环被数两次）
+assert.deepEqual(findCycleGroups([{ from_uid: "a", to_uid: "a" }, { from_uid: "a", to_uid: "b" },
+  { from_uid: "b", to_uid: "a" }]), [["a", "b"]],
+  "F-9：a 自环 + a↔b 只算 1 个环（自环并入它所在的环，组里已含 a）");
+assert.deepEqual(findCycleGroups([{ from_uid: "x", to_uid: "x" }]), [["x"]],
+  "F-9：不在任何二元环里的孤立自环仍单独算 1 个环");
+assert.equal(findCycleGroups([{ from_uid: "a", to_uid: "a" }, { from_uid: "a", to_uid: "b" },
+  { from_uid: "b", to_uid: "a" }, { from_uid: "y", to_uid: "y" }]).length, 2,
+  "F-9：「自环并入的环」+ 孤立自环 = 2 个环");
+assert.deepEqual(findCycleEdgeKeys([{ from_uid: "a", to_uid: "a" }, { from_uid: "a", to_uid: "b" },
+  { from_uid: "b", to_uid: "a" }]), ["a|a", "a|b", "b|a"],
+  "F-9：环内**边**仍照实列出三条（自环也是一条边），只是分组不再重复计数");
 assert.equal(summarize(model, preview, 5).hidden, 5, "隐藏节点数由布局的截断结果传入");
 assert.equal(model.track.length - summarize(model, preview, 0).uncovered, 5,
   "未覆盖只算轨道上的条目");
@@ -694,14 +706,29 @@ assert.ok(budgetMarkup.includes("展开到覆盖约 60 个节点"),
 assert.ok(/展开到覆盖约 60 个节点（\d+ 层）/.test(budgetMarkup), "F-3：并带上实际层数");
 assert.ok(!budgetMarkup.includes("展开全部下游（80"), "F-3：下游超过预算时不再说「展开全部下游」");
 
-// F-5：全量兼容预览 → 明确提示「不显示依赖闭包」，不把全书标成游离
+// F-5 / F-7 / F-8：全量兼容预览 → 明确提示「不显示依赖闭包」，不把全书标成游离
 const fullScopeMarkup = render({ preview: { ...preview, display_tree: [], full_scope: true } });
 assert.ok(fullScopeMarkup.includes("本次预览是「全量兼容」") && fullScopeMarkup.includes("不显示依赖闭包"),
   "F-5：全量兼容给出明确提示");
 assert.ok(fullScopeMarkup.includes("本次预览为全量兼容（full_scope）"), "F-5：说明该状态来自哪一档");
+assert.ok(fullScopeMarkup.includes("全书条目都在候选里"),
+  "F-7：提示条写「全书条目都在候选里」（不是「全程条目」）");
+assert.ok(!fullScopeMarkup.includes("全程条目"), "F-7：错别字「全程条目」已不存在");
 assert.ok(!fullScopeMarkup.includes(">游离<"), "F-5：全量兼容下不把全书标成「游离」");
 assert.ok(fullScopeMarkup.includes("<b>未被任何起点覆盖</b>不适用"),
   "F-5：未覆盖统计在无法计算时显示「不适用」而不是误导性数字");
+// F-8：依赖环在全量兼容下也必须显示「不适用」，不能显示「0 个」（那与提示条自相矛盾且事实上错误）
+assert.ok(fullScopeMarkup.includes("<b>依赖环</b>不适用"),
+  "F-8：全量兼容下依赖环显示「不适用」，不再显示 0 个");
+assert.ok(!fullScopeMarkup.includes("<b>依赖环</b>0 个"), "F-8：不再出现误导性的「依赖环 0 个」");
+assert.ok(fullScopeMarkup.includes("<b>已在范围内</b>不适用"), "三项范围统计统一显示「不适用」");
+assert.ok(fullScopeMarkup.includes("不解析依赖闭包，因此这一项不反映本次范围"),
+  "F-8：title 里说明为什么会不适用");
+assert.ok(fullScopeMarkup.includes("书级依赖关系仍可在「分类与载入」或节点属性栏逐条查看"),
+  "F-8：指向能看到书级依赖关系的地方");
+const fullScopeStatsLine = (fullScopeMarkup.match(/<div class="wbnv-stats"[\s\S]*?<\/div>/) || [""])[0]
+  .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+console.log(`F-8 文案｜全量兼容下的统计条：${fullScopeStatsLine}`);
 
 // 选中一个灰节点 → 属性栏：uid / 分类 / 角标 / 到达路径 breadcrumb / 下游规模 / 问题 / 编辑入口
 const grayMarkup = render({}, { initialSelectedKey: "tree#shared#5" });

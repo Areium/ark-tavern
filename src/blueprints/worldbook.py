@@ -141,10 +141,16 @@ def _apply_full_scope(payload: dict, book) -> dict:
 
     v2 与 v3 都走这一条：范围真的换成全量，预览与实际创建保持一致，
     只影响本次会话，不改动这本书的规则。
+
+    全量条目取 `WorldBook.full_scope_uids()` —— 与 `WorldBook._full_scope_scope`
+    （Prompt 预览的 v2 / v3 两条分支）**同源**，保证同一个 `full_scope` 开关在
+    `scope-preview` 与 `prompt-preview` 上给出同一份范围（v2 书上曾经只有
+    `scope-preview` 认这个开关）。本函数**只**改这些键，`scope` 里其余既有键
+    （v2 的 `excluded_entries` 等）保持不动，对外行为与改动前逐字一致。
     """
-    full = [e for e in book.entries if e.enabled and (e.content or "").strip()]
-    uids = sorted(e.uid for e in full)
-    costs = {e.uid: estimate_tokens(e.content) for e in full}
+    uids = book.full_scope_uids()
+    wanted = set(uids)
+    costs = {e.uid: estimate_tokens(e.content) for e in book.entries if e.uid in wanted}
     total = sum(costs.values())
     scope = dict(payload.get("scope") or {})
     scope.update({

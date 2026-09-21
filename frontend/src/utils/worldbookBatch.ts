@@ -14,7 +14,7 @@ import { categoryDescendants } from "./worldbookScope";
 export type EdgeDraft = WorldBookDraft["requires_edges"][number];
 
 const edgeKey = (from: string, to: string) => JSON.stringify([from, to]);
-/** legacy_depth 起点的默认深度：与 `policyFromDraft` 的 `max_depth ?? 1` 同口径。 */
+/** `legacy_depth` 起点未指定深度时的默认值（与旧格式 `dependency_sources[].max_depth` 缺省口径一致）。 */
 const DEFAULT_LEGACY_DEPTH = 1;
 
 /** 分类（含子分类）下的全部条目 UID；`unclassified` 同样适用。 */

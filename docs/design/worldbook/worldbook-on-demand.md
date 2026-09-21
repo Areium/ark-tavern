@@ -113,7 +113,7 @@ v3 把「分类」和「载入」彻底分开：**分类只负责组织内容，
 - 条目归属表里每行左侧的**复选框**：逐条加入或移出批量选择，不影响侧栏的主选择。
 - 条目归属表头部的「**全选当前列表**」：作用于**当前筛选后的归属表**（按当前搜索与分类筛选取 UID）。
 
-选中的条目带对勾徽标，批量栏提示当前选中数量；批量选择会一直保留到你点批量栏的「清除选择」或切换世界书。列表复选框是批量选择的唯一驱动方式。
+选中的条目带对勾徽标，批量栏提示当前选中数量。批量选择会保留到这四种情况之一：点批量栏的「清除选择」、批量归属成功后（`runBatchMove` 会清空选择）、切换所选世界书、或该书重新加载后剔除已失效条目（批量依赖目标同理会被清空）。列表复选框是批量选择的唯一驱动方式。
 
 **批量操作栏**（有选中时出现在工具栏下方）：
 
@@ -218,9 +218,9 @@ v2 书（未启用 v3）沿用旧语义（下表是**旧格式口径**，界面�
 
 后端：`src/worldbook_scope.py` 负责纯校验与遍历（v2 与 v3 并存，v2 函数逐字保留）；`src/worldbook_classify.py` 负责条目自动分类（纯函数，只读条目元数据）；`src/world_book.py` 负责候选解析、预览、迁移、兼容、不可变规则版本与存储。
 
-前端：`WorldBookManager` 是工作台容器（页签 `entries` / `load` / `prompt` / `nodes` / `index`，跨组件页签状态收敛为一套 `worldbookTab`）；`components/worldbook/tabs/LoadTab.tsx`（原 `WorldBookDependencyPage`）管配置概览 / 条目与角色 / 分类结构三个子视图；统一草稿与页头保存条在容器 `WorldBookManager` 里；`components/worldbook/tabs/PromptPreviewTab.tsx` 是三栏 + 骨架条 + 未插入区的 Prompt 预览；`components/worldbook/tabs/NodeViewTab.tsx` 是节点视图（虚拟化横向轨道 + 向下展开 + 灰节点 + 属性栏 + 与 `Prompt 预览` 联动）；`components/worldbook/EntryDependencyTree.tsx` 是两处列表共用的依赖展开树；`hooks/useWorldbookDraft.ts` 提供统一草稿（`draftFrom` / `policyFromDraft` / `patchFromPolicy`）与两个预览钩子（均带防抖 + 序号过时响应保护）；`utils/worldbookNodeView.ts` / `utils/worldbookDependencyTree.ts` / `utils/worldbookPromptPreview.ts` 是三个页签的纯逻辑。图谱画布（`WorldBookGraphCanvas` 与 `utils/worldbookGraph.ts`）已整文件删除；节点视图沿用纯 SVG + DOM，不依赖额外图形库，也不改动战斗画布。
+前端：`WorldBookManager` 是工作台容器（页签 `entries` / `load` / `prompt` / `nodes` / `index`，跨组件页签状态收敛为一套 `worldbookTab`）；`components/worldbook/tabs/LoadTab.tsx`（原 `WorldBookDependencyPage`）管配置概览 / 条目与角色 / 分类结构三个子视图；统一草稿与页头保存条在容器 `WorldBookManager` 里；`components/worldbook/tabs/PromptPreviewTab.tsx` 是三栏 + 骨架条 + 未插入区的 Prompt 预览；`components/worldbook/tabs/NodeViewTab.tsx` 是节点视图（虚拟化横向轨道 + 向下展开 + 灰节点 + 属性栏 + 与 `Prompt 预览` 联动）；`components/worldbook/EntryDependencyTree.tsx` 是两处列表共用的依赖展开树；`hooks/useWorldbookDraft.ts` 提供统一草稿（`draftFrom` / `rootsFromV2` / `buildSaveBody`）与两个预览钩子 `useScopePreview` / `useRosterScopePreview`（均带防抖 + 序号过时响应保护）——旧书的 `fixed_entry_uids` / `dependency_sources` 由 `rootsFromV2` 读成 `always` 起点（v2 兼容字段仍在），`buildSaveBody` 负责把草稿拼成统一保存体；`utils/worldbookNodeView.ts` / `utils/worldbookDependencyTree.ts` / `utils/worldbookPromptPreview.ts` 是三个页签的纯逻辑。图谱画布（`WorldBookGraphCanvas` 与 `utils/worldbookGraph.ts`）已整文件删除；节点视图沿用纯 SVG + DOM，不依赖额外图形库，也不改动战斗画布。
 
-`utils/worldbookDependency.ts` 的布局、节点角色分类与依赖树建模已随画布删除，只保留批量策略变换等纯函数；**遍历语义现在只有服务端一处**（`worldbook_scope.py` 的 `resolve_v3_scope`），条目依赖展开树与节点视图都读它的结果，前端不再复制第二套会话遍历。它不写盘、不改策略，只读 `WorldBookDetail` + `WorldBookPolicyDraft`。`worldbook_classify.py` 同样不写盘：`from_dict` 的自动补齐与接口的显式应用都通过同一份方案，前者额外受「预装包 + 分类形同未分类」两个条件约束。
+`utils/worldbookDependency.ts` **已整文件删除**（布局、节点角色分类与依赖树建模随画布一并移除）；批量策略变换等纯函数在 `utils/worldbookBatch.ts`。**遍历语义现在只有服务端一处**（`worldbook_scope.py` 的 `resolve_v3_scope`），条目依赖展开树与节点视图都读它的结果，前端不再复制第二套会话遍历。这些前端纯函数都不写盘、不改策略，只读 `WorldBookDetail` + 统一草稿（`WorldBookPolicyDraft` 仍作为按书 API 的 v2 形态保留在 `useApi.ts` 一侧）。`worldbook_classify.py` 同样不写盘：`from_dict` 的自动补齐与接口的显式应用都通过同一份方案，前者额外受「预装包 + 分类形同未分类」两个条件约束。
 
 ## 验证
 

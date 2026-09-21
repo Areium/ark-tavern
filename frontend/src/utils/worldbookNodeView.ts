@@ -781,27 +781,33 @@ export function findCycleEdgeKeys(
 }
 
 /**
- * 依赖环的**分组**：每个强连通分量（规模 > 1，或自环节点）算一个环，成员 uid 已排序。
- * 界面统计条的「依赖环」用它的长度（环个数），而不是环内边数 —— 一个二元环有两条边，
- * 报边数会让人以为有两个环。
+ * 依赖环的**分组**：每个环算一组，成员 uid 已排序。界面统计条的「依赖环」用它的长度（环个数），
+ * 而不是环内边数 —— 一个二元环有两条边，报边数会让人以为有两个环。
+ *
+ * 分组口径（F-9 防御性一致性）：
+ * - 规模 > 1 的强连通分量 = 一个环，成员**直接取自分量**（不靠边反推，避免漏成员）；
+ * - 自环只有在**不在任何规模 > 1 的分量里**时才单独成组 —— 否则会与它所在的分量重复计数
+ *   （例如 `a→a` 与 `a↔b` 应算 1 个环，而不是 2 个）。真实数据没有自环，v3 校验器也禁自环，
+ *   这条只是防御。
  */
 export function findCycleGroups(
   edges: Array<Pick<WorldBookDependencyEdgeDTO, "from_uid" | "to_uid">> | null | undefined,
 ): string[][] {
   const analysis = analyzeCycles(edges);
   const groups = new Map<number, string[]>();
-  const selfLoops = new Set<string>();
-  for (const edge of analysis.edgeList) {
-    const id = analysis.component.get(edge.from);
-    if (id === undefined || id !== analysis.component.get(edge.to)) continue;
-    if (edge.from === edge.to) selfLoops.add(edge.from);
-    else if ((analysis.sizes.get(id) || 0) > 1) {
-      const list = groups.get(id);
-      if (list) list.push(edge.from, edge.to); else groups.set(id, [edge.from, edge.to]);
-    }
+  for (const [node, id] of analysis.component) {
+    if ((analysis.sizes.get(id) || 0) <= 1) continue;
+    const list = groups.get(id);
+    if (list) list.push(node); else groups.set(id, [node]);
   }
   const output = [...groups.values()].map((members) => [...new Set(members)].sort(compareUid));
-  for (const uid of [...selfLoops].sort(compareUid)) output.push([uid]);
+  const selfLoops = new Set<string>();
+  for (const edge of analysis.edgeList) if (edge.from === edge.to) selfLoops.add(edge.from);
+  for (const uid of selfLoops) {
+    const id = analysis.component.get(uid);
+    if (id !== undefined && (analysis.sizes.get(id) || 0) > 1) continue;   // 已并入它所在的环
+    output.push([uid]);
+  }
   output.sort((a, b) => compareUid(a[0] || "", b[0] || ""));
   return output;
 }

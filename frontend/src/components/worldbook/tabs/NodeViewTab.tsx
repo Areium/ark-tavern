@@ -62,6 +62,13 @@ export const NODE_VIEW_READONLY_NOTE =
  */
 export const FULL_SCOPE_ACTIVATION_LABEL = "全量兼容";
 
+/**
+ * 全量兼容下「已在范围内 / 未被任何起点覆盖 / 依赖环」三项统一显示「不适用」的原因说明
+ * （F-8：这三项都是依赖闭包的产物，而全量兼容下服务端不解析闭包，`resolved_edges` 为空）。
+ */
+const FULL_SCOPE_STATS_TITLE =
+  "本次为全量兼容（full_scope）：不解析依赖闭包，因此这一项不反映本次范围。";
+
 const DEFAULT_VIEWPORT_WIDTH = 1200;
 const LAYER_LABELS: Record<string, string> = { stable: "稳定层", dynamic: "动态层" };
 const PROBLEM_LABELS: Record<string, string> = {
@@ -364,14 +371,24 @@ export default function NodeViewTab(
       ) : <>
         <div className="wbnv-stats" role="list" aria-label="节点视图统计">
           <span role="listitem"><b>起点数</b>{stats.roots}</span>
-          <span role="listitem" title={stats.fullScope ? "全量兼容下所有条目都是候选，范围计数不适用" : undefined}>
+          <span role="listitem" title={stats.fullScope ? FULL_SCOPE_STATS_TITLE : undefined}>
             <b>已在范围内</b>{stats.fullScope ? "不适用" : stats.inScope}
           </span>
-          <span role="listitem" title={stats.fullScope ? "全量兼容下所有条目都是候选，范围计数不适用" : undefined}>
+          <span role="listitem" title={stats.fullScope ? FULL_SCOPE_STATS_TITLE : undefined}>
             <b>未被任何起点覆盖</b>{stats.fullScope ? "不适用" : stats.uncovered}
           </span>
-          <span role="listitem" title={`口径：环的个数（一个二元环算 1 个）。环内边共 ${stats.cycleEdges} 条。`}>
-            <b>依赖环</b>{stats.cycles} 个<span className="wbnv-stats-sub">（环内边 {stats.cycleEdges} 条）</span>
+          {/*
+            全量兼容下 `resolved_edges` 为空（服务端不解析依赖闭包），照常渲染会显示「依赖环 0 个」，
+            与提示条自相矛盾且事实上错误（这本书书级有 2 个环）。这里选**标为不适用**而不是改用
+            `detail.dependency_edges` 算书级环：统计条整体是「本次范围」口径，混进一个书级数字会
+            出现第二个语义来源；书级依赖关系本身仍可在「分类与载入」与节点属性栏逐条查看。
+          */}
+          <span role="listitem" title={stats.fullScope
+            ? `${FULL_SCOPE_STATS_TITLE}书级依赖关系仍可在「分类与载入」或节点属性栏逐条查看。`
+            : `口径：环的个数（一个二元环算 1 个）。环内边共 ${stats.cycleEdges} 条。`}>
+            <b>依赖环</b>{stats.fullScope
+              ? "不适用"
+              : <>{stats.cycles} 个<span className="wbnv-stats-sub">（环内边 {stats.cycleEdges} 条）</span></>}
           </span>
           <span role="listitem"><b>超深度边</b>{stats.cappedEdges}</span>
           <span role="listitem" className={classNames(stats.hidden > 0 && "is-warn")}><b>隐藏节点数</b>{stats.hidden}</span>
@@ -436,8 +453,8 @@ export default function NodeViewTab(
         {model.fullScope && (
           <p className="wbnv-full-scope">
             <span className="wbnv-chip is-full-scope">{FULL_SCOPE_ACTIVATION_LABEL}</span>
-            本次预览是「全量兼容」（全程条目都在候选里），因此节点视图<strong>不显示依赖闭包</strong>：
-            不标「游离」、「已在范围内 / 未被任何起点覆盖 / 依赖环」也不反映本次范围。
+            本次预览是「全量兼容」（全书条目都在候选里），因此节点视图<strong>不显示依赖闭包</strong>：
+            不标「游离」，「已在范围内 / 未被任何起点覆盖 / 依赖环」一律显示为不适用。
             依赖数据本身照旧可读 —— 要看单轮实际注入请用「Prompt 预览」。
           </p>
         )}
