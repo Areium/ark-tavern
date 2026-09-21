@@ -14,6 +14,7 @@ import { useApi } from "../hooks/useApi";
 import { useCombatResume } from "../hooks/useCombatResume";
 import { audioManager } from "../audio/audioManager";
 import type { CombatResumesDTO } from "../types";
+import AppIcon, { type AppIconName } from "./AppIcon";
 
 const asset = (p: string) => import.meta.env.BASE_URL + p;
 
@@ -22,18 +23,18 @@ type MenuView = "sessions" | "characters" | "worldbook" | "content" | "docs" | "
 interface MenuItem {
   id: MenuView;
   label: string;
-  icon: string;
+  icon: AppIconName;
   desc: string;
   primary?: boolean;
 }
 
 const MENU_ITEMS: MenuItem[] = [
-  { id: "sessions", label: "会话大厅", icon: "🏛️", desc: "进入故事与战斗", primary: true },
-  { id: "characters", label: "角色管理", icon: "🎭", desc: "角色库 · 玩家身份 · 卡牌" },
-  { id: "worldbook", label: "世界书", icon: "📖", desc: "关键词触发式设定注入" },
-  { id: "content", label: "内容中心", icon: "🗂️", desc: "世界书图谱 · 索引 · 资产 · 卡牌 · 节点图" },
-  { id: "docs", label: "文档", icon: "📘", desc: "帮助与设定文档" },
-  { id: "settings", label: "设置", icon: "⚙️", desc: "LLM · 主题 · 叙述选项" },
+  { id: "sessions", label: "会话大厅", icon: "sessions", desc: "进入故事与战斗", primary: true },
+  { id: "characters", label: "角色管理", icon: "characters", desc: "角色库 · 玩家身份 · 卡牌" },
+  { id: "worldbook", label: "世界书", icon: "worldbook", desc: "关键词触发式设定注入" },
+  { id: "content", label: "内容中心", icon: "content", desc: "世界书图谱 · 索引 · 资产 · 卡牌 · 节点图" },
+  { id: "docs", label: "文档", icon: "docs", desc: "帮助与设定文档" },
+  { id: "settings", label: "设置", icon: "settings", desc: "LLM · 主题 · 叙述选项" },
 ];
 
 /** 主页「继续战斗」入口的展示数据 */
@@ -176,7 +177,7 @@ export default function HomeMenu() {
                 className="home-menu-item"
                 title={resumeEntry.hint}
               >
-                <span className="home-menu-item-icon">⏸</span>
+                <span className="home-menu-item-icon"><AppIcon name="pause" size={24} /></span>
                 <span className="home-menu-item-text">
                   <span className="home-menu-item-label">
                     {busyKey ? "正在恢复战斗…" : "继续战斗"}
@@ -184,7 +185,7 @@ export default function HomeMenu() {
                   </span>
                   <span className="home-menu-item-desc">{resumeEntry.desc}</span>
                 </span>
-                <span className="home-menu-item-arrow">▶</span>
+                <span className="home-menu-item-arrow"><AppIcon name="forward" size={17} /></span>
               </button>
             )}
             {MENU_ITEMS.map((item) => (
@@ -193,19 +194,19 @@ export default function HomeMenu() {
                 onClick={() => setCurrentView(item.id)}
                 className={"home-menu-item" + (item.primary ? " primary" : "")}
               >
-                <span className="home-menu-item-icon">{item.icon}</span>
+                <span className="home-menu-item-icon"><AppIcon name={item.icon} size={24} /></span>
                 <span className="home-menu-item-text">
                   <span className="home-menu-item-label">
                     {item.label}
                     {item.id === "sessions" && sessions.length > 0 && (
                       <span className="home-menu-item-badge">
-                        {sessions.length} 个会话{combatCount > 0 ? " · ⚔" + combatCount + " 战斗中" : ""}
+                        {sessions.length} 个会话{combatCount > 0 ? ` · ${combatCount} 场战斗中` : ""}
                       </span>
                     )}
                   </span>
                   <span className="home-menu-item-desc">{item.desc}</span>
                 </span>
-                <span className="home-menu-item-arrow">▶</span>
+                <span className="home-menu-item-arrow"><AppIcon name="forward" size={17} /></span>
               </button>
             ))}
           </nav>
@@ -225,7 +226,7 @@ export default function HomeMenu() {
         <span className="home-menu-version">v0.1.0</span>
         <div className="home-audio-group">
           <button className="home-audio-btn" onClick={toggleMute} title={muted ? "取消静音（继续播放）" : "静音（暂停，再次点击继续）"}>
-            {muted ? "🔇" : "🔊"}
+            <AppIcon name={muted ? "volumeOff" : "volume"} size={17} />
           </button>
           <input
             type="range"

@@ -3,6 +3,7 @@ import { useApi } from "../hooks/useApi";
 import { useAppStore } from "../stores/appStore";
 import type { IndexOverview, IndexDocSummary, SessionIndexConfig, IndexVerifyResult } from "../types";
 import { useDialogMinimize } from "../hooks/useDialogMinimize";
+import AppIcon from "./AppIcon";
 
 const CATEGORY_LABELS: Record<string, string> = {
   characters: "角色",
@@ -937,8 +938,10 @@ export default function IndexManager() {
               <button
                 onClick={() => toggleExpand(path)}
                 className="text-[10px] text-gray-500 hover:text-gray-300 w-3 shrink-0 text-center"
+                aria-label={`${isExpanded ? "收起" : "展开"}${nodeName}的依赖`}
+                title={`${isExpanded ? "收起" : "展开"}${nodeName}的依赖`}
               >
-                {isExpanded ? "▼" : "▶"}
+                <AppIcon name={isExpanded ? "expand" : "forward"} size={12} />
               </button>
             ) : (
               <span className="w-3 shrink-0" />
@@ -1117,7 +1120,7 @@ export default function IndexManager() {
           className="text-xs text-gray-500 hover:text-gray-300 px-1"
           title="刷新"
         >
-          ↻
+          <AppIcon name="refresh" size={14} />
         </button>
       </div>
 
@@ -1147,7 +1150,7 @@ export default function IndexManager() {
                       : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/40 border border-transparent"
                   }`}
                 >
-                  <span>🌐</span>
+                  <AppIcon name="globe" size={15} />
                   <span className="font-medium">全局索引</span>
                 </button>
                 {sessionsWithConfig.map((s) => {
@@ -1162,7 +1165,7 @@ export default function IndexManager() {
                           : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/40 border border-transparent"
                       }`}
                     >
-                      <span>📝</span>
+                      <AppIcon name="file" size={15} />
                       <span className="truncate flex-1 text-left">
                         {s.name.length > 20 ? s.name.slice(0, 18) + "…" : s.name}
                       </span>

@@ -21,14 +21,15 @@ import AssetManager from "./AssetManager";
 import CardManager from "./CardManager";
 import IndexManager from "./IndexManager";
 import PlotGraphPage from "./combat/PlotGraphPage";
+import AppIcon, { type AppIconName } from "./AppIcon";
 const WorldBookDependencyPage = lazy(() => import("./WorldBookDependencyPage"));
 
-const TABS: { id: ContentHubTab; label: string; icon: string; hint: string }[] = [
-  { id: "worldbook-deps", label: "世界书图谱", icon: "📖", hint: "节点分类 / 依赖树与依赖网络 / 固定导入 / 导入预览" },
-  { id: "index", label: "索引", icon: "🔗", hint: "文档依赖关系与会话白名单" },
-  { id: "images", label: "资产", icon: "🖼️", hint: "图片资产上传 / 裁剪 / 默认图 / 来源世界书" },
-  { id: "cards", label: "卡牌", icon: "🃏", hint: "角色与职业卡牌编辑 / 所属世界书" },
-  { id: "combat", label: "节点图", icon: "⚔", hint: "按设定集选择剧情，整页画布编辑节点图" },
+const TABS: { id: ContentHubTab; label: string; icon: AppIconName; hint: string }[] = [
+  { id: "worldbook-deps", label: "世界书图谱", icon: "workflow", hint: "节点分类 / 依赖树与依赖网络 / 固定导入 / 导入预览" },
+  { id: "index", label: "索引", icon: "index", hint: "文档依赖关系与会话白名单" },
+  { id: "images", label: "资产", icon: "image", hint: "图片资产上传 / 裁剪 / 默认图 / 来源世界书" },
+  { id: "cards", label: "卡牌", icon: "cards", hint: "角色与职业卡牌编辑 / 所属世界书" },
+  { id: "combat", label: "节点图", icon: "combat", hint: "按设定集选择剧情，整页画布编辑节点图" },
 ];
 
 export default function ContentHub() {
@@ -99,7 +100,7 @@ export default function ContentHub() {
                   : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 border border-transparent")
               }
             >
-              <span>{t.icon}</span>
+              <AppIcon name={t.icon} size={15} />
               <span>{t.label}</span>
             </button>
           ))}
@@ -108,9 +109,10 @@ export default function ContentHub() {
         {/* 统一检索 */}
         <div className="flex-1" />
         <div className="relative w-72 shrink-0">
+          <AppIcon name="search" size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
           <input
-            className="w-full bg-gray-800/80 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 outline-none focus:border-amber-500/50 placeholder:text-gray-600"
-            placeholder="🔍 搜索世界书条目…"
+            className="w-full bg-gray-800/80 border border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-gray-200 outline-none focus:border-amber-500/50 placeholder:text-gray-600"
+            placeholder="搜索世界书条目…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => query.trim() && setSearchOpen(true)}

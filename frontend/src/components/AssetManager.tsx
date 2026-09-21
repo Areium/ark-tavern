@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import type { AssetEntityGroupDTO, SkinCrop, WorldBookSummary } from "../types";
 import CropModal from "./assets/CropModal";
+import AppIcon from "./AppIcon";
 
 interface ToastState {
   message: string;
@@ -231,7 +232,7 @@ export default function AssetManager() {
             });
           }}
         >
-          <span className="text-[10px] w-3 text-center flex-shrink-0">{isEntityCollapsed ? "▶" : "▼"}</span>
+          <span className="w-3 flex-shrink-0"><AppIcon name={isEntityCollapsed ? "forward" : "expand"} size={12} /></span>
           <span className="truncate flex-1" title={`${item.entity_name}（上级目录 ${item.parent_dir}）`}>
             {item.entity_name}
           </span>
@@ -240,7 +241,7 @@ export default function AssetManager() {
               className="text-[9px] px-1 rounded bg-amber-600/15 text-amber-300 border border-amber-700/40 shrink-0"
               title={`来源世界书：${bookName(item.worldbook_id)}`}
             >
-              📖 {bookName(item.worldbook_id)}
+              <AppIcon name="worldbook" size={11} /> {bookName(item.worldbook_id)}
             </span>
           ) : (
             <span className="text-[9px] text-gray-600 shrink-0" title="未标注来源世界书">未标注</span>
@@ -371,10 +372,10 @@ export default function AssetManager() {
         onChange={(e) => setBookFilter(e.target.value)}
         title="按来源世界书筛选"
       >
-        <option value="">📚 全部世界书</option>
+        <option value="">全部世界书</option>
         <option value="__none__">未标注来源</option>
         {worldbooks.map((b) => (
-          <option key={b.id} value={b.id}>📖 {b.name}</option>
+          <option key={b.id} value={b.id}>{b.name}</option>
         ))}
       </select>
       {filtered.length === 0 && (
@@ -386,8 +387,8 @@ export default function AssetManager() {
         // 按世界书归类展示
         groupedByBook.map((group) => (
           <div key={group.key} className="mb-3">
-            <div className="text-xs font-semibold text-amber-300/80 py-1 mb-1">
-              📖 {group.label}
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-300/80 py-1 mb-1">
+              <AppIcon name="worldbook" size={13} /> {group.label}
               <span className="text-[10px] text-gray-600 font-normal ml-1">({group.items.length})</span>
             </div>
             {group.items.map(renderEntityGroup)}
@@ -426,7 +427,7 @@ export default function AssetManager() {
       {/* ── 实体树侧栏 ── */}
       <div className="w-72 border-r border-gray-700 overflow-y-auto p-3 shrink-0" id="asset-tree-sidebar">
         <div className="flex items-center gap-1 mb-3">
-          <span className="text-xs px-3 py-1 rounded bg-blue-600/30 text-blue-300">🖼️ 资产</span>
+          <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded bg-blue-600/30 text-blue-300"><AppIcon name="image" size={14} />资产</span>
           <div className="flex-1" />
           <button
             onClick={async () => {
@@ -443,14 +444,14 @@ export default function AssetManager() {
             className="text-xs text-gray-500 hover:text-gray-300 px-1"
             title="打开资产文件夹"
           >
-            📂
+            <AppIcon name="folder" size={15} />
           </button>
           <button
             onClick={loadImages}
             className="text-xs text-gray-500 hover:text-gray-300"
             title="刷新"
           >
-            ↻
+            <AppIcon name="refresh" size={15} />
           </button>
         </div>
 

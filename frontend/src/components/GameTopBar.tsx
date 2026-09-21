@@ -5,16 +5,17 @@
 import { useState } from "react";
 import { useAppStore } from "../stores/appStore";
 import { audioManager } from "../audio/audioManager";
+import AppIcon, { type AppIconName } from "./AppIcon";
 
 type ManageView = "sessions" | "characters" | "worldbook" | "content" | "docs" | "settings";
 
-const NAV_ITEMS: { id: ManageView; label: string; icon: string }[] = [
-  { id: "sessions", label: "会话大厅", icon: "🏛️" },
-  { id: "characters", label: "角色", icon: "🎭" },
-  { id: "worldbook", label: "世界书", icon: "📖" },
-  { id: "content", label: "内容中心", icon: "🗂️" },
-  { id: "docs", label: "文档", icon: "📘" },
-  { id: "settings", label: "设置", icon: "⚙️" },
+const NAV_ITEMS: { id: ManageView; label: string; icon: AppIconName }[] = [
+  { id: "sessions", label: "会话大厅", icon: "sessions" },
+  { id: "characters", label: "角色", icon: "characters" },
+  { id: "worldbook", label: "世界书", icon: "worldbook" },
+  { id: "content", label: "内容中心", icon: "content" },
+  { id: "docs", label: "文档", icon: "docs" },
+  { id: "settings", label: "设置", icon: "settings" },
 ];
 
 export default function GameTopBar() {
@@ -42,7 +43,7 @@ export default function GameTopBar() {
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-gray-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors"
         title="返回主菜单"
       >
-        <span>◀</span>
+        <AppIcon name="back" size={15} />
         <span>主菜单</span>
       </button>
 
@@ -61,7 +62,7 @@ export default function GameTopBar() {
                 : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 border border-transparent")
             }
           >
-            <span>{item.icon}</span>
+            <AppIcon name={item.icon} size={15} />
             <span>{item.label}</span>
           </button>
         ))}
@@ -76,7 +77,7 @@ export default function GameTopBar() {
           className="px-2 py-1.5 rounded-lg text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 transition-colors"
           title={muted ? "取消静音（继续播放）" : "静音（暂停，再次点击继续）"}
         >
-          {muted ? "🔇" : "🔊"}
+          <AppIcon name={muted ? "volumeOff" : "volume"} size={16} />
         </button>
         <input
           type="range"

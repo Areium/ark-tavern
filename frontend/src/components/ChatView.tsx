@@ -13,6 +13,7 @@ import MemoryPanel from "./MemoryPanel";
 import QuestPanel from "./QuestPanel";
 import StoryStatePanel from "./StoryStatePanel";
 import SessionResourcePanel from "./session/SessionResourcePanel";
+import AppIcon from "./AppIcon";
 
 export default function ChatView() {
   const resourcePanelOpen = useAppStore((s) => s.resourcePanelOpen);
@@ -30,7 +31,7 @@ export default function ChatView() {
           className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-amber-300/90 hover:text-amber-200 hover:bg-amber-500/10 transition-colors"
           title="退出会话，返回会话大厅（调节世界书 / 阵容 / 设置）"
         >
-          <span>◀</span>
+          <AppIcon name="back" size={15} />
           <span>返回大厅</span>
         </button>
         <button
@@ -38,7 +39,7 @@ export default function ChatView() {
           className="px-2 py-1 rounded-lg text-xs text-gray-500 hover:text-gray-300 hover:bg-gray-700/50 transition-colors"
           title="返回主菜单"
         >
-          🏠
+          <AppIcon name="home" size={16} />
         </button>
 
         <div className="w-px h-4 bg-gray-700/70 mx-1" />

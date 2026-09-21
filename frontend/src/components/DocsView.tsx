@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import tutorialMd from "../../../docs/tutorial.md?raw";
+import AppIcon from "./AppIcon";
 
 // 文档中的相对图片路径（images/xxx.jpg）→ Vite 打包后的资源 URL
 const imageUrls = import.meta.glob("../../../docs/images/*", {
@@ -56,7 +57,7 @@ export default function DocsView() {
       {/* 左侧目录 */}
       <aside className="w-60 border-r border-gray-700 flex flex-col shrink-0 bg-gray-850">
         <div className="px-4 py-3 border-b border-gray-700">
-          <h2 className="text-sm font-semibold text-amber-400">📘 使用教程</h2>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-400"><AppIcon name="docs" size={16} />使用教程</h2>
           <p className="text-xs text-gray-500 mt-0.5">目录</p>
         </div>
         <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">

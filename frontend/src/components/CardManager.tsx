@@ -11,6 +11,7 @@ import { useApi } from "../hooks/useApi";
 import type { CardsTreeDTO, WorldBookSummary } from "../types";
 import CardEditor from "./combat/CardEditor";
 import { WorldbookSelect } from "./AssetManager";
+import AppIcon from "./AppIcon";
 
 interface ToastState {
   message: string;
@@ -114,7 +115,7 @@ export default function CardManager() {
           setSelectedCardEntityType(type);
         }}
       >
-        <span className={`w-4 text-center shrink-0 ${type === "character" ? "text-purple-500" : "text-amber-500"}`}>🃏</span>
+        <span className={`w-4 text-center shrink-0 ${type === "character" ? "text-purple-500" : "text-amber-500"}`}><AppIcon name="cards" size={14} /></span>
         <span className="truncate">{name}</span>
         {type === "character" && cardsTree?.character_class_map[name] && (
           <span className="text-[10px] text-gray-600 ml-1">{cardsTree.character_class_map[name]}</span>
@@ -124,7 +125,7 @@ export default function CardManager() {
             className="text-[9px] px-1 rounded bg-amber-600/15 text-amber-300 border border-amber-700/40 shrink-0 ml-1 max-w-[8rem] truncate"
             title={`所属世界书：${bookName(bookId)}`}
           >
-            📖 {bookName(bookId)}
+            <AppIcon name="worldbook" size={11} /> {bookName(bookId)}
           </span>
         ) : (
           <span className="text-[9px] text-gray-600 shrink-0 ml-1 opacity-0 group-hover:opacity-100" title="未标注所属世界书">
@@ -140,14 +141,14 @@ export default function CardManager() {
       {/* ── 卡牌树侧栏 ── */}
       <div className="w-72 border-r border-gray-700 overflow-y-auto p-3 shrink-0" id="card-tree-sidebar">
         <div className="flex items-center gap-1 mb-3">
-          <span className="text-xs px-3 py-1 rounded bg-blue-600/30 text-blue-300">🃏 卡牌</span>
+          <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded bg-blue-600/30 text-blue-300"><AppIcon name="cards" size={14} />卡牌</span>
           <div className="flex-1" />
           <button
             onClick={loadCardsTree}
             className="text-xs text-gray-500 hover:text-gray-300"
             title="刷新"
           >
-            ↻
+            <AppIcon name="refresh" size={15} />
           </button>
         </div>
 
@@ -157,10 +158,10 @@ export default function CardManager() {
           onChange={(e) => setBookFilter(e.target.value)}
           title="按所属世界书筛选"
         >
-          <option value="">📚 全部世界书</option>
+          <option value="">全部世界书</option>
           <option value="__none__">未标注来源</option>
           {worldbooks.map((b) => (
-            <option key={b.id} value={b.id}>📖 {b.name}</option>
+            <option key={b.id} value={b.id}>{b.name}</option>
           ))}
         </select>
 
@@ -174,7 +175,7 @@ export default function CardManager() {
                 className="flex items-center gap-1 cursor-pointer rounded text-xs font-medium text-gray-400 hover:text-gray-200 py-0.5 select-none"
                 onClick={() => setCollapsed((c) => ({ ...c, characters: !c.characters }))}
               >
-                <span className="w-3 text-center shrink-0">{collapsed.characters ? "▶" : "▼"}</span>
+                <span className="w-3 shrink-0"><AppIcon name={collapsed.characters ? "forward" : "expand"} size={12} /></span>
                 <span>角色卡牌</span>
                 <span className="text-[10px] text-gray-600">({characters.length})</span>
               </div>
@@ -195,7 +196,7 @@ export default function CardManager() {
                 className="flex items-center gap-1 cursor-pointer rounded text-xs font-medium text-gray-400 hover:text-gray-200 py-0.5 select-none"
                 onClick={() => setCollapsed((c) => ({ ...c, classes: !c.classes }))}
               >
-                <span className="w-3 text-center shrink-0">{collapsed.classes ? "▶" : "▼"}</span>
+                <span className="w-3 shrink-0"><AppIcon name={collapsed.classes ? "forward" : "expand"} size={12} /></span>
                 <span>职业卡牌</span>
                 <span className="text-[10px] text-gray-600">({classes.length})</span>
               </div>

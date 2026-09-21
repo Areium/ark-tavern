@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { useAppStore } from "../stores/appStore";
 import MarkdownRenderer from "./MarkdownRenderer";
+import AppIcon from "./AppIcon";
 
 interface CharacterSummary {
   id: string;
@@ -333,13 +334,13 @@ export default function CharacterManager() {
             className="text-xs px-3 py-1.5 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/40 transition-colors"
             title="角色设定已迁移至世界书，跳转世界书页编辑"
           >
-            📖 编辑世界书设定
+            <AppIcon name="worldbook" size={14} /> 编辑世界书设定
           </button>
           <button
             onClick={() => jumpToCards()}
             className="text-xs px-3 py-1.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 transition-colors"
           >
-            🃏 编辑战斗卡牌
+            <AppIcon name="cards" size={14} /> 编辑战斗卡牌
           </button>
         </div>
       </div>
@@ -381,7 +382,7 @@ export default function CharacterManager() {
               onClick={() => selectedIdentity && handleDeleteIdentity(selectedIdentity)}
               className="text-xs px-2.5 py-1 rounded bg-red-700/20 text-red-300 hover:bg-red-700/40 transition-colors"
             >
-              🗑 删除
+              <AppIcon name="trash" size={14} /> 删除
             </button>
           )}
         </div>
@@ -508,7 +509,7 @@ export default function CharacterManager() {
                 disabled={charImporting}
                 className="w-full text-xs px-2 py-1.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 disabled:opacity-50 transition-colors"
               >
-                {charImporting ? "导入中…" : "⬆ 导入角色卡"}
+                {charImporting ? "导入中…" : <><AppIcon name="upload" size={14} /> 导入角色卡</>}
               </button>
               <input
                 ref={charFileRef}

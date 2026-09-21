@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
+import AppIcon from "./AppIcon";
 
 interface EnvPreset {
   name: string;
@@ -97,15 +98,18 @@ export default function EnvironmentPanel() {
       ) : env ? (
         <div className="text-sm space-y-1">
           <div className="flex items-center gap-2">
-            <span className="text-gray-500 w-8">📍</span>
+            <span className="sr-only">位置：</span>
+            <span className="text-gray-500 w-8"><AppIcon name="location" size={16} /></span>
             <span>{env.location || "未知"}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-gray-500 w-8">🌤</span>
+            <span className="sr-only">天气：</span>
+            <span className="text-gray-500 w-8"><AppIcon name="weather" size={16} /></span>
             <span>{env.weather || "未知"}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-gray-500 w-8">⏰</span>
+            <span className="sr-only">时间：</span>
+            <span className="text-gray-500 w-8"><AppIcon name="time" size={16} /></span>
             <span>{env.time || "未知"}</span>
           </div>
           <p className="text-xs text-gray-600 pt-2">{note}</p>

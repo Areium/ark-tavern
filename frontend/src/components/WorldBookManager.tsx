@@ -11,6 +11,7 @@ import type {
 } from "../types";
 import SourceBadge from "./SourceBadge";
 import WorldBookGraphIcon from "./WorldBookGraphIcon";
+import AppIcon from "./AppIcon";
 import "../styles/worldbook-graph.css";
 import { useDialogMinimize } from "../hooks/useDialogMinimize";
 const WorldBookScopeManager = lazy(() => import("./WorldBookScopeManager"));
@@ -661,12 +662,12 @@ export default function WorldBookManager() {
               ＋新建
             </button>
             <button
-              className={`text-xs px-2 py-1 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/40 transition-colors ${importing ? "opacity-50 cursor-wait" : ""}`}
+              className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/40 transition-colors ${importing ? "opacity-50 cursor-wait" : ""}`}
               onClick={() => fileInputRef.current?.click()}
               disabled={importing}
               title="导入酒馆世界书 JSON / 聊天备份 jsonl / 角色卡 PNG·JSON"
             >
-              {importing ? "导入中…" : "⬆导入"}
+              {importing ? "导入中…" : <><AppIcon name="upload" size={13} />导入</>}
             </button>
           </div>
         </div>
@@ -764,7 +765,7 @@ export default function WorldBookManager() {
           {visibleBooks.length === 0 && (
             <p className="text-gray-600 text-xs">
               {books.length === 0
-                ? "还没有世界书，点击「⬆导入」或「＋新建」开始。"
+                ? "还没有世界书，点击「导入」或「新建」开始。"
                 : "该用途下还没有书。"}
             </p>
           )}
@@ -814,7 +815,7 @@ export default function WorldBookManager() {
                       title={b.enabled ? "停用（不再参与解析）" : "启用"}
                       onClick={() => toggleEnabled(b)}
                     >
-                      {b.enabled ? "⏸" : "▶"}
+                      <AppIcon name={b.enabled ? "pause" : "play"} size={14} />
                     </button>
                   )}
                   {!reference && (
@@ -823,7 +824,7 @@ export default function WorldBookManager() {
                       title="设为全局默认书"
                       onClick={() => toggleDefault(b.id, true)}
                     >
-                      ⭐
+                      <AppIcon name="star" size={14} />
                     </button>
                   )}
                   <button
@@ -831,14 +832,14 @@ export default function WorldBookManager() {
                     title="导出酒馆格式"
                     onClick={() => exportBook(b.id)}
                   >
-                    ⬇
+                    <AppIcon name="download" size={14} />
                   </button>
                   <button
                     className="hover:text-gray-300"
                     title="复制为新导入书"
                     onClick={() => duplicateBook(b.id)}
                   >
-                    📄
+                    <AppIcon name="copy" size={14} />
                   </button>
                   {b.is_preinstalled && (
                     <button
@@ -846,7 +847,7 @@ export default function WorldBookManager() {
                       title="重装预装整合包（恢复出厂内容）"
                       onClick={() => reinstallBook(b.id)}
                     >
-                      ↻
+                      <AppIcon name="refresh" size={14} />
                     </button>
                   )}
                   <button
@@ -854,7 +855,7 @@ export default function WorldBookManager() {
                     title="删除（预装包可重装还原）"
                     onClick={() => deleteBook(b.id)}
                   >
-                    🗑
+                    <AppIcon name="trash" size={14} />
                   </button>
                 </span>
               </div>
@@ -938,14 +939,14 @@ export default function WorldBookManager() {
                   className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
                   onClick={() => duplicateBook(detail.id)}
                 >
-                  📄 复制
+                  <AppIcon name="copy" size={14} /> 复制
                 </button>
                 {detail.is_preinstalled && (
                   <button
                     className="text-xs px-2 py-1 rounded bg-cyan-700/40 text-cyan-200 hover:bg-cyan-700/60"
                     onClick={() => reinstallBook(detail.id)}
                   >
-                    ↻ 重装整合包
+                    <AppIcon name="refresh" size={14} /> 重装整合包
                   </button>
                 )}
               </div>

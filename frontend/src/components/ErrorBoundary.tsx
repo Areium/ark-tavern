@@ -2,6 +2,7 @@
  * 全局错误边界 — 组件渲染异常时展示可恢复的兜底界面，避免整页白屏。
  */
 import { Component, type ReactNode } from "react";
+import AppIcon from "./AppIcon";
 
 interface Props {
   children: ReactNode;
@@ -37,7 +38,7 @@ export default class ErrorBoundary extends Component<Props, State> {
     if (!this.state.hasError) return this.props.children;
     return (
       <div className="h-full w-full flex flex-col items-center justify-center gap-3 bg-gray-950 text-gray-300 p-6">
-        <div className="text-3xl">⚠️</div>
+        <AppIcon name="warning" size={32} className="text-amber-400" />
         <h2 className="text-base font-medium text-amber-300">界面渲染出错</h2>
         <p className="text-xs text-gray-500 max-w-md text-center break-all">
           {this.state.message || "未知错误"}
