@@ -675,7 +675,7 @@ def _substitute_macros(content: str, identity: str, active_char: Optional[str]) 
     return content
 
 
-def _preview_drop_reason(entry: WorldBookEntry, scan_text: str, scope_uids: set,
+def _preview_drop_reason(entry: WorldBookEntry, scan_text: str, scoped_uids: set,
                          demoted_uids: set, stopped_uids: set) -> Optional[str]:
     """未插入原因：按 R-2 九类**自上而下取第一个成立者**（R-3），每条只报一个。
 
@@ -683,7 +683,9 @@ def _preview_drop_reason(entry: WorldBookEntry, scan_text: str, scope_uids: set,
     判定顺序（不可调换，逐条对齐 `_entry_matches` / `eligible_uids_for` /
     `format_injection` 的真实分支）：
 
-    1. `not_in_scope`         —— 不在书的候选范围内；
+    1. `not_in_scope`         —— 不在书的候选范围内（含「范围解析阶段就被排除」的
+       条目，见调用方 `scoped_uids`：v2 会把停用 / 空正文条目从候选里过滤掉，
+       它们要走下面第 3/4 条的真实原因，不能被掩成 `not_in_scope`）；
     2. `node_binding_demoted` —— 在书范围内，但被当前节点作用域排除；
     3. `disabled`             —— 条目停用；
     4. `empty_content`        —— 正文为空白；
@@ -694,7 +696,7 @@ def _preview_drop_reason(entry: WorldBookEntry, scan_text: str, scope_uids: set,
     9. `budget_exceeded`      —— 已通过触发，但被 `format_injection` 的预算跳过
        （`trace` 里 `included=False`）。
     """
-    if entry.uid not in scope_uids:
+    if entry.uid not in scoped_uids:
         return "not_in_scope"
     if entry.uid in demoted_uids:
         return "node_binding_demoted"
@@ -1682,12 +1684,30 @@ class WorldBook:
 
         # 5) dropped[]：全书条目（书内顺序）各报一个原因；已进 order[] 的不再出现
         scope_uids = set(scope.get("resolved_entry_uids") or [])
+        # `not_in_scope` 只对**根本没进过候选范围**的条目成立。范围解析阶段就被排除的
+        # 条目（典型是 v2 的停用 / 空正文——v2 的 `resolve_import_scope` 会把它们从
+        # `resolved_entry_uids` 里过滤掉，因为它们确实不该注入）必须走它们**真正的**
+        # 原因 `disabled` / `empty_content`：它们往往已经在起点里，
+        # 报 `not_in_scope` 会把用户引向错误的修复入口（「去分类与载入把它设为起点」——
+        # 它已经是起点了）。
+        scoped_uids = set(scope_uids)
+        for item in scope.get("excluded_entries") or []:      # v2：{"uid","name","reason"}
+            if isinstance(item, dict) and isinstance(item.get("uid"), str):
+                scoped_uids.add(item["uid"])
+        for issue in scope.get("issues") or []:               # v3：防御性并集
+            # v3 的 `best` 本就包含停用 / 空正文条目（只以 issues 形式报告），
+            # 因此这一步通常不会新增 uid；留在这里是为了让两套解析器的口径一致，
+            # 将来若 v3 也改成过滤式解析，原因分类不会退化成 not_in_scope。
+            if (isinstance(issue, dict)
+                    and issue.get("code") in ("disabled_entry", "empty_content")
+                    and isinstance(issue.get("uid"), str)):
+                scoped_uids.add(issue["uid"])
         demoted_uids = set(reasons.get("dropped_by_scope") or [])
         dropped = []
         for entry in self.entries:
             if entry.uid in included_uids:
                 continue
-            reason = _preview_drop_reason(entry, scan_text, scope_uids, demoted_uids,
+            reason = _preview_drop_reason(entry, scan_text, scoped_uids, demoted_uids,
                                           stopped_uids)
             if reason:
                 dropped.append({"uid": entry.uid, "name": entry.name or entry.uid,
@@ -1709,7 +1729,9 @@ class WorldBook:
                 "budget_tokens": int(self.budget_tokens or 0),
                 # 截断 = trace 里存在被预算跳过的条目
                 "truncated": bool(stopped_uids),
-                "candidate_count": len(scope.get("resolved_entry_uids") or []),
+                # 「候选」= 范围解析后真正会被考虑注入的条数（v2 的停用 / 空正文
+                # 条目不在其中，它们由 dropped[] 的 disabled / empty_content 解释）。
+                "candidate_count": len(scope_uids),
                 "matched_count": len(matched),
             },
         }

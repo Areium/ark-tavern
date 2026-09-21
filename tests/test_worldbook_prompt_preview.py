@@ -413,3 +413,84 @@ def test_invalid_payload_is_rejected_without_writing(api):
     assert client.post("/api/worldbook/book/prompt-preview",
                        json={"mode": "narrative", "seed": "abc"}).status_code == 200
     assert (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns) == before
+
+
+# ─────────────────────────────────────────────────────────────
+# 未插入原因的**真实性**（提案 §3.2）：v2 / v3 两套解析器的原因口径必须一致
+# ─────────────────────────────────────────────────────────────
+
+def _reason_book(book_id, v3):
+    """同一形状的原因书：停用 / 空正文条目**已经是起点**（不是「没进范围」）。
+
+    - `off`：停用；`blank`：正文空白且关键词不命中；两者都在起点里；
+    - `kw`：触发型条目，输入「阿米娅」时命中；
+    - `outsider`：既不是起点也没有依赖指向它 → 它才是真正的 `not_in_scope`。
+    v2 用 `fixed_entry_uids` 当起点；v3 用等价的 `always + none` 起点。
+    """
+    entries = [
+        entry("world", always_active=True, category_id="worldview"),
+        entry("kw", trigger_keys=["阿米娅"], selective=False),
+        entry("off", enabled=False),
+        entry("blank", content="   ", trigger_keys=["银灰"], selective=False),
+        entry("outsider", always_active=True),
+    ]
+    roots = [uid for uid in ("world", "kw", "off", "blank")]
+    if not v3:
+        return WorldBook(book_id, "v2 原因书", entries,
+                         categories=copy.deepcopy(DEFAULT_CATEGORIES),
+                         import_config={"fixed_entry_uids": roots,
+                                        "dependency_sources": [], "revision": 1},
+                         scope_mode="selective")
+    return WorldBook(
+        book_id, "v3 原因书", entries, categories=copy.deepcopy(DEFAULT_CATEGORIES),
+        dependency_rules={"roots": [{"entry_uid": uid, "activation": ACTIVATION_ALWAYS,
+                                     "expansion": EXPANSION_NONE, "character_ids": []}
+                                    for uid in roots],
+                          "root_rule": {"entry_uids": sorted(roots)},
+                          "rejected": [], "edge_meta": {}},
+        scope_mode="selective")
+
+
+def test_drop_reasons_stay_truthful_for_scope_excluded_entries(tmp_path):
+    """提案 §3.2「未插入原因」的真实性：停用 / 空正文条目不得被报成 `not_in_scope`。
+
+    v2 的范围解析会在候选阶段就把停用 / 空正文条目过滤掉（这是既有且正确的行为，
+    它们确实不该注入），于是 `resolved_entry_uids` 里没有它们；若照此报
+    `not_in_scope`，界面给出的修复入口会是「去『分类与载入』把它设为起点」——
+    而它在 v2 里**已经是固定导入起点**，这个引导是错的，也与「哪些条目因为本身就是
+    停用的而没被插进去」的要求相矛盾。因此 `not_in_scope` 只对**从未进过候选范围**
+    的条目成立，范围解析阶段被排除的条目必须报它们真正的原因。
+    v3 的 `best` 本就保留这两类条目（只以 `issues` 形式报告），本用例同时对 v3 做
+    对照固化，确保两套解析器的原因口径一致。
+    """
+    from blueprints.worldbook import register
+    manager = WorldBookManager(tmp_path)
+    for book in (_reason_book("v2book", v3=False), _reason_book("v3book", v3=True)):
+        manager.save(book)
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+    register(app, {"worldbook": manager})
+    client = app.test_client()
+
+    # v2 的停用 / 空正文条目在范围解析阶段就被过滤（根因证据），但原因必须真实
+    v2_scope = manager.load("v2book").resolve_import_scope([])
+    assert {item["uid"] for item in v2_scope["excluded_entries"]} == {"off", "blank"}
+    assert "off" not in v2_scope["resolved_entry_uids"]
+    assert "blank" not in v2_scope["resolved_entry_uids"]
+
+    expected = {"off": "disabled", "blank": "empty_content", "outsider": "not_in_scope"}
+    # candidate_count 口径：v2 的 resolved 过滤掉停用 / 空正文（world + kw = 2）；
+    # v3 的 best 保留它们（world + kw + off + blank = 4）。这是诚实的「候选」口径，
+    # 本用例只修原因分类，不改这个计数。
+    for book_id, candidate_count in (("v2book", 2), ("v3book", 4)):
+        response = client.post(f"/api/worldbook/{book_id}/prompt-preview",
+                               json={"mode": "narrative", "input_text": "阿米娅", "seed": 0})
+        assert response.status_code == 200, (book_id, response.json)
+        payload = response.json
+        assert dropped_map(payload) == expected, book_id
+        assert set(order_uids(payload)) == {"world", "kw"}, book_id
+        assert payload["totals"]["candidate_count"] == candidate_count, book_id
+        # 不变量：order[] 与 dropped[] 互斥且合起来覆盖全书条目
+        assert len(payload["order"]) + len(payload["dropped"]) == \
+            len(manager.load(book_id).entries), book_id
+        assert len({item["uid"] for item in payload["dropped"]}) == len(payload["dropped"])

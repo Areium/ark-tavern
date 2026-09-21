@@ -858,11 +858,22 @@ export interface WorldBookDisplayNodeDTO {
   child_uids: string[];
   remaining: number | null;
   is_root: boolean;
-  /** 同一 uid 在 display_tree 里是否非首次出现（灰节点口径，服务端派生 R-10） */
+  /**
+   * 该 uid 在闭包内是否有**多于一次到达**（服务端读时派生）。
+   *
+   * 到达次数 = 被实际遍历的 `requires` 入边条数（`used_edges`）+ 它自己作为起点被激活的那一次。
+   * `display_tree` 每个 uid 只有一行，所以这里**不是**「在 display_tree 里是否非首次出现」——
+   * 那个字面读法恒为 false。
+   *
+   * ⚠ 它与节点视图的「灰出现」是**单向**关系：`repeated === true` ⟹ 会有第二次到达；
+   * 但反向不成立——**轨道上的 uid**，它任何一次展开出现都必然是灰节点（提案 §3.4.3.1
+   * 「轨道优先」），即使它的 `repeated === false`。因此灰集合是 `repeated` 的**超集**，
+   * 主/灰归属仍以「轨道优先 → `first_parent_uid`」与 `resolved_edges[].status === "cross"` 为准。
+   */
   repeated: boolean;
-  /** 该 uid 在主路径（首次出现）上的父；主节点为 null */
+  /** 该 uid 的**主路径父**（即上方的 `parent_uid`；根为 `null`）。前端用它判断「哪一次到达是主到达」。 */
   first_parent_uid: string | null;
-  /** display_tree 中的 0-based 稳定位次 */
+  /** 该 uid 在 `display_tree` 中的 0-based 位次（树按 `(depth, uid)` 稳定排序，位次因此也稳定） */
   display_index: number;
 }
 export interface WorldBookIssueDTO {

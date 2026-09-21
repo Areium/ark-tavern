@@ -4,7 +4,7 @@ import {
   DEFAULT_EXPAND_NODE_BUDGET, DOWNSTREAM_EDGE_LIMIT, NODE_HEIGHT, NODE_WIDTH, SUBTREE_NODE_LIMIT,
   TRACK_VIRTUALIZE_THRESHOLD, buildNodeViewModel, canAddRequiresEdge, defaultExpandedKeys,
   depthForNodeBudget, downstreamCount, edgeGeometry, edgeVisual, expandKeysToDepth, layoutTrack,
-  summarize, trackNodeKey, visibleBandKeys,
+  summarize, visibleBandKeys,
   type NodeViewEdge, type NodeViewNode,
 } from "../../../utils/worldbookNodeView";
 import type { WorldBookEdgeStatus } from "../../../types";
@@ -17,12 +17,26 @@ export const NODE_VIEW_ORDER_NOTE =
   + "不是「本轮一定按这个顺序全部插入」：每轮实际命中是关键词 / 概率 / token 预算决定的子集，"
   + "轨道顺序表达的是「若都被命中时的插入次序」。";
 
-/** 灰节点口径（提案 §3.4.3 + 契约 R-10 澄清）——必须写死，避免被读成「绝对不会注入」 */
+/**
+ * 灰节点口径（提案 §3.4.3 + 契约 R-10 澄清）——必须写死。
+ *
+ * **灰节点有两种来源，文案必须分开**（提案 §8 风险表点名的「灰节点被误读」就在这两种之间）：
+ * ① 重复到达（轨道优先 / `cross` 边）：这个 uid 已在别处出现过 → 「已插入过，不重复插入」；
+ * ② 灰色只读子树带出的下游：它**可能从未在别处出现过**（`primaryKeys` 里没有它），
+ *    只是位于一条重复到达的展开路径上 → 只能说「位于灰色只读子树内，不单独插入」。
+ */
 export const NODE_VIEW_GRAY_NOTE =
-  "灰节点 = 同一 uid 的非主到达：已插入过（路径 A → B → X），不重复插入。判定口径与服务端一致——"
-  + "条目在轨道上有位置的，轨道节点是唯一主节点，它向下的出现位置（含 cross 边带来的重复到达）一律灰；"
-  + "轨道上没有位置的（已停用 / 空正文），只有 first_parent_uid 指向的那次到达是主节点，其余到达为灰。"
+  "灰节点 = 同一 uid 的非主到达，或整条落在灰色只读子树里，来源有两种："
+  + "① 重复到达（轨道优先 / cross 边）＝已插入过（路径 A → B → X），不重复插入；"
+  + "② 灰色只读子树带出的下游＝它可能从未在别处出现过，只沿这条重复路径出现，不单独插入。"
+  + "判定口径与服务端一致——条目在轨道上有位置的，轨道节点是唯一主节点，它向下的出现位置"
+  + "（含 cross 边带来的重复到达）一律灰；轨道上没有位置的（已停用 / 空正文），"
+  + "只有 first_parent_uid 指向的那次到达是主节点，其余到达为灰；"
+  + "灰节点的下游整棵子树同为灰色只读视图（仍保留展开手柄，但只读）。"
   + "灰节点不重复进入候选范围，但是否实际注入仍由关键词、概率、token 预算决定，见「Prompt 预览」。";
+
+/** 灰来源 ② 的固定说法（灰只读子树带出的下游，没有别的主到达位置） */
+export const NODE_VIEW_READONLY_SUBTREE_HINT = "位于灰色只读子树内";
 
 /** 空态（提案 §3.4.5） */
 export const NODE_VIEW_EMPTY_HINT =
@@ -38,6 +52,15 @@ export const NODE_VIEW_MATCH_HINT = "跑一次「Prompt 预览」后，这里会
 export const NODE_VIEW_READONLY_NOTE =
   "本页只读：不提供节点拖拽、画布平移缩放、框选、在图上连线，也不持久化节点位置；"
   + "同一份输入永远得到同一张图。";
+
+/**
+ * 提案 §3.4.2 的第四档徽标：「全量兼容」。
+ *
+ * 它不是起点激活方式（`panel.ts` 的 `ACTIVATION_LABELS` 只有 always / roster_any / manual 三档），
+ * 而是**本次预览的整档语义**（`preview.full_scope === true`：所有条目都在候选里、依赖闭包不决定范围）。
+ * 因此这里本地补一个标签，只在全量兼容提示条上显示，不给 262 个节点各挂一个徽标。
+ */
+export const FULL_SCOPE_ACTIVATION_LABEL = "全量兼容";
 
 const DEFAULT_VIEWPORT_WIDTH = 1200;
 const LAYER_LABELS: Record<string, string> = { stable: "稳定层", dynamic: "动态层" };
@@ -57,6 +80,31 @@ function meterParts(node: NodeViewNode): string[] {
 }
 
 const pathText = (node: NodeViewNode) => node.path.map((step) => step.name || step.uid).join(" → ");
+
+/**
+ * 灰节点是不是「重复到达」（来源 ①）——只有这一类才可以说「已插入过」。
+ *
+ * 判定只用现成字段，不新造概念：`isExtraArrival`（cross 边带来的重复到达）或该 uid 存在主节点
+ * （`primaryKeys`，即它在轨道上或在自己的 `first_parent_uid` 那次到达上已经出现过）。
+ * 两者都不成立时（来源 ②）该节点只活在灰色只读子树里，**从未在别处出现过**，不能写成「已插入过」。
+ */
+const isRepeatArrival = (node: NodeViewNode, primaryKeys: Record<string, string>): boolean =>
+  node.isExtraArrival || !!primaryKeys[node.uid];
+
+/** 灰色节点卡片的 hover 说明（两种来源分开写，尾部保留「是否实际注入」的写死口径） */
+const grayNodeTitle = (node: NodeViewNode, primaryKeys: Record<string, string>): string => {
+  const path = pathText(node);
+  return isRepeatArrival(node, primaryKeys)
+    ? `已插入过（路径 ${path}），不重复插入；不重复进入候选范围，是否实际注入仍由关键词、概率、token 预算决定`
+    : `${NODE_VIEW_READONLY_SUBTREE_HINT}（路径 ${path}）：它只沿这条重复路径出现，别处没有首次出现的位置，不单独插入；`
+      + "是否实际注入仍由关键词、概率、token 预算决定";
+};
+
+/** 灰色节点卡片上的角标文案 */
+const grayNodeChip = (node: NodeViewNode, primaryKeys: Record<string, string>): string => {
+  if (node.isExtraArrival) return "重复到达 · 不重复插入";
+  return isRepeatArrival(node, primaryKeys) ? "已插入过 · 不重复插入" : "只读子树 · 不单独插入";
+};
 
 /**
  * 工作台第 4 个页签：节点视图（A-4，提案 §3.4 全部小节）。
@@ -84,7 +132,19 @@ export default function NodeViewTab(
   );
 
   const [selectedKey, setSelectedKey] = useState(initialSelectedKey);
-  const [expanded, setExpanded] = useState<string[]>(() => defaultExpandedKeys(model));
+  // 默认只展开已激活起点的子树；若预设了选中节点（深链 / SSR 断言），把它的到达路径一并展开，
+  // 否则选中的节点根本不在渲染集合里。
+  const [expanded, setExpanded] = useState<string[]>(() => {
+    const keys = new Set(defaultExpandedKeys(model));
+    let cursor = initialSelectedKey ? model.byKey[initialSelectedKey]?.parentKey || null : null;
+    const guard = new Set<string>();
+    while (cursor && !guard.has(cursor)) {
+      guard.add(cursor);
+      keys.add(cursor);
+      cursor = model.byKey[cursor]?.parentKey || null;
+    }
+    return [...keys].sort();
+  });
   const [expandedFor, setExpandedFor] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [problemFilter, setProblemFilter] = useState("");
@@ -170,7 +230,16 @@ export default function NodeViewTab(
 
   const selected = selectedKey ? model.byKey[selectedKey] || null : null;
   const expandDepth = useMemo(() => depthForNodeBudget(model), [model]);
-  const grayPath = selected && selected.isRepeated ? pathText(selected) : "";
+  const grayPath = selected && selected.dimmed ? pathText(selected) : "";
+  // 「展开到 N 层」是**预算**口径（提案 §3.4.6 只说默认覆盖约 60 个节点），不是固定文案：
+  // 本书下游本来就少于预算时直接说「展开全部下游」，不谎报 60。
+  const downstreamTotal = useMemo(
+    () => model.nodes.filter((node) => node.kind !== "track").length,
+    [model],
+  );
+  const expandLabel = downstreamTotal <= DEFAULT_EXPAND_NODE_BUDGET
+    ? `展开全部下游（${downstreamTotal} 个节点）`
+    : `展开到覆盖约 ${DEFAULT_EXPAND_NODE_BUDGET} 个节点（${expandDepth} 层）`;
 
   /* ── 交互 ── */
 
@@ -180,9 +249,13 @@ export default function NodeViewTab(
       : [...current, key].sort()));
   };
 
+  /**
+   * 跳到该 uid 的「首次出现」（主节点）。主节点缺失是合法状态：整条 uid 只出现在灰色只读子树里时
+   * 它没有主节点（那时不渲染这个按钮，见节点卡片）。
+   */
   const jumpToFirst = (node: NodeViewNode) => {
-    const primary = model.byKey[trackNodeKey(node.uid)]
-      || model.nodes.find((item) => item.uid === node.uid && item.isPrimary);
+    const primaryKey = model.primaryKeys[node.uid];
+    const primary = primaryKey ? model.byKey[primaryKey] : null;
     if (!primary) return;
     setSelectedKey(primary.key);
     const band = layout.bands.find((item) => item.key === primary.key || item.uid === primary.uid);
@@ -291,17 +364,25 @@ export default function NodeViewTab(
       ) : <>
         <div className="wbnv-stats" role="list" aria-label="节点视图统计">
           <span role="listitem"><b>起点数</b>{stats.roots}</span>
-          <span role="listitem"><b>已在范围内</b>{stats.inScope}</span>
-          <span role="listitem"><b>未被任何起点覆盖</b>{stats.uncovered}</span>
-          <span role="listitem"><b>依赖环</b>{stats.cycles}</span>
+          <span role="listitem" title={stats.fullScope ? "全量兼容下所有条目都是候选，范围计数不适用" : undefined}>
+            <b>已在范围内</b>{stats.fullScope ? "不适用" : stats.inScope}
+          </span>
+          <span role="listitem" title={stats.fullScope ? "全量兼容下所有条目都是候选，范围计数不适用" : undefined}>
+            <b>未被任何起点覆盖</b>{stats.fullScope ? "不适用" : stats.uncovered}
+          </span>
+          <span role="listitem" title={`口径：环的个数（一个二元环算 1 个）。环内边共 ${stats.cycleEdges} 条。`}>
+            <b>依赖环</b>{stats.cycles} 个<span className="wbnv-stats-sub">（环内边 {stats.cycleEdges} 条）</span>
+          </span>
           <span role="listitem"><b>超深度边</b>{stats.cappedEdges}</span>
           <span role="listitem" className={classNames(stats.hidden > 0 && "is-warn")}><b>隐藏节点数</b>{stats.hidden}</span>
           <span className="wbnv-stats-note">统计与序号只算主节点；灰节点只体现在边上与展开里。</span>
         </div>
 
         <div className="wbnv-toolbar">
-          <button type="button" className="wbg-button" onClick={() => setExpanded(expandKeysToDepth(model, expandDepth))}>
-            展开到 {expandDepth} 层（约 {DEFAULT_EXPAND_NODE_BUDGET} 个节点）
+          <button type="button" className="wbg-button"
+            title={`本书下游共 ${downstreamTotal} 个节点（不含轨道）。`}
+            onClick={() => setExpanded(expandKeysToDepth(model, expandDepth))}>
+            {expandLabel}
           </button>
           <button type="button" className="wbg-button" onClick={() => setExpanded([])}>折叠全部</button>
           <span className="wbnv-toolbar-sep" />
@@ -341,7 +422,9 @@ export default function NodeViewTab(
           <span className="wbnv-legend-item"><i className="wbnv-swatch is-dashed" />灰虚线 = requires · capped（遍历深度用尽）</span>
           <span className="wbnv-legend-item"><i className="wbnv-swatch is-dotted" />点线 = related（仅图示，不参与展开）</span>
           <span className="wbnv-legend-item"><i className="wbnv-swatch is-cycle" />红虚线 = 位于依赖环内</span>
-          <span className="wbnv-legend-item"><i className="wbnv-swatch is-gray" />灰节点 = 已插入过，不重复插入</span>
+          <span className="wbnv-legend-item"><i className="wbnv-swatch is-gray" />灰节点 ① = 重复到达（已插入过，不重复插入）</span>
+          <span className="wbnv-legend-item"><i className="wbnv-swatch is-gray" />灰节点 ② = 灰色只读子树带出的下游（只读、不单独插入）</span>
+          <span className="wbnv-legend-item">灰 ≠ 一定不注入：是否实际注入仍由关键词、概率、token 预算决定</span>
         </p>
         <p className="wbnv-gray-help">{NODE_VIEW_GRAY_NOTE}</p>
         <p className="wbnv-help">
@@ -350,6 +433,14 @@ export default function NodeViewTab(
         </p>
 
         {previewing && <p className="wbnv-warning">正在按当前统一草稿重新计算候选范围…</p>}
+        {model.fullScope && (
+          <p className="wbnv-full-scope">
+            <span className="wbnv-chip is-full-scope">{FULL_SCOPE_ACTIVATION_LABEL}</span>
+            本次预览是「全量兼容」（全程条目都在候选里），因此节点视图<strong>不显示依赖闭包</strong>：
+            不标「游离」、「已在范围内 / 未被任何起点覆盖 / 依赖环」也不反映本次范围。
+            依赖数据本身照旧可读 —— 要看单轮实际注入请用「Prompt 预览」。
+          </p>
+        )}
         {model.warnings.map((warning) => <p className="wbnv-warning" key={warning}>{warning}</p>)}
         {layout.hiddenCount > 0 && (
           <p className="wbnv-warning">
@@ -410,6 +501,8 @@ export default function NodeViewTab(
                   const node = model.byKey[place.key];
                   if (!node) return null;
                   const visual = node.arrivalStatus ? edgeVisual(node.arrivalStatus, "requires", false) : null;
+                  const primaryKey = model.primaryKeys[node.uid] || "";
+                  const canJumpToFirst = node.dimmed && !!primaryKey && primaryKey !== node.key;
                   return (
                     <div
                       key={node.key}
@@ -418,7 +511,7 @@ export default function NodeViewTab(
                       className={classNames(
                         "wbnv-node",
                         `is-${node.kind}`,
-                        node.isRepeated && "is-gray",
+                        node.dimmed && "is-gray",
                         node.isPrimary && node.rootBadge && "is-root",
                         node.loose && "is-loose",
                         node.problems.length > 0 && "has-problem",
@@ -426,8 +519,8 @@ export default function NodeViewTab(
                         place.truncated && "is-truncated",
                       )}
                       style={{ left: place.x, top: place.y, width: NODE_WIDTH, height: NODE_HEIGHT }}
-                      title={node.isRepeated
-                        ? `已插入过（路径 ${pathText(node)}），不重复插入；不重复进入候选范围，是否实际注入仍由关键词、概率、token 预算决定`
+                      title={node.dimmed
+                        ? grayNodeTitle(node, model.primaryKeys)
                         : `${node.name}（${node.uid}）`}
                       onClick={() => setSelectedKey(node.key)}
                       onKeyDown={(event) => {
@@ -449,15 +542,15 @@ export default function NodeViewTab(
                         <span className="wbnv-chip is-problem" key={problem.code}
                           title={problem.message}>{PROBLEM_LABELS[problem.code] || problem.code}</span>
                       ))}
-                      {node.isRepeated && (
-                        <span className="wbnv-chip is-gray" title={`已插入过（路径 ${pathText(node)}），不重复插入`}>
-                          {node.isExtraArrival ? "重复到达 · 不重复插入" : "灰色 · 不重复插入"}
+                      {node.dimmed && (
+                        <span className="wbnv-chip is-gray" title={grayNodeTitle(node, model.primaryKeys)}>
+                          {grayNodeChip(node, model.primaryKeys)}
                         </span>
                       )}
                       {node.isPrimary && node.hasRepeatedArrival && (
                         <span className="wbnv-chip is-repeat-hint"
-                          title="服务端 display_tree.repeated：这个条目在闭包内有多条 requires 入边，因此在本视图里还会以灰节点出现">
-                          另有灰出现
+                          title="服务端 display_tree.repeated：该 uid 在闭包内多于一次到达（另有被遍历的 requires 入边或作为起点被激活）。这个标记只说明「另有到达」，灰出现的全部来源不止于此">
+                          另有到达
                         </span>
                       )}
                       {node.actualSeq !== null && (
@@ -472,7 +565,7 @@ export default function NodeViewTab(
                           {place.expanded ? "−" : "+"}{node.childKeys.length}
                         </button>
                       )}
-                      {node.isRepeated && (
+                      {canJumpToFirst && (
                         <button type="button" className="wbnv-jump"
                           onClick={(event) => { event.stopPropagation(); jumpToFirst(node); }}>
                           跳到首次出现
@@ -531,7 +624,7 @@ export default function NodeViewTab(
                   : selected.isExtraArrival ? `cross 边重复到达 ← ${selected.arrivalFrom || "?"}`
                     : `主到达 ← ${selected.arrivalFrom || "起点"}`}</dd></div>
                 {selected.hasRepeatedArrival && (
-                  <div><dt>重复到达</dt><dd>闭包内有多条 requires 入边，另有灰出现</dd></div>
+                  <div><dt>另有到达</dt><dd>闭包内多于一次到达（被遍历的 requires 入边 / 作为起点激活）</dd></div>
                 )}
               </dl>
 
@@ -548,7 +641,20 @@ export default function NodeViewTab(
                     </span>
                   ))}
                 </div>
-                {selected.isRepeated && <p className="wbnv-gray-help">已插入过（路径 {grayPath}），不重复插入。</p>}
+                {selected.dimmed && <p className="wbnv-gray-help">
+                  {isRepeatArrival(selected, model.primaryKeys)
+                    ? `已插入过（路径 ${grayPath}），不重复插入。`
+                    : `${NODE_VIEW_READONLY_SUBTREE_HINT}（路径 ${grayPath}）：它只沿这条重复路径出现，`
+                      + "别处没有首次出现的位置，不单独插入。"}
+                  是否实际注入仍由关键词、概率、token 预算决定，见「Prompt 预览」。
+                </p>}
+                {selected.isPrimary && selected.hasRepeatedArrival && (
+                  <p className="wbnv-help">
+                    服务端 repeated 只说明「闭包内多于一次到达」；它与灰出现是单向关系——
+                    灰集合是它的超集（轨道优先与灰色传播都会产生灰出现），所以本节点不是灰的
+                    不代表这个条目没有灰出现。
+                  </p>
+                )}
               </section>
 
               {selected.problems.length > 0 && (

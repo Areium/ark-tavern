@@ -491,13 +491,13 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
         #   (depth, uid) 稳定排序，位次因此也稳定）；
         # - `first_parent_uid`：该 uid 的**主路径父**（即 `parent_uid`，根为 null），
         #   前端用它判断「哪一次到达是主到达」；
-        # - `repeated`：该 uid 是否**有超过一次到达** —— 预告它会在节点视图里另外以
-        #   **灰节点**出现。判定基于「到达次数」而不是「入边条数」：
+        # - `repeated`：该 uid 在闭包内是否**多于一次到达** —— 判定基于「到达次数」
+        #   而不是「入边条数」：
         #
         #     到达次数 = 被**实际遍历**的 requires 入边条数（`used_edges`）
         #              + 它自己作为起点被激活的那一次（`root_reasons`）
         #
-        #   两个边界必须守住，否则会画出「标了重复到达、却没有第二次到达」的假灰节点：
+        #   两个边界必须守住，否则会误判：
         #   1. 用 `used_edges` 而不是 `requires_edges`：`capped` 边（上游那次到达的
         #      剩余深度是 0，边没被遍历）**不构成一次到达**，不能算进来；
         #   2. 起点被激活本身也是一次到达：一个根若还被一条被遍历的边指向，
@@ -506,8 +506,16 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
         #   五类边界：根+无入边=1(false)；根+一条被遍历入边=2(true)；
         #   非根+一条入边（它的树父）=1(false)；非根+两条被遍历入边=2(true)；
         #   非根+两条入边但其中一条 capped（未遍历）=1(false)。
-        # 注：`repeated` 只说「会有重复到达」；主到达 = 轨道上的出现优先，轨道上
-        # 没有时取 `first_parent_uid` 指向的那次。
+        #
+        #   ⚠ 它与节点视图的「灰出现」只是**单向**关系，`repeated` 是灰出现的**下界**：
+        #   `repeated == true` ⟹ 一定有第二次到达；但**反向不成立** —— 按提案
+        #   §3.4.3.1「主节点唯一：轨道上的出现优先」，**只要一个 uid 在轨道上**
+        #   （全书启用且有正文的条目），它之后任何一次沿 requires 的向下展开出现
+        #   都必然是**灰节点**，哪怕 `repeated == false`（真实预装书里这种 uid 有
+        #   15 个，全部是「轨道条目 + 它那一次 skeleton 到达」）。
+        #   因此「灰集合」是 `repeated` 的**超集**：主/灰归属以「轨道优先 →
+        #   `first_parent_uid`」与 `resolved_edges[].status === "cross"` 为准；
+        #   前端**不得**把 `repeated == false` 读成「这个 uid 不会有灰出现」。
         traversed_in = {a for (a, b) in used_edges if b == uid}
         arrivals = len(traversed_in) + (1 if uid in root_reasons else 0)
         display_tree.append({

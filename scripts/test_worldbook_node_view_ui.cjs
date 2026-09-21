@@ -26,7 +26,7 @@ const nodeView = require(path.join(root, "frontend/src/utils/worldbookNodeView.t
 const {
   DEFAULT_EXPAND_NODE_BUDGET, SUBTREE_NODE_LIMIT, TRACK_VIRTUALIZE_THRESHOLD,
   buildNodeViewModel, canAddRequiresEdge, defaultExpandedKeys, depthForNodeBudget, downstreamCount,
-  edgeVisual, expandKeysToDepth, findCycleEdgeKeys, layoutTrack, summarize, trackOrder, truncateSubtree,
+  edgeVisual, expandKeysToDepth, findCycleEdgeKeys, findCycleGroups, layoutTrack, summarize, trackOrder, truncateSubtree,
 } = nodeView;
 const nodeTabModule = require(path.join(root, "frontend/src/components/worldbook/tabs/NodeViewTab.tsx"));
 const NodeViewTab = nodeTabModule.default;
@@ -163,7 +163,7 @@ assert.equal(nodeOf("cross#shared#root_c").isRepeated, true, "额外出现位置
 assert.equal(nodeOf("cross#shared#root_c").isPrimary, false);
 assert.equal(nodeOf("cross#shared#root_c").parentKey, "track#root_c", "灰节点挂在边起点的主节点下");
 assert.equal(nodeOf("cross#shared#root_c").arrivalStatus, "cross");
-assert.equal(nodeOf("track#shared").hasRepeatedArrival, true, "服务端 repeated 预告该 uid 会另有灰出现");
+assert.equal(nodeOf("track#shared").hasRepeatedArrival, true, "服务端 repeated 说明该 uid 另有到达");
 assert.equal(nodeOf("tree#loop2#7").hasRepeatedArrival, false, "单父条目不带这个预告");
 assert.equal(nodeOf("tree#c1#3").isPrimary, true, "轨道上没有（条目不存在）时，first_parent_uid 指向的那次是主节点");
 assert.equal(nodeOf("tree#c1#3").isRepeated, false, "非轨道的主节点不是灰节点");
@@ -184,7 +184,7 @@ const extraArrivalUids = new Set(model.nodes.filter((node) => node.isExtraArriva
 assert.deepEqual([...extraArrivalUids].sort(), ["loop1", "shared"], "cross 边带来两次重复到达");
 for (const uid of extraArrivalUids) {
   const ref = displayTree.find((item) => item.uid === uid);
-  assert.equal(ref.repeated, true, `repeated 精确预告了 ${uid} 会另有灰出现`);
+  assert.equal(ref.repeated, true, `repeated 说明 ${uid} 另有到达`);
 }
 assert.ok(!model.warnings.some((text) => text.includes("repeated")),
   "本夹具的 repeated 与 cross 边一致，不产生不一致告警");
@@ -268,13 +268,113 @@ assert.equal(noTreeModel.nodes.filter((node) => node.kind === "ghost").length, 1
 assert.equal(noTreeModel.nodes.filter((node) => node.kind === "expansion").length, 0, "不画依赖展开");
 assert.ok(noTreeModel.warnings.some((text) => text.includes("display_tree")));
 
-// ── summarize：六项统计 ─────────────────────────────────────────────────────
+// ── summarize：六项统计（依赖环按**环个数**，环内边数另计）────────────────────
 assert.deepEqual(summarize(model, preview, 0),
-  { roots: 2, inScope: 8, uncovered: 2, cycles: 2, cappedEdges: 2, hidden: 0 },
+  { roots: 2, inScope: 8, uncovered: 2, cycles: 1, cycleEdges: 2, cappedEdges: 2, hidden: 0, fullScope: false },
   "起点数 / 已在范围内 / 未被任何起点覆盖 / 依赖环 / 超深度边 / 隐藏节点数");
+assert.deepEqual(model.cycleGroups, [["loop1", "loop2"]], "loop1 ↔ loop2 是一个环（两条边）");
+assert.equal(findCycleGroups([{ from_uid: "a", to_uid: "b" }, { from_uid: "b", to_uid: "a" },
+  { from_uid: "c", to_uid: "c" }, { from_uid: "d", to_uid: "e" }]).length, 2,
+  "两个二元环算 2 个环、一个自环算 1 个环，互不合并");
 assert.equal(summarize(model, preview, 5).hidden, 5, "隐藏节点数由布局的截断结果传入");
 assert.equal(model.track.length - summarize(model, preview, 0).uncovered, 5,
   "未覆盖只算轨道上的条目");
+
+// ── F-5：全量兼容（full_scope）—— 全书都在候选里，不能静默把 262 条标成「游离」──
+const fullScopeModel = buildNodeViewModel({ ...preview, display_tree: [], full_scope: true }, detail, null);
+assert.equal(fullScopeModel.fullScope, true);
+assert.equal(fullScopeModel.track.filter((row) => fullScopeModel.byKey[row.key].loose).length, 0,
+  "全量兼容下不标「游离」");
+assert.ok(fullScopeModel.warnings.some((text) => text.includes("全量兼容")), "并给出「不显示依赖闭包」的提示");
+assert.ok(!fullScopeModel.warnings.some((text) => text.includes("没有返回 display_tree")),
+  "全量兼容下 display_tree 为空是预期行为，不报「服务端没返回」");
+const fullScopeStats = summarize(fullScopeModel, { ...preview, display_tree: [], full_scope: true }, 0);
+assert.equal(fullScopeStats.fullScope, true);
+assert.equal(fullScopeStats.uncovered, 7, "原始计数照实返回，由界面显示「不适用」而不是把数字抹掉");
+assert.equal(summarize(model, preview, 0).fullScope, false);
+
+// ── F-1：灰色只读子树的向下传播（提案 §3.4.3.2）─────────────────────────────
+// 守的是提案 §3.4.3.2：「其余出现位置一律渲染为灰节点……保留可展开手柄，仍可展开，
+// 展开结果**整棵子树同为灰色只读视图**」。夹具特意让灰节点的子节点「不在轨道上且未停用」
+// （正文为空 → 不进轨道），即 §3.4.3.1 明示的「轨道上没有」场景：它只有这一次出现位置，
+// 位于灰子树内部，因此必须整棵子树全灰；同时另一支（父节点不灰）上的同构条目必须保持主节点非灰。
+const f1Entries = [
+  makeEntry("tRoot", "根"), makeEntry("tGray", "灰父"), makeEntry("tPlain", "普通父"),
+  makeEntry("offChild", "灰子", { content: "" }),
+  makeEntry("offGrand", "灰孙", { content: "" }),
+  makeEntry("offPlain", "普通子", { content: "" }),
+];
+const f1Name = (uid) => f1Entries.find((item) => item.uid === uid)?.name || uid;
+const f1Row = (uid, parentUid, depth, index) => ({
+  uid, name: f1Name(uid), root_uid: "tRoot", depth, parent_uid: parentUid, child_uids: [],
+  remaining: null, is_root: parentUid === null, repeated: false,
+  first_parent_uid: parentUid, display_index: index,
+});
+const f1Tree = [
+  f1Row("tRoot", null, 0, 0),
+  f1Row("tGray", "tRoot", 1, 1),
+  f1Row("tPlain", "tRoot", 1, 2),
+  f1Row("offChild", "tGray", 2, 3),
+  f1Row("offGrand", "offChild", 3, 4),
+  f1Row("offPlain", "tRoot", 1, 5),
+];
+const f1Edges = [
+  { from_uid: "tRoot", to_uid: "tGray", relation: "requires", active: true, status: "skeleton" },
+  { from_uid: "tRoot", to_uid: "tPlain", relation: "requires", active: true, status: "skeleton" },
+  { from_uid: "tGray", to_uid: "offChild", relation: "requires", active: true, status: "skeleton" },
+  { from_uid: "offChild", to_uid: "offGrand", relation: "requires", active: true, status: "skeleton" },
+  { from_uid: "tRoot", to_uid: "offPlain", relation: "requires", active: true, status: "skeleton" },
+];
+const f1Model = buildNodeViewModel({
+  ...preview,
+  active_roots: [{ entry_uid: "tRoot", activation: "always", expansion: "requires_closure" }],
+  resolved_edges: f1Edges, display_tree: f1Tree, issues: [],
+}, { ...detail, entries: f1Entries }, null);
+const f1Node = (key) => f1Model.byKey[key];
+assert.deepEqual(f1Model.track.map((row) => row.uid), ["tGray", "tPlain", "tRoot"], "轨道按 uid 排序");
+assert.equal(f1Node("tree#tGray#1").dimmed, true, "轨道上 uid 的展开出现位置是灰的（基础规则）");
+assert.equal(f1Node("tree#tGray#1").isRepeated, true);
+// ← F-1 的核心：这条在灰色传播实现之前是 `isPrimary: true`（非灰）
+assert.equal(f1Node("tree#offChild#3").dimmed, true, "灰节点的子节点（不在轨道上）同为灰色只读视图");
+assert.equal(f1Node("tree#offChild#3").isRepeated, true);
+assert.equal(f1Node("tree#offChild#3").isPrimary, false, "灰子树里不再是主节点");
+assert.equal(f1Node("tree#offChild#3").parentKey, "tree#tGray#1", "它确实是从灰节点展开出来的");
+assert.equal(f1Node("tree#offGrand#4").dimmed, true, "灰色沿子树继续向下传播（传递性）");
+assert.equal(f1Node("tree#offGrand#4").isRepeated, true);
+// 同一 uid 的「别处主到达位置」不受传播影响
+assert.equal(f1Node("track#tGray").isPrimary, true, "同一个 uid 的轨道节点仍是主节点");
+assert.equal(f1Node("track#tGray").dimmed, false, "轨道节点恒不灰");
+assert.equal(f1Node("tree#offPlain#5").isPrimary, true, "父节点不灰的那一支：主到达仍是非灰主节点");
+assert.equal(f1Node("tree#offPlain#5").isRepeated, false);
+assert.equal(f1Node("tree#offPlain#5").dimmed, false, "传播不会波及其它分支");
+assert.deepEqual(f1Model.primaryKeys, { tGray: "track#tGray", tPlain: "track#tPlain", tRoot: "track#tRoot", offPlain: "tree#offPlain#5" },
+  "灰子树里的 uid 没有主节点（primaryKeys 里不出现），界面因此不显示「跳到首次出现」");
+assert.equal(f1Model.primaryCount, 4);
+assert.equal(f1Model.repeatedCount, 4,
+  "灰节点 = 两个轨道条目的展开出现（tGray/tPlain）+ 灰子 + 灰孙");
+// F-6（灰节点两种来源的文案）在 SSR 段落里断言：那里才有 render()/markup，用的就是这套 f1 夹具。
+
+// 整棵强制展开的灰子树：每一个节点都是灰色只读（照 A-3 的 subtree_all_dimmed 写法）
+const collectSubtree = (m, rootKey) => {
+  const out = [];
+  const stack = [rootKey];
+  while (stack.length) {
+    const key = stack.pop();
+    out.push(key);
+    for (const child of (m.byKey[key]?.childKeys || [])) stack.push(child);
+  }
+  return out.sort();
+};
+const greySubtree = collectSubtree(f1Model, "tree#tGray#1");
+assert.deepEqual(greySubtree, ["tree#offChild#3", "tree#offGrand#4", "tree#tGray#1"]);
+assert.ok(greySubtree.every((key) => f1Node(key).dimmed === true), "灰子树整棵 dimmed === true");
+const f1Layout = layoutTrack(f1Model, { expanded: f1Model.nodes.map((node) => node.key) });
+const renderedGrey = f1Layout.nodes.filter((node) => greySubtree.includes(node.key));
+assert.equal(renderedGrey.length, greySubtree.length, "强制展开后灰子树全部渲染");
+assert.ok(renderedGrey.every((node) => f1Node(node.key).dimmed === true), "渲染出来的也全是灰色只读");
+assert.equal(f1Layout.nodes.find((node) => node.key === "tree#offChild#3").hasChildren, true,
+  "灰节点仍保留可展开手柄（hasChildren 与灰无关）");
+assert.equal(renderedGrey.every((node) => node.topLevel === false), true, "灰子树不是轨道顶层");
 
 // ── 布局：确定性、父居中、同父 uid 稳定排序、规模控制 ────────────────────────
 const defaultExpanded = defaultExpandedKeys(model);
@@ -492,9 +592,9 @@ try {
 for (const expected of ["静态注入顺序键", "若都被命中时的插入次序", "position 升序", "group_weight 降序",
   "起点数", "已在范围内", "未被任何起点覆盖", "依赖环", "超深度边", "隐藏节点数",
   "不重复插入", "是否实际注入仍由关键词、概率、token 预算决定", "Prompt 预览",
-  "跳到首次出现", "灰色 · 不重复插入", "重复到达 · 不重复插入", "另有灰出现",
-  "灰节点 = 同一 uid 的非主到达", "first_parent_uid 指向的那次到达",
-  "游离", "起点", "展开到", "折叠全部",
+  "跳到首次出现", "已插入过 · 不重复插入", "重复到达 · 不重复插入", "另有到达",
+  "灰节点 = 同一 uid 的非主到达", "first_parent_uid 指向的那次到达", "整棵子树同为灰色只读视图",
+  "游离", "起点", "展开全部下游", "折叠全部",
   "只看起点与依赖闭包", "只看本轮命中", "缩略进度条", "本页只读", "不提供节点拖拽",
   "实线箭头", "灰虚线", "点线", "红虚线"]) {
   assert.ok(markup.includes(expected), `节点视图应渲染：${expected}`);
@@ -503,17 +603,105 @@ assert.ok(markup.includes("起点A") && markup.includes("共享依赖"), "轨道
 assert.ok(markup.includes("<b>起点数</b>2"), "统计条：起点数");
 assert.ok(markup.includes("<b>已在范围内</b>8"), "统计条：已在范围内（去重后的主节点数）");
 assert.ok(markup.includes("<b>未被任何起点覆盖</b>2"), "统计条：未覆盖");
-assert.ok(markup.includes("<b>依赖环</b>2"), "统计条：依赖环");
+assert.ok(markup.includes("<b>依赖环</b>1 个") && markup.includes("（环内边 2 条）"),
+  "统计条：依赖环按环个数，并标明环内边数");
 assert.ok(markup.includes("<b>超深度边</b>2"), "统计条：超深度边");
 assert.ok(markup.includes("<b>隐藏节点数</b>0"), "统计条：隐藏节点数");
 assert.ok(markup.includes("轨道 7 条"), "工具条显示轨道条目数");
+assert.ok(markup.includes("展开全部下游（9 个节点）"),
+  "F-3：下游少于 60 个节点时不谎报「约 60 个节点」，直接说展开全部下游");
 assert.ok(markup.includes("wbnv-node is-track"), "轨道节点有独立类名");
 assert.ok(markup.includes("wbnv-node is-expansion is-gray"), "灰节点有独立的灰样式类名");
 assert.equal((markup.match(/class="wbnv-node /g) || []).length, 12,
   "首屏渲染 12 个节点：7 个轨道 + root_a 的 4 个主到达 + root_c 的 1 个 cross 重复到达");
+assert.ok(!markup.includes("全量兼容"), "非全量兼容的预览不显示那一档提示");
 assert.ok(!markup.includes("世界书图谱") && !markup.includes("固定导入") && !markup.includes("导入源"),
   "R-22：旧说法不出现在节点视图文案里");
 assert.ok(!markup.includes("节点视图将在后续阶段实现"), "桩文案已被真实实现替换");
+
+// ── F-6：灰节点的两种来源必须分开写，不能把「首次出现」说成「已插入过」──────────
+// 来源 ①（重复到达：轨道优先 / cross）→「已插入过」；来源 ②（灰色只读子树带出的下游，
+// 在 primaryKeys 里没有主到达位置）→ 只能说「位于灰色只读子树内」。
+// 按 uid + is-gray 类名从 SSR 切出节点卡片，逐张检查文案（用的是上面的 f1 夹具）。
+const nodeCards = (html) => html.split('class="wbnv-node ').slice(1);
+const grayCardsOf = (html, uid) => nodeCards(html)
+  .filter((card) => card.includes(`>${uid}</span>`) && card.slice(0, 80).includes("is-gray"));
+const f1Markup = render({
+  detail: { ...detail, entries: f1Entries },
+  preview: {
+    ...preview,
+    active_roots: [{ entry_uid: "tRoot", activation: "always", expansion: "requires_closure" }],
+    resolved_edges: f1Edges, display_tree: f1Tree, issues: [],
+  },
+}, { initialSelectedKey: "tree#offChild#3" });
+const readonlyCards = grayCardsOf(f1Markup, "offChild");
+assert.equal(readonlyCards.length, 1, "灰子树里的子节点渲染出一张灰卡片");
+assert.ok(readonlyCards[0].includes("位于灰色只读子树内"),
+  "F-6：(b) 类灰节点标注写明它只是位于灰色只读子树内");
+assert.ok(readonlyCards[0].includes("别处没有首次出现的位置") && readonlyCards[0].includes("不单独插入"),
+  "F-6：(b) 类节点说明它没有别的主到达位置");
+assert.ok(!readonlyCards[0].includes("已插入过"),
+  "F-6：(b) 类节点不得被说成「已插入过」——它是首次到达，从未在别处出现过（返修前会失败的那条）");
+assert.ok(readonlyCards[0].includes("只读子树 · 不单独插入"), "F-6：(b) 类节点的角标是「只读子树」");
+assert.ok(readonlyCards[0].includes("是否实际注入仍由关键词、概率、token 预算决定"),
+  "F-6：两种来源都要保留写死的「是否实际注入」口径（提案 §3.4.3.6）");
+const repeatCards = grayCardsOf(f1Markup, "tGray");
+assert.equal(repeatCards.length, 1, "轨道 uid 的展开出现位置是一张灰卡片");
+assert.ok(repeatCards[0].includes("已插入过"), "F-6：(a) 类灰节点仍然说「已插入过」");
+assert.ok(repeatCards[0].includes("已插入过 · 不重复插入"), "F-6：(a) 类节点的角标保持「已插入过」");
+const sharedGrayCards = grayCardsOf(markup, "shared");
+assert.equal(sharedGrayCards.length, 2, "shared 有一张轨道展开卡 + 一张 cross 到达卡");
+assert.ok(sharedGrayCards.every((card) => card.includes("已插入过")),
+  "F-6：(a) 类的两种形态（轨道优先 / cross 到达）都说「已插入过」");
+assert.ok(sharedGrayCards.some((card) => card.includes("重复到达 · 不重复插入")),
+  "cross 到达的角标仍是「重复到达」");
+assert.ok(markup.includes("灰节点 ① = 重复到达（已插入过，不重复插入）")
+  && markup.includes("灰节点 ② = 灰色只读子树带出的下游（只读、不单独插入）")
+  && markup.includes("灰 ≠ 一定不注入"),
+  "F-6：图例并列两种灰来源，且不再把「已插入过」当唯一解释");
+assert.ok(!markup.includes("灰节点 = 已插入过，不重复插入"), "F-6：旧的单一解释图例已移除");
+// (b) 类节点没有主到达位置 → 不渲染「跳到首次出现」（裁定：保持现状）
+assert.ok(!readonlyCards[0].includes("跳到首次出现"), "F-6：(b) 类节点不渲染「跳到首次出现」");
+assert.ok(repeatCards[0].includes("跳到首次出现"), "(a) 类灰节点仍提供「跳到首次出现」");
+// 把两种来源的实际文案打出来，便于复核
+const cardTitle = (card) => (card.match(/title="([^"]*)"/) || ["", ""])[1];
+console.log(`F-6 文案｜(b) 灰只读子树带出的下游「offChild」的 title：${cardTitle(readonlyCards[0])}`);
+console.log(`F-6 文案｜(b) 该节点角标：只读子树 · 不单独插入`);
+console.log(`F-6 文案｜(a) 重复到达「tGray」的 title：${cardTitle(repeatCards[0])}`);
+console.log(`F-6 文案｜(a) 该节点角标：已插入过 · 不重复插入（cross 到达为「重复到达 · 不重复插入」）`);
+const f6PanelCopy = (f1Markup.match(/位于灰色只读子树内（路径[^<）]*）[^<]*/) || [""])[0];
+console.log(`F-6 文案｜属性栏：${f6PanelCopy}`);
+
+// F-3：下游超过预算时给出「覆盖约 60 个节点」的预算口径 + 实际层数
+const budgetEntries = [makeEntry("bRoot", "预算根")];
+const budgetRows = Array.from({ length: 80 }, (_, index) => {
+  const uid = `b${index + 1}`;
+  const parent = index === 0 ? "bRoot" : `b${index}`;
+  return { uid, name: `下游${index + 1}`, root_uid: "bRoot", depth: index + 1, parent_uid: parent,
+    child_uids: [], remaining: null, is_root: false, repeated: false,
+    first_parent_uid: parent, display_index: index };
+});
+const budgetMarkup = render({
+  detail: { ...detail, entries: budgetEntries },
+  preview: {
+    ...preview, display_tree: budgetRows, resolved_edges: [], issues: [],
+    active_roots: [{ entry_uid: "bRoot", activation: "always", expansion: "requires_closure" }],
+    scope: { ...preview.scope, resolved_entry_uids: budgetRows.map((row) => row.uid) },
+  },
+});
+assert.ok(budgetMarkup.includes("展开到覆盖约 60 个节点"),
+  "F-3：下游超过预算时按预算口径显示（提案 §3.4.6 的默认值语义）");
+assert.ok(/展开到覆盖约 60 个节点（\d+ 层）/.test(budgetMarkup), "F-3：并带上实际层数");
+assert.ok(!budgetMarkup.includes("展开全部下游（80"), "F-3：下游超过预算时不再说「展开全部下游」");
+
+// F-5：全量兼容预览 → 明确提示「不显示依赖闭包」，不把全书标成游离
+const fullScopeMarkup = render({ preview: { ...preview, display_tree: [], full_scope: true } });
+assert.ok(fullScopeMarkup.includes("本次预览是「全量兼容」") && fullScopeMarkup.includes("不显示依赖闭包"),
+  "F-5：全量兼容给出明确提示");
+assert.ok(fullScopeMarkup.includes("本次预览为全量兼容（full_scope）"), "F-5：说明该状态来自哪一档");
+assert.ok(!fullScopeMarkup.includes(">游离<"), "F-5：全量兼容下不把全书标成「游离」");
+assert.ok(fullScopeMarkup.includes("<b>未被任何起点覆盖</b>不适用"),
+  "F-5：未覆盖统计在无法计算时显示「不适用」而不是误导性数字");
 
 // 选中一个灰节点 → 属性栏：uid / 分类 / 角标 / 到达路径 breadcrumb / 下游规模 / 问题 / 编辑入口
 const grayMarkup = render({}, { initialSelectedKey: "tree#shared#5" });
@@ -527,8 +715,9 @@ assert.ok(grayMarkup.includes("主到达 ← root_a"), "属性栏写明主到达
 const crossNodeMarkup = render({}, { initialSelectedKey: "cross#shared#root_c" });
 assert.ok(crossNodeMarkup.includes("cross 边重复到达 ← root_c"), "属性栏写明这是 cross 边带来的重复到达");
 const repeatHintMarkup = render({}, { initialSelectedKey: "track#shared" });
-assert.ok(repeatHintMarkup.includes("闭包内有多条 requires 入边，另有灰出现"),
-  "属性栏用服务端 repeated 预告重复到达");
+assert.ok(repeatHintMarkup.includes("闭包内多于一次到达"), "属性栏用服务端 repeated 说明「另有到达」");
+assert.ok(repeatHintMarkup.includes("它与灰出现是单向关系"),
+  "F-2：属性栏写清 repeated 与灰出现是单向关系，不让人误读成 repeated=false 就没有灰出现");
 const problemMarkup = render({}, { initialSelectedKey: "tree#c1#3" });
 assert.ok(problemMarkup.includes("缺失") && problemMarkup.includes("依赖引用了不存在的条目 c1"),
   "属性栏列出该节点的问题");
@@ -594,6 +783,8 @@ const bigModelMarkup = renderToStaticMarkup(React.createElement(NodeViewTab, {
 }));
 assert.ok(bigModelMarkup.includes("先选一本剧情世界书"));
 
-console.log("Worldbook node view UI: 轨道排序（position/group_weight/depth/uid）、灰节点去重（轨道优先、"
-  + "cross 目标为灰、capped 占位、related 点线、环内标红）、确定性布局（父居中/子树按后代分配/同父 uid 排序）、"
-  + "400 截断与 264 条轨道、六项统计、五种边视觉、真实组件 SSR（假设文案 / 灰节点口径 / 空态 / Prompt 联动）均通过。");
+console.log("Worldbook node view UI: 轨道排序（position/group_weight/depth/uid）、主/灰口径（轨道优先、"
+  + "first_parent_uid 主到达、cross 重复到达、capped 占位、related 点线、环内标红）、"
+  + "灰色只读子树的向下传播（§3.4.3.2）、确定性布局（父居中/子树按后代分配/同父 uid 排序）、"
+  + "400 截断与 264 条轨道、六项统计（依赖环按环个数 + 环内边副标）、五种边视觉、"
+  + "展开预算文案（F-3）、全量兼容提示（F-5）、真实组件 SSR（假设文案 / 灰节点口径 / 空态 / Prompt 联动）均通过。");

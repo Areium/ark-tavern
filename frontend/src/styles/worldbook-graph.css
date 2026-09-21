@@ -183,10 +183,8 @@ html.light .wbg-workbench { color-scheme: light; }
 .wbg-metric-row > span { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--wbg-line); border-radius: 5px; color: var(--ng-muted); font-size: 10px; }
 .wbg-metric-row b { color: var(--ng-title); font-weight: 600; font-variant-numeric: tabular-nums; }
 .wbg-tree-path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px; border: 1px solid var(--wbg-line); border-radius: 6px; background: var(--ng-drawer-bg); }
-.wbg-tree-path-label { width: 100%; color: var(--ng-muted); font-size: 9px; letter-spacing: .1em; }
 .wbg-tree-path .wbg-text-button { padding: 2px 6px; border-radius: 4px; background: var(--wbg-hover); font-size: 10px; }
 .wbg-tree-path .wbg-text-button.is-current { color: var(--ng-edge-color-hl); background: var(--wbg-accent-soft); }
-.wbg-path-arrow { color: var(--ng-muted); font-size: 10px; }
 
 .wbg-classify-list { display: flex; flex-direction: column; }
 .wbg-classify-list > div { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--wbg-line); }
@@ -352,8 +350,6 @@ html.light .wbg-page, html.light .wbg-config, html.light .wbg-entries { color-sc
 .wbg-load { display: flex; flex-direction: column; gap: 10px; height: max(600px, calc(100vh - 330px)); min-height: 0; }
 .wbg-load > .wbg-page-content, .wbg-load > .wbg-taxonomy-shell { flex: 1; min-height: 0; }
 .wbg-index-shell { height: max(560px, calc(100vh - 330px)); }
-.wbg-tab-stub { display: flex; flex-direction: column; gap: 9px; padding: 18px; border: 1px dashed var(--wbg-line); border-radius: 9px; background: var(--ng-card-bg); }
-.wbg-tab-stub h3 { font-size: 15px; font-weight: 650; color: var(--ng-title); }
 
 /* 条目归属表（分类结构的主区）：行复选框驱动批量选择（R-20） */
 .wbg-own { display: flex; flex-direction: column; min-width: 0; }

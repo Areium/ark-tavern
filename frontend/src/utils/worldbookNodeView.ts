@@ -8,15 +8,21 @@
  *    - `resolved_edges[].status`：`skeleton` 主路径 / `cross` 边生效但目标已被别处覆盖 /
  *      `capped` 上游到了但深度用尽（**没有**被遍历）/ `idle` 上游不在闭包里；
  *    - `display_tree[].first_parent_uid`：该 uid 的**主到达**来自哪个父；
- *    - `display_tree[].repeated`：闭包内 requires 入边多于一条 → 预告这个 uid 还会以灰节点出现；
+ *    - `display_tree[].repeated`：该 uid 在闭包内**多于一次到达**（被遍历的 requires 入边 + 起点激活）；
  *    - `display_tree[].display_index`：`display_tree` 中的 0-based 稳定位次。
  *    这里**不做第二套去重**，只把服务端字段投影成渲染模型。
- * 2. 前端唯一的判断是提案 §3.4.3.1 的「主节点唯一」规则，R-10 澄清后的精确口径是：
+ * 2. 前端唯一的判断是提案 §3.4.3 的「主节点唯一 + 灰只读子树」规则，R-10 澄清后的精确口径是：
  *    - **轨道上的 uid**：轨道节点是唯一主节点，它的**所有**向下展开出现位置一律是灰节点；
  *    - **不在轨道上的 uid**（例如条目已停用 / 正文为空）：主到达 = `from_uid === first_parent_uid`
- *      的那次展开位置，其余到达（`cross` 边带来的）一律灰节点。
+ *      的那次展开位置，其余到达（`cross` 边带来的）一律灰节点；
+ *    - **灰色向下传播**（提案 §3.4.3.2）：灰节点的下游不管在不在轨道上，只要是从灰子树里展开出来的，
+ *      整棵子树都是灰色只读视图（`dimmed`）；它不会波及「别处的主到达位置」。
  *    每个到达都是一次「出现位置」：主到达节点是 `display_tree` 的那一行（挂在 `first_parent_uid` 下），
  *    其余到达来自 `resolved_edges` 里指向同一 uid 的 `cross` 边（挂在边起点的主节点下）。
+ *    **`repeated` 与灰出现是单向关系**：`repeated === true` ⟹ 该 uid 在闭包内还有第二次到达
+ *    （于是视图里会给出一处灰出现），但反过来不成立 —— 灰集合是 `repeated` 的**超集**：
+ *    「轨道优先」会灰掉轨道上 uid 的展开出现，灰色传播会灰掉整棵灰子树，两者都不依赖 `repeated`，
+ *    所以 `repeated === false` 不代表「一定没有灰出现」。
  * 3. 全部是纯函数：不改入参、同输入同输出。布局不含随机数、不含时间、不读 DOM、不做动画，
  *    所以同一份输入永远得到同一张图（提案 §3.4.6「布局完全确定性」）。
  */
@@ -146,11 +152,26 @@ export interface NodeViewNode {
   kind: NodeViewNodeKind;
   /** 主节点：同一 uid 唯一的那个正式节点（轨道优先，否则 first_parent_uid 指向的那次到达） */
   isPrimary: boolean;
-  /** 灰节点：该 uid 在本视图里的非主到达 */
+  /**
+   * 灰节点：该 uid 在本视图里的非主到达，**或**它整个落在灰色只读子树里（提案 §3.4.3.2）。
+   *
+   * 与 `dimmed` **同值**，语义就是「处于灰只读视图内」（两者同值是刻意的：去掉一个会牵动布局、
+   * 组件与断言多处）。要判断灰的**来源**请用 `isExtraArrival`（cross 边带来的重复到达）与模型上的
+   * `primaryKeys`（该 uid 是否另有主到达位置）：两者都不成立 ＝ 只活在灰只读子树里、从未在别处
+   * 出现过的下游节点 —— 界面文案必须与「已插入过」区分开（见组件里的 `grayNodeTitle`）。
+   */
   isRepeated: boolean;
+  /** 渲染为灰色只读视图（灰底 / 灰字 / 虚线边框 / 降低不透明度）。轨道节点恒为 false；与 `isRepeated` 同值。 */
+  dimmed: boolean;
   /** 这条出现位置由 `cross` 边带来（即「边生效但目标已被别处覆盖」的那次到达） */
   isExtraArrival: boolean;
-  /** 服务端 `display_tree[].repeated`：闭包内 requires 入边多于一条 → 该 uid 还会另有灰出现 */
+  /**
+   * 服务端 `display_tree[].repeated`：该 uid 在**闭包内多于一次到达**（被实际遍历的 requires 入边数
+   * ＋ 它自己作为起点被激活的那一次）。**单向**：它为 true ⟹ 一定还有第二次到达（通常就是一处灰出现），
+   * 但它为 false 完全**不代表**「不会有灰出现」——「轨道优先」会灰掉轨道上 uid 的展开出现、
+   * 灰色传播会灰掉整棵灰子树，两者都与它无关，所以灰集合是它的**超集**。
+   * 只用于界面提示与一致性告警，不参与主/灰归属。
+   */
   hasRepeatedArrival: boolean;
   /** 这次到达的 `from_uid`（轨道节点为 null） */
   arrivalFrom: string | null;
@@ -214,9 +235,18 @@ export interface NodeViewModel {
   coveredUids: string[];
   /** 环内边（`from|to`），已排序 */
   cycleEdgeKeys: string[];
+  /** 依赖环分组：每个环一组（成员 uid 已排序），供统计条显示「环个数」 */
+  cycleGroups: string[][];
   /** Prompt 预览联动是否生效（仅当 bookId 与当前书一致） */
   promptOrderApplied: boolean;
   promptMode: "narrative" | "free" | null;
+  /**
+   * 本次预览是不是「全量兼容」（`preview.full_scope === true`）：所有条目都在候选里，
+   * 依赖闭包不再决定范围 —— 此时不标「游离」，未覆盖统计也不适用（提案 §3.4.2 的第四档徽标）。
+   */
+  fullScope: boolean;
+  /** uid → 该 uid 的主节点 key（可能在读只读子树里没有主节点，那就没有这个 uid） */
+  primaryKeys: Record<string, string>;
   /** 灰节点数 / 主节点数（供统计与断言；灰节点不参与序号与范围计数） */
   primaryCount: number;
   repeatedCount: number;
@@ -276,13 +306,22 @@ export function buildNodeViewModel(
 
   const treeRows = preview?.display_tree || [];
   const resolvedEdges = preview?.resolved_edges || [];
+  // 「全量兼容」（full_scope）不是起点激活方式，而是本次预览的整档语义：所有条目都在候选里，
+  // 依赖闭包不决定范围。此时 display_tree 会是空的，若照常渲染会把全书标成「游离」——那是误导，
+  // 因此这里显式记下这一档，交给界面给出「不显示依赖闭包」的提示（提案 §3.4.2 的第四档徽标）。
+  const fullScope = preview?.full_scope === true;
   const warnings: string[] = [];
+  if (fullScope) {
+    warnings.push("本次预览为全量兼容（full_scope）：全书条目都在候选里，因此不标「游离」、"
+      + "也不显示依赖闭包（起点数 / 已在范围内 / 未覆盖 / 依赖环都不反映本次范围）。");
+  }
   if (treeRows.length && treeRows.some((row) => typeof row.repeated !== "boolean"
     || typeof row.display_index !== "number" || row.first_parent_uid === undefined)) {
     warnings.push("display_tree 缺少服务端读时派生字段（repeated / first_parent_uid / display_index）："
       + "主到达按 display_index 最小的一次降级判定、无法预告重复到达，不额外自算去重。");
   }
-  if (!treeRows.length && (resolvedEdges.length > 0 || (preview?.scope?.resolved_entry_uids || []).length > 0)) {
+  if (!treeRows.length && !fullScope
+    && (resolvedEdges.length > 0 || (preview?.scope?.resolved_entry_uids || []).length > 0)) {
     warnings.push("服务端没有返回 display_tree（这本书可能还没启用按需载入）：节点视图只渲染轨道，"
       + "不画依赖展开、也不画 cross 重复到达（capped 边仍会给出深度用尽的只读占位节点）。");
   }
@@ -372,10 +411,11 @@ export function buildNodeViewModel(
     const fields = entryFields(row.uid);
     addNode({
       key: row.key, uid: row.uid, name: fields.name, kind: "track",
-      isPrimary: true, isRepeated: false, isExtraArrival: false,
+      isPrimary: true, isRepeated: false, dimmed: false, isExtraArrival: false,
       hasRepeatedArrival: ref?.row.repeated === true, arrivalFrom: null,
       onTrack: true,
-      covered: !!ref, loose: !ref, ghost: false,
+      // 全量兼容下所有条目都在候选里，「未被任何起点覆盖」这个说法不成立，因此不标游离。
+      covered: !!ref, loose: !fullScope && !ref, ghost: false,
       trackSeq: row.seq, displayIndex: null,
       parentUid: null, firstParentUid: null, parentKey: null, childKeys: [],
       depth: 0, remaining: null, isRoot: rootsByUid.has(row.uid),
@@ -411,7 +451,7 @@ export function buildNodeViewModel(
     addNode({
       key: rowNodeKey(uid, ref.index), uid, name: ref.row.name || fields.name,
       kind: isRootRow(ref.row) ? "orphan" : "expansion",
-      isPrimary, isRepeated: !isPrimary, isExtraArrival: false,
+      isPrimary, isRepeated: !isPrimary, dimmed: !isPrimary, isExtraArrival: false,
       hasRepeatedArrival: ref.row.repeated === true,
       arrivalFrom: ref.row.first_parent_uid ?? ref.row.parent_uid ?? null,
       onTrack,
@@ -436,8 +476,10 @@ export function buildNodeViewModel(
   //       它们挂在**边起点的主节点**下，所以「cross 边 → 灰节点」在图上直接可见（§3.4.4）。
   //       没有 display_tree 时整体跳过：那时连闭包与主到达都不知道，画孤立的灰节点只会误导，
   //       于是降级成「只渲染轨道」（见上面的 warnings）。
-  //       服务端 `repeated === true` 精确预告「这个 uid 会另有灰出现」：这里据此做一致性检查，
-  //       只报警告、不改判定（多父边可能被深度截断成 capped，那时那次到达根本没发生）。
+  //      服务端 `repeated === true` 表示「闭包内还有第二次到达」。它与灰出现是**单向**关系：
+  //      repeated 为真时通常会给出一处灰出现（那次到达就是 cross 边），但**反过来不成立** ——
+  //      灰集合是 repeated 的超集（轨道优先 + 灰色传播都会灰掉一些 repeated=false 的出现），
+  //      所以这里只在「repeated 为真却找不到那次到达」时报警告，绝不把 repeated=false 当异常。
   const extraArrivalsByUid = new Map<string, string[]>();
   const crossRequiresEdges = rows.length
     ? resolvedEdges.filter((edge) => edge.relation !== "related" && edge.status === "cross")
@@ -452,7 +494,7 @@ export function buildNodeViewModel(
     const fields = entryFields(toUid);
     addNode({
       key, uid: toUid, name: fields.name, kind: "expansion",
-      isPrimary: false, isRepeated: true, isExtraArrival: true,
+      isPrimary: false, isRepeated: true, dimmed: true, isExtraArrival: true,
       hasRepeatedArrival: false, arrivalFrom: fromUid, onTrack: trackByUid.has(toUid),
       covered: true, loose: false, ghost: false,
       trackSeq: null, displayIndex: null,
@@ -472,9 +514,11 @@ export function buildNodeViewModel(
     .map((ref) => ref.row.uid)
     .sort(compareUid);
   if (undocumentedRepeat.length) {
-    warnings.push(`服务端标记了 repeated 但 resolved_edges 里没有对应的 cross 边（多父边可能已被深度截断）：`
+    warnings.push(`服务端标记了 repeated（闭包内还有第二次到达）但 resolved_edges 里没有对应的 cross 边：`
       + `${undocumentedRepeat.slice(0, 5).join("、")}${undocumentedRepeat.length > 5 ? " 等" : ""}`
-      + "，这些 uid 在本视图里没有额外的灰出现位置。");
+      + "——那次多父到达可能已被深度截断成 capped，本视图里因此没有对应的重复到达出现位置。"
+      + "注意 repeated 与灰出现是单向关系：这条告警只针对「repeated 为真却找不到那次到达」，"
+      + "反过来 repeated 为 false 也完全可能有灰出现（轨道优先 / 灰色传播）。");
   }
 
   // ── 4) capped（深度用尽）目标若在别处都没有出现位置，给一个只读占位节点 ──
@@ -489,7 +533,7 @@ export function buildNodeViewModel(
     const fields = entryFields(edge.to_uid);
     addNode({
       key, uid: edge.to_uid, name: fields.name, kind: "ghost",
-      isPrimary: false, isRepeated: true, isExtraArrival: false,
+      isPrimary: false, isRepeated: true, dimmed: true, isExtraArrival: false,
       hasRepeatedArrival: false, arrivalFrom: edge.from_uid,
       onTrack: false,
       covered: false, loose: false, ghost: true,
@@ -529,8 +573,49 @@ export function buildNodeViewModel(
     node.childKeys = kids;
   }
 
+  // ── 5b) 灰色只读子树的向下传播（提案 §3.4.3.2：灰节点「保留可展开手柄，仍可展开……
+  //        展开结果整棵子树同为灰色只读视图」）──
+  // 规则：childGrey = parentGrey || parent.baseRepeated（父是灰的，或父本身是重复到达）。
+  // 注意它**只沿渲染树向下传播**：某个 uid 在别处的主到达位置（轨道节点，或它自己
+  // first_parent_uid 指向的那次展开位置，只要不在灰子树里）不受影响，仍然是主节点且不灰。
+  // 轨道节点是轨道顺序里的主节点，恒不灰。
+  //
+  // 裁定（编排者 2026-09-21，保留现口径）：传播**不跨** `related` / `idle` / `capped` 边 ——
+  // 那些边没有发生到达，灰只读视图不该凭空沿它们扩边。
+  //
+  // 裁定（编排者 2026-09-21，保留现口径）：整条只出现在灰只读子树里的 uid **不设主节点**
+  // （`isPrimary` 全 false、`primaryKeys` 里没有它），界面因此不渲染「跳到首次出现」。
+  // 依据：提案 §3.4.3.2「展开结果整棵子树同为灰色只读视图」与 §3.4.3.1「轨道上没有时取最早
+  // 到达的展开位置」在同一场景下冲突，取 §3.4.3.2（针对灰展开更具体，且它的括号理由
+  // 「其下游可能带出别处没有的节点」描述的正是这个场景）。
+  const dimmedMemo = new Map<string, boolean>();
+  const isDimmedKey = (key: string): boolean => {
+    const cached = dimmedMemo.get(key);
+    if (cached !== undefined) return cached;
+    const node = byKey[key];
+    if (!node) return false;
+    dimmedMemo.set(key, false);   // 防环兜底（display_tree 本身无环）
+    const parent = node.parentKey ? byKey[node.parentKey] : undefined;
+    const value = node.isRepeated || (parent ? isDimmedKey(parent.key) : false);
+    dimmedMemo.set(key, value);
+    return value;
+  };
+  for (const node of nodes) {
+    if (node.kind === "track") {
+      node.dimmed = false;
+      node.isRepeated = false;
+      node.isPrimary = true;
+      continue;
+    }
+    const grey = isDimmedKey(node.key);
+    node.dimmed = grey;
+    node.isRepeated = grey;
+    node.isPrimary = !grey;
+  }
+
   // ── 6) 边：skeleton 用 display_tree 父子关系，cross / capped / related 用 resolved_edges ──
   const cycleEdgeKeys = findCycleEdgeKeys(requiresEdges.map((edge) => ({ from_uid: edge.from_uid, to_uid: edge.to_uid })));
+  const cycleGroups = findCycleGroups(requiresEdges.map((edge) => ({ from_uid: edge.from_uid, to_uid: edge.to_uid })));
   const cycleSet = new Set(cycleEdgeKeys);
   const edges: NodeViewEdge[] = [];
   const seenEdgeKeys = new Set<string>();
@@ -636,8 +721,15 @@ export function buildNodeViewModel(
 
   let primaryCount = 0;
   let repeatedCount = 0;
+  const primaryKeys: Record<string, string> = {};
   for (const node of nodes) {
-    if (node.isPrimary) primaryCount += 1; else repeatedCount += 1;
+    if (node.isPrimary) {
+      primaryCount += 1;
+      // 同一 uid 至多一个主节点（轨道节点排在前面，因此轨道优先）；落在灰只读子树里的 uid 可能没有主节点。
+      if (!primaryKeys[node.uid]) primaryKeys[node.uid] = node.key;
+    } else {
+      repeatedCount += 1;
+    }
   }
 
   return {
@@ -649,8 +741,11 @@ export function buildNodeViewModel(
     byKey,
     coveredUids: [...coveredSet].sort(compareUid),
     cycleEdgeKeys,
+    cycleGroups,
     promptOrderApplied,
     promptMode: promptOrderApplied && promptOrder ? promptOrder.mode : null,
+    fullScope,
+    primaryKeys,
     primaryCount,
     repeatedCount,
     warnings,
@@ -667,10 +762,60 @@ export const compareUid = (a: string, b: string): number => (a < b ? -1 : a > b 
  * 用强连通分量判定：一条边 `u→v` 在环上 ⟺ u 与 v 属于同一个强连通分量，且该分量
  * 规模 > 1（或 u === v 的自环）。这样「两端互为祖先」与「自环」都被同一条规则覆盖，
  * 不需要另写一遍可达性；迭代式 Tarjan，无递归深度风险。
+ *
+ * 口径说明：这里对**全部 requires 边**判环，而服务端 `_dependency_cycles` 只在候选闭包内判环；
+ * 两者的口径差异在真实预装书上一致（同为 4 条环内边）。界面上「依赖环」显示的是**环个数**
+ * （见 `findCycleGroups`），环内边数作为副标显示。
  */
 export function findCycleEdgeKeys(
   edges: Array<Pick<WorldBookDependencyEdgeDTO, "from_uid" | "to_uid">> | null | undefined,
 ): string[] {
+  const analysis = analyzeCycles(edges);
+  const keys = new Set<string>();
+  for (const edge of analysis.edgeList) {
+    const id = analysis.component.get(edge.from);
+    if (id === undefined || id !== analysis.component.get(edge.to)) continue;
+    if (edge.from === edge.to || (analysis.sizes.get(id) || 0) > 1) keys.add(`${edge.from}|${edge.to}`);
+  }
+  return [...keys].sort(compareUid);
+}
+
+/**
+ * 依赖环的**分组**：每个强连通分量（规模 > 1，或自环节点）算一个环，成员 uid 已排序。
+ * 界面统计条的「依赖环」用它的长度（环个数），而不是环内边数 —— 一个二元环有两条边，
+ * 报边数会让人以为有两个环。
+ */
+export function findCycleGroups(
+  edges: Array<Pick<WorldBookDependencyEdgeDTO, "from_uid" | "to_uid">> | null | undefined,
+): string[][] {
+  const analysis = analyzeCycles(edges);
+  const groups = new Map<number, string[]>();
+  const selfLoops = new Set<string>();
+  for (const edge of analysis.edgeList) {
+    const id = analysis.component.get(edge.from);
+    if (id === undefined || id !== analysis.component.get(edge.to)) continue;
+    if (edge.from === edge.to) selfLoops.add(edge.from);
+    else if ((analysis.sizes.get(id) || 0) > 1) {
+      const list = groups.get(id);
+      if (list) list.push(edge.from, edge.to); else groups.set(id, [edge.from, edge.to]);
+    }
+  }
+  const output = [...groups.values()].map((members) => [...new Set(members)].sort(compareUid));
+  for (const uid of [...selfLoops].sort(compareUid)) output.push([uid]);
+  output.sort((a, b) => compareUid(a[0] || "", b[0] || ""));
+  return output;
+}
+
+interface CycleAnalysis {
+  edgeList: Array<{ from: string; to: string }>;
+  component: Map<string, number>;
+  sizes: Map<number, number>;
+}
+
+/** 迭代式 Tarjan 求强连通分量；边与邻接都做稳定排序，结果与输入顺序无关。 */
+function analyzeCycles(
+  edges: Array<Pick<WorldBookDependencyEdgeDTO, "from_uid" | "to_uid">> | null | undefined,
+): CycleAnalysis {
   const adjacency = new Map<string, string[]>();
   const edgeList: Array<{ from: string; to: string }> = [];
   for (const edge of edges || []) {
@@ -688,7 +833,7 @@ export function findCycleEdgeKeys(
   const component = new Map<string, number>();
   const onStack = new Set<string>();
   const stack: string[] = [];
-  const componentSize = new Map<number, number>();
+  const sizes = new Map<number, number>();
   let counter = 0;
   let componentId = 0;
 
@@ -729,7 +874,7 @@ export function findCycleEdgeKeys(
           component.set(member, componentId);
           members.push(member);
         } while (member !== frame.node);
-        componentSize.set(componentId, members.length);
+        sizes.set(componentId, members.length);
         componentId += 1;
       }
       work.pop();
@@ -739,15 +884,7 @@ export function findCycleEdgeKeys(
       }
     }
   }
-
-  const keys = new Set<string>();
-  for (const edge of edgeList) {
-    const same = component.get(edge.from) === component.get(edge.to);
-    if (!same) continue;
-    const size = componentSize.get(component.get(edge.from)!) || 0;
-    if (edge.from === edge.to || size > 1) keys.add(`${edge.from}|${edge.to}`);
-  }
-  return [...keys].sort(compareUid);
+  return { edgeList, component, sizes };
 }
 
 /* ── 边与节点的视觉映射（提案 §3.4.4，集中一处，不散落在 JSX 里）──────────── */
@@ -799,14 +936,18 @@ export interface NodeViewStats {
   roots: number;
   /** 已在范围内：display_tree 里去重后的 uid 数（主节点口径） */
   inScope: number;
-  /** 未被任何起点覆盖：留在轨道上但不在候选范围内的条目数 */
+  /** 未被任何起点覆盖：留在轨道上但不在候选范围内的条目数（全量兼容下不适用，见 fullScope） */
   uncovered: number;
-  /** 依赖环：位于环内的边数 */
+  /** 依赖环：**环的个数**（一个二元环算 1 个；自环单独算 1 个） */
   cycles: number;
+  /** 依赖环内边数（副标；一个二元环有 2 条边） */
+  cycleEdges: number;
   /** 超深度边：status = capped 的 requires 边数 */
   cappedEdges: number;
   /** 隐藏节点数：仅因显示上限被截断的下游节点数（不影响真实候选） */
   hidden: number;
+  /** 本次预览是否为「全量兼容」：true 时 uncovered / inScope 都不反映范围语义 */
+  fullScope: boolean;
 }
 
 export function summarize(
@@ -827,9 +968,11 @@ export function summarize(
     roots: roots.size,
     inScope: model.coveredUids.length,
     uncovered,
-    cycles: model.cycleEdgeKeys.length,
+    cycles: model.cycleGroups.length,
+    cycleEdges: model.cycleEdgeKeys.length,
     cappedEdges,
     hidden: Math.max(0, Math.floor(hiddenCount) || 0),
+    fullScope: model.fullScope,
   };
 }
 

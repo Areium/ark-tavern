@@ -2,8 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "./useApi";
 import type {
   WorldBookCategoryDTO, WorldBookConfigurationDraft, WorldBookDetail,
-  WorldBookDependencyEdgeDTO, WorldBookPolicyDraft, WorldBookRootDTO,
-  WorldBookScopePreviewDTO,
+  WorldBookDependencyEdgeDTO, WorldBookRootDTO, WorldBookScopePreviewDTO,
 } from "../types";
 
 /**
@@ -65,40 +64,16 @@ export const draftFrom = (detail: WorldBookDetail): WorldBookDraft => ({
   adopt_v3: !!detail.dependency_rules?.roots,
 });
 
-/** 高级图谱用的 v2 形态视图：由统一草稿投影而来，不引入第二份草稿。 */
-export const policyFromDraft = (draft: WorldBookDraft): WorldBookPolicyDraft => ({
-  fixed_entry_uids: draft.roots.filter((root) => root.activation === "always" && root.expansion === "none")
-    .map((root) => root.entry_uid),
-  dependency_sources: draft.roots.filter((root) => root.expansion === "legacy_depth")
-    .map((root) => ({ entry_uid: root.entry_uid, max_depth: root.max_depth ?? 1 })),
-  dependency_edges: draft.requires_edges,
-  scope_mode: draft.scope_mode,
-});
-
 /**
- * 反向投影：高级图谱按 v2 形态改动后写回统一草稿。
+ * 说明：原先这里还有一对「高级图谱用」的 v2 形态投影（`policyFromDraft` /
+ * `patchFromPolicy`），把统一草稿与 `WorldBookPolicyDraft`（`fixed_entry_uids` /
+ * `dependency_sources`）互相折算。画布与高级图谱已随提案 D-1 / D-3 删除，
+ * 统一草稿成为唯一真相，这对投影失去全部消费方，因此一并删除。
  *
- * 关键点：只替换「always + none」与「legacy_depth」这两类起点，
- * 非 v2 形态的条件起点（roster_any / manual / requires_closure）原样保留，
- * 不会因为用旧格式视图改一条边就被静默清掉。
+ * v2 兼容字段本身**仍然保留**（提案 §2.3 / §4.3）：`rootsFromV2` 在下面继续把
+ * 旧书的 `fixed_entry_uids` / `dependency_sources` 读成 always 起点，
+ * `PUT /api/worldbook/<id>/import-config` 也仍在后端保留。
  */
-export const patchFromPolicy = (
-  policy: WorldBookPolicyDraft, draft: WorldBookDraft,
-): Partial<WorldBookDraft> => ({
-  roots: [
-    ...draft.roots.filter((root) => !(root.activation === "always"
-      && (root.expansion === "none" || root.expansion === "legacy_depth"))),
-    ...policy.fixed_entry_uids.map((uid) => ({
-      entry_uid: uid, activation: "always" as const, expansion: "none" as const,
-    })),
-    ...policy.dependency_sources.map((item) => ({
-      entry_uid: item.entry_uid, activation: "always" as const,
-      expansion: "legacy_depth" as const, max_depth: item.max_depth,
-    })),
-  ],
-  requires_edges: policy.dependency_edges,
-  scope_mode: policy.scope_mode,
-});
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 

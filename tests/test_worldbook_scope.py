@@ -1,5 +1,6 @@
 """世界书按需载入：范围、迁移、API 原子性与两个 prompt 入口。"""
 import copy
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -356,3 +357,217 @@ def test_new_explicit_unbound_and_legacy_client_default(session_api):
     assert response.status_code == 201 and response.json["worldbook_scope"]["book_id"] is None
     response = client.post("/api/sessions", json={"roster_character_ids": ["A"]})
     assert response.status_code == 201 and response.json["worldbook_scope"]["book_id"] == "book"
+
+
+# ─────────────────────────────────────────────────────────────
+# 提案 §5「tests/test_worldbook_scope.py | 不动，补用例 | 后端范围与原子性回归」
+#
+# 本区段只做追加：v2 书的候选范围逐条回归、失败写入的整批原子性回归、
+# 以及阵容敏感范围回归。与 tests/test_worldbook_config_api.py 的分工：
+# 那边测的是 v3 规则写入与统一草稿 / 锁，这里测的是**世界书既有载入语义**
+# 本身（世界观分类 / 角色阵容 / 固定导入 / 导入源深度 / legacy 全量口径）。
+# ─────────────────────────────────────────────────────────────
+
+def v2_book_fixture():
+    """v2 书（schema 2、无 dependency_rules）：四类来源齐全 + 停用 / 空正文各一条。
+
+    - `world` 世界观分类 → 恒选；`a` / `b` 角色分类 → 按阵容；
+    - `z` 固定导入（**不展开**）；`x --max_depth--> y --dep--> z` 导入源链；
+    - `off` 停用、`blank` 正文空白：一起放进固定导入，于是它们**被选中**却
+      进不了候选，必须给出 `excluded_entries` 原因（这是老接口的可解释性口径）。
+    """
+    return WorldBook(
+        "v2book", "v2 范围回归书", [
+            entry("world", category_id="worldview"),
+            entry("a", category_id="characters", character_id="A"),
+            entry("b", category_id="characters", character_id="B"),
+            entry("x", category_id="other"),
+            entry("y", category_id="other"),
+            entry("z", category_id="other"),
+            entry("off", category_id="other", enabled=False),
+            WorldBookEntry("blank", content="   ", always_active=True, category_id="other"),
+        ],
+        categories=copy.deepcopy(DEFAULT_CATEGORIES),
+        dependency_edges=[{"from_uid": "x", "to_uid": "y"}, {"from_uid": "y", "to_uid": "z"}],
+        import_config={"fixed_entry_uids": ["z", "off", "blank"],
+                       "dependency_sources": [{"entry_uid": "x", "max_depth": 1}],
+                       "revision": 1},
+        scope_mode="selective",
+    )
+
+
+@pytest.fixture
+def v2_api(tmp_path):
+    from blueprints.worldbook import register
+    manager = WorldBookManager(tmp_path)
+    book = v2_book_fixture()
+    manager.save(book)
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+    register(app, {"worldbook": manager})
+    return app.test_client(), manager, book
+
+
+def scope_view(scope):
+    """去掉 `resolved_at` 这类采样字段后的范围视图（便于逐字比较）。"""
+    return {key: scope[key] for key in ("resolved_entry_uids", "selection_reasons",
+                                        "legacy_full_scope", "excluded_entries")}
+
+
+def test_v2_scope_matches_legacy_semantics_and_survives_saves(v2_api):
+    """提案 §5「后端范围与原子性回归」第 1 条：v2 候选范围逐条符合世界书既有语义。
+
+    四类来源各归各位（世界观分类恒选 / 角色分类按阵容 / 固定导入恒选 /
+    导入源按 `max_depth` 沿出边展开），停用与空正文进不了候选但必须可解释；
+    `legacy` 书的「全量兼容」口径同样回归。最后证明**保存一次不改变候选**：
+    内容相同的保存逐条等价，真正改一处配置时候选只按语义变化。
+    """
+    client, manager, book = v2_api
+    assert book.schema_version == 2 and book.dependency_rules is None and book.v3_enabled is False
+
+    scope = book.resolve_import_scope(["A"])
+    assert set(scope["resolved_entry_uids"]) == {"world", "a", "x", "y", "z"}
+    assert scope["selection_reasons"] == {
+        "world": ["worldview"], "a": ["roster"], "z": ["fixed"],
+        "x": ["dependency"], "y": ["dependency"],
+        "off": ["fixed"], "blank": ["fixed"],
+    }
+    assert "b" not in scope["resolved_entry_uids"]            # 未入队角色不越界
+    assert scope["legacy_full_scope"] is False
+    # 固定导入恒选但**不展开**：z 只有 fixed 一个原因（x 的 max_depth=1 到不了 z）
+    assert scope["selection_reasons"]["z"] == ["fixed"]
+    # 停用 / 空正文：被选中也进不了候选，原因必须给出
+    assert {item["uid"]: item["reason"] for item in scope["excluded_entries"]} == {
+        "off": "条目已停用", "blank": "内容为空"}
+    # 导入源按 max_depth 沿出边逐层展开
+    deeper = copy.deepcopy(book)
+    deeper.import_config["dependency_sources"] = [{"entry_uid": "x", "max_depth": 2}]
+    assert set(deeper.resolve_import_scope([])["resolved_entry_uids"]) == {"world", "x", "y", "z"}
+    # legacy 全量兼容口径：整本书都是候选，理由里必定带 legacy
+    legacy = copy.deepcopy(book)
+    legacy.scope_mode = "legacy"
+    legacy_scope = legacy.resolve_import_scope()
+    assert legacy_scope["legacy_full_scope"] is True
+    assert set(legacy_scope["resolved_entry_uids"]) == {"world", "a", "b", "x", "y", "z"}
+    assert legacy_scope["selection_reasons"]["world"] == ["legacy"]
+    assert all("legacy" in reasons for reasons in legacy_scope["selection_reasons"].values())
+
+    # 保存一次（内容相同）不改变候选，也不会把 v2 书静默升级成 v3
+    before = scope_view(book.resolve_import_scope(["A"]))
+    same_config = {"fixed_entry_uids": ["z", "off", "blank"],
+                   "dependency_sources": [{"entry_uid": "x", "max_depth": 1}]}
+    response = client.put("/api/worldbook/v2book/import-config",
+                          json={"expected_revision": 1, **same_config})
+    assert response.status_code == 200, response.json
+    saved = manager.load("v2book")
+    assert saved.import_config["revision"] == 2
+    assert saved.schema_version == 2 and saved.dependency_rules is None
+    assert scope_view(saved.resolve_import_scope(["A"])) == before
+
+    # 真正改一处配置：候选只按语义多出 b（fixed 增加 b），其余逐条不变
+    response = client.put("/api/worldbook/v2book/import-config", json={
+        "expected_revision": 2,
+        "fixed_entry_uids": ["b", "z", "off", "blank"],
+        "dependency_sources": [{"entry_uid": "x", "max_depth": 1}],
+    })
+    assert response.status_code == 200, response.json
+    changed = manager.load("v2book").resolve_import_scope(["A"])
+    assert set(changed["resolved_entry_uids"]) == set(before["resolved_entry_uids"]) | {"b"}
+    assert changed["selection_reasons"]["b"] == ["fixed"]
+    assert {uid: changed["selection_reasons"][uid] for uid in before["resolved_entry_uids"]} == \
+        {uid: before["selection_reasons"][uid] for uid in before["resolved_entry_uids"]}
+
+    # 再保存一次相同内容：候选与原因逐字不变（幂等）
+    again = scope_view(manager.load("v2book").resolve_import_scope(["A"]))
+    response = client.put("/api/worldbook/v2book/import-config", json={
+        "expected_revision": 3,
+        "fixed_entry_uids": ["b", "z", "off", "blank"],
+        "dependency_sources": [{"entry_uid": "x", "max_depth": 1}],
+    })
+    assert response.status_code == 200, response.json
+    assert scope_view(manager.load("v2book").resolve_import_scope(["A"])) == again
+
+
+def test_v2_scope_is_roster_sensitive_and_never_leaks_other_characters(v2_api):
+    """提案 §5「后端范围与原子性回归」第 1 条（阵容维度）：阵容只影响角色分类条目。
+
+    空阵容 / 单角色 / 双角色三段范围逐条可控：每加一名角色只多出**他自己的**
+    角色分类条目，其余来源（世界观 / 固定 / 导入源）完全不受影响；
+    阵容入参做规范化（重复去掉、空白与非法类型拒绝）。
+    """
+    _, _, book = v2_api
+    base = {"world": ["worldview"], "z": ["fixed"], "x": ["dependency"], "y": ["dependency"],
+            "off": ["fixed"], "blank": ["fixed"]}
+    none = book.resolve_import_scope([])
+    only_a = book.resolve_import_scope(["A"])
+    both = book.resolve_import_scope(["A", "B"])
+
+    assert set(none["resolved_entry_uids"]) == {"world", "x", "y", "z"}
+    assert none["selection_reasons"] == base
+    assert set(only_a["resolved_entry_uids"]) == set(none["resolved_entry_uids"]) | {"a"}
+    assert only_a["selection_reasons"] == {**base, "a": ["roster"]}
+    assert set(both["resolved_entry_uids"]) == set(only_a["resolved_entry_uids"]) | {"b"}
+    assert both["selection_reasons"] == {**base, "a": ["roster"], "b": ["roster"]}
+    # 单角色绝不越界带出别的角色
+    assert "b" not in only_a["resolved_entry_uids"]
+    assert "a" not in book.resolve_import_scope(["B"])["resolved_entry_uids"]
+    # 范围与阵容顺序无关；重复项与首尾空白按老口径归一
+    assert book.resolve_import_scope(["B", "A"])["resolved_entry_uids"] == both["resolved_entry_uids"]
+    assert book.resolve_import_scope(["A", "A"])["resolved_entry_uids"] == only_a["resolved_entry_uids"]
+    assert book.resolve_import_scope([" A "])["resolved_entry_uids"] == only_a["resolved_entry_uids"]
+    # 非法阵容一律拒绝（严格口径：不静默丢弃成「看起来生效了」）
+    for bad in (["A", ""], ["A", 1], "A", [None]):
+        with pytest.raises(ValueError):
+            book.resolve_import_scope(bad)
+
+
+def test_failed_unified_write_never_lands_and_writes_nothing(v2_api):
+    """提案 §5「后端范围与原子性回归」第 2 条：失败的统一写入必须**整批**不落盘。
+
+    四类失败各有真实构造：混合草稿里合法的一半 + 非法的一半（目标分类不存在）、
+    `entry_updates` 指向不存在的条目、显式迁移 v3 但起点引用不存在的条目、
+    修订号冲突。每次失败后：书文件字节与 mtime 逐字不变、整书序列化不变、
+    `entries` / `categories` / `import_config` / `dependency_rules` 逐字不变
+    （尤其不能出现「迁移到一半」的 v3 书），候选范围也一字不动。
+    """
+    client, manager, book = v2_api
+    path = manager._path(book.id)
+    original_bytes = path.read_bytes()
+    original_hash = hashlib.sha256(original_bytes).hexdigest()
+    original_mtime = path.stat().st_mtime_ns
+    frozen = copy.deepcopy(book)
+    scope_before = scope_view(book.resolve_import_scope(["A"]))
+
+    failures = [
+        # ① 混合草稿：合法的一半（fixed / sources 都合法）+ 非法的一半
+        ({"expected_revision": 1, "fixed_entry_uids": ["y"],
+          "dependency_sources": [{"entry_uid": "x", "max_depth": 2}],
+          "entry_moves": {"a": "missing"}}, 400),
+        # ② entry_updates 指向不存在的条目
+        ({"expected_revision": 1, "entry_updates": {"ghost": {"category_id": "other"}}}, 400),
+        # ③ 显式迁移 v3 但起点引用不存在的条目
+        ({"expected_revision": 1, "adopt_v3": True,
+          "roots": [{"entry_uid": "ghost", "activation": "always",
+                     "expansion": "none", "character_ids": []}]}, 400),
+        # ④ 修订号冲突
+        ({"expected_revision": 99, "fixed_entry_uids": ["y"]}, 409),
+    ]
+    for body, status in failures:
+        response = client.put("/api/worldbook/v2book/configuration", json=body)
+        assert response.status_code == status, (body, response.json)
+        assert path.read_bytes() == original_bytes, body
+        assert path.stat().st_mtime_ns == original_mtime, body
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == original_hash, body
+
+    current = manager.load(book.id)
+    assert json.dumps(current.to_dict(), ensure_ascii=False, sort_keys=True) == \
+        json.dumps(frozen.to_dict(), ensure_ascii=False, sort_keys=True)
+    assert current.import_config == frozen.import_config == {
+        "fixed_entry_uids": ["z", "off", "blank"],
+        "dependency_sources": [{"entry_uid": "x", "max_depth": 1}], "revision": 1}
+    assert current.categories == frozen.categories
+    assert [e.to_dict() for e in current.entries] == [e.to_dict() for e in frozen.entries]
+    assert current.dependency_edges == frozen.dependency_edges
+    assert current.dependency_rules is None and current.schema_version == 2
+    assert current.scope_mode == "selective"
+    assert scope_view(current.resolve_import_scope(["A"])) == scope_before
