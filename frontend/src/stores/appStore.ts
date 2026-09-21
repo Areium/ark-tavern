@@ -20,8 +20,11 @@ export interface CombatContext {
 
 type ViewName = "home" | "chat" | "sessions" | "settings" | "combat" | "worldbook" | "content" | "docs" | "characters";
 
-/** 内容中心内部 Tab（统一管理：索引/资产/卡牌/节点图；世界书为上一级独立入口，不在此重复） */
-export type ContentHubTab = "index" | "images" | "cards" | "combat" | "worldbook-deps";
+/** 内容中心 Tab：只剩三项（D-2）。世界书相关能力全部收敛到「世界书」工作台页签。 */
+export type ContentHubTab = "images" | "cards" | "combat";
+
+/** 世界书工作台页签（A-1）：entries 条目 / load 分类与载入 / prompt Prompt 预览 / nodes 节点视图 / index 本家索引 */
+export type WorldBookTab = "entries" | "load" | "prompt" | "nodes" | "index";
 
 /** 最小化对话框的恢复入口信息（key = 对话框 id） */
 export interface MinimizedDialogEntry {
@@ -34,17 +37,35 @@ interface AppState {
   currentView: ViewName;
   setCurrentView: (view: ViewName) => void;
 
-  // 内容中心 Tab（跨组件跳转：会话列表 → 索引 Tab 等）
+  // 内容中心 Tab（跨组件跳转；D-2 后只剩资产 / 卡牌 / 节点图）
   contentHubTab: ContentHubTab;
   setContentHubTab: (tab: ContentHubTab) => void;
 
-  // 内容中心检索命中世界书 → 跳转上一级「世界书」页并选中该书
+  // 世界书工作台页签（A-1）：所有跨组件跳转的唯一入口（R-4 会与资料库口径一起归一）
+  worldbookTab: WorldBookTab;
+  setWorldbookTab: (tab: WorldBookTab) => void;
+
+  // 跨组件跳转 → 工作台：选中该书 / 跳对应页签
+  /** 检索命中等入口：跳到工作台 `entries` 页签并选中该书 + 条目 */
   worldbookJumpId: string | null;
   setWorldbookJumpId: (id: string | null) => void;
+  /** 依赖相关入口：跳到工作台 `load` 页签（分类与载入） */
   worldbookScopeJumpId: string | null;
   setWorldbookScopeJumpId: (id: string | null) => void;
   worldbookEntryJump: { bookId: string; entryUid: string } | null;
   setWorldbookEntryJump: (target: { bookId: string; entryUid: string } | null) => void;
+
+  // Prompt 预览结果（单轮注入顺序）→ 节点视图叠加显示（R-6，只读联动）
+  promptPreviewOrder: {
+    bookId: string;
+    mode: "narrative" | "free";
+    order: Array<{ uid: string; seq: number; layer: "stable" | "dynamic"; position: number; group_weight: number; depth: number }>;
+  } | null;
+  setPromptPreviewOrder: (value: {
+    bookId: string;
+    mode: "narrative" | "free";
+    order: Array<{ uid: string; seq: number; layer: "stable" | "dynamic"; position: number; group_weight: number; depth: number }>;
+  } | null) => void;
 
   // 战斗节点编辑器跳转：战前卡片等入口指定要打开的节点
   combatNodeJumpId: string | null;
@@ -154,17 +175,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentView: "home",
   setCurrentView: (view) => set({ currentView: view }),
 
-  // 内容中心 Tab（默认进入索引）
-  contentHubTab: "index",
+  // 内容中心 Tab（D-2 后只剩资产 / 卡牌 / 节点图，默认资产）
+  contentHubTab: "images",
   setContentHubTab: (tab) => set({ contentHubTab: tab }),
 
-  // 内容中心检索 → 上一级「世界书」页跳转
+  // 世界书工作台页签（默认条目页）
+  worldbookTab: "entries",
+  setWorldbookTab: (tab) => set({ worldbookTab: tab }),
+
+  // 跨组件跳转 → 工作台（选中书 / 页签）
   worldbookJumpId: null,
   setWorldbookJumpId: (id) => set({ worldbookJumpId: id }),
   worldbookScopeJumpId: null,
   setWorldbookScopeJumpId: (id) => set({ worldbookScopeJumpId: id }),
   worldbookEntryJump: null,
   setWorldbookEntryJump: (target) => set({ worldbookEntryJump: target }),
+
+  // Prompt 预览结果 → 节点视图（只读联动）
+  promptPreviewOrder: null,
+  setPromptPreviewOrder: (value) => set({ promptPreviewOrder: value }),
 
   // 战斗节点编辑器跳转
   combatNodeJumpId: null,

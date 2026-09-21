@@ -321,6 +321,10 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
     - `manual_entry_uids`（本次会话的手动追加）作为**临时起点**参与同一次解析：
       它同样沿 requires 闭包补齐、带 manual 原因、进入展示树，
       而不是解析完之后做一次并集（那样会漏掉它需要的依赖，也没有解释）。
+
+    返回的 `resolved_edges[].status` 与 `display_tree[].repeated / first_parent_uid /
+    display_index` 是**读时派生**字段（提案 §3.4.5 / §4.2）：只描述这次解析的
+    结果形状，不写回任何持久化 schema，也不改变任何既有字段的语义。
     """
     roster = set()
     for value in roster_character_ids or []:
@@ -415,6 +419,8 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
             oversized = len(best)
 
     if oversized is not None:
+        # 超限时不做静默截断：节点、边与展示树的字段形状与正常返回一致（空数组），
+        # 调用方不需要为这条分支写第二套解析规则。
         return {"book_id": book_id, "schema_version": SCHEMA_VERSION_V3,
                 "policy_revision": policy_revision, "content_revision": content_revision,
                 "roster_character_ids": sorted(roster), "active_roots": [],
@@ -435,11 +441,34 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
             entry_reasons.append("requires")
         reasons[uid] = entry_reasons
 
+    # 主路径边：`path_of` 记的是每个 uid **最优**（最大剩余深度）的那次到达，
+    # 因此同一 uid 只有一个父，树边天然无重复。
+    tree_edges = {(info["parent"], uid) for uid, info in path_of.items() if info["parent"]}
+
+    def _requires_edge_status(a, b):
+        """requires 边的读时状态（R-11，判定顺序不可调换）。
+
+        - `skeleton`：这条边就是主路径（`display_tree` 的父子关系）；
+        - `cross`：边生效但目标已被别处覆盖（环内边 / 非树边）；
+        - `capped`：上游已到达，但那次到达的剩余深度是 0，边**没有**被遍历
+          ——目标因此不在闭包里（前端画灰虚线「上游到了、深度用尽」）；
+        - `idle`：上游根本不在闭包里（或其余情况）。
+        """
+        if (a, b) in tree_edges:
+            return "skeleton"
+        if (a, b) in used_edges:
+            return "cross"
+        if a in best and best[a] == 0:
+            return "capped"
+        return "idle"
+
     resolved_edges = [{"from_uid": a, "to_uid": b, "relation": "requires",
-                       "active": (a, b) in used_edges}
+                       "active": (a, b) in used_edges,
+                       "status": _requires_edge_status(a, b)}
                       for a, b in sorted({(e["from_uid"], e["to_uid"]) for e in requires_edges})]
+    # `related` 边恒为 idle：它只供浏览，不参与遍历，永远不会是主路径或交叉引用。
     resolved_edges.extend({"from_uid": e["from_uid"], "to_uid": e["to_uid"],
-                           "relation": "related", "active": False}
+                           "relation": "related", "active": False, "status": "idle"}
                           for e in related_edges)
 
     # ── 4. 稳定主路径树 ──
@@ -452,19 +481,36 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
         if parent is not None and parent in best:
             children.setdefault(parent, []).append(uid)
 
+    requires_pairs = {(e["from_uid"], e["to_uid"]) for e in requires_edges}
     display_tree = []
-    for uid in ordered:
+    for display_index, uid in enumerate(ordered):
         info = path_of[uid]
+        # `display_tree` 是「每个 uid 一行」（由 best 表生成），同 uid 不会重复出现，
+        # 所以「repeated = 是否非首次出现」的字面读法恒为 false、没有意义。这里按
+        # **可用于灰节点渲染**的语义实现：
+        # - `display_index`：该 uid 在 `display_tree` 里的 0-based 位次（树已按
+        #   (depth, uid) 稳定排序，位次因此也稳定）；
+        # - `first_parent_uid`：该 uid 的**主路径父**（即 `parent_uid`，根为 null），
+        #   前端用它判断「哪一次到达是主到达」；
+        # - `repeated`：闭包内是否**存在多于一条 requires 入边**（除主路径父之外还有
+        #   别的闭包内节点指向它）—— 预告该 uid 会在节点视图里另外以**灰节点**出现。
+        #   判据：parents = {a | (a, b) in requires_edges, b == uid, a in best}，
+        #   repeated = len(parents) > 1。
+        # 注：`repeated` 只说「会有重复到达」；主到达 = 轨道上的出现优先，轨道上
+        # 没有时取 `first_parent_uid` 指向的那次。
+        parents = {a for (a, b) in requires_pairs if b == uid and a in best}
         display_tree.append({
             "uid": uid, "name": field(uid, "name", "") or uid,
             "root_uid": info["root"], "depth": info["depth"], "parent_uid": info["parent"],
             "child_uids": sorted(children.get(uid, [])),
             "remaining": best[uid],
             "is_root": uid in root_reasons,
+            "repeated": len(parents) > 1,
+            "first_parent_uid": info["parent"],
+            "display_index": display_index,
         })
 
     # ── 5. 交叉引用（环内 / 非树边）──
-    tree_edges = {(info["parent"], uid) for uid, info in path_of.items() if info["parent"]}
     cross = [{"from_uid": a, "to_uid": b} for a, b in sorted(used_edges) if (a, b) not in tree_edges]
 
     # ── 6. 问题清单（已激活必要依赖的停用/缺失/空正文必须可解释）──

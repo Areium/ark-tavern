@@ -8,9 +8,6 @@ import logging
 import shutil
 import tempfile
 import copy
-import hashlib
-import json
-import threading
 from pathlib import Path
 from urllib.parse import quote
 
@@ -21,15 +18,10 @@ from shared.helpers import json_error
 from session_manager import SessionCleanupError
 from session_resources import is_safe_entity_name
 from session_worldbook_dependencies import (
-    apply_inheritance_update, change_relation, effective_graph, ensure_editable_scope,
+    apply_inheritance_update, change_relation, ensure_editable_scope,
     graph_view, preview_inheritance_update, restore_inheritance,
 )
 from world_book import content_revision
-from worldbook_builder import (
-    AnalysisCache, DependencyJobStore, content_hash, evidence_locatable,
-    model_identity, normalize_reading_mode, run_scoped_build,
-)
-from worldbook_reading import READING_MODE_ADAPTIVE
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +31,6 @@ _SESSION_BG_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Repository root for data/ access
 _REPO_ROOT = Path(_project_root).parent
-_SESSION_JOB_STORE = DependencyJobStore(
-    _REPO_ROOT / "data" / "memory" / "session_dependency_jobs")
-_SESSION_ANALYSIS_CACHE = AnalysisCache()
-_SESSION_JOB_START_LOCK = threading.Lock()
 
 
 def _load_plot_opening(session, plot_id: str, load_characters: bool = True):
@@ -265,16 +253,6 @@ def register(app, managers):
 
     # ── 会话级世界书依赖 ──
 
-    def _book_input_hash(book):
-        payload = [{"uid": e.uid, "content": content_hash(e.content or ""),
-                    "name": e.name, "aliases": e.trigger_keys,
-                    "secondary_aliases": e.secondary_keys, "enabled": e.enabled,
-                    "position": e.position, "category_id": e.category_id,
-                    "character_id": e.character_id}
-                   for e in book.entries]
-        return hashlib.sha256(json.dumps(
-            payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
-
     def _session_book(session):
         book_id = session.overlay.get_worldbook_id()
         if not book_id and wb_mgr:
@@ -283,33 +261,9 @@ def register(app, managers):
         book = wb_mgr.load(book_id) if book_id and wb_mgr else None
         return book_id, book
 
-    def _character_directory_ids():
-        document = managers.get("document")
-        if not document:
-            return []
-        try:
-            docs = document.list_documents("characters", include_content=False)
-        except Exception:
-            return []
-        return sorted({str(item.get("id") or "") for item in docs if item.get("id")})
-
     def _refresh_managed_scope(book, scope, roster):
         editable = ensure_editable_scope(scope, book, roster)
         return book.refresh_session_scope(editable, roster)
-
-    def _scope_identity(scope):
-        managed = scope if isinstance(scope, dict) else {}
-        payload = {"book_id": (managed or {}).get("book_id"),
-            "scope_revision": (managed or {}).get("scope_revision"),
-            "roster": sorted((managed or {}).get("roster_character_ids") or []),
-            "manual": sorted((managed or {}).get("manual_entry_uids") or []),
-            "full_scope": bool((managed or {}).get("full_scope")),
-            "resolved": sorted((managed or {}).get("resolved_entry_uids") or []),
-            "rules": (managed or {}).get("rules"),
-            "requires_edges": (managed or {}).get("requires_edges"),
-            "related_edges": (managed or {}).get("related_edges")}
-        return hashlib.sha256(json.dumps(payload, ensure_ascii=False,
-            sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:20]
 
     def _dependency_payload(session, book, scope):
         view = graph_view(scope)
@@ -452,234 +406,6 @@ def register(app, managers):
             except RuntimeError as exc:
                 return json_error(str(exc), 409)
         return jsonify(_dependency_payload(session, book, scope))
-
-    def _session_jobs(session_id, book_id):
-        return [item for item in _SESSION_JOB_STORE.list_for_book(book_id)
-                if (item.get("context") or {}).get("session_id") == session_id]
-
-    @bp.route("/api/sessions/<session_id>/worldbook-dependency-jobs", methods=["POST"])
-    def create_session_dependency_job(session_id):
-        session, book, scope, err = _get_managed(session_id)
-        if err:
-            return err
-        backend = managers.get("llm_backend")
-        llm, backend_id = backend.get_llm() if backend else (None, "")
-        if not llm:
-            return json_error("尚未配置可用的 LLM，请先前往设置", 503)
-        data = request.get_json(silent=True) or {}
-        try:
-            reading_mode = normalize_reading_mode(
-                data.get("reading_mode"), default=READING_MODE_ADAPTIVE)
-        except ValueError as exc:
-            return json_error(str(exc))
-        raw_max_calls = data.get("max_calls")
-        try:
-            max_calls = (max(1, min(5000, int(raw_max_calls)))
-                         if raw_max_calls not in (None, "") else None)
-        except (TypeError, ValueError):
-            return json_error("max_calls 必须是正整数")
-        graph = effective_graph(scope)
-        current_revision = content_revision(book.entries)
-        inherited_valid = scope["inheritance"].get("content_revision") == current_revision
-        known_pairs, known_requires = [], []
-        for relation in ("requires", "related"):
-            for edge in graph.get(f"{relation}_edges", []):
-                origin = graph["origins"].get(
-                    f"{relation}:{edge['from_uid']}|{edge['to_uid']}")
-                if origin == "local" or inherited_valid:
-                    pair = (edge["from_uid"], edge["to_uid"])
-                    known_pairs.append(pair)
-                    if relation == "requires":
-                        known_requires.append(pair)
-        # 人工屏蔽始终保护；正文变化不应让 AI 把用户删掉的 pair 再建议回来。
-        known_pairs += [(e["from_uid"], e["to_uid"])
-                        for e in scope.get("suppressed_edges") or []]
-        sources = sorted(set(scope.get("resolved_entry_uids") or []))
-        character_ids = _character_directory_ids()
-        with _SESSION_JOB_START_LOCK:
-            if any(item.get("running") or item.get("stage") not in ("done", "failed", "cancelled")
-                   for item in _session_jobs(session_id, book.id)):
-                return json_error("这个会话已有依赖微调任务在运行", 409)
-            job = _SESSION_JOB_STORE.create(
-                book.id, _book_input_hash(book), model_identity(llm, backend_id), reading_mode)
-            job.context = {"session_id": session_id, "book_id": book.id,
-                "content_revision": current_revision, "scope_revision": scope["scope_revision"],
-                "scope_identity": _scope_identity(scope),
-                "source_uids": sources, "known_pairs": [list(p) for p in known_pairs],
-                "known_requires": [list(p) for p in known_requires],
-                "character_ids": character_ids}
-            job.message = "已排队，正在分析本会话相关条目"
-            job.running = True
-            job.save()
-        snapshot = copy.deepcopy(book)
-
-        def worker():
-            try:
-                run_scoped_build(job, snapshot, llm, model=job.model,
-                    cache=_SESSION_ANALYSIS_CACHE, max_calls=max_calls,
-                    source_uids=sources, known_pairs=known_pairs,
-                    known_requires=known_requires,
-                    character_ids=character_ids)
-            finally:
-                job.running = False
-                job.save()
-        threading.Thread(target=worker, name=f"session-wb-{job.id}", daemon=True).start()
-        return jsonify({"job": job.to_dict(include_result=False)}), 202
-
-    @bp.route("/api/sessions/<session_id>/worldbook-dependency-jobs", methods=["GET"])
-    def list_session_dependency_jobs(session_id):
-        session = session_mgr.get_session(session_id)
-        if not session:
-            return json_error("会话不存在", 404)
-        book_id, book = _session_book(session)
-        if not book:
-            return jsonify({"jobs": []})
-        return jsonify({"jobs": _session_jobs(session_id, book_id)})
-
-    def _owned_job(session_id, job_id):
-        job = _SESSION_JOB_STORE.get(job_id)
-        if job is None or (job.context or {}).get("session_id") != session_id:
-            return None
-        return job
-
-    @bp.route("/api/sessions/<session_id>/worldbook-dependency-jobs/<job_id>", methods=["GET"])
-    def get_session_dependency_job(session_id, job_id):
-        job = _owned_job(session_id, job_id)
-        if not job:
-            return json_error("任务不存在", 404)
-        payload = job.to_dict()
-        session = session_mgr.get_session(session_id)
-        scope = session.overlay.get_worldbook_scope() if session else {}
-        _book_id, book = _session_book(session) if session else (None, None)
-        payload["stale"] = (not session or not book
-            or job.input_hash != _book_input_hash(book)
-            or (job.context or {}).get("scope_revision") != (scope or {}).get("scope_revision")
-            or (job.context or {}).get("scope_identity") != _scope_identity(scope or {})
-            or (job.context or {}).get("character_ids", []) != _character_directory_ids())
-        return jsonify({"job": payload})
-
-    @bp.route("/api/sessions/<session_id>/worldbook-dependency-jobs/<job_id>/cancel", methods=["POST"])
-    def cancel_session_dependency_job(session_id, job_id):
-        job = _owned_job(session_id, job_id)
-        if not job:
-            return json_error("任务不存在", 404)
-        _SESSION_JOB_STORE.cancel(job_id)
-        current = _SESSION_JOB_STORE.get(job_id)
-        current.resumable = True
-        current.save()
-        return jsonify({"job": current.to_dict(False)})
-
-    @bp.route("/api/sessions/<session_id>/worldbook-dependency-jobs/<job_id>/retry", methods=["POST"])
-    def retry_session_dependency_job(session_id, job_id):
-        job = _owned_job(session_id, job_id)
-        if not job:
-            return json_error("任务不存在", 404)
-        session, book, scope, err = _get_managed(session_id)
-        if err:
-            return err
-        if (job.input_hash != _book_input_hash(book)
-                or (job.context or {}).get("scope_revision") != scope["scope_revision"]
-                or (job.context or {}).get("scope_identity") != _scope_identity(scope)
-                or (job.context or {}).get("character_ids", []) != _character_directory_ids()):
-            return json_error("任务绑定的正文或会话范围已变化，请新建任务", 409)
-        pairs = [{"from_uid": a, "to_uid": b} for batch in job.failed_batches
-                 for a, b in batch.get("pairs", [])] or list(job.pending_pairs)
-        uids = sorted({uid for batch in job.failed_batches for uid in batch.get("uids", [])}) \
-            or list(job.pending_card_uids)
-        if not pairs and not uids and not job.resumable:
-            return json_error("没有失败批次需要重试")
-        backend = managers.get("llm_backend")
-        llm, backend_id = backend.get_llm() if backend else (None, "")
-        if not llm:
-            return json_error("尚未配置可用的 LLM，无法重试", 503)
-        if model_identity(llm, backend_id) != job.model:
-            return json_error("模型已变化，请新建任务", 409)
-        raw_max_calls = (request.get_json(silent=True) or {}).get("max_calls")
-        try:
-            max_calls = max(1, min(5000, int(raw_max_calls))) if raw_max_calls else 100
-        except (TypeError, ValueError):
-            return json_error("max_calls 必须是正整数")
-        with _SESSION_JOB_START_LOCK:
-            if job.running or any(item.get("running") or item.get("stage") not in
-                                  ("done", "failed", "cancelled")
-                                  for item in _session_jobs(session_id, book.id)
-                                  if item.get("job_id") != job.id):
-                return json_error("这个会话已有依赖微调任务仍在运行", 409)
-            job.cancelled = False
-            job.failed_batches = []
-            job.resumable = False
-            job.running = True
-            job.save()
-        snapshot, context = copy.deepcopy(book), job.context or {}
-
-        def worker():
-            try:
-                run_scoped_build(job, snapshot, llm, model=job.model,
-                    cache=_SESSION_ANALYSIS_CACHE, max_calls=max_calls,
-                    only_pairs=pairs or None, only_uids=uids or None,
-                    source_uids=context.get("source_uids"),
-                    known_pairs=context.get("known_pairs"),
-                    known_requires=context.get("known_requires"),
-                    character_ids=context.get("character_ids"))
-            finally:
-                job.running = False
-                job.save()
-        threading.Thread(target=worker, name=f"session-wb-retry-{job.id}", daemon=True).start()
-        return jsonify({"job": job.to_dict(False)}), 202
-
-    @bp.route("/api/sessions/<session_id>/worldbook-dependency-jobs/<job_id>/apply", methods=["POST"])
-    def apply_session_dependency_job(session_id, job_id):
-        job = _owned_job(session_id, job_id)
-        if (not job or job.running or job.cancelled or job.stage != "done"
-                or not isinstance(job.result, dict)
-                or (job.context or {}).get("scoped_complete") is False):
-            return json_error("任务尚未完成或不存在", 409)
-        data = request.get_json(silent=True) or {}
-        wanted = {(str(x[0]), str(x[1])) for x in data.get("accepted_pairs", [])
-                  if isinstance(x, list) and len(x) == 2}
-        with session_mgr._lock:
-            session = session_mgr._sessions.get(session_id)
-            if not session:
-                return json_error("会话不存在", 404)
-            _book_id, book = _session_book(session)
-            context = job.context or {}
-            if not book or context.get("book_id") != book.id or job.input_hash != _book_input_hash(book):
-                return json_error("任务已过期：会话范围、世界书正文或绑定已变化", 409)
-            by_uid = {e.uid: e for e in book.entries}
-            accepted = []
-            for record in job.result.get("records") or []:
-                pair = (record.get("from_uid"), record.get("to_uid"))
-                if pair not in wanted or record.get("relation") not in ("requires", "related"):
-                    continue
-                a, b = pair
-                if a not in by_uid or b not in by_uid:
-                    return json_error("AI 建议引用了不存在的条目", 409)
-                if (record.get("source_content_hash") != content_hash(by_uid[a].content or "")
-                        or record.get("target_content_hash") != content_hash(by_uid[b].content or "")
-                        or not evidence_locatable(record.get("evidence"), [by_uid[a], by_uid[b]])):
-                    return json_error(f"AI 建议证据已过期或不可定位：{a} → {b}", 409)
-                accepted.append((a, b, record["relation"]))
-            try:
-                def update(scope):
-                    if (context.get("content_revision") != content_revision(book.entries)
-                            or context.get("scope_revision") != (scope or {}).get("scope_revision")
-                            or context.get("scope_identity") != _scope_identity(scope or {})
-                            or context.get("character_ids", []) != _character_directory_ids()):
-                        raise RuntimeError("任务已过期：会话范围、世界书正文或绑定已变化")
-                    changed = ensure_editable_scope(
-                        scope, book, session.scene_manager.get_scene_characters())
-                    revision = changed["scope_revision"]
-                    for a, b, relation in accepted:
-                        changed = change_relation(changed, a, b, relation, revision,
-                                                  relation == "requires")
-                        revision = changed["scope_revision"]
-                    return book.refresh_session_scope(
-                        changed, session.scene_manager.get_scene_characters())
-                scope = session.overlay.update_worldbook_scope(update)
-            except RuntimeError as exc:
-                return json_error(str(exc), 409)
-        return jsonify({"applied": len(accepted),
-                        "dependencies": _dependency_payload(session, book, scope)})
 
     @bp.route("/api/sessions/<session_id>/backgrounds/<path:filename>", methods=["GET"])
     def session_background(session_id: str, filename: str):

@@ -40,24 +40,38 @@ export function isReference(book: Pick<WorldBookSummary, "book_type"> | null | u
   return bookTypeOf(book) === "reference";
 }
 
-/** 世界书详情的两个页签 */
-export type BookDetailTab = "entries" | "taxonomy";
+/**
+ * 世界书工作台页签 id。
+ *
+ * 单一来源约定：类型与 `stores/appStore.ts` 的 `WorldBookTab` 同值域，
+ * 这里额外提供一个本地别名，供纯逻辑（Node 断言）在不引入 React/store 的情况下使用。
+ */
+export type WorldBookTabId = "entries" | "load" | "prompt" | "nodes" | "index";
+
+const KNOWN_WORLDBOOK_TABS = new Set<WorldBookTabId>(["entries", "load", "prompt", "nodes", "index"]);
 
 /**
  * 把「期望的页签」收敛到当前这本书**真实可用**的页签。
  *
- * 存在的坑：切换所选书时若沿用上一个页签，用户在剧情书里打开「分类图谱」（advanced）
- * 再切到资料库，页签按钮与图谱内容都被隐藏，而条目页也因为 tab 仍是 taxonomy 不渲染
+ * 语义由原 `normalizeDetailTab` 迁移而来（原函数只管详情区两个页签，
+ * 现已并进工作台的 5 个页签，见提案 §3.1 的页签状态收敛）：
+ *
+ * 存在的坑：切换所选书时若沿用上一个页签，用户在剧情书里打开「分类与载入」
+ * 再切到资料库，页签按钮与配置内容都被隐藏，而条目页也因为 tab 仍是 load 不渲染
  * —— 详情区就空成一片白。所以 rules 如下：
- * - 资料库（`reference`）永远归一到 `entries`：它没有分类图谱这个入口；
- * - 其余按原样返回（只接受已知值，脏值兜底到 `entries`）。
+ * - 资料库（`reference`）只有条目页与本家索引；分类与载入 / Prompt 预览 / 节点视图
+ *   都依赖这本书的条目与依赖规则，资料库没有，因此这三个一律归一到 `entries`；
+ * - 其余只接受已知的 5 个值，脏值（含 `null` / `undefined` / 未知字符串）兜底到
+ *   `entries`，正常值原样返回。
  */
-export function normalizeDetailTab(
-  tab: BookDetailTab | string | null | undefined,
+export function normalizeWorldbookTab(
+  tab: WorldBookTabId | string | null | undefined,
   book: Pick<WorldBookSummary, "book_type"> | null | undefined,
-): BookDetailTab {
-  if (isReference(book)) return "entries";
-  return tab === "taxonomy" ? "taxonomy" : "entries";
+): WorldBookTabId {
+  const known = KNOWN_WORLDBOOK_TABS.has(tab as WorldBookTabId) ? (tab as WorldBookTabId) : "entries";
+  if (!isReference(book)) return known;
+  // 本家索引管的是内置语料索引 / 会话白名单，与被选中的世界书无关，资料库下同样可达。
+  return known === "index" ? "index" : "entries";
 }
 
 /** 按用途筛选书列表；`all` 返回原顺序（不重排、不改入参） */

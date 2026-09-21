@@ -226,3 +226,99 @@ def test_v2_config_maps_to_v3_roots_losslessly():
     assert requires == [{"from_uid": "s", "to_uid": "t"}]
     assert related == []
     assert MAX_CLOSURE_NODES > 0
+
+
+# ── 读时派生字段（提案 §3.4.5 / §4.2；既有字段与语义不变）──
+
+def statuses(result):
+    return {(e["from_uid"], e["to_uid"]): e["status"] for e in result["resolved_edges"]}
+
+
+def test_resolved_edge_status_skeleton_cross_capped_idle():
+    """四种 status 各有真实构造：主路径 / 交叉（菱形另一条路）/ 深度用尽 / 上游不在闭包。"""
+    entries = [E(u) for u in ("a", "b", "c", "d", "f", "g")]
+    result = resolve(
+        entries,
+        [always("a", EXPANSION_LEGACY_DEPTH, max_depth=2)],
+        # a → {b, c}；b、c 各自 → d；d 的剩余深度用尽，d → f 不会被遍历；
+        # g 不在闭包里（没有任何路径到达它）。
+        requires=[("a", "b"), ("a", "c"), ("b", "d"), ("c", "d"), ("d", "f"), ("g", "a")],
+    )
+    assert set(result["resolved_entry_uids"]) == {"a", "b", "c", "d"}
+    by_pair = statuses(result)
+    assert by_pair[("a", "b")] == "skeleton"      # 主路径（display_tree 的父子关系）
+    assert by_pair[("a", "c")] == "skeleton"
+    assert by_pair[("b", "d")] == "skeleton"
+    assert by_pair[("c", "d")] == "cross"         # 边生效但 d 已被 b 那次到达覆盖
+    assert by_pair[("d", "f")] == "capped"        # d 已到达，但那次剩余深度是 0
+    assert by_pair[("g", "a")] == "idle"          # g 不在闭包里
+    # 既有字段一个都不能少或改名
+    for edge in result["resolved_edges"]:
+        assert set(edge) == {"from_uid", "to_uid", "relation", "active", "status"}
+    # capped 的目标确实不在闭包里（前端要画「未展开」小标记）
+    assert "f" not in result["resolved_entry_uids"]
+    assert by_pair[("d", "f")] == "capped"
+
+
+def test_resolved_edge_related_status_is_always_idle():
+    """related 边只供浏览：不参与遍历，status 恒为 idle（哪怕两端都在闭包里）。"""
+    entries = [E("root"), E("in_scope"), E("aside")]
+    result = resolve(entries, [always("root")],
+                     requires=[("root", "in_scope")],
+                     # 两端都在闭包里的 related 边同样恒为 idle（反向边与 requires 不同对）
+                     related=[("in_scope", "root"), ("root", "aside")])
+    related = [e for e in result["resolved_edges"] if e["relation"] == "related"]
+    assert [e["status"] for e in related] == ["idle", "idle"]
+    assert all(e["active"] is False for e in related)
+
+
+def test_display_tree_repeated_marks_multi_parent_arrivals_and_diamonds():
+    """`repeated` = 闭包内存在多于一条 requires 入边（多源到达 / 菱形都成立）。"""
+    entries = [E(u) for u in ("r1", "r2", "solo", "shared", "leaf", "x", "y", "z")]
+    result = resolve(
+        entries,
+        [always("r1"), always("r2"), always("solo")],
+        requires=[("r1", "shared"), ("r2", "shared"), ("shared", "leaf"),
+                  ("r1", "x"), ("r1", "y"), ("x", "z"), ("y", "z")],
+    )
+    by_uid = {n["uid"]: n for n in result["display_tree"]}
+    assert [n["uid"] for n in result["display_tree"]].count("shared") == 1
+    # 多源到达：r1、r2 都指向 shared
+    assert by_uid["shared"]["repeated"] is True
+    # 菱形依赖：x、y 都指向 z
+    assert by_uid["z"]["repeated"] is True
+    # 单链：只有主路径父一个入边
+    assert by_uid["leaf"]["repeated"] is False
+    # 起点没有父
+    assert by_uid["r1"]["repeated"] is False
+    assert by_uid["solo"]["repeated"] is False
+    assert by_uid["solo"]["first_parent_uid"] is None
+    # first_parent_uid 就是主路径父（保留字段名，供前端判定「哪次到达是主到达」）
+    assert all(n["first_parent_uid"] == n["parent_uid"] for n in result["display_tree"])
+
+
+def test_display_tree_display_index_follows_depth_uid_order():
+    """`display_index` 是稳定位次，与 `(depth, uid)` 排序一致。"""
+    entries = [E(u) for u in ("r1", "r2", "shared", "leaf")]
+    result = resolve(entries, [always("r1"), always("r2")],
+                     requires=[("r1", "shared"), ("r2", "shared"), ("shared", "leaf")])
+    tree = result["display_tree"]
+    assert [n["display_index"] for n in tree] == list(range(len(tree)))
+    assert [n["uid"] for n in tree] == [n["uid"] for n in
+                                        sorted(tree, key=lambda n: (n["depth"], n["uid"]))]
+    # 同一份输入重复解析得到同一份派生字段
+    again = resolve(entries, [always("r1"), always("r2")],
+                    requires=[("r1", "shared"), ("r2", "shared"), ("shared", "leaf")])
+    assert again["display_tree"] == tree
+
+
+def test_closure_too_large_branch_keeps_derived_field_shape(monkeypatch):
+    """闭包超限提前返回时，节点 / 边 / 展示树仍是同样的字段形状（空数组）。"""
+    import worldbook_scope as module
+    monkeypatch.setattr(module, "MAX_CLOSURE_NODES", 3)
+    entries = [E(f"n{i}") for i in range(8)]
+    result = resolve(entries, [always("n0")],
+                     requires=[(f"n{i}", f"n{i + 1}") for i in range(7)])
+    assert result["resolved_edges"] == []
+    assert result["display_tree"] == []
+    assert result["issues"][0]["code"] == "closure_too_large"

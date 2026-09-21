@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../../hooks/useApi";
-import type { DependencyProposalJobDTO, SessionInheritancePreviewDTO, SessionWorldbookDependenciesDTO } from "../../types";
+import type { SessionInheritancePreviewDTO, SessionWorldbookDependenciesDTO } from "../../types";
 
+/** 会话级依赖微调（纯人工）：增删 requires / related、屏蔽继承、恢复继承、按 local wins 展示冲突。 */
 export function SessionWorldbookDependencies({ sessionId }: { sessionId: string }) {
   const api = useApi();
   const [value, setValue] = useState<SessionWorldbookDependenciesDTO | null>(null);
@@ -12,27 +13,13 @@ export function SessionWorldbookDependencies({ sessionId }: { sessionId: string 
   const [relation, setRelation] = useState<"requires" | "related">("requires");
   const [expand, setExpand] = useState(true);
   const [inheritance, setInheritance] = useState<SessionInheritancePreviewDTO | null>(null);
-  const [job, setJob] = useState<DependencyProposalJobDTO | null>(null);
-  const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const requestVersion = useRef(0);
   const load = async () => {
     const version = ++requestVersion.current;
     try {
-      const [dependencies, jobs] = await Promise.all([
-        api.getSessionWorldbookDependencies(sessionId),
-        api.listSessionWorldbookJobs(sessionId),
-      ]);
+      const dependencies = await api.getSessionWorldbookDependencies(sessionId);
       if (version !== requestVersion.current) return;
       setValue(dependencies);
-      const summary = jobs.jobs[0] || null;
-      const latest = summary
-        ? (await api.getSessionWorldbookJob(sessionId, summary.job_id)).job
-        : null;
-      if (version !== requestVersion.current) return;
-      setJob(latest);
-      if (latest?.stage === "done") {
-        setAccepted(new Set((latest.result?.accepted || []).map((x) => `${x.from_uid}|${x.to_uid}`)));
-      }
       setError("");
     } catch (e: any) {
       if (version === requestVersion.current) setError(e?.message || "读取失败");
@@ -41,27 +28,10 @@ export function SessionWorldbookDependencies({ sessionId }: { sessionId: string 
   useEffect(() => {
     requestVersion.current += 1;
     setValue(null);
-    setJob(null);
     setInheritance(null);
     void load();
     return () => { requestVersion.current += 1; };
   }, [sessionId]);
-  useEffect(() => {
-    if (!job || (["done", "failed", "cancelled"].includes(job.stage) && !job.running)) return;
-    let active = true;
-    const timer = window.setInterval(async () => {
-      try {
-        const next = (await api.getSessionWorldbookJob(sessionId, job.job_id)).job;
-        if (!active) return;
-        setJob(next);
-        if (next.stage === "done") setAccepted(new Set((next.result?.accepted || []).map((x) => `${x.from_uid}|${x.to_uid}`)));
-      } catch {}
-    }, 1200);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [api, job?.job_id, job?.stage, job?.running, sessionId]);
   const names = useMemo(() => new Map((value?.entries || []).map((e) => [e.uid, e.name || e.uid])), [value]);
   const save = async (a: string, b: string, rel: "requires" | "related" | "none", enable = false) => {
     if (!value) return; setBusy(true); setError("");
@@ -70,7 +40,6 @@ export function SessionWorldbookDependencies({ sessionId }: { sessionId: string 
   };
   if (!value) return <div className="detail-section p-4 text-xs text-gray-500">{error || "正在读取会话依赖…"}</div>;
   const rows = [...value.effective_requires_edges.map((e) => ({ ...e, relation: "requires" as const })), ...value.effective_related_edges.map((e) => ({ ...e, relation: "related" as const }))];
-  const records = job?.result?.records || [];
   return <div className="detail-section p-4 space-y-3">
     <div className="flex items-start justify-between gap-3"><div><h3 className="text-sm font-semibold text-gray-300">🧩 会话依赖微调</h3><p className="text-[10px] text-gray-500 mt-1">继承版本 {value.inheritance?.policy_revision ?? "—"} · 本地修订 {value.scope_revision}。修改只影响本会话。</p></div><button className="text-[11px] text-blue-300 hover:underline" onClick={() => void load()}>刷新</button></div>
     {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
@@ -113,7 +82,7 @@ export function SessionWorldbookDependencies({ sessionId }: { sessionId: string 
       </div>)}</div>
     </details>
     <p className="text-[10px] text-gray-500">实际载入 {value.resolved_entry_uids.length} 条。保存后数量来自服务端重算；“关联”只浏览，不扩大范围。</p>
-    <div className="flex flex-wrap gap-2"><button className="text-xs px-3 py-1.5 rounded bg-gray-700 text-gray-300" onClick={async () => { setBusy(true); try { setValue(await api.restoreSessionWorldbookDependencies(sessionId, { expected_scope_revision: value.scope_revision })); } catch (e: any) { setError(e?.message || "恢复失败"); } finally { setBusy(false); } }}>撤销全部本地调整</button><button className="text-xs px-3 py-1.5 rounded bg-gray-700 text-gray-300" onClick={async () => { setBusy(true); try { setInheritance(await api.previewSessionWorldbookInheritance(sessionId)); } catch (e: any) { setError(e?.message || "预览失败"); } finally { setBusy(false); } }}>预览更新全局继承</button><button className="text-xs px-3 py-1.5 rounded bg-purple-700/40 text-purple-200" disabled={busy || (!!job && (job.running || !["done", "failed", "cancelled"].includes(job.stage)))} onClick={async () => { setBusy(true); try { setJob((await api.createSessionWorldbookJob(sessionId)).job); setAccepted(new Set()); } catch (e: any) { setError(e?.message || "启动失败"); } finally { setBusy(false); } }}>AI 微调</button></div>
+    <div className="flex flex-wrap gap-2"><button className="text-xs px-3 py-1.5 rounded bg-gray-700 text-gray-300" onClick={async () => { setBusy(true); try { setValue(await api.restoreSessionWorldbookDependencies(sessionId, { expected_scope_revision: value.scope_revision })); } catch (e: any) { setError(e?.message || "恢复失败"); } finally { setBusy(false); } }}>撤销全部本地调整</button><button className="text-xs px-3 py-1.5 rounded bg-gray-700 text-gray-300" onClick={async () => { setBusy(true); try { setInheritance(await api.previewSessionWorldbookInheritance(sessionId)); } catch (e: any) { setError(e?.message || "预览失败"); } finally { setBusy(false); } }}>预览更新全局继承</button></div>
     {inheritance && <div className="rounded border border-amber-700/50 bg-amber-950/20 p-3 text-[11px] space-y-2">
       <p>全局版本 {inheritance.from_policy_revision} → {inheritance.to_policy_revision}；边变化 {inheritance.changes.length} 条，起点规则变化 {inheritance.rule_changes.length} 条，实际范围 +{inheritance.scope_added.length} / -{inheritance.scope_removed.length}，冲突 {inheritance.conflicts.length} 条。本地覆盖保留且优先。</p>
       {!!inheritance.changes.length && <ul className="max-h-32 overflow-y-auto space-y-1">{inheritance.changes.map((item, index) => <li key={`${item.kind}:${item.relation}:${item.from_uid}|${item.to_uid}:${index}`}>
@@ -130,39 +99,6 @@ export function SessionWorldbookDependencies({ sessionId }: { sessionId: string 
         冲突：{names.get(item.from_uid) || item.from_uid} → {names.get(item.to_uid) || item.to_uid}，全局 {item.inherited_relation} / 本地 {item.local_relation}，将保留本地。
       </li>)}</ul>}
       <button disabled={busy} className="text-amber-200 underline" onClick={async () => { setBusy(true); try { setValue(await api.updateSessionWorldbookInheritance(sessionId, { expected_scope_revision: inheritance.expected_scope_revision, preview_hash: inheritance.preview_hash })); setInheritance(null); } catch (e: any) { setError(e?.message || "更新失败"); } finally { setBusy(false); } }}>确认更新本会话继承</button>
-    </div>}
-    {job && <div className="rounded border border-purple-700/40 bg-purple-950/15 p-3 text-[11px] space-y-2">
-      <div className="flex justify-between">
-        <span>AI：{job.stage}{job.running ? "（继续处理中）" : ""} · {job.progress}/{job.total}{job.outcome === "partial" ? " · 部分完成" : ""}{job.stale ? " · 已过期" : ""}</span>
-        {!["done", "failed", "cancelled"].includes(job.stage) && <button disabled={busy} className="text-red-300" onClick={() => {
-          setBusy(true);
-          void api.cancelSessionWorldbookJob(sessionId, job.job_id)
-            .then((result) => setJob(result.job))
-            .catch((reason) => setError(reason?.message || "取消失败"))
-            .finally(() => setBusy(false));
-        }}>取消</button>}
-      </div>
-      <p className="text-gray-500">{job.message}{job.context?.scoped_complete === false ? " · 依赖 frontier 尚未完整" : job.context?.scoped_complete ? " · 会话范围分析完成" : ""}</p>
-      <p className="text-gray-500">调用 {job.calls} 次 · 预算 {job.workload?.budget ?? "自动"} · {job.metrics?.actual_known ? `${job.metrics.actual_total_tokens ?? 0} token${job.metrics.usage_partial ? "（部分上报）" : ""}` : "模型未上报实际 token"}</p>
-      {records.map((record) => {
-        const key = `${record.from_uid}|${record.to_uid}`;
-        const selectable = record.relation === "requires" || record.relation === "related";
-        return <label key={key} className={`flex gap-2 items-start ${selectable ? "" : "opacity-60"}`}>
-          <input type="checkbox" disabled={!selectable || busy || !!job.stale} checked={selectable && accepted.has(key)} onChange={() => setAccepted((old) => {
-            const next = new Set(old); next.has(key) ? next.delete(key) : next.add(key); return next;
-          })} />
-          <span>{names.get(record.from_uid) || record.from_uid} → {names.get(record.to_uid) || record.to_uid} · {record.relation} · {(record.confidence * 100).toFixed(0)}%
-            <small className="block text-gray-500">{record.reason}</small>
-          </span>
-        </label>;
-      })}
-      {job.stage === "done" && <button disabled={busy || !!job.running || !!job.stale || job.outcome === "failed" || job.context?.scoped_complete === false} className="text-purple-200 underline disabled:opacity-40" onClick={async () => {
-        setBusy(true);
-        try { const result = await api.applySessionWorldbookJob(sessionId, job.job_id, [...accepted].map((item) => item.split("|"))); setValue(result.dependencies); }
-        catch (e: any) { setError(e?.message || "应用失败"); }
-        finally { setBusy(false); }
-      }}>应用选中建议</button>}
-      {(["failed", "cancelled"].includes(job.stage) || job.resumable) && <button disabled={busy || !!job.stale} className="ml-3 text-blue-300 underline disabled:opacity-40" onClick={() => void api.retrySessionWorldbookJob(sessionId, job.job_id).then((result) => setJob(result.job)).catch((e) => setError(e.message))}>重试未完成部分</button>}
     </div>}
   </div>;
 }

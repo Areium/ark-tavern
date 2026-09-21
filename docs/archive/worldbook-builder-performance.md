@@ -1,5 +1,7 @@
 # 世界书依赖自动构建：性能设计
 
+> 已归档（2026-09-21）：该设计随「AI 自动构建依赖」功能一并移除，见 docs/proposals/worldbook-workbench-redesign.md §2.4。
+
 `src/worldbook_builder.py` 把一本世界书变成依赖图谱：元数据索引 → 长条目分段 → 明确引用候选对
 → 分析卡（读全文）→ 依赖判定 → 程序校验。
 

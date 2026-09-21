@@ -645,6 +645,26 @@ def _entry_matches(entry: WorldBookEntry, scan_text: str) -> bool:
     return False
 
 
+def _matched_keys(entry: WorldBookEntry, scan_text: str) -> list[str]:
+    """只读辅助：返回该条目在 scan_text 上**实际命中了哪些键**（供预览解释用）。
+
+    与 `_entry_matches` 共用同一套编译/匹配口径（同一个 `_compile_pattern`，
+    主键与副键分别试），但**只报告命中键名，不参与触发判定**：
+    `_entry_matches` 的实现与所有调用点不受影响。常驻条目不靠关键词触发，
+    因此返回空列表。
+    """
+    if entry.always_active:
+        return []
+    hits: list[str] = []
+    for key in list(entry.trigger_keys) + list(entry.secondary_keys):
+        if not isinstance(key, str) or not key:
+            continue
+        pattern = _compile_pattern(key, entry.case_sensitive, entry.match_whole_words)
+        if pattern is not None and pattern.search(scan_text) and key not in hits:
+            hits.append(key)
+    return hits
+
+
 def _substitute_macros(content: str, identity: str, active_char: Optional[str]) -> str:
     """替换 {{user}} / {{char}} 宏。"""
     content = content.replace("{{user}}", identity or "")
@@ -653,6 +673,140 @@ def _substitute_macros(content: str, identity: str, active_char: Optional[str]) 
     else:
         content = content.replace("{{char}}", "")
     return content
+
+
+def _preview_drop_reason(entry: WorldBookEntry, scan_text: str, scope_uids: set,
+                         demoted_uids: set, stopped_uids: set) -> Optional[str]:
+    """未插入原因：按 R-2 九类**自上而下取第一个成立者**（R-3），每条只报一个。
+
+    调用方保证该条目没有进 `order[]`，因此这里只需回答「它为什么没进去」。
+    判定顺序（不可调换，逐条对齐 `_entry_matches` / `eligible_uids_for` /
+    `format_injection` 的真实分支）：
+
+    1. `not_in_scope`         —— 不在书的候选范围内；
+    2. `node_binding_demoted` —— 在书范围内，但被当前节点作用域排除；
+    3. `disabled`             —— 条目停用；
+    4. `empty_content`        —— 正文为空白；
+    5. `selective_reject`     —— selective 且主键为空 / 全部非法正则编译失败；
+    6. `keyword_miss`         —— 主键全部未命中（非 selective 时主副键全未命中）；
+    7. `secondary_miss`       —— selective 主键命中但副键全未命中；
+    8. `probability_miss`     —— 关键词通过但 `probability < 100` 抽签未中；
+    9. `budget_exceeded`      —— 已通过触发，但被 `format_injection` 的预算跳过
+       （`trace` 里 `included=False`）。
+    """
+    if entry.uid not in scope_uids:
+        return "not_in_scope"
+    if entry.uid in demoted_uids:
+        return "node_binding_demoted"
+    if not entry.enabled:
+        return "disabled"
+    if not (entry.content or "").strip():
+        return "empty_content"
+    if not entry.always_active:
+        primaries = [_compile_pattern(k, entry.case_sensitive, entry.match_whole_words)
+                     for k in entry.trigger_keys if isinstance(k, str) and k]
+        primaries = [p for p in primaries if p is not None]
+        secondaries = [_compile_pattern(k, entry.case_sensitive, entry.match_whole_words)
+                       for k in entry.secondary_keys if isinstance(k, str) and k]
+        secondaries = [p for p in secondaries if p is not None]
+        if entry.selective:
+            # 必须命中主键；若存在副键则还需命中至少一个副键
+            if not primaries:
+                return "selective_reject"
+            if not any(p.search(scan_text) for p in primaries):
+                return "keyword_miss"
+            if secondaries and not any(p.search(scan_text) for p in secondaries):
+                return "secondary_miss"
+        elif not any(p.search(scan_text) for p in primaries + secondaries):
+            return "keyword_miss"
+    # 关键词通过（或条目常驻）：要么输在概率抽签上，要么被预算跳过。
+    if entry.uid in stopped_uids:
+        return "budget_exceeded"
+    if entry.probability < 100:
+        return "probability_miss"
+    # 兜底（关键词通过、概率 100 且未被预算跳过时理论上不可达）：
+    # 宁可报「被预算跳过」也不让条目在 dropped[] / order[] 里都没有解释。
+    return "budget_exceeded"
+
+
+def _preview_sites(mode: str) -> list[dict]:
+    """宿主插入点（Prompt 预览 `sites[]`）。
+
+    块名逐条对齐真实代码，不是提案里的简写：
+    - 剧情（`SceneManager.py`）：稳定层进 `<reference>` 内、`<worldview>` 之后、
+      玩家身份档案之前（`ref_parts` 的追加顺序）；动态层就是 `<world_book>` 块，
+      在 `<scene_events>` 之后、收尾 MUST 指令之前。
+    - 自由（`CharacterAgent.py`）：稳定层在 `system_parts` 里紧跟角色卡之后、
+      `<worldview>` 之前；动态层在 situation 之后、记忆上下文 `memory_context` 之前。
+    """
+    if mode == "free":
+        return [
+            {"layer": "stable", "host": "system_parts",
+             "after_block": "character_card", "before_block": "worldview",
+             "description": "稳定层紧跟角色卡之后、世界观之前插入。"},
+            {"layer": "dynamic", "host": "system_parts",
+             "after_block": "situation", "before_block": "memory_context",
+             "description": "动态层插在情境之后、记忆上下文之前，紧贴末尾利用 recency。"},
+        ]
+    return [
+        {"layer": "stable", "host": "reference",
+         "after_block": "worldview", "before_block": "player_identity",
+         "description": "稳定层插在 <reference> 内、世界观之后、玩家身份档案之前。"},
+        {"layer": "dynamic", "host": "world_book",
+         "after_block": "scene_events", "before_block": "closing_must",
+         "description": "动态层就是 <world_book> 块，插在场景事件之后、收尾指令之前。"},
+    ]
+
+
+def _preview_skeleton(mode: str) -> list[dict]:
+    """宿主提示词骨架（Prompt 预览 `skeleton[]`）：块的先后插入顺序。
+
+    世界书相关的两块标 `is_worldbook: True`：稳定层插在 `reference` 之前
+    （`insert="before"`），动态层落在 `world_book` 之后（`insert="after"`）。
+    其余块 `is_worldbook: False`、`insert` 为 null。
+    """
+    if mode == "free":
+        blocks = [
+            ("character_card", "角色卡"), ("reference", "世界观"), ("identity", "身份档案"),
+            ("knowledge", "知识资料"), ("custom_instruction", "自定义指令"),
+            ("length_rule", "长度约束"), ("situation", "当前情境"),
+            ("world_book", "世界书（动态层）"), ("memory", "记忆与历史"),
+        ]
+        worldbook = {"reference": "before", "world_book": "after"}
+    else:
+        blocks = [
+            ("system", "系统指令"), ("reference", "参考层"), ("characters", "场景角色"),
+            ("story_context", "剧情上下文"), ("scene_state", "场景状态"),
+            ("conversation_history", "对话历史"), ("player", "玩家"),
+            ("scene_events", "场景事件"), ("world_book", "世界书（动态层）"),
+            ("closing", "收尾指令"),
+        ]
+        worldbook = {"reference": "before", "world_book": "after"}
+    return [{"id": block_id, "label": label, "is_worldbook": block_id in worldbook,
+             "insert": worldbook.get(block_id)} for block_id, label in blocks]
+
+
+class _PromptPreviewOverlay:
+    """Prompt 预览用的一次性合成 overlay：**绝不触碰真实会话**。
+
+    `WorldBook.eligible_uids_for` 只依赖 `get_worldbook_scope` /
+    `set_worldbook_scope` / `get_active_lore_scope` 三个方法，这里把它们落在
+    自己的字段上：`set_worldbook_scope` 不会转发到 SessionManager，也不落盘，
+    因此预览既能看到与线上完全相同的候选裁剪，又没有任何会话副作用。
+    """
+
+    def __init__(self, scope, lore_scope=None):
+        self._scope = copy.deepcopy(scope) if isinstance(scope, dict) else scope
+        self._lore_scope = copy.deepcopy(lore_scope) if isinstance(lore_scope, dict) else None
+
+    def get_worldbook_scope(self):
+        return self._scope
+
+    def set_worldbook_scope(self, value):
+        self._scope = value          # 只写本地字段
+
+    def get_active_lore_scope(self):
+        return self._lore_scope
 
 
 class WorldBook:
@@ -1383,7 +1537,8 @@ class WorldBook:
     # ── 格式化 ──
 
     def format_injection(self, entries: list[WorldBookEntry], identity: str = "博士",
-                         active_char: Optional[str] = None) -> tuple[str, str]:
+                         active_char: Optional[str] = None,
+                         trace: list = None) -> tuple[str, str]:
         """格式化注入文本。
 
         Returns:
@@ -1393,6 +1548,11 @@ class WorldBook:
         它们在会话内字节不变，可安全留在请求前缀；**触发型条目即使声明
         position=0 也一律进动态层**，否则每次触发的不同注入会破坏前缀缓存。
         应用 {{user}}/{{char}} 宏替换与 token 预算（budget_tokens>0 时截断）。
+
+        `trace`（可选，契约 R-19）只用于**只读预览**：传了就在同一次循环里追加
+        `{"uid", "included", "layer", "text", "tokens"}`（被预算跳过的
+        `included=False`，不带 `layer`/`text`）。线上调用点（`SceneManager` /
+        `CharacterAgent`）不传它，参数默认 None，行为与返回值字节不变。
         """
         before_parts: list[str] = []
         after_parts: list[str] = []
@@ -1406,13 +1566,20 @@ class WorldBook:
             cost = estimate_tokens(text)
             # 预算：超限跳过；但至少保留一条，避免全部被截断
             if self.budget_tokens > 0 and included_any and used + cost > self.budget_tokens:
+                if trace is not None:
+                    trace.append({"uid": entry.uid, "included": False, "tokens": cost})
                 continue
             used += cost
             included_any = True
             if entry.position == 0 and entry.always_active:
                 before_parts.append(text)
+                layer = "stable"
             else:
                 after_parts.append(text)
+                layer = "dynamic"
+            if trace is not None:
+                trace.append({"uid": entry.uid, "included": True, "layer": layer,
+                              "text": text, "tokens": cost})
 
         before = "\n\n".join(before_parts)
         after = "\n\n".join(after_parts)
@@ -1421,6 +1588,131 @@ class WorldBook:
         if after:
             after = f"【世界书】\n{after}"
         return before, after
+
+    # ── 只读 Prompt 预览（A-2 / §3.2）──
+
+    def preview_prompt_injection(self, *, mode="narrative", input_text="", recent_text="",
+                                 roster_character_ids=None, manual_entry_uids=None,
+                                 full_scope=False, identity="博士", active_char=None,
+                                 seed=0, lore_scope=None) -> dict:
+        """只读预览：这一轮**真正会插进提示词**的文本、顺序、位置与未插入原因。
+
+        与线上注入复用**同一条执行路径**（不新写分支、不重放第二遍预算循环）：
+
+            eligible_uids_for(overlay) → collect_matches(rng=Random(seed))
+              → format_injection(trace=trace)
+
+        预算跳过点由 `format_injection(trace=...)` 在**同一次循环**里回报，
+        因此预览看到的顺序、文本与截断与线上逐字一致；唯一的差异是概率抽签改用
+        独立的 `random.Random(seed)`（可复现，且**不污染全局 random**）。
+
+        本方法不写盘、不动候选缓存、不创建/修改会话，也不修改 `self`：
+        token 预算覆盖由调用方在**候选书副本**上设置（`candidate.budget_tokens`）。
+        """
+        if mode not in ("narrative", "free"):
+            raise ValueError("mode 必须是 narrative 或 free")
+        roster = [c.strip() for c in (roster_character_ids or [])
+                  if isinstance(c, str) and c.strip()]
+        manual = sorted({u for u in (manual_entry_uids or []) if isinstance(u, str) and u})
+
+        # 1) 候选范围：与 scope-preview 走同一入口（v3 用 v3 规则，v2 书不静默升级）
+        if self.v3_enabled:
+            scope = self.preview_v3_scope(roster, manual, None, bool(full_scope))["scope"]
+        else:
+            scope = self.preview_scope(roster)["scope"]
+
+        # 2) 合成 overlay（一次性、不触碰真实会话）：候选范围 ∩ 节点作用域
+        overlay = _PromptPreviewOverlay(scope, lore_scope)
+        eligible, reasons = self.eligible_uids_for(overlay, with_reasons=True)
+
+        # 3) 触发 → 格式化：线上同一个 collect_matches / format_injection
+        scan_text = f"{recent_text or ''}\n{input_text or ''}"
+        if not scan_text.strip():
+            scan_text = input_text or ""
+        rng = random.Random(seed if isinstance(seed, int) and not isinstance(seed, bool) else 0)
+        matched = self.collect_matches(recent_text or "", input_text or "",
+                                       rng=rng, eligible_uids=eligible)
+        trace: list[dict] = []
+        stable_text, dynamic_text = self.format_injection(matched, identity, active_char,
+                                                          trace=trace)
+
+        # 4) order[]：trace 里真正插进去的条目，顺序就是 format_injection 的循环顺序
+        matched_by_uid = {entry.uid: entry for entry in matched}
+        included = [item for item in trace if item["included"]]
+        stopped_uids = {item["uid"] for item in trace if not item["included"]}
+        included_uids = {item["uid"] for item in included}
+        scope_reasons = scope.get("selection_reasons") or {}
+        overrides = getattr(eligible, "position_overrides", None) or {}
+        node_id = reasons.get("node_id")
+        manual_set = set(manual)
+
+        order = []
+        for seq, item in enumerate(included):
+            uid = item["uid"]
+            entry = matched_by_uid.get(uid)
+            entry_reasons = [r for r in (scope_reasons.get(uid) or []) if isinstance(r, str)]
+            if uid in manual_set and "manual" not in entry_reasons:
+                entry_reasons.append("manual")
+            if full_scope and "full_scope" not in entry_reasons:
+                entry_reasons.append("full_scope")
+            override = None
+            patch = overrides.get(uid)
+            if isinstance(patch, dict) and patch:
+                override = {"node_id": node_id}
+                for field_name in ("position", "depth", "group_weight"):
+                    if field_name in patch:
+                        try:
+                            override[field_name] = int(patch[field_name])
+                        except (TypeError, ValueError):
+                            pass
+            order.append({
+                "uid": uid,
+                # position / group_weight / depth 取 collect_matches 打过节点覆盖补丁后的值
+                "name": (entry.name or uid) if entry is not None else uid,
+                "seq": seq,
+                "layer": item["layer"],
+                "position": int(getattr(entry, "position", 0) or 0),
+                "group_weight": int(getattr(entry, "group_weight", 0) or 0),
+                "depth": int(getattr(entry, "depth", 0) or 0),
+                "estimated_tokens": item["tokens"],
+                "reasons": entry_reasons,
+                "matched_keys": _matched_keys(entry, scan_text) if entry is not None else [],
+                "override_from_node": override,
+            })
+
+        # 5) dropped[]：全书条目（书内顺序）各报一个原因；已进 order[] 的不再出现
+        scope_uids = set(scope.get("resolved_entry_uids") or [])
+        demoted_uids = set(reasons.get("dropped_by_scope") or [])
+        dropped = []
+        for entry in self.entries:
+            if entry.uid in included_uids:
+                continue
+            reason = _preview_drop_reason(entry, scan_text, scope_uids, demoted_uids,
+                                          stopped_uids)
+            if reason:
+                dropped.append({"uid": entry.uid, "name": entry.name or entry.uid,
+                                "reason": reason})
+
+        return {
+            "mode": mode,
+            "order": order,
+            "stable_text": stable_text,
+            "dynamic_text": dynamic_text,
+            "sites": _preview_sites(mode),
+            "skeleton": _preview_skeleton(mode),
+            "dropped": dropped,
+            "totals": {
+                "stable_tokens": sum(item["tokens"] for item in included
+                                     if item["layer"] == "stable"),
+                "dynamic_tokens": sum(item["tokens"] for item in included
+                                      if item["layer"] == "dynamic"),
+                "budget_tokens": int(self.budget_tokens or 0),
+                # 截断 = trace 里存在被预算跳过的条目
+                "truncated": bool(stopped_uids),
+                "candidate_count": len(scope.get("resolved_entry_uids") or []),
+                "matched_count": len(matched),
+            },
+        }
 
     # ── 回灌酒馆导出 ──
 

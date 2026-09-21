@@ -1,32 +1,28 @@
 /**
- * 内容中心 — 资产/卡牌/索引/节点图等模块整合后的统一管理入口。
+ * 内容中心 — 资产/卡牌/战斗节点图整合后的统一管理入口。
  *
  * 管理模式：
- *  - 单一入口：导航仅保留「内容中心」，内部按 Tab 组织（索引/资产/卡牌/节点图）。
+ *  - 单一入口：导航仅保留「内容中心」，内部按 Tab 组织（资产/卡牌/节点图）。
  *  - 返回入口唯一：页面级返回走全局顶栏 GameTopBar（本页不再放返回按钮）。
  *  - 统一来源：资产/卡牌标注来源世界书（worldbook_id），支持按书筛选。
- *  - 统一检索：顶部搜索框跨世界书条目检索，命中可一键跳转到「世界书」页。
- *  - 依赖管理收敛到「索引」Tab。
- *  - 世界书不在内部重复承载：上一级导航「世界书」页为唯一入口（检索命中直接跳该页）。
+ *  - 统一检索：顶部搜索框跨世界书条目检索，命中可一键跳转到「世界书」工作台。
+ *  - 世界书不在内部重复承载：上一级导航「世界书」页（工作台页签：条目 / 分类与载入 /
+ *    Prompt 预览 / 节点视图 / 本家索引）为唯一入口，检索命中直接跳该页的「条目」页签。
  *  - 文档管理已移除：世界观语料经 scripts/generate_builtin_worldbook.py 整理为
  *    「世界书整合包」（data/packs/arknights.json），随世界书导入/预装分发。
  *  - 战斗节点编辑：先选世界书再编辑（NodeFlowEditor），节点数据归属所选世界书。
  */
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { useAppStore, type ContentHubTab } from "../stores/appStore";
 import type { WorldBookSearchHit } from "../types";
 import SourceBadge from "./SourceBadge";
 import AssetManager from "./AssetManager";
 import CardManager from "./CardManager";
-import IndexManager from "./IndexManager";
 import PlotGraphPage from "./combat/PlotGraphPage";
 import AppIcon, { type AppIconName } from "./AppIcon";
-const WorldBookDependencyPage = lazy(() => import("./WorldBookDependencyPage"));
 
 const TABS: { id: ContentHubTab; label: string; icon: AppIconName; hint: string }[] = [
-  { id: "worldbook-deps", label: "世界书图谱", icon: "workflow", hint: "节点分类 / 依赖树与依赖网络 / 固定导入 / 导入预览" },
-  { id: "index", label: "索引", icon: "index", hint: "文档依赖关系与会话白名单" },
   { id: "images", label: "资产", icon: "image", hint: "图片资产上传 / 裁剪 / 默认图 / 来源世界书" },
   { id: "cards", label: "卡牌", icon: "cards", hint: "角色与职业卡牌编辑 / 所属世界书" },
   { id: "combat", label: "节点图", icon: "combat", hint: "按设定集选择剧情，整页画布编辑节点图" },
@@ -34,19 +30,21 @@ const TABS: { id: ContentHubTab; label: string; icon: AppIconName; hint: string 
 
 export default function ContentHub() {
   const api = useApi();
-  const { contentHubTab, setContentHubTab, setCurrentView, worldbookJumpId, setWorldbookJumpId, activeSessionId } = useAppStore();
+  const { contentHubTab, setContentHubTab, setCurrentView, setWorldbookTab, worldbookJumpId, setWorldbookJumpId, activeSessionId } = useAppStore();
   const [query, setQuery] = useState("");
   const [wbHits, setWbHits] = useState<WorldBookSearchHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchSeq = useRef(0);
 
-  // 世界书跳转（检索结果点击 / 其他模块联动）→ 上一级「世界书」页选中该书（由 WorldBookManager 消费并清除）
+  // 世界书跳转（检索结果点击 / 其他模块联动）→ 工作台「条目」页签选中该书
+  //（由 WorldBookManager 消费并清除）
   useEffect(() => {
     if (worldbookJumpId) {
+      setWorldbookTab("entries");
       setCurrentView("worldbook");
     }
-  }, [worldbookJumpId, setCurrentView]);
+  }, [worldbookJumpId, setWorldbookTab, setCurrentView]);
 
   // 统一检索：跨世界书条目
   useEffect(() => {
@@ -152,8 +150,6 @@ export default function ContentHub() {
 
       {/* ── Tab 内容区 ── */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {contentHubTab === "worldbook-deps" && <Suspense fallback={<p className="p-4 text-xs text-gray-400">加载世界书依赖…</p>}><WorldBookDependencyPage /></Suspense>}
-        {contentHubTab === "index" && <IndexManager key="im" />}
         {contentHubTab === "images" && <AssetManager key="am" />}
         {contentHubTab === "cards" && <CardManager key="cm" />}
         {contentHubTab === "combat" && (

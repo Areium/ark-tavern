@@ -1,17 +1,21 @@
 /**
- * 世界书节点的批量操作：全部是对导入策略草稿的纯函数变换，不写盘、不改书。
+ * 世界书条目的批量操作：全部是对**统一草稿**的纯函数变换，不写盘、不改书。
  *
- * 调用方（WorldBookScopeManager）拿到新草稿后照常走「保存策略」，
+ * 调用方（WorldBookScopeManager）拿到新草稿后照常走工作台页头那一次原子保存，
  * 因此批量操作与单点编辑共用同一条校验 / 修订号路径。
+ *
+ * 画布专属的框选几何与旧词表（v2 的固定条目 / 依赖来源）已随 D-1 / D-3 删除；
+ * 起点一律用 v3 表述（R-17 的 `batchRoots`）。
  */
-import type { WorldBookDetail, WorldBookPolicyDraft } from "../types";
-import type { GraphPoint, WorldBookGraphNode } from "./worldbookGraph";
+import type { WorldBookActivation, WorldBookDetail, WorldBookExpansion, WorldBookRootDTO } from "../types";
+import type { WorldBookDraft } from "../hooks/useWorldbookDraft";
 import { categoryDescendants } from "./worldbookScope";
 
-export type EdgeDraft = WorldBookPolicyDraft["dependency_edges"][number];
-export type BatchRect = { left: number; top: number; right: number; bottom: number };
+export type EdgeDraft = WorldBookDraft["requires_edges"][number];
 
 const edgeKey = (from: string, to: string) => JSON.stringify([from, to]);
+/** legacy_depth 起点的默认深度：与 `policyFromDraft` 的 `max_depth ?? 1` 同口径。 */
+const DEFAULT_LEGACY_DEPTH = 1;
 
 /** 分类（含子分类）下的全部条目 UID；`unclassified` 同样适用。 */
 export function categoryEntryUids(detail: WorldBookDetail, categoryId: string): string[] {
@@ -28,83 +32,79 @@ export function knownUids(detail: WorldBookDetail, uids: string[]): string[] {
   return [...new Set(uids.filter((uid) => typeof uid === "string" && known.has(uid)))];
 }
 
-/** 框选：中心点落在矩形内的条目节点。 */
-export function pickedInRect(
-  nodes: WorldBookGraphNode[],
-  positions: Record<string, GraphPoint>,
-  rect: BatchRect,
-): string[] {
-  const left = Math.min(rect.left, rect.right), right = Math.max(rect.left, rect.right);
-  const top = Math.min(rect.top, rect.bottom), bottom = Math.max(rect.top, rect.bottom);
-  return nodes
-    .filter((node) => node.kind === "entry" && positions[node.id])
-    .filter((node) => {
-      const point = positions[node.id];
-      return point.x >= left && point.x <= right && point.y >= top && point.y <= bottom;
-    })
-    .map((node) => node.refId);
-}
-
-export function batchFixed(policy: WorldBookPolicyDraft, detail: WorldBookDetail, uids: string[], on: boolean): WorldBookPolicyDraft {
+/**
+ * 批量设置 / 移除起点（R-17，取代 v2 的「固定条目」与「依赖来源」两次批量写）。
+ *
+ * 对 `knownUids(detail, uids)` 里的每个 uid，**替换**草稿 `roots` 中该 uid 的既有起点为
+ * `{ entry_uid, activation, expansion, max_depth? }`：
+ *  - `activation === null` 表示**移除**这些 uid 的起点；
+ *  - `expansion === "legacy_depth"` 时带上 `max_depth`，并钳制到 `0..32`
+ *    （未给出时按 `1` 处理）；
+ *  - 起点顺序按 `(entry_uid, activation, expansion)` 稳定排序，避免每次批量操作
+ *    都产生无意义的草稿差异。
+ *
+ * 产出新草稿，不改入参；`uids` 为空或无有效 uid 时原样返回。
+ */
+export function batchRoots(
+  draft: WorldBookDraft, detail: WorldBookDetail, uids: string[],
+  activation: WorldBookActivation | null, expansion: WorldBookExpansion, maxDepth: number | null = null,
+): WorldBookDraft {
   const targets = knownUids(detail, uids);
-  if (!targets.length) return policy;
-  if (!on) {
-    const drop = new Set(targets);
-    return { ...policy, fixed_entry_uids: policy.fixed_entry_uids.filter((uid) => !drop.has(uid)) };
-  }
-  const existing = new Set(policy.fixed_entry_uids);
-  const added = targets.filter((uid) => !existing.has(uid));
-  return added.length ? { ...policy, fixed_entry_uids: [...policy.fixed_entry_uids, ...added] } : policy;
-}
-
-/** 批量设为 / 取消导入源；maxDepth 为 null 表示取消。 */
-export function batchSource(policy: WorldBookPolicyDraft, detail: WorldBookDetail, uids: string[], maxDepth: number | null): WorldBookPolicyDraft {
-  const targets = knownUids(detail, uids);
-  if (!targets.length) return policy;
+  if (!targets.length) return draft;
   const drop = new Set(targets);
-  const rest = policy.dependency_sources.filter((item) => !drop.has(item.entry_uid));
-  if (maxDepth === null) {
-    return rest.length === policy.dependency_sources.length ? policy : { ...policy, dependency_sources: rest };
+  const kept = draft.roots.filter((root) => !drop.has(root.entry_uid));
+  if (activation === null) {
+    const roots = [...kept].sort((a, b) => a.entry_uid.localeCompare(b.entry_uid));
+    return { ...draft, roots };
   }
-  const depth = Math.max(0, Math.min(32, Math.floor(maxDepth)));
-  const next = [...rest, ...targets.map((uid) => ({ entry_uid: uid, max_depth: depth }))];
-  // 顺序按 UID 稳定，避免每次批量操作都产生无意义的草稿差异。
-  next.sort((a, b) => a.entry_uid.localeCompare(b.entry_uid));
-  return { ...policy, dependency_sources: next };
+  const depth = expansion === "legacy_depth"
+    ? Math.max(0, Math.min(32, Math.floor(maxDepth ?? DEFAULT_LEGACY_DEPTH)))
+    : null;
+  const added: WorldBookRootDTO[] = targets.map((entry_uid) => (depth === null
+    ? { entry_uid, activation, expansion }
+    : { entry_uid, activation, expansion, max_depth: depth }));
+  const roots = [...kept, ...added].sort((a, b) =>
+    a.entry_uid.localeCompare(b.entry_uid)
+    || a.activation.localeCompare(b.activation)
+    || a.expansion.localeCompare(b.expansion));
+  return { ...draft, roots };
 }
 
 /** 批量建立有向依赖：direction=to 表示 uids → target，from 表示 target → uids。 */
-export function batchAddEdges(policy: WorldBookPolicyDraft, detail: WorldBookDetail, uids: string[], target: string, direction: "to" | "from"):
-  { policy: WorldBookPolicyDraft; added: EdgeDraft[]; skipped: number } {
-  const target_uid = typeof target === "string" ? target.trim() : "";
+export function batchAddEdges(draft: WorldBookDraft, detail: WorldBookDetail, uids: string[], target: string, direction: "to" | "from"):
+  { requires_edges: EdgeDraft[]; added: EdgeDraft[]; skipped: number } {
+  const targetUid = typeof target === "string" ? target.trim() : "";
   const known = new Set((detail.entries || []).map((entry) => entry.uid));
-  if (!known.has(target_uid)) return { policy, added: [], skipped: 0 };
-  const existing = new Set(policy.dependency_edges.map((edge) => edgeKey(edge.from_uid, edge.to_uid)));
+  if (!known.has(targetUid)) return { requires_edges: draft.requires_edges, added: [], skipped: 0 };
+  const existing = new Set(draft.requires_edges.map((edge) => edgeKey(edge.from_uid, edge.to_uid)));
   const added: EdgeDraft[] = [];
   let skipped = 0;
   for (const uid of knownUids(detail, uids)) {
-    if (uid === target_uid) { skipped++; continue; }   // 自环由后端拒绝，这里直接跳过
-    const edge = direction === "to" ? { from_uid: uid, to_uid: target_uid } : { from_uid: target_uid, to_uid: uid };
+    if (uid === targetUid) { skipped++; continue; }   // 自环由后端拒绝，这里直接跳过
+    const edge = direction === "to"
+      ? { from_uid: uid, to_uid: targetUid }
+      : { from_uid: targetUid, to_uid: uid };
     const key = edgeKey(edge.from_uid, edge.to_uid);
     if (existing.has(key)) { skipped++; continue; }
     existing.add(key);
     added.push(edge);
   }
-  return added.length ? { policy: { ...policy, dependency_edges: [...policy.dependency_edges, ...added] }, added, skipped }
-    : { policy, added, skipped };
+  return added.length
+    ? { requires_edges: [...draft.requires_edges, ...added], added, skipped }
+    : { requires_edges: draft.requires_edges, added, skipped };
 }
 
 /** 批量清除依赖边：删除所有一端落在 uids 里的边。 */
-export function batchRemoveEdges(policy: WorldBookPolicyDraft, detail: WorldBookDetail, uids: string[]):
-  { policy: WorldBookPolicyDraft; removed: number } {
+export function batchRemoveEdges(draft: WorldBookDraft, detail: WorldBookDetail, uids: string[]):
+  { requires_edges: EdgeDraft[]; removed: number } {
   const drop = new Set(knownUids(detail, uids));
-  if (!drop.size) return { policy, removed: 0 };
-  const kept = policy.dependency_edges.filter((edge) => !drop.has(edge.from_uid) && !drop.has(edge.to_uid));
-  const removed = policy.dependency_edges.length - kept.length;
-  return removed ? { policy: { ...policy, dependency_edges: kept }, removed } : { policy, removed: 0 };
+  if (!drop.size) return { requires_edges: draft.requires_edges, removed: 0 };
+  const kept = draft.requires_edges.filter((edge) => !drop.has(edge.from_uid) && !drop.has(edge.to_uid));
+  const removed = draft.requires_edges.length - kept.length;
+  return removed ? { requires_edges: kept, removed } : { requires_edges: draft.requires_edges, removed: 0 };
 }
 
-/** 批量移入分类：产出 taxonomy 接口需要的 entry_moves。 */
+/** 批量移入分类：产出 taxonomy 需要的 entry_moves。 */
 export function batchMove(detail: WorldBookDetail, uids: string[], categoryId: string): Record<string, string> {
   const known = new Set((detail.categories || []).map((category) => category.id));
   if (!categoryId || !known.has(categoryId)) return {};

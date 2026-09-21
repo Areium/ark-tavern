@@ -54,11 +54,12 @@
   **书用途 `book_type`**：`story`（剧情世界书，可绑定会话/设为默认/参与解析）| `reference`（资料库，只供浏览、检索与摘录）。缺字段的旧数据按 `story` 读取；`resolve()` 与预装回退无条件排除 `reference`；`excerpt_entries()` 提供整批原子摘录（新 UID、来源不被修改、保留 `excerpt_source` 可追溯来源）。详见 `docs/design/worldbook/worldbook-library.md`。
 - `node_lore_scope.py` — 节点级世界书动态载入：书内一条永不注入的 `lore_bindings` 条目（围栏 JSON + extensions 标记）声明「目标 → 条目」绑定；`resolve_scope` 在剧情树节点落盘时把作用域冻结进 `story_tree.nodes[].state.lore_scope`（随回档走），注入时 `eligible_uids_for` 做「会话范围 ∩ 节点作用域」窄化白名单。书内无绑定条目 / 自由模式 / 老会话一律关闭，行为与旧版一致。详见 `docs/design/worldbook/node-scoped-worldbook-loading.md`。
 - `worldbook_scope.py` — 多级分类、角色关联与导入策略校验，有向依赖深度遍历。**v2 与 v3 并存**：v2 语义（世界观 / 阵容 / 固定 / 依赖四源去重）逐字保留；v3 把「分类」与「载入」分开——全书一张有向图，起点由 `activation`（always / roster_any / manual）× `expansion`（none / requires_closure / legacy_depth）描述，`requires` 参与闭包遍历、`related` 只浏览，环可终止并回报交叉引用，闭包超限报错而非静默截断。`world_book.py` 提供估算预览、旧书/旧会话快照兼容与**不可变规则版本历史**（`policy_revisions`，会话绑定完整规则版本而不只是版本号），两个 prompt 入口均过滤候选。详见 `docs/design/worldbook/worldbook-on-demand.md`。
-- `worldbook_builder.py` — 世界书依赖的 AI 自动构建：元数据索引（复用 `worldbook_classify`）→ 长条目分段（稳定 `chunk_id = uid:index:hash` 断点）→ 明确引用候选对（不被 top-k 丢弃）→ 分析卡 → 依赖判定 → 程序校验（UID / 重复 / 自环 / 证据可定位 / 角色 ID / 高扇出 / 环 / 阵容扩张探测）。**请求按 token/条数自适应装箱**（估算与执行共用 `worldbook_builder_plan.py` 的同一个规划器）；判定只发**引用附近的证据窗口 + 分析卡提炼的有限上下文**，不再重发整段正文，窗口缺失/截断时强制 `unsure`。分析卡与判定分别按 `内容哈希 + 模型 + prompt 版本` 缓存，判定额外绑定双方 uid / 目标哈希 / 卡片上下文指纹 / 证据窗口指纹。后台任务持久化阶段/进度/结果/指标（估算与真实用量分开，provider 不报 usage 记「未知」而非 0），支持取消、失败批次重试、调用预算与有限 JSON 修复；无可用模型时接口返回 503，前端引导去设置。**正文按数据处理，不执行其中的指令**；置信度只用于排序，不宣称语义正确。性能设计与实测见 `docs/design/worldbook/worldbook-builder-performance.md`；真实模型验证见 `scripts/verify_worldbook_builder_llm.py`。
-- `worldbook_builder_plan.py` — 世界书构建的**确定性请求规划器**：`Unit`（分块/候选对，仅带 key + payload）+ `ExactPacker`（持有生产代码真正的 `render` 回调，**按真实渲染结果**量 token，按输入预算 / 输出预算 / 最大单元数贪心装箱且**保持来源顺序**，超大单元独占请求）+ `plan_cost` / `packs_all_units` 覆盖断言。纯函数、无循环依赖（不 import `worldbook_builder`），被估算与执行共用，因此界面上的请求数与费用预估就是真实开销。
-- `worldbook_reading.py` — 依赖构建的纯本地阅读选择器：全文扫描结构与引用，adaptive 模式选择逐字原文范围并保守回退复杂规则；`worldbook_builder.py` 将同条目的选中范围联合成一张卡，按需补读完整未读补集。模式、实际覆盖、断点与缓存身份持久化，完整设计和真实基准见 `docs/design/worldbook/worldbook-selective-reading.md`。
 - `worldbook_classify.py` — 条目自动分类：只认 uid 生成器前缀 / `group` 字段 / 名称括号后缀三类显式线索（取值为白名单，识别不出就不分类），产出分类树、条目归属与 `characters_<角色目录名>_index` → 角色关联。**不改变载入模式**：`from_dict` 只在分类形同未分类时对预装包自动补齐，其余走用户显式的「自动分类」。详见 `docs/design/worldbook/worldbook-on-demand.md`。
 - `memory.py` — `VectorMemory`：最近轮次滑动窗口 + ChromaDB 语义搜索，持久化于 `data/memory/`（gitignored）。
+
+> **2026-09 变更（世界书工作台重构）**：世界书依赖的「AI 自动构建」整条链路已移除——构建内核（原 `worldbook_builder.py` / `worldbook_builder_plan.py` / `worldbook_reading.py`）、`dependency-proposals` 系列接口、前端构建面板与会话侧 AI 微调一并删除，两篇专项设计归档到 `docs/archive/`。见 `docs/proposals/worldbook-workbench-redesign.md` §2.4。
+>
+> **删的是画布与「让模型替你猜依赖」，不是依赖功能**：依赖数据、分类、载入规则、统一草稿的保存与撤销、范围预览、节点绑定全部保留，改在 `分类与载入` 与 `节点视图` 里人工维护；旧书里已有的 AI 关系照常载入与展开（`origin` / `model` / `evidence` / `review_status` / `rejected` / `edge_meta` 等字段保留、只停写）。
 
 ### 2.4 战斗后端
 
@@ -122,13 +123,13 @@
 
 ### 3.4 管理页
 
-- `components/ContentHub.tsx` — 内容中心（Tab：世界书图谱/索引/资产/卡牌/节点图；文档管理入口已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包 `data/packs/arknights.json`，浏览与编辑走世界书模块；后端 `document_manager.py` + `blueprints/documents.py` 仍在）
+- `components/ContentHub.tsx` — 内容中心（Tab：资产/卡牌/节点图；世界书图谱与索引已迁入世界书工作台页签；文档管理入口已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包 `data/packs/arknights.json`，浏览与编辑走世界书模块；后端 `document_manager.py` + `blueprints/documents.py` 仍在）
 - `components/AssetManager.tsx` — 资产目录：图片上传/裁剪/默认图，实体显示上级目录与来源世界书（frontmatter `worldbook_id`），按书筛选与归类
 - `components/CardManager.tsx` — 卡牌管理：角色/职业卡牌编辑（CardEditor），条目显示所属世界书，按书筛选
-- `components/WorldBookManager.tsx` — 世界书管理：顶层按用途分「剧情世界书 / 资料库」（带筛选与计数），详情默认进入条目正文、分类图谱归入「高级配置」；导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、条目编辑器、剧情书的会话绑定与默认书、酒馆格式导出；资料库以检索/浏览为主，可就地把条目「加入剧情世界书」（提交前可编辑标题/正文/触发词）。纯逻辑在 `utils/worldbookLibrary.ts`
-- `components/session/SessionWorldbookDependencies.tsx` — 会话大厅内的依赖微调：继承/本地/屏蔽关系、实际纳入原因、全局继承更新预览、会话专属 AI 任务预览与应用
-- `components/WorldBookDependencyPage.tsx` / `WorldBookScopeManager.tsx` — 世界书配置工作台：页面给三个视图（**配置概览 / 条目与角色 / 高级图谱**），共用一份**统一草稿**并由右上角一次 `PUT /configuration` 原子写入（409 保留草稿）。`components/worldbook/` 下是配置概览（基础设定 / 角色设定 / 关联补充 / 待处理 + 试选阵容 + 本次范围预览）、条目与角色（四个常见动作）、AI 自动构建面板与共享类型；`hooks/useWorldbookDraft.ts` 提供统一草稿与两个带防抖/过时响应保护的预览钩子。`WorldBookScopeManager` 是高级图谱（保留分类/网络/树/批量），由统一草稿投影而来并写回同一草稿，避免 AI 生成的条件起点被静默清掉；`WorldBookScopePreview.tsx` 同时用于创建向导
-- `components/WorldBookGraphCanvas.tsx` / `utils/worldbookGraph.ts` / `utils/worldbookDependency.ts` / `utils/worldbookBatch.ts` — Neo4j 风格圆形节点图：分类归属与有向依赖、拖动/平移/缩放、多选与框选、关系高亮、确定性布局及大书显示限额；节点角色分类（导入源/固定/中转/叶子/未配置）与按遍历深度展开的依赖树视图；批量策略变换（固定导入 / 导入源 / 建边 / 清边 / 移入分类）是纯函数，只改草稿不写盘；复用内容中心 `--ng-*` 配色，不修改战斗画布
+- `components/WorldBookManager.tsx` — 世界书工作台：顶层按用途分「剧情世界书 / 资料库」（带筛选与计数），详情是带页签的工作台——**条目 / 分类与载入 / Prompt 预览 / 节点视图 / 本家索引**（原「高级配置」双页签已并入 `分类与载入`；`本家索引` 页签副标题是「内置语料索引 · 依赖完整性 · 会话白名单」）；导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、条目编辑器、剧情书的会话绑定与默认书、酒馆格式导出；资料库以检索/浏览为主，可就地把条目「加入剧情世界书」（提交前可编辑标题/正文/触发词）。纯逻辑在 `utils/worldbookLibrary.ts`
+- `components/session/SessionWorldbookDependencies.tsx` — 会话大厅内的依赖微调：继承/本地/屏蔽关系、实际纳入原因、全局继承更新预览（面板只保留人工部分：增删 `requires` / `related`、屏蔽继承、恢复继承；会话侧 AI 微调入口已移除）
+- `components/WorldBookManager.tsx`（工作台容器）/ `components/worldbook/tabs/LoadTab.tsx` / `components/WorldBookScopeManager.tsx` — 「世界书」页是带页签的工作台：**统一草稿与页头保存条**（一次 `PUT /configuration` 原子写入，409 保留草稿；页头那条显示「有未保存修改 / 已同步」+ 撤销 + 保存）住在容器 `WorldBookManager.tsx` 里；`分类与载入` 页签由 `LoadTab.tsx` 承载 **配置概览 / 条目与角色 / 分类结构** 三个子视图（子视图是页签本地状态，不进全局 store），分别渲染 `WorldBookConfigOverview` / `WorldBookEntryWorkbench` / `WorldBookScopeManager`；`WorldBookScopeManager` 已缩减为分类结构子视图（分类树列表 + 条目归属表 + 批量起点 / 批量依赖 / 批量归属，图谱画布与其交互已删），由统一草稿投影而来并写回同一草稿，条件起点（`roster_any` / `manual` / `requires_closure`）不会被静默清掉。原 `WorldBookDependencyPage.tsx` 已删除——它自带的世界书选择下拉与保存条已分别并进容器与页头。`components/worldbook/` 下是配置概览（基础设定 / 角色设定 / 关联补充 / 待处理 + 试选阵容 + 本次范围预览）、条目与角色（四个常见动作）与共享类型；`hooks/useWorldbookDraft.ts` 提供统一草稿与两个带防抖 / 过时响应保护的预览钩子；`WorldBookScopePreview.tsx` 同时用于创建向导
+- 世界书工作台的页签容器与纯逻辑：`components/worldbook/tabs/`（`LoadTab` / `PromptPreviewTab` / `NodeViewTab`）+ `components/worldbook/EntryDependencyTree.tsx` / `utils/worldbookNodeView.ts` / `utils/worldbookDependencyTree.ts` / `utils/worldbookPromptPreview.ts` / `utils/worldbookBatch.ts` — 世界书工作台的五个页签与纯逻辑：**节点视图**把全书启用且有正文的条目从左到右排成一条轨道（排列键 = 服务端真实注入排序键 `position` 升序 → `group_weight` 降序 → `depth` 升序 → `uid` 升序），每个节点向下展开 `requires` 依赖，重复到达的条目渲染为灰节点（口径取自服务端 `display_tree[].repeated` / `first_parent_uid` / `display_index`，前端不自算第二套去重）；**Prompt 预览**走 `eligible_uids_for` → `collect_matches` → `format_injection` 同一条路径（固定种子），给出 `order[]` / `stable_text` / `dynamic_text` / `sites[]` / `skeleton[]` / `dropped[]` / `totals`；**条目依赖逐层展开**与 `resolve_v3_scope` 的 `display_tree` 同构；批量策略变换（起点批量 / 建边 / 清边 / 移入分类）是纯函数，只改草稿不写盘。全部为纯 SVG + DOM，不引入图形库（旧画布 `WorldBookGraphCanvas.tsx` 与 `utils/worldbookGraph.ts` 已整文件删除）
 - `components/SettingsPanel.tsx` — LLM 配置/主题/叙述选项
 
 ### 3.5 状态与数据获取
@@ -164,7 +165,7 @@
 
 生成流程与硬性约束见 skill `combat-designer`，规格说明见 `docs/design/combat/battle-spec.md`。
 
-其他脚本：`scripts/generate_builtin_worldbook.py`（世界书整合包）、`scripts/gen_skin_utils.py`（皮肤颜色工具类生成）、`scripts/run_tests.sh`（统一测试入口）、`scripts/test_worldbook_scope_ui.cjs`（世界书图谱/依赖树的纯逻辑与 SSR 检查）、`scripts/test_worldbook_library_ui.cjs`（资料库体验：用途筛选/分组、摘录载荷折算、SSR 骨架）、`scripts/benchmark_worldbook_builder.py`（世界书构建的**确定性**老/新成本对照，无网络，低于 50% 降幅即退出码 1）、`scripts/verify_worldbook_builder_llm.py`（世界书 AI 构建的**真实模型**端到端验证，`--config` 指定后端、`--book-path` 指定书；未配置时以退出码 2 明确报告「未做真实验证」）。
+其他脚本：`scripts/generate_builtin_worldbook.py`（世界书整合包）、`scripts/gen_skin_utils.py`（皮肤颜色工具类生成）、`scripts/run_tests.sh`（统一测试入口）、`scripts/test_worldbook_scope_ui.cjs`（节点视图轨道排序与灰节点去重、依赖展开树、Prompt 预览的纯函数与 SSR 检查）、`scripts/test_worldbook_library_ui.cjs`（资料库体验：用途筛选/分组、摘录载荷折算、SSR 骨架）。
 
 ---
 
@@ -180,7 +181,7 @@ docs/
 ├── system-update-log.md     变更历史（按时间倒序）+ 尚未实现项
 ├── design/                  【现状设计】机制与实现，可作为现状依据
 │   ├── combat/              战斗引擎 / 数值 / UI / 规格 / 背景提示词
-│   ├── worldbook/           按需载入、节点级作用域、构建性能、阅读模式
+│   ├── worldbook/           按需载入、节点级作用域、资料库与用途分离
 │   ├── narrative/           知识召回、两阶段叙述、提示词约定
 │   └── content-hub-design.md
 ├── proposals/               【目标态提案 / 路线图】未落地或部分落地
@@ -200,11 +201,9 @@ docs/
 | `design/combat/combat-ui-design.md` | 战斗界面交互与布局设计 |
 | `design/combat/battle-spec.md` | 战斗规格（节点 JSON 全字段/地形效果/威胁与阶段带/校验规则/生成闭环），LLM 与设计者共用 |
 | `design/combat/combat-background-prompts.md` | 战斗背景图生成提示词规范 |
-| `design/worldbook/worldbook-on-demand.md` | 世界书分类与依赖图谱、按需候选范围、快照兼容与 API |
+| `design/worldbook/worldbook-on-demand.md` | 世界书分类与依赖载入、按需候选范围、快照兼容与 API |
 | `design/worldbook/worldbook-library.md` | 世界书资料库与剧情世界书分离：`book_type` 用途、安全的用途切换、原子摘录与来源追踪、前端资料库体验 |
 | `design/worldbook/node-scoped-worldbook-loading.md` | 节点级世界书动态载入：`lore_bindings` 绑定面、`会话范围 ∩ 节点作用域` 窄化白名单、快照与回档 |
-| `design/worldbook/worldbook-builder-performance.md` | 世界书依赖自动构建的性能设计：自适应装箱、证据窗口、缓存失效、指标口径与实测 |
-| `design/worldbook/worldbook-selective-reading.md` | 世界书依赖构建的 adaptive/full 阅读模式、补读生命周期、缓存隔离、覆盖报告与离线基准 |
 | `design/narrative/rag-retrieval.md` | 知识注入的四条召回通道（依赖预加载 / 关键词世界书 / 预取 Hook / `wiki_query` 按需）、分层注入与记忆系统 |
 | `design/narrative/two-phase-narration.md` | 两阶段叙述：创作与系统层解耦、结构化产物字段、三级 JSON 兜底与按调用类型思考档位 |
 | `design/narrative/prompt.md` | 本项目提示词书写约定（已采用 / 未采用 / 顺序约定） |
@@ -237,3 +236,5 @@ docs/
 | `combat-embedding.html` | 战斗嵌入剧情的讲解图；引用了已删除的 `tests/test_combat_trigger.py` 与作废的 7×7 口径（其「数值权威在引擎、模型零数值授权」原则仍有效，见 `design/combat/combat-design.md`） |
 | `architecture.html`、`architecture.architecture.json` | 由外部工具 archify 2.16.0 导出的架构图（与边车源文件，需同去同留）；内容停留在 2026-09-05，且 96% 体积是 vendored viewer 运行时。**重新生成不是本仓库的构建步骤**，架构现状见本文件。**已加入 `.gitignore`、不再入库**（本地/历史提交里仍有），因此新克隆的仓库里看不到这两个文件 |
 | `rag-retrieval.html`、`two-phase-narration.html` | 上述两篇讲解图的原 HTML；内容已转为等价的 `design/narrative/rag-retrieval.md` / `design/narrative/two-phase-narration.md` 并补上新机制 |
+| `worldbook-builder-performance.md` | 世界书依赖「AI 自动构建」的性能设计（自适应装箱、证据窗口、缓存失效、指标口径）；该功能已随世界书工作台重构移除，见 `proposals/worldbook-workbench-redesign.md` §2.4，归档时点见文首说明 |
+| `worldbook-selective-reading.md` | 同一功能的另一篇专项：AI 构建第一遍「自适应选择性阅读」的模式、补读生命周期、缓存隔离与离线基准；随该功能一并移除 |

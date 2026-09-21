@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import type { WorldBookDependencyEdgeDTO, WorldBookRootDTO } from "../../types";
 import WorldBookScopePreview from "../WorldBookScopePreview";
 import WorldBookGraphIcon from "../WorldBookGraphIcon";
-import DependencyBuildPanel from "./DependencyBuildPanel";
 import { withManualExpansion } from "../../utils/worldbookRoot";
 import {
   ACTIVATION_LABELS, EXPANSION_LABELS, avatarUrl, characterName, makeLabeler,
@@ -12,7 +11,7 @@ import {
 /**
  * 配置概览：把「这本书怎么载入」压缩成四组看得懂的东西 ——
  * 基础设定（所有会话候选）/ 角色设定（入队时选用）/ 关联补充 / 待处理，
- * 外加「试选阵容」与「本次范围预览」，以及一次点击的 AI 自动构建。
+ * 外加「试选阵容」与「本次范围预览」。
  *
  * 所有改动只落在页面级的统一草稿上，由页面右上角一次保存。
  */
@@ -22,7 +21,6 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
   const label = useMemo(() => makeLabeler(detail), [detail]);
   const [showAllBase, setShowAllBase] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(true);
-  const [applyConflicts, setApplyConflicts] = useState<Array<{ from_uid: string; to_uid: string }>>([]);
 
   const byUid = useMemo(() => new Map(detail.entries.map((e) => [e.uid, e])), [detail.entries]);
   const alwaysRoots = draft.roots.filter((r) => r.activation === "always");
@@ -30,46 +28,21 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
   const manualRoots = draft.roots.filter((r) => r.activation === "manual");
   const requiresSet = useMemo(() => new Set(draft.requires_edges.map((e) => `${e.from_uid}\u0000${e.to_uid}`)),
     [draft.requires_edges]);
-  const rejectedSet = useMemo(() => new Set(draft.rejected.map((e) => `${e.from_uid}\u0000${e.to_uid}`)),
-    [draft.rejected]);
-  const lockedRelations = useMemo(() => {
-    const out = new Map<string, "requires" | "related">();
-    const meta = detail.dependency_rules?.edge_meta || {};
-    for (const edge of detail.dependency_edges || []) {
-      if (meta[`${edge.from_uid}|${edge.to_uid}`]?.locked === true)
-        out.set(`${edge.from_uid}\u0000${edge.to_uid}`, "requires");
-    }
-    for (const edge of detail.related_edges || []) {
-      if (meta[`${edge.from_uid}|${edge.to_uid}`]?.locked === true)
-        out.set(`${edge.from_uid}\u0000${edge.to_uid}`, "related");
-    }
-    return out;
-  }, [detail.dependency_edges, detail.related_edges, detail.dependency_rules]);
 
   const rootPatch = (next: WorldBookRootDTO[]) => patch({ roots: next });
   const removeRoot = (uid: string) => rootPatch(draft.roots.filter((r) => r.entry_uid !== uid));
   const toggleExpansion = (root: WorldBookRootDTO) => rootPatch(draft.roots.map((r) => r.entry_uid !== root.entry_uid
     ? r : withManualExpansion(r, r.expansion === "requires_closure" ? "none" : "requires_closure")));
   /**
-   * 移除一条边。若它来自 AI 建议，必须**同时**记进 `rejected` 并把它从待应用的
-   * `proposal.accepted` 里摘掉：否则保存时 AI 结果会重新并回来，删掉的边复活
-   * （审核反证 P2-11）。统一草稿才是编辑真相，不再每次叠加旧建议。
+   * 移除一条边：只把这条边从对应列表里过滤掉。
+   *
+   * 不写 `draft.rejected` —— 那是 AI 构建专属字段，按提案 §4.4 只做兼容透传、
+   * 新写入不再产生新值（人工删边不再往里追加）。
    */
   const removeEdge = (list: WorldBookDependencyEdgeDTO[], edge: WorldBookDependencyEdgeDTO,
     key: "requires_edges" | "related_edges") => {
-    const pair = `${edge.from_uid}\u0000${edge.to_uid}`;
-    const nextProposal = draft.proposal ? {
-      ...draft.proposal,
-      accepted: (draft.proposal.accepted || []).filter(
-        (item) => `${item.from_uid}\u0000${item.to_uid}` !== pair),
-      accepted_pairs: (draft.proposal.accepted_pairs || []).filter(
-        (item) => `${item[0]}\u0000${item[1]}` !== pair),
-    } : null;
     patch({
       [key]: list.filter((e) => !(e.from_uid === edge.from_uid && e.to_uid === edge.to_uid)),
-      rejected: rejectedSet.has(pair) ? draft.rejected
-        : [...draft.rejected, { from_uid: edge.from_uid, to_uid: edge.to_uid }],
-      proposal: nextProposal,
     } as Partial<typeof draft>);
   };
 
@@ -85,20 +58,12 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
     return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [rosterRoots]);
 
-  /** 待处理：只列真正要动手的，未被当前试选阵容选中不算错误。 */
+  /** 待处理：只列确定性的、真正要动手的项。未被当前试选阵容选中不算错误。 */
   const todos = useMemo(() => {
     const out: Array<{ key: string; severity: "error" | "warning"; text: string; uid?: string }> = [];
     for (const issue of preview?.issues || []) {
       out.push({ key: `${issue.code}:${issue.uid || ""}`, severity: issue.severity === "error" ? "error" : "warning",
         text: issue.message, uid: issue.uid });
-    }
-    for (const issue of detail.evidence_issues || []) {
-      out.push({ key: `detail:${issue.code}:${issue.uid || ""}:${issue.message}`, severity: "warning",
-        text: issue.message, uid: issue.uid });
-    }
-    for (const edge of applyConflicts) {
-      out.push({ key: `locked-conflict:${edge.from_uid}:${edge.to_uid}`, severity: "warning",
-        text: `AI 对 ${label(edge.from_uid)} → ${label(edge.to_uid)} 建议了与人工锁定关系相反的类型，已留作待复核且未加入草稿` });
     }
     for (const uid of draft.requires_edges.flatMap((e) => [e.from_uid, e.to_uid])
       .concat(draft.related_edges.flatMap((e) => [e.from_uid, e.to_uid]))) {
@@ -136,7 +101,7 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
     }
     return out;
   }, [preview, draft.requires_edges, draft.related_edges, detail.entries, detail.categories,
-    detail.evidence_issues, byUid, label, characterGroups, characters, applyConflicts]);
+    byUid, label, characterGroups, characters]);
 
   const baseVisible = showAllBase ? alwaysRoots : alwaysRoots.slice(0, 24);
 
@@ -272,43 +237,6 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
       </div>
 
       <aside className="wbg-config-side">
-        <DependencyBuildPanel detail={detail} busy={props.saving}
-          onApply={(proposal) => {
-            // 建议并入统一草稿：边去重后追加，保存时与人工配置一起原子写入。
-            // 必须带上 job_id：服务端据此复核任务身份 / 正文哈希 / 证据，不信任客户端的 accepted。
-            const key = (e: { from_uid: string; to_uid: string }) => `${e.from_uid}\u0000${e.to_uid}`;
-            const merge = (base: WorldBookDependencyEdgeDTO[], add: Array<{ from_uid: string; to_uid: string }>) => {
-              const seen = new Set(base.map(key));
-              return [...base, ...add.filter((e) => !seen.has(key(e)) && !rejectedSet.has(key(e)))
-                .map((e) => ({ from_uid: e.from_uid, to_uid: e.to_uid }))];
-            };
-            // 已人工拒绝的建议不再并入，也不留在待应用列表里。
-            const conflicts = proposal.accepted.filter((r) => {
-              const locked = lockedRelations.get(key(r));
-              return !!locked && locked !== r.relation;
-            });
-            setApplyConflicts(conflicts.map((r) => ({ from_uid: r.from_uid, to_uid: r.to_uid })));
-            const accepted = proposal.accepted.filter((r) => !rejectedSet.has(key(r))
-              && !conflicts.some((c) => key(c) === key(r)));
-            const requires = accepted.filter((r) => r.relation === "requires");
-            const related = accepted.filter((r) => r.relation === "related");
-            const proposalRootIds = new Set(proposal.roots.map((root) => root.entry_uid));
-            patch({
-              adopt_v3: true,
-              scope_mode: "selective",
-              roots: [...draft.roots.filter((root) => !proposalRootIds.has(root.entry_uid)), ...proposal.roots],
-              proposal: {
-                materialized: true,
-                materialized_root_uids: proposal.roots.map((root) => root.entry_uid),
-                job_id: proposal.job_id,
-                accepted,
-                accepted_pairs: accepted.map((r) => [r.from_uid, r.to_uid] as [string, string]),
-              },
-              requires_edges: merge(draft.requires_edges, requires),
-              related_edges: merge(draft.related_edges, related),
-            });
-          }} />
-
         <section className="wbg-card" aria-label="试选阵容">
           <div className="wbg-card-head">
             <div><h4>试选阵容</h4>

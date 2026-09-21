@@ -19,6 +19,8 @@ Worldbook blueprint — 世界书（酒馆 Lorebook 兼容）管理 API。
     POST   /api/worldbook/<book_id>/default    设为/取消全局默认书（资料库禁止设为默认）
     POST   /api/worldbook/<book_id>/bind       绑定到会话（或解绑；资料库禁止绑定）
     POST   /api/worldbook/<book_id>/excerpt    从来源书摘录条目到本书（仅 story，整批原子）
+    POST   /api/worldbook/<book_id>/prompt-preview     单轮实际注入预览（只读，A-2）
+    GET    /api/worldbook/<book_id>/dependency-tree    条目依赖子树（只读，A-3）
     GET    /api/worldbook/resolve              查询会话当前生效的书
 
 用途（`book_type`）：`story` 剧情世界书可绑定会话、设为默认并参与解析；
@@ -27,10 +29,8 @@ Worldbook blueprint — 世界书（酒馆 Lorebook 兼容）管理 API。
 
 import json
 import logging
-import threading
 import uuid
 import copy
-import hashlib
 from contextlib import contextmanager
 
 from flask import Blueprint, jsonify, request, g
@@ -42,24 +42,15 @@ from world_book import (
     estimate_tokens, normalize_book_type,
 )
 from worldbook_classify import classify_entries
-from worldbook_builder import (
-    AnalysisCache, DependencyJobStore, auto_budget, build_to_v3_rules,
-    content_hash, evidence_locatable, model_identity, normalize_reading_mode,
-    run_build_with_auto_resume,
-)
-from worldbook_reading import READING_MODE_ADAPTIVE, READING_MODES
 from worldbook_scope import (
     ACTIVATION_ALWAYS, ACTIVATION_MANUAL, ACTIVATION_ROSTER_ANY,
     EXPANSION_LEGACY_DEPTH, EXPANSION_NONE, EXPANSION_REQUIRES_CLOSURE,
-    SCHEMA_VERSION_V3, validate_categories, validate_policy, validate_v3_rules,
+    MAX_DEPENDENCY_DEPTH, SCHEMA_VERSION_V3, resolve_v3_scope, validate_categories,
+    validate_policy, validate_v3_rules,
 )
 import node_lore_scope
 
 logger = logging.getLogger(__name__)
-
-# 依赖构建任务表（进程级）。任务本身持久化到磁盘，重启后仍可查询。
-_JOB_STORE = DependencyJobStore()
-_ANALYSIS_CACHE = AnalysisCache()
 
 
 def _union_edges(first, second) -> list[dict]:
@@ -74,6 +65,75 @@ def _union_edges(first, second) -> list[dict]:
         seen.add(pair)
         out.append({"from_uid": pair[0], "to_uid": pair[1]})
     return out
+
+
+def _dependency_cycles(closure_uids, requires_edges) -> list[list[str]]:
+    """求闭包内 requires 子图的**环**（强连通分量），供 A-3/A-4 标红。
+
+    返回格式（冻结）：`cycles: string[][]`，每个元素是一条环，记录环上节点
+    **按环序排列且首尾同一 uid**，例如 `[["a", "b", "c", "a"]]`；无环为 `[]`。
+    - 大小 > 1 的强连通分量各产出一条环（节点按 uid 稳定排序后首尾闭合）；
+    - 自环产出 `["x", "x"]`（v3 校验器禁止自环，这里只做防御）。
+
+    前端按相邻对（`cycles[i][j] → cycles[i][j+1]`）推出环内的边。
+    Tarjan 用**迭代**实现：依赖链可以有上千节点，递归会撞上 Python 的栈上限。
+    """
+    nodes = sorted(set(closure_uids))
+    adjacency = {uid: set() for uid in nodes}
+    for edge in requires_edges:
+        if not isinstance(edge, dict):
+            continue
+        a, b = edge.get("from_uid"), edge.get("to_uid")
+        if a in adjacency and b in adjacency:
+            adjacency[a].add(b)
+
+    index_of, low, on_stack, stack, components = {}, {}, set(), [], []
+    counter = 0
+    for start in nodes:
+        if start in index_of:
+            continue
+        index_of[start] = low[start] = counter
+        counter += 1
+        stack.append(start)
+        on_stack.add(start)
+        work = [(start, iter(sorted(adjacency[start])))]
+        while work:
+            node, neighbours = work[-1]
+            advanced = False
+            for target in neighbours:
+                if target not in index_of:
+                    index_of[target] = low[target] = counter
+                    counter += 1
+                    stack.append(target)
+                    on_stack.add(target)
+                    work.append((target, iter(sorted(adjacency[target]))))
+                    advanced = True
+                    break
+                if target in on_stack:
+                    low[node] = min(low[node], index_of[target])
+            if advanced:
+                continue
+            work.pop()
+            if work:
+                parent = work[-1][0]
+                low[parent] = min(low[parent], low[node])
+            if low[node] == index_of[node]:
+                component = []
+                while True:
+                    member = stack.pop()
+                    on_stack.discard(member)
+                    component.append(member)
+                    if member == node:
+                        break
+                components.append(sorted(component))
+
+    cycles = []
+    for component in components:
+        if len(component) > 1:
+            cycles.append(component + [component[0]])
+        elif component and component[0] in adjacency[component[0]]:
+            cycles.append([component[0], component[0]])
+    return sorted(cycles)
 
 
 def _apply_full_scope(payload: dict, book) -> dict:
@@ -106,60 +166,23 @@ def _apply_full_scope(payload: dict, book) -> dict:
     return payload
 
 
-def _ai_evidence_issues(book) -> list[dict]:
-    """Report stale evidence for applied AI roots/edges without disabling them."""
-    by_uid = {entry.uid: entry for entry in book.entries}
-    issues = []
-    rules = book.dependency_rules or {}
-    for root in rules.get("roots", []):
-        if not isinstance(root, dict) or root.get("origin") != "llm":
-            continue
-        uid = root.get("entry_uid")
-        entry = by_uid.get(uid)
-        stale = (entry is None
-                 or root.get("source_content_hash") != content_hash(entry.content or "")
-                 or not evidence_locatable(root.get("evidence"), [entry]))
-        if stale:
-            issues.append({"code": "ai_root_evidence_stale", "severity": "warning", "uid": uid,
-                           "message": f"AI 起点 {getattr(entry, 'name', '') or uid} 的原文证据已过期，请重新构建或人工复核"})
-    formal = {(edge.get("from_uid"), edge.get("to_uid"))
-              for edge in list(book.dependency_edges or []) + list(book.related_edges or [])
-              if isinstance(edge, dict)}
-    for key, meta in (rules.get("edge_meta") or {}).items():
-        if not isinstance(meta, dict) or meta.get("origin") != "llm" or "|" not in key:
-            continue
-        a, b = key.split("|", 1)
-        if (a, b) not in formal:
-            continue
-        source, target = by_uid.get(a), by_uid.get(b)
-        stale = (source is None or target is None
-                 or meta.get("source_content_hash") != content_hash(source.content or "")
-                 or meta.get("target_content_hash") != content_hash(target.content or "")
-                 or not evidence_locatable(meta.get("evidence"), [source, target]))
-        if stale:
-            issues.append({"code": "ai_edge_evidence_stale", "severity": "warning", "uid": a,
-                           "from_uid": a, "to_uid": b,
-                           "message": f"AI 关系 {a} → {b} 的原文证据已过期；关系仍保留，请重新构建或人工复核"})
-    return issues
+def _merge_v3_payload(manual: dict, existing: dict = None) -> dict:
+    """把人工草稿并入已持久化的 v3 规则集。
 
+    草稿是唯一来源；`existing`（旧数据）只用来补草稿没提到的人工锁定项，
+    否则「保存一次」就会静默清掉旧书里已锁定的起点。
 
-def _merge_v3_payload(manual: dict, proposal: dict = None, existing: dict = None) -> dict:
-    """把人工草稿与 AI 建议并入同一个 v3 规则集（人工优先，重复项跳过）。
-
-    顺序很重要：人工起点先占位，AI 只补人工没有的；边按 (from, to) 去重。
-    这样「应用构建结果」是**追加**，不会静默重置用户已配好的起点与依赖。
-
-    `rejected`（人工删除过的建议）与 `edge_meta`（边的来源与证据）一并保留：
-    删掉一条 AI 边之后再次应用，不能把它复活。
+    `rejected`（人工删除过的边）与 `edge_meta`（边的来源与证据）一并保留：
+    它们已经写进旧书的 JSON，删字段会破坏旧书读回与酒馆格式往返导出，
+    因此保留为兼容透传，新写入不再产生新值。
     """
-    proposal = proposal or {}
     existing = existing or {}
     locked = {r.get("entry_uid") for r in existing.get("roots", [])
               if isinstance(r, dict) and r.get("locked")}
 
     roots = []
     seen = set()
-    for root in list(manual.get("roots", [])) + list(proposal.get("roots", [])):
+    for root in list(manual.get("roots", [])):
         if not isinstance(root, dict) or not root.get("entry_uid"):
             continue
         uid = root["entry_uid"]
@@ -167,7 +190,7 @@ def _merge_v3_payload(manual: dict, proposal: dict = None, existing: dict = None
             continue
         seen.add(uid)
         roots.append({**root, "locked": True} if uid in locked else root)
-    # 人工锁定但两边都没出现的起点：必须保留
+    # 人工锁定但草稿里没出现的起点：必须保留
     for root in existing.get("roots", []):
         if not isinstance(root, dict) or not root.get("entry_uid"):
             continue
@@ -190,22 +213,10 @@ def _merge_v3_payload(manual: dict, proposal: dict = None, existing: dict = None
     rejected = union(existing.get("rejected", []), manual.get("rejected", []))
     edge_meta = {k: dict(v) for k, v in (existing.get("edge_meta") or {}).items()
                  if isinstance(v, dict)}
-    for key, value in (proposal.get("edge_meta") or {}).items():
-        if isinstance(value, dict):
-            edge_meta[key] = {**edge_meta.get(key, {}), **value}
-
-    manual_requires = union(manual.get("requires_edges", []), [])
-    manual_related = union(manual.get("related_edges", []), [])
-    manual_requires_pairs = {(e.get("from_uid"), e.get("to_uid")) for e in manual_requires}
-    manual_related_pairs = {(e.get("from_uid"), e.get("to_uid")) for e in manual_related}
-    proposal_requires = [e for e in proposal.get("requires_edges", [])
-                         if (e.get("from_uid"), e.get("to_uid")) not in manual_related_pairs]
-    proposal_related = [e for e in proposal.get("related_edges", [])
-                        if (e.get("from_uid"), e.get("to_uid")) not in manual_requires_pairs]
     return {
         "roots": roots,
-        "requires_edges": union(manual_requires, proposal_requires),
-        "related_edges": union(manual_related, proposal_related),
+        "requires_edges": union(manual.get("requires_edges", []), []),
+        "related_edges": union(manual.get("related_edges", []), []),
         "rejected": rejected,
         "edge_meta": edge_meta,
     }
@@ -366,7 +377,7 @@ def register(app, managers):
 
     @bp.before_request
     def serialize_book_operations():
-        # Also covers export refresh, reinstall, metadata and job start/retry.
+        # 覆盖条目 CRUD、统一配置写入、导出刷新、重装与元信息写入。
         book_id = (request.view_args or {}).get("book_id")
         if book_id:
             lock = wb_mgr.book_lock(book_id)
@@ -495,7 +506,7 @@ def register(app, managers):
                                   "resolver_version": item["resolver_version"],
                                   "created_at": item["created_at"]}
                                  for item in book.policy_revisions],
-            "evidence_issues": _ai_evidence_issues(book),
+            "evidence_issues": [],
         }
         if include_entries:
             detail["entries"] = [e.to_dict() for e in book.entries]
@@ -957,10 +968,6 @@ def register(app, managers):
                 payload = candidate.preview_v3_scope(roster, manual, revision, full_scope)
                 if full_scope:
                     payload = _apply_full_scope(payload, candidate)
-                stale_issues = _ai_evidence_issues(candidate)
-                payload["issues"] = list(payload.get("issues") or []) + stale_issues
-                if isinstance(payload.get("scope"), dict):
-                    payload["scope"]["issues"] = list(payload["scope"].get("issues") or []) + stale_issues
                 return jsonify(payload)
             # 未启用 v3 的书沿用 v2 预览（旧语义不静默改变）
             payload = candidate.preview_scope(roster)
@@ -975,7 +982,160 @@ def register(app, managers):
         except (TypeError, ValueError) as exc:
             return json_error(str(exc))
 
-    # ── 4.2 统一配置写入（分类 + 关联 + 起点 + 边 + AI 建议，一次原子提交）──
+    # ── 4.1b 只读预览：单轮实际注入（A-2）与条目依赖子树（A-3）──
+
+    @bp.route("/api/worldbook/<book_id>/prompt-preview", methods=["POST"])
+    def prompt_preview(book_id):
+        """只读预览：这一轮实际会插进提示词的文本 / 顺序 / 位置 / 未插入原因（A-2）。
+
+        **复用线上同一条执行路径**：`WorldBook.preview_prompt_injection` →
+        `eligible_uids_for()` → `collect_matches(rng=random.Random(seed))` →
+        `format_injection(trace=...)`。预览与真实注入字节等价，唯一差异是概率抽签
+        改用固定种子（可复现）。
+
+        **只读**：不写盘、不动候选缓存、不创建/修改会话、不污染全局 `random`。
+        因此本路由**不加** `_locked_book`（加锁与只读语义无关，只会把并发预览串行化）。
+        """
+        book, err = _get_book_or_404(book_id)
+        if err:
+            return err
+        data = request.json
+        try:
+            if not isinstance(data, dict):
+                raise ValueError("请求体必须是对象")
+            mode = data.get("mode", "narrative")
+            if mode not in ("narrative", "free"):
+                return json_error("mode 只能是 narrative（剧情模式）或 free（自由模式）", 400)
+
+            # 草稿口径与 scope-preview 一致：合成一本候选书，校验失败即抛错、绝不落盘
+            policy = data.get("policy")
+            if policy is None:
+                candidate = book
+            elif isinstance(policy, dict):
+                candidate = _draft_candidate(book, policy, preview=True)
+            else:
+                raise ValueError("policy 必须是完整草稿对象")
+
+            # token 预算覆盖只在**候选书副本**上生效（不改原书、不写盘）
+            budget = data.get("budget_tokens")
+            if isinstance(budget, bool) or budget is None:
+                budget_value = 0
+            else:
+                try:
+                    budget_value = int(budget)
+                except (TypeError, ValueError):
+                    budget_value = 0
+            if budget_value > 0:
+                candidate.budget_tokens = max(0, budget_value)
+
+            roster = data.get("roster_character_ids") or []
+            manual = data.get("manual_entry_uids") or []
+            if not isinstance(roster, list) or not isinstance(manual, list):
+                raise ValueError("roster_character_ids / manual_entry_uids 必须是数组")
+            input_text = data.get("input_text") or ""
+            recent_text = data.get("recent_text") or ""
+            if not isinstance(input_text, str) or not isinstance(recent_text, str):
+                raise ValueError("input_text / recent_text 必须是字符串")
+            lore_scope = data.get("lore_scope")
+            if lore_scope is not None and not isinstance(lore_scope, dict):
+                raise ValueError("lore_scope 必须是对象（形状同会话节点作用域）")
+            identity = data.get("identity")
+            if not isinstance(identity, str) or not identity:
+                identity = "博士"
+            active_char = data.get("active_char")
+            if not isinstance(active_char, str):
+                active_char = None
+            seed = data.get("seed", 0)
+            if isinstance(seed, bool) or not isinstance(seed, int):
+                seed = 0
+
+            return jsonify(candidate.preview_prompt_injection(
+                mode=mode, input_text=input_text, recent_text=recent_text,
+                roster_character_ids=roster, manual_entry_uids=manual,
+                full_scope=bool(data.get("full_scope")), identity=identity,
+                active_char=active_char, seed=seed, lore_scope=lore_scope))
+        except (TypeError, ValueError) as exc:
+            return json_error(str(exc))
+
+    @bp.route("/api/worldbook/<book_id>/dependency-tree", methods=["GET"])
+    def dependency_tree(book_id):
+        """条目依赖子树（A-3）：`entry_uids` 的 requires 闭包 + 边状态 + 环。
+
+        **复用 `resolve_v3_scope` 的同一段 BFS**，不另写第二套遍历：把 `entry_uids`
+        合成等价起点（`always` + `requires_closure`；给了 `max_depth` 就用
+        `always` + `legacy_depth`），边与其余装载路径与 `scope-preview` 完全一致。
+        这样「条目页展开看到的依赖」与「分类与载入页看到的候选范围」永远同源。
+
+        只读：不写盘、不改规则、不加 `_locked_book`。
+        """
+        book, err = _get_book_or_404(book_id)
+        if err:
+            return err
+        known = {e.uid for e in book.entries}
+        wanted, seen = [], set()
+        for raw in (request.args.get("entry_uids") or "").split(","):
+            uid = raw.strip()
+            if not uid or uid in seen or uid not in known:
+                continue
+            seen.add(uid)
+            wanted.append(uid)
+        if not wanted:
+            return json_error("entry_uids 不能为空，且至少需要一个本书中真实存在的条目 UID", 400)
+
+        max_depth = None
+        raw_depth = request.args.get("max_depth")
+        if raw_depth not in (None, ""):
+            try:
+                max_depth = int(str(raw_depth).strip())
+            except (TypeError, ValueError):
+                return json_error("max_depth 必须是整数", 400)
+            max_depth = max(0, min(MAX_DEPENDENCY_DEPTH, max_depth))
+
+        roots = []
+        for uid in wanted:
+            root = {"entry_uid": uid, "activation": ACTIVATION_ALWAYS, "character_ids": []}
+            if max_depth is None:
+                root["expansion"] = EXPANSION_REQUIRES_CLOSURE
+            else:
+                root["expansion"] = EXPANSION_LEGACY_DEPTH
+                root["max_depth"] = max_depth
+            roots.append(root)
+        rules = {"roots": roots, "root_rule": {"entry_uids": []}}
+
+        # 边与其余参数走与 scope-preview 相同的装载口径（书里真实的 requires/related）
+        result = resolve_v3_scope(
+            book.entries, rules, book.dependency_edges, book.related_edges,
+            roster_character_ids=[],
+            policy_revision=book.import_config["revision"],
+            content_revision=content_revision(book.entries),
+            book_id=book.id,
+        )
+        closure = set(result["resolved_entry_uids"])
+        nodes = [{"uid": node["uid"], "name": node["name"], "parent_uid": node["parent_uid"],
+                  "child_uids": node["child_uids"], "depth": node["depth"],
+                  "remaining": node["remaining"], "is_root": node["is_root"],
+                  # 闭包只沿 requires 展开，所以「到达该节点的边」实践中恒为 requires；
+                  # related 只作为提示走 edges[]，永远不参与展开、也不会出现在这里。
+                  "relation": "requires"}
+                 for node in result["display_tree"]]
+        # 边集合（R-25）：保留 **from_uid 落在闭包内**的所有边，to_uid 可以在闭包外。
+        # 依据：`status == "capped"` 的边正是「上游已到达、但遍历深度用尽」——
+        # 它的目标**不在**闭包里（`remaining == 0` 不再遍历）。若按「两端都要在
+        # 闭包内」过滤，capped 边会被整批丢掉，节点视图的灰虚线就画不出来。
+        # 前端对闭包外的目标渲染成「未展开（深度用尽）」小标记，名字从 detail.entries 查。
+        edges = [{"from_uid": edge["from_uid"], "to_uid": edge["to_uid"],
+                  "relation": edge["relation"], "status": edge["status"]}
+                 for edge in result["resolved_edges"] if edge["from_uid"] in closure]
+        return jsonify({
+            "book_id": book.id,
+            "entry_uids": wanted,
+            "nodes": nodes,
+            "edges": edges,
+            "cycles": _dependency_cycles(closure, book.dependency_edges),
+            "issues": result["issues"],
+        })
+
+    # ── 4.2 统一配置写入（分类 + 关联 + 起点 + 边，一次原子提交）──
 
     def _draft_candidate(book, data, preview=False):
         """把请求体合成一本候选书。校验失败即抛 ValueError，绝不写盘。"""
@@ -1039,38 +1199,11 @@ def register(app, managers):
             existing_rules["rejected"] = _union_edges(
                 existing_rules.get("rejected") or [], request_rejected)
 
-        # AI 建议：服务端按持久化任务复核，客户端 accepted 只是「用户选了哪些」的提示
-        proposal = _verified_proposal(book, data.get("proposal"))
-        adopt_v3 = adopt_v3 or proposal is not None
-        v3_payload = None
-        if proposal is not None:
-            raw_proposal = data.get("proposal") or {}
-            if raw_proposal.get("materialized"):
-                # materialized 只是 UI 工作流标记，不是信任边界。仍标成 llm/rule 的根
-                # 必须逐字段匹配服务端任务；用户改写后须明确转成 manual。
-                data = {**data, "roots": _verified_materialized_roots(
-                    data.get("roots") or [], proposal, book)}
-            v3_payload = build_to_v3_rules(candidate, proposal, existing_rules)
-            if raw_proposal.get("materialized"):
-                # UI has already put the proposal into its editable draft.
-                # Retain provenance, but never re-add something the user removed.
-                removed = []
-                for field in ("requires_edges", "related_edges"):
-                    keep = {(e.get("from_uid"), e.get("to_uid")) for e in data.get(field, [])}
-                    removed.extend(e for e in v3_payload[field]
-                                   if (e["from_uid"], e["to_uid"]) not in keep)
-                    v3_payload[field] = []
-                materialized_roots = set(proposal.get("materialized_root_uids") or [])
-                # 新 UI 明确列出已经物化过的根：这些根随后从草稿删除就代表用户
-                # 明确删除。旧 UI 没这个字段时不能把服务端生成的完整根计划清空。
-                v3_payload["roots"] = [root for root in v3_payload.get("roots", [])
-                                       if root.get("entry_uid") not in materialized_roots]
-                existing_rules["rejected"] = _union_edges(existing_rules.get("rejected", []), removed)
-
         manual_keys = ("roots", "requires_edges", "related_edges")
         migrating = adopt_v3 and not book.v3_enabled
+        v3_payload = None
         if adopt_v3 and (any(key in data for key in manual_keys) or migrating
-                         or v3_payload is not None or "rejected" in data):
+                         or "rejected" in data):
             if migrating:
                 # 显式迁移：把旧来源（世界观 / 阵容 / 固定 / 导入源）按**等价**映射
                 # 并入起点。用并集而不是「客户端没给才补」——否则只要草稿漏了一类
@@ -1089,8 +1222,8 @@ def register(app, managers):
             else:
                 # 已经是 v3：**已持久化的规则**就是草稿基线。
                 # 只覆盖本次请求显式给出的列表，没给的键保持不动 —— 否则一个
-                # 「只带 proposal」或「只带 rejected」的部分请求会把用户配好的
-                # 起点 / 依赖静默清空；反过来也不能把 v2 等价映射重新并进来，
+                # 「只带 rejected」的部分请求会把用户配好的起点 / 依赖静默清空；
+                # 反过来也不能把 v2 等价映射重新并进来，
                 # 那会让「收窄起点」永远不生效（P1-3 的第二段反证）。
                 manual = {
                     "roots": data.get("roots", existing_rules.get("roots") or []),
@@ -1098,8 +1231,8 @@ def register(app, managers):
                     "related_edges": data.get("related_edges", candidate.related_edges),
                 }
 
-            # 正式人工锁定关系优先。即使旧/恶意客户端把相反类型的 AI 建议也放进
-            # materialized 草稿，服务端仍恢复锁定类型并剔除相反类型；其他建议继续应用。
+            # 旧数据兼容守卫：`edge_meta.locked` 是 AI 构建时代写入的字段，按 §4.4
+            # 停写不删；这里只保证旧书读回后关系类型不被草稿静默改写，不产生任何新值。
             locked_meta = {key for key, meta in (existing_rules.get("edge_meta") or {}).items()
                            if isinstance(meta, dict) and meta.get("locked")}
             existing_requires = {(e["from_uid"], e["to_uid"]) for e in candidate.dependency_edges}
@@ -1121,19 +1254,13 @@ def register(app, managers):
                     manual_related[pair] = edge
             manual["requires_edges"] = list(manual_requires.values())
             manual["related_edges"] = list(manual_related.values())
-            v3_payload = _merge_v3_payload(manual, v3_payload, existing_rules)
+            v3_payload = _merge_v3_payload(manual, existing_rules)
 
         if migrating and v3_payload is None:
             # 显式迁移但请求体什么都没带（例如只有 {"adopt_v3": true}）：整体走等价映射
             v3_payload = candidate.equivalent_v3_rules()
 
         if v3_payload is not None and adopt_v3:
-            final_pairs = {(e["from_uid"], e["to_uid"]) for field in ("requires_edges", "related_edges")
-                           for e in v3_payload.get(field, [])}
-            removed_ai = [{"from_uid": k.split("|", 1)[0], "to_uid": k.split("|", 1)[1]}
-                          for k, meta in existing_rules.get("edge_meta", {}).items()
-                          if meta.get("origin") == "llm" and tuple(k.split("|", 1)) not in final_pairs]
-            v3_payload["rejected"] = _union_edges(v3_payload.get("rejected", []), removed_ai)
             candidate.dependency_rules, candidate.dependency_edges, candidate.related_edges = (
                 validate_v3_rules(known, v3_payload, candidate.dependency_edges))
             candidate.schema_version = SCHEMA_VERSION_V3
@@ -1180,7 +1307,7 @@ def register(app, managers):
 
     @bp.route("/api/worldbook/<book_id>/configuration", methods=["PUT"])
     def put_configuration(book_id):
-        """统一写入：分类 / 角色关联 / 起点规则 / 依赖边 / AI 建议，一次原子提交。
+        """统一写入：分类 / 角色关联 / 起点规则 / 依赖边，一次原子提交。
 
         按书锁覆盖「检查 → 提交」，因此并发写不会因为原子替换而丢更新；
         版本不一致返回 409，前端保留草稿。
@@ -1212,398 +1339,6 @@ def register(app, managers):
                 "related_edges": len(candidate.related_edges),
             },
         })
-
-    # ── 4.3 AI 自动构建依赖（后台任务）──
-
-    def _job_input_hash(book) -> str:
-        """绑定正文和分析所用名称/别名/分类/角色；规则边编辑不改变该指纹。"""
-        payload = [{"uid": e.uid, "content": content_hash(e.content), "name": e.name,
-                    "aliases": e.trigger_keys, "category_id": e.category_id,
-                    "character_id": e.character_id} for e in book.entries]
-        return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-
-    def _model_identity(backend, backend_id: str, llm=None) -> str:
-        """真实模型身份：`类型:模型名`（不含密钥）。
-
-        `LLMBackendManager.get_llm()` 的第二个返回值是**后端 id**（cloud / ollama），
-        不是模型名；直接拿它当 model 会让「同一个后端换模型」复用旧缓存。
-        """
-        if not backend_id:
-            return ""
-        identity = model_identity(llm, backend_id)
-        if identity:
-            return identity
-        try:
-            endpoints = backend.get_status().get("endpoints") or []
-        except Exception:
-            return backend_id
-        for endpoint in endpoints:
-            if endpoint.get("id") == backend_id:
-                return f"{endpoint.get('type') or backend_id}:{endpoint.get('model') or 'unknown'}"
-        return backend_id
-
-    def _verified_proposal(book, raw):
-        """服务端校验 AI 建议 —— **不信任客户端传来的 accepted**。
-
-        只认持久化任务里的校验结果，并逐条复核：
-        任务身份（job_id + 书 id）、输入指纹、两端正文哈希、证据可定位性。
-        任一项不通过就报错要求重新构建，绝不把过期建议写进配置。
-        """
-        if raw is None:
-            return None
-        if not isinstance(raw, dict):
-            raise ValueError("proposal 必须是对象")
-        job_id = raw.get("job_id")
-        if not job_id:
-            raise ValueError("AI 建议缺少任务标识（job_id），无法校验来源；请重新构建后再应用")
-        job = _JOB_STORE.get(str(job_id))
-        if job is None or job.book_id != book.id:
-            raise ValueError("找不到这次构建的任务记录，结果已失效；请重新构建")
-        if job.cancelled or job.stage != "done" or job.outcome == "failed":
-            raise ValueError("任务尚未完成或已取消，不能应用")
-        result = job.result
-        if not isinstance(result, dict):
-            raise ValueError("这次构建没有可用的校验结果；请重新构建")
-        if job.input_hash != _job_input_hash(book):
-            raise ValueError("这本书在构建开始后已被修改，AI 结果已过期；请重新构建后再应用")
-
-        wanted = raw.get("accepted_pairs")
-        if wanted is None:
-            wanted = [[item.get("from_uid"), item.get("to_uid")]
-                      for item in (raw.get("accepted") or []) if isinstance(item, dict)]
-        wanted_set = {(item[0], item[1]) for item in wanted
-                      if isinstance(item, (list, tuple)) and len(item) == 2}
-
-        by_uid = {e.uid: e for e in book.entries}
-        accepted, skipped = [], 0
-        seen = set()
-        for record in result.get("records") or []:
-            if not isinstance(record, dict):
-                continue
-            pair = (record.get("from_uid"), record.get("to_uid"))
-            if pair in seen or pair not in wanted_set:
-                continue
-            seen.add(pair)
-            a, b = pair
-            if a not in by_uid or b not in by_uid:
-                raise ValueError(f"AI 建议引用了不存在的条目：{a} → {b}")
-            if record.get("source_content_hash") != content_hash(by_uid[a].content or "") or \
-                    record.get("target_content_hash") != content_hash(by_uid[b].content or ""):
-                raise ValueError(f"条目正文已变化（{a} → {b}），AI 证据已过期；请重新构建")
-            relation = record.get("relation")
-            if relation not in ("requires", "related"):
-                skipped += 1
-                continue
-            if not evidence_locatable(record.get("evidence"), [by_uid[a], by_uid[b]]):
-                skipped += 1
-                continue
-            accepted.append({**record, "relation": relation})
-        verified_roots = []
-        known_characters = set(_character_directory_ids()) or {
-            entry.character_id for entry in book.entries if entry.character_id}
-        for root in result.get("roots") or []:
-            if not isinstance(root, dict):
-                continue
-            uid = root.get("entry_uid")
-            entry = by_uid.get(uid)
-            if entry is None:
-                skipped += 1
-                continue
-            if root.get("origin") != "llm":
-                skipped += 1
-                continue
-            if root.get("source_content_hash") != content_hash(entry.content or ""):
-                raise ValueError(f"条目正文已变化（{uid}），AI 起点证据已过期；请重新构建")
-            if not evidence_locatable(root.get("evidence"), [entry]):
-                skipped += 1
-                continue
-            chars = root.get("character_ids") or []
-            if root.get("activation") == "roster_any" and (
-                    not chars or any(cid not in known_characters for cid in chars)):
-                skipped += 1
-                continue
-            verified_roots.append(dict(root))
-
-        # 服务端重建确定性分类根，只把上面逐条验过的 AI 根作为输入；不信客户端
-        # 传来的 configuration_roots。该完整计划会交给物化草稿。
-        configuration_roots = build_to_v3_rules(
-            book, {"roots": verified_roots, "accepted": []},
-            existing_rules=book.dependency_rules or {})["roots"]
-        return {
-            "accepted": accepted,
-            "roots": configuration_roots,
-            "model": result.get("model") or job.model,
-            "proposal_version": result.get("proposal_version"),
-            "job_id": job.id,
-            "skipped": skipped,
-            "materialized_root_uids": [uid for uid in (raw.get("materialized_root_uids") or [])
-                                       if isinstance(uid, str)],
-        }
-
-    def _verified_materialized_roots(roots, proposal, book):
-        """复核 UI 已物化根的来源，返回只含服务端或明确人工数据的根列表。"""
-        if not isinstance(roots, list):
-            raise ValueError("roots 必须是数组")
-
-        def signature(root):
-            chars = root.get("character_ids") or []
-            if not isinstance(chars, list):
-                chars = []
-            return (
-                root.get("entry_uid"), root.get("origin"), root.get("activation"),
-                tuple(sorted({str(cid) for cid in chars if isinstance(cid, str)})),
-                root.get("expansion"), root.get("max_depth"),
-                root.get("source_content_hash"), root.get("evidence"),
-                root.get("model"), root.get("prompt_version"),
-            )
-
-        verified = {}
-        for root in proposal.get("roots") or []:
-            if isinstance(root, dict) and root.get("origin") in ("llm", "rule"):
-                verified[signature(root)] = root
-
-        # 当前 job 只证明它本次新物化的根。完整草稿还会带回当前书上已正式保存、
-        # 但本次没有再次建议的旧 AI / 规则根；这些只能与服务端正式记录原样核对。
-        def persisted_signature(root):
-            return signature(root) + (
-                root.get("job_id"), root.get("review_status"), root.get("reason"),
-                root.get("locked") is True,
-            )
-
-        persisted = {}
-        for root in (book.dependency_rules or {}).get("roots", []):
-            if isinstance(root, dict) and root.get("origin") in ("llm", "rule"):
-                persisted[persisted_signature(root)] = root
-
-        sanitized = []
-        for root in roots:
-            if not isinstance(root, dict):
-                raise ValueError("roots 的每一项必须是对象")
-            origin = root.get("origin") or "manual"
-            if origin == "manual":
-                sanitized.append({**root, "origin": "manual"})
-                continue
-            if origin not in ("llm", "rule"):
-                raise ValueError(f"起点 {root.get('entry_uid') or '?'} 的 origin 无效；人工改写请使用 manual")
-            expected = verified.get(signature(root))
-            if expected is None:
-                saved = persisted.get(persisted_signature(root))
-                if saved is None:
-                    label = "AI" if origin == "llm" else "规则"
-                    raise ValueError(
-                        f"物化草稿中的{label}起点 {root.get('entry_uid') or '?'} "
-                        "与服务端构建任务的已验证建议不一致，且不匹配这本书已保存的正式起点；"
-                        "人工改写请将 origin 设为 manual")
-                item = dict(saved)
-            else:
-                item = dict(expected)
-                if origin == "llm":
-                    item["job_id"] = proposal.get("job_id") or ""
-                    item["review_status"] = "applied"
-                if root.get("locked"):
-                    item["locked"] = True
-            sanitized.append(item)
-        return sanitized
-
-    def _character_directory_ids() -> list[str]:
-        """真实角色目录 ID：AI 角色关联建议必须对着它校验，而不是「已关联过的角色」。"""
-        doc_mgr = managers.get("document")
-        if not doc_mgr:
-            return []
-        try:
-            docs = doc_mgr.list_documents("characters", include_content=False)
-        except Exception:
-            return []
-        return sorted({str(d.get("id") or "") for d in docs if d.get("id")})
-
-    def _active_job(book_id: str):
-        """这本书正在跑的任务（同一本书同时只允许一个，避免重复点击重复付费）。"""
-        for item in _JOB_STORE.list_for_book(book_id):
-            current = _JOB_STORE.get(item["job_id"])
-            if current.running or item.get("stage") not in ("done", "failed", "cancelled"):
-                return item
-        return None
-
-    def _start_job(book, data):
-        """创建并启动构建任务。无可用模型时返回 503，前端据此引导去设置。"""
-        backend = managers.get("llm_backend")
-        llm, backend_id = (backend.get_llm() if backend else (None, ""))
-        if not llm:
-            return None, json_error(
-                "尚未配置可用的 LLM。请先在「设置」里配置模型，再运行 AI 自动构建。", 503)
-        running = _active_job(book.id)
-        if running is not None:
-            return None, json_error(
-                f"这本书已有一个构建任务在进行中（{running.get('stage')}），"
-                "请先等待或取消它，避免重复消耗调用额度。", 409)
-        model = _model_identity(backend, backend_id, llm)
-        # 阅读模式：旧客户端不带该字段 → 未指定时用默认（自适应），显式传入的
-        # 非法值直接 400 —— 静默降级会让用户以为自己在跑省钱模式，实际全读。
-        raw_mode = data.get("reading_mode") if isinstance(data, dict) else None
-        try:
-            reading_mode = normalize_reading_mode(raw_mode, default=READING_MODE_ADAPTIVE)
-        except ValueError as exc:
-            return None, json_error(str(exc), 400)
-        job = _JOB_STORE.create(book.id, _job_input_hash(book), model,
-                                reading_mode=reading_mode)
-        job.message = "已排队，正在准备条目"
-        job.save()
-        max_calls = data.get("max_calls") if isinstance(data, dict) else None
-        try:
-            max_calls = max(1, min(5000, int(max_calls))) if max_calls else None
-        except (TypeError, ValueError):
-            max_calls = None
-        snapshot = copy.deepcopy(book)
-        kwargs = {"max_calls": max_calls} if max_calls else {}
-        character_ids = _character_directory_ids()
-
-        def worker():
-            try:
-                run_build_with_auto_resume(
-                    job, snapshot, llm, model=model, cache=_ANALYSIS_CACHE,
-                    character_ids=character_ids, **kwargs)
-            finally:
-                job.running = False
-                job.save()
-
-        job.running = True
-        threading.Thread(target=worker, name=f"wb-build-{job.id}", daemon=True).start()
-        return job, None
-
-    @bp.route("/api/worldbook/<book_id>/dependency-proposals", methods=["POST"])
-    def create_dependency_proposal(book_id):
-        """一次点击即开始后台构建；不需要用户提供提示词或 JSON。"""
-        book, err = _get_book_or_404(book_id)
-        if err:
-            return err
-        data = request.get_json(silent=True) or {}
-        job, err = _start_job(book, data)
-        if err:
-            return err
-        return jsonify({"job": job.to_dict(include_result=False)}), 202
-
-    @bp.route("/api/worldbook/<book_id>/dependency-proposals", methods=["GET"])
-    def list_dependency_proposals(book_id):
-        """列出这本书的任务，并指出「当前该看哪一个」。
-
-        前端据此在切视图 / 重开页面后恢复入口：后台任务不会因为面板卸载而消失，
-        也不该让用户再点一次（那是重复付费）。
-        """
-        book, err = _get_book_or_404(book_id)
-        if err:
-            return err
-        jobs = _JOB_STORE.list_for_book(book_id)
-        active = _active_job(book_id)
-        latest = jobs[0] if jobs else None
-        return jsonify({
-            "jobs": jobs,
-            "input_hash": _job_input_hash(book),
-            "active_job_id": active.get("job_id") if active else None,
-            "latest_job_id": latest.get("job_id") if latest else None,
-        })
-
-    @bp.route("/api/worldbook/<book_id>/dependency-proposals/<job_id>", methods=["GET"])
-    def get_dependency_proposal(book_id, job_id):
-        book, err = _get_book_or_404(book_id)
-        if err:
-            return err
-        job = _JOB_STORE.get(job_id)
-        if job is None or job.book_id != book_id:
-            return json_error("任务不存在", 404)
-        payload = job.to_dict(include_result=False)
-        payload["stale"] = job.input_hash != _job_input_hash(book)
-        result = job.result
-        if isinstance(result, dict):
-            offset = max(0, request.args.get("offset", type=int) or 0)
-            limit = min(500, max(1, request.args.get("limit", type=int) or 100))
-            records = result.get("records", [])
-            payload["result"] = {**result, "records": records[offset:offset + limit],
-                                 "records_total": len(records)}
-            payload["result"]["record_offset"] = offset
-        else:
-            payload["result"] = result
-        return jsonify({"job": payload})
-
-    @bp.route("/api/worldbook/<book_id>/dependency-proposals/<job_id>/cancel", methods=["POST"])
-    def cancel_dependency_proposal(book_id, job_id):
-        book, err = _get_book_or_404(book_id)
-        if err:
-            return err
-        job = _JOB_STORE.get(job_id)
-        if job is None or job.book_id != book_id:
-            return json_error("任务不存在", 404)
-        _JOB_STORE.cancel(job_id)
-        return jsonify({"job": _JOB_STORE.get(job_id).to_dict(include_result=False)})
-
-    @bp.route("/api/worldbook/<book_id>/dependency-proposals/<job_id>/retry", methods=["POST"])
-    def retry_dependency_proposal(book_id, job_id):
-        """只重跑失败批次（含预算耗尽留下的剩余工作）：分析卡走缓存，不重复付费。"""
-        book, err = _get_book_or_404(book_id)
-        if err:
-            return err
-        job = _JOB_STORE.get(job_id)
-        if job is None or job.book_id != book_id:
-            return json_error("任务不存在", 404)
-        if job.stage not in ("done", "failed", "cancelled") or _active_job(book_id):
-            return json_error("这本书已有构建正在运行", 409)
-        if job.input_hash != _job_input_hash(book):
-            return json_error("正文已变化，请重新构建以更新入边和出边", 409)
-        # 预算耗尽留下的剩余工作也算「失败批次」，同样可续跑
-        pairs = [{"from_uid": a, "to_uid": b}
-                 for batch in job.failed_batches for a, b in batch.get("pairs", [])]
-        uids = sorted({uid for batch in job.failed_batches
-                       for uid in batch.get("uids", [])})
-        if not pairs and not uids and not job.pending_pairs and not job.pending_card_uids and not job.resumable:
-            return json_error("没有失败批次需要重试")
-        if not pairs:
-            pairs = list(job.pending_pairs)
-        if not uids:
-            uids = list(job.pending_card_uids)
-        backend = managers.get("llm_backend")
-        llm, backend_id = (backend.get_llm() if backend else (None, ""))
-        if not llm:
-            return json_error("尚未配置可用的 LLM，无法重试", 503)
-        model = _model_identity(backend, backend_id, llm) or job.model
-        if model != job.model:
-            return json_error("模型已变化，请重新构建", 409)
-        data = request.get_json(silent=True)
-        if not isinstance(data, dict):
-            data = {}
-        if "reading_mode" in data:
-            try:
-                requested_mode = normalize_reading_mode(data.get("reading_mode"))
-            except ValueError as exc:
-                return json_error(str(exc))
-            if requested_mode != job.reading_mode:
-                return json_error("重试不能更改阅读模式；请新建构建任务", 409)
-        try:
-            max_calls = int(data.get("max_calls")) if data.get("max_calls") else None
-        except (TypeError, ValueError):
-            max_calls = None
-        if max_calls is None:
-            # 重试必须带足够预算，否则会在同一处再次撞墙
-            max_calls = auto_budget(int((job.workload or {}).get("estimated_calls") or 0))
-        job.cancelled = False
-        job.failed_batches = []
-        job.resumable = False
-        job.stage = "adjudication" if pairs and not uids else "cards"
-        job.save()
-        snapshot = copy.deepcopy(book)
-        character_ids = _character_directory_ids()
-
-        def worker():
-            try:
-                run_build_with_auto_resume(
-                    job, snapshot, llm, model=model, cache=_ANALYSIS_CACHE,
-                    only_pairs=(pairs or None) if not uids else None, only_uids=uids or None,
-                    max_calls=max_calls, character_ids=character_ids)
-            finally:
-                job.running = False
-                job.save()
-
-        job.running = True
-        threading.Thread(target=worker, name=f"wb-retry-{job.id}", daemon=True).start()
-        return jsonify({"job": job.to_dict(include_result=False)}), 202
 
     # ── 5. 默认书 / 会话绑定 ──
 

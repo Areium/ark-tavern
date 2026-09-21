@@ -1,5 +1,4 @@
 import copy
-import json
 import sys
 import threading
 from pathlib import Path
@@ -15,7 +14,6 @@ from session_worldbook_dependencies import (
     preview_inheritance_update, restore_inheritance,
 )
 from world_book import DEFAULT_CATEGORIES, WorldBook, WorldBookEntry, WorldBookManager
-from worldbook_builder import AnalysisCache, DependencyJobStore, run_scoped_build
 
 
 def make_book():
@@ -116,26 +114,12 @@ class FakeSession:
 
 
 class StubLLM:
+    """会话依赖面板不调用模型；一旦被调用就立刻失败。"""
+
     def __init__(self): self.calls = []
     def chat(self, messages, **_kwargs):
         self.calls.append(messages)
-        prompt = messages[-1]["content"]
-        if "分析下面这批" in prompt:
-            lines = [line for line in prompt.splitlines() if line.startswith("<entry uid=")]
-            cards = [{"uid": line.split('uid="')[1].split('"')[0],
-                      "chunk_id": line.split('chunk_id="')[1].split('"')[0],
-                      "summary": "", "entities": [], "defined_concepts": [],
-                      "unexplained_concepts": [], "candidate_characters": [],
-                      "evidence": [], "needs_more_context": False} for line in lines]
-            return {"type": "text", "content": json.dumps({"cards": cards})}
-        pairs = []
-        for line in prompt.splitlines():
-            if line.startswith("<pair from="):
-                parts = dict(item.split("=", 1) for item in line.strip("<>").split() if "=" in item)
-                a, b = parts["from"].strip('"'), parts["to"].strip('"')
-                pairs.append({"from_uid": a, "to_uid": b, "relation": "requires",
-                              "confidence": .9, "evidence": "源石技艺"})
-        return {"type": "text", "content": json.dumps({"judgments": pairs}, ensure_ascii=False)}
+        raise AssertionError("会话依赖面板不应调用 LLM")
 
 
 class Backend:
@@ -145,7 +129,6 @@ class Backend:
 
 @pytest.fixture
 def session_api(tmp_path, monkeypatch):
-    import blueprints.sessions as route_module
     import session_manager as manager_module
     books = WorldBookManager(tmp_path / "books")
     books.save(make_book())
@@ -157,8 +140,6 @@ def session_api(tmp_path, monkeypatch):
     manager._llm_backend = manager._wiki_manager = None
     manager._worldbook_manager = books
     manager._save_session_meta = lambda _session: None
-    monkeypatch.setattr(route_module, "_SESSION_JOB_STORE", DependencyJobStore(tmp_path / "jobs"))
-    monkeypatch.setattr(route_module, "_SESSION_ANALYSIS_CACHE", AnalysisCache(tmp_path / "cache"))
     app = Flask(__name__); app.config["TESTING"] = True
     register(app, {"session": manager, "worldbook": books, "llm_backend": Backend(llm)})
     return app.test_client(), manager, books, llm
@@ -185,106 +166,6 @@ def test_api_schema2_snapshot_override_and_cross_session_isolation(session_api):
     assert preview.status_code == 200, preview.json
 
 
-def test_api_job_becomes_stale_after_session_change(session_api):
-    client, manager, _books, _llm = session_api
-    created = client.post("/api/sessions", json={"worldbook_id": "book", "roster_character_ids": ["A"]}).json
-    sid = created["id"]
-    deps = client.get(f"/api/sessions/{sid}/worldbook-dependencies").json
-    job = client.post(f"/api/sessions/{sid}/worldbook-dependency-jobs", json={"max_calls": 50})
-    assert job.status_code == 202, job.json
-    jid = job.json["job"]["job_id"]
-    client.patch(f"/api/sessions/{sid}/worldbook-dependencies", json={
-        "from_uid": "a", "to_uid": "b", "relation": "related",
-        "expected_scope_revision": deps["scope_revision"]})
-    payload = client.get(f"/api/sessions/{sid}/worldbook-dependency-jobs/{jid}").json["job"]
-    assert payload["stale"] is True
-    assert client.post(f"/api/sessions/{sid}/worldbook-dependency-jobs/{jid}/apply",
-                       json={"accepted_pairs": []}).status_code == 409
-
-
-def test_scoped_runner_expands_only_requires_frontier(tmp_path):
-    book = make_book()
-    next(e for e in book.entries if e.uid == "tech").content = "源石技艺由角色B记录。"
-    llm = StubLLM()
-    store = DependencyJobStore(tmp_path / "jobs")
-    job = store.create(book.id, "input", "stub", reading_mode="adaptive")
-    job.context = {}
-    run_scoped_build(job, book, llm, model="stub",
-                     cache=AnalysisCache(tmp_path / "cache"), max_calls=100,
-                     source_uids=["a"])
-    assert job.context["scoped_complete"] is True
-    assert set(job.context["expanded_source_uids"]) == {"a", "tech", "b"}
-    assert job.outcome == "success"
-
-
-def test_scoped_runner_reuses_known_edge_with_zero_llm_calls(tmp_path):
-    book, llm = make_book(), StubLLM()
-    job = DependencyJobStore(tmp_path / "jobs").create(
-        book.id, "input", "stub", reading_mode="adaptive")
-    job.context = {}
-    run_scoped_build(job, book, llm, model="stub",
-                     cache=AnalysisCache(tmp_path / "cache"), max_calls=20,
-                     source_uids=["a"], known_pairs=[("a", "tech")])
-    assert llm.calls == []
-    assert job.outcome == "success"
-    assert job.context["scoped_complete"] is True
-    assert job.workload["entries"] == 0
-    assert job.workload["estimated_calls"] == 0
-
-
-def test_scoped_runner_estimates_only_candidate_endpoints(tmp_path):
-    book = make_book()
-    book.entries.append(WorldBookEntry(
-        "unrelated", name="无关条目", content="这段正文不引用任何其他条目。",
-        category_id="other", always_active=True))
-    llm = StubLLM()
-    job = DependencyJobStore(tmp_path / "jobs").create(
-        book.id, "input", "stub", reading_mode="adaptive")
-    job.context = {}
-    run_scoped_build(job, book, llm, model="stub",
-                     cache=AnalysisCache(tmp_path / "cache"), max_calls=100,
-                     source_uids=["a"])
-    assert job.outcome == "success"
-    assert job.workload["entries"] < len(book.entries)
-    assert "unrelated" not in job.cards
-
-
-def test_scoped_runner_follows_known_requires_from_new_frontier(tmp_path):
-    book = WorldBook("chain", "链", [
-        WorldBookEntry("s", name="起始条目", content="源石技艺：起始条目引用目标条目。", always_active=True),
-        WorldBookEntry("t", name="目标条目", content="源石技艺：目标条目引用中转条目。", always_active=True),
-        WorldBookEntry("u", name="中转条目", content="源石技艺：中转条目引用末端条目。", always_active=True),
-        WorldBookEntry("v", name="末端条目", content="源石技艺：末端条目的定义。", always_active=True),
-    ], categories=copy.deepcopy(DEFAULT_CATEGORIES))
-    llm = StubLLM()
-    job = DependencyJobStore(tmp_path / "jobs").create(
-        book.id, "input", "stub", reading_mode="adaptive")
-    job.context = {}
-    run_scoped_build(job, book, llm, model="stub",
-                     cache=AnalysisCache(tmp_path / "cache"), max_calls=100,
-                     source_uids=["s"], known_pairs=[("t", "u")],
-                     known_requires=[("t", "u")])
-    assert job.outcome == "success"
-    assert set(job.context["expanded_source_uids"]) == {"s", "t", "u", "v"}
-    accepted = {(item["from_uid"], item["to_uid"])
-                for item in job.result["accepted"]}
-    assert ("s", "t") in accepted and ("u", "v") in accepted
-    assert ("t", "u") not in accepted  # 继承边复用，没有重复判定
-
-
-def test_cancelled_running_job_cannot_retry_concurrently(session_api):
-    client, _manager, _books, _llm = session_api
-    sid = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": ["A"]}).json["id"]
-    created = client.post(f"/api/sessions/{sid}/worldbook-dependency-jobs",
-                          json={"max_calls": 50})
-    jid = created.json["job"]["job_id"]
-    client.post(f"/api/sessions/{sid}/worldbook-dependency-jobs/{jid}/cancel")
-    retry = client.post(f"/api/sessions/{sid}/worldbook-dependency-jobs/{jid}/retry")
-    # worker 若尚未退出，409 防止并发；已退出则可从取消点重新开始。
-    assert retry.status_code in (202, 409)
-
-
 def test_session_overlay_scope_survives_reload(tmp_path, monkeypatch):
     import session_overlay as overlay_module
     monkeypatch.setattr(overlay_module, "_SESSIONS_DIR", tmp_path / "sessions")
@@ -298,40 +179,3 @@ def test_session_overlay_scope_survives_reload(tmp_path, monkeypatch):
     assert effective_graph(restored)["requires_edges"] == []
 
 
-def test_budget_interruption_reloads_and_resumes_same_job(tmp_path):
-    book, llm = make_book(), StubLLM()
-    jobs_path = tmp_path / "jobs"
-    store = DependencyJobStore(jobs_path)
-    job = store.create(book.id, "input", "stub", reading_mode="adaptive")
-    job.context = {}
-    run_scoped_build(job, book, llm, model="stub",
-                     cache=AnalysisCache(tmp_path / "cache"), max_calls=1,
-                     source_uids=["a"])
-    assert job.resumable and job.context["scoped_complete"] is False
-    reloaded = DependencyJobStore(jobs_path).get(job.id)
-    assert reloaded is not None and reloaded.resumable
-    reloaded.cancelled = False
-    run_scoped_build(reloaded, book, llm, model="stub",
-                     cache=AnalysisCache(tmp_path / "cache"), max_calls=50,
-                     source_uids=["a"])
-    assert reloaded.outcome == "success"
-    assert reloaded.context["scoped_complete"] is True
-
-
-def test_running_done_job_rejects_apply_and_duplicate_create(session_api):
-    import blueprints.sessions as route_module
-    client, _manager, books, _llm = session_api
-    sid = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": ["A"]}).json["id"]
-    scope = client.get(f"/api/sessions/{sid}/worldbook-dependencies").json
-    job = route_module._SESSION_JOB_STORE.create("book", "input", "stub")
-    job.context = {"session_id": sid, "book_id": "book",
-                   "scope_revision": scope["scope_revision"]}
-    job.stage, job.outcome, job.result, job.running = "done", "success", {"records": []}, True
-    job.save()
-    assert client.post(
-        f"/api/sessions/{sid}/worldbook-dependency-jobs/{job.id}/apply",
-        json={"accepted_pairs": []}).status_code == 409
-    assert client.post(
-        f"/api/sessions/{sid}/worldbook-dependency-jobs",
-        json={"max_calls": 20}).status_code == 409

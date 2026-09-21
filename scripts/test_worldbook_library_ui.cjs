@@ -23,7 +23,7 @@ const { renderToStaticMarkup } = fromFrontend("react-dom/server");
 const {
   BOOK_TYPE_HINTS, BOOK_TYPE_LABELS, bookTypeOf, draftFromEntry, excerptItemFromDraft,
   filterBooksByType, flattenLibraryHits, groupBooksByType, isReference,
-  normalizeDetailTab, resolveCategoryForTarget, validateExcerptDraft,
+  normalizeWorldbookTab, resolveCategoryForTarget, validateExcerptDraft,
 } = require(path.join(root, "frontend/src/utils/worldbookLibrary.ts"));
 const WorldBookManager = require(path.join(root, "frontend/src/components/WorldBookManager.tsx")).default;
 
@@ -120,18 +120,25 @@ assert.equal(resolveCategoryForTarget("source-only", targetCategories), "unclass
 assert.equal(resolveCategoryForTarget(undefined, targetCategories), "unclassified");
 assert.equal(resolveCategoryForTarget("worldview", []), "worldview", "没有分类信息时不乱改");
 
-// ── 详情页签归一：资料库永远落在条目页 ──
-// 回归场景：用户在剧情书里停在「高级配置」（taxonomy），再切到资料库 —— 页签按钮与
-// 图谱内容对资料库都隐藏了，若 tab 仍是 taxonomy，条目页也不会渲染，详情区整个空白。
-assert.equal(normalizeDetailTab("taxonomy", { book_type: "reference" }), "entries");
-assert.equal(normalizeDetailTab("entries", { book_type: "reference" }), "entries");
-assert.equal(normalizeDetailTab("taxonomy", { book_type: "story" }), "taxonomy");
-assert.equal(normalizeDetailTab("entries", { book_type: "story" }), "entries");
-// 缺字段（旧数据）按 story 处理；脏值兜底到 entries，不会渲染出不存在的视图
-assert.equal(normalizeDetailTab("taxonomy", {}), "taxonomy");
-assert.equal(normalizeDetailTab("taxonomy", null), "taxonomy");
-assert.equal(normalizeDetailTab(undefined, { book_type: "story" }), "entries");
-assert.equal(normalizeDetailTab("bogus", { book_type: "story" }), "entries");
+// ── 页签归一（R-4）：唯一页签状态只接受 5 个已知值，资料库只允许 条目 / 本家索引 ──
+// 回归场景：用户在剧情书里停在「分类与载入」，再切到资料库 —— 这三个页签对资料库
+// 既不渲染按钮也不渲染内容，若 tab 仍是 load，条目页也不会渲染，详情区整个空白。
+assert.equal(normalizeWorldbookTab("entries", { book_type: "reference" }), "entries");
+assert.equal(normalizeWorldbookTab("index", { book_type: "reference" }), "index");
+assert.equal(normalizeWorldbookTab("load", { book_type: "reference" }), "entries");
+assert.equal(normalizeWorldbookTab("prompt", { book_type: "reference" }), "entries");
+assert.equal(normalizeWorldbookTab("nodes", { book_type: "reference" }), "entries");
+for (const tab of ["entries", "load", "prompt", "nodes", "index"]) {
+  assert.equal(normalizeWorldbookTab(tab, { book_type: "story" }), tab);
+  // 缺字段（旧数据）按 story 处理；没有选中书时也不做收窄
+  assert.equal(normalizeWorldbookTab(tab, {}), tab);
+  assert.equal(normalizeWorldbookTab(tab, null), tab);
+}
+// 脏值（含旧值域与未知字符串）兜底到 entries，不会渲染出不存在的视图
+assert.equal(normalizeWorldbookTab(undefined, { book_type: "story" }), "entries");
+assert.equal(normalizeWorldbookTab(null, { book_type: "reference" }), "entries");
+assert.equal(normalizeWorldbookTab("bogus", { book_type: "story" }), "entries");
+assert.equal(normalizeWorldbookTab("taxonomy", { book_type: "story" }), "entries", "旧的 detailTab 值域已不存在");
 
 // ── SSR：组件骨架 ──
 const summary = (over) => ({
@@ -148,8 +155,14 @@ assert.ok(markup.includes("世界书"));
 assert.ok(markup.includes("新建 / 导入为"), "列表侧要有用途选择");
 assert.ok(markup.includes("用于剧情") && markup.includes("存入资料库"), "两种用途都要可点");
 assert.ok(markup.includes("剧情世界书 · 0") && markup.includes("资料库 · 0"), "顶层筛选带计数");
-assert.ok(!markup.includes("分类图谱 · "), "分类图谱不该是第一屏默认视图");
+assert.ok(markup.includes("选择左侧世界书"), "没选书时详情区给出明确指引，不留白");
+// 工作台页签骨架：五项文案与顺序按提案 §3.1，且不再出现「高级配置」
+for (const label of ["条目", "分类与载入", "Prompt 预览", "节点视图", "本家索引"]) {
+  assert.ok(markup.includes(`>${label}</button>`), `工作台页签 ${label} 应在骨架里`);
+}
+assert.ok(!markup.includes("高级配置"), "「高级配置」不再是工作台的说法");
+assert.ok(!markup.includes("分类图谱 · "), "分类图谱不再作为独立视图出现");
 
 console.log("Worldbook library UI: type filtering/grouping, hit flattening, "
-  + "verbatim vs edited excerpt payloads, validation, detail-tab normalization "
-  + "and SSR skeleton passed.");
+  + "verbatim vs edited excerpt payloads, validation, worldbook-tab normalization "
+  + "and the new workbench SSR skeleton passed.");

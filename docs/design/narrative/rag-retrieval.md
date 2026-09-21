@@ -1,6 +1,6 @@
 # 知识注入：按确定性分通道召回
 
-> 本文件原为 `rag-retrieval.html`（手写讲解图，已归档到 `archive/`）。这里给出等价的文字版并补上节点级作用域与依赖自动构建两项后加的机制。
+> 本文件原为 `rag-retrieval.html`（手写讲解图，已归档到 `archive/`）。这里给出等价的文字版并补上节点级作用域这一后加机制；原「依赖自动构建」机制已于 2026-09 随世界书工作台重构移除，见下。
 >
 > 状态：随代码演进；实现位置见 `docs/architecture.md`。
 
@@ -79,13 +79,12 @@ flowchart LR
 作用域在剧情树节点落盘时冻结、随回档一起走，注入路径上零解析。
 书内无绑定条目 / 自由模式 / 老会话一律关闭，行为与旧版一致。详见 `docs/design/worldbook/node-scoped-worldbook-loading.md`。
 
-**依赖自动构建（后加机制）**：世界书的起点与依赖可由 AI 自动构建（元数据索引 → 分段 → 明确引用候选对 → 分析卡 → 判定 → 程序校验），
-提效手段是「引用窗口 + 提炼上下文」替代整段正文，并用确定性装箱器统一估算与执行。详见 `docs/design/worldbook/worldbook-builder-performance.md`、`docs/design/worldbook/worldbook-selective-reading.md`。
+**依赖自动构建（已移除）**：世界书起点与依赖的原「AI 自动构建」链路（元数据索引 → 分段 → 明确引用候选对 → 分析卡 → 判定 → 程序校验）已于 2026-09 随世界书工作台重构删除，两篇专项设计归档到 `docs/archive/worldbook-builder-performance.md`、`docs/archive/worldbook-selective-reading.md`。依赖关系改由人在工作台 `分类与载入` / `节点视图` 里手工维护（**依赖功能本身保留**），见 `docs/proposals/worldbook-workbench-redesign.md` §2.4。
 
 ## 效果基准
 
 原讲解图给出的同知识集合对照为：全量注入 ≈ 39.8k tokens → 分层方案 ≈ 10.2k tokens（−74.4%）。
 
 > ⚠️ 该数字**在仓库内没有可复现的基准脚本**，属历史估算，不作为当前承诺。
-> 现在可复现的世界书侧基准是 `scripts/benchmark_worldbook_builder.py`（确定性、无网络）与
-> `scripts/benchmark_worldbook_selective_reading.py`，其口径与实测见 `docs/design/worldbook/worldbook-builder-performance.md` §5。
+> 原文提到的世界书侧基准脚本（`scripts/benchmark_worldbook_builder.py`、`scripts/benchmark_worldbook_selective_reading.py`）已随 AI 自动构建一并删除，
+> 其口径与实测改见归档件 `docs/archive/worldbook-builder-performance.md` §5。

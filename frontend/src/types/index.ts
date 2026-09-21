@@ -751,7 +751,7 @@ export interface WorldBookDetail extends WorldBookSummary {
   content_revision?: string;
   resolver_version?: number;
   policy_revisions?: WorldBookPolicyRevisionDTO[];
-  /** 已应用 AI 根/边的正文证据在当前内容中失效；关系仍保留 */
+  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
   evidence_issues?: WorldBookIssueDTO[];
 }
 
@@ -816,13 +816,21 @@ export interface WorldBookRootDTO {
   expansion: WorldBookExpansion;
   character_ids?: string[];
   max_depth?: number;
+  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
   locked?: boolean;
+  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
   origin?: string;
+  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
   model?: string;
+  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
   prompt_version?: string;
+  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
   source_content_hash?: string;
+  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
   evidence?: string;
+  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
   review_status?: string;
+  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
   job_id?: string;
 }
 /** v3 规则集：分类只负责组织，起点与展开决定候选 */
@@ -831,9 +839,9 @@ export interface WorldBookRulesDTO {
   root_rule?: { entry_uids: string[] };
   requires_edges?: WorldBookDependencyEdgeDTO[];
   related_edges?: WorldBookDependencyEdgeDTO[];
-  /** 人工拒绝过的 AI 建议（持久化，防止「删掉又被重新应用」） */
+  /** AI 构建专属；字段保留停写不删，UI 不再展示（人工拒绝记录兼容透传） */
   rejected?: WorldBookDependencyEdgeDTO[];
-  /** 每条边的来源 / 证据 / 审阅状态，按 "from|to" 键控 */
+  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
   edge_meta?: Record<string, Record<string, string | boolean>>;
 }
 export interface WorldBookPolicyRevisionDTO {
@@ -850,6 +858,12 @@ export interface WorldBookDisplayNodeDTO {
   child_uids: string[];
   remaining: number | null;
   is_root: boolean;
+  /** 同一 uid 在 display_tree 里是否非首次出现（灰节点口径，服务端派生 R-10） */
+  repeated: boolean;
+  /** 该 uid 在主路径（首次出现）上的父；主节点为 null */
+  first_parent_uid: string | null;
+  /** display_tree 中的 0-based 稳定位次 */
+  display_index: number;
 }
 export interface WorldBookIssueDTO {
   code: string;
@@ -874,18 +888,9 @@ export interface WorldBookConfigurationDraft {
   requires_edges?: WorldBookDependencyEdgeDTO[];
   related_edges?: WorldBookDependencyEdgeDTO[];
   /**
-   * AI 构建结果：与手写草稿在同一次原子写入中生效。
-   * `job_id` 是**服务端复核**的依据（任务身份 + 正文哈希 + 证据可定位），
-   * 客户端传的 accepted 只是「用户选了哪几条」的提示。
+   * 人工拒绝记录：兼容透传字段（R-8）。AI 构建已删除，不再产生新值，
+   * 但旧书已经写入的值照旧传回，避免旧数据在往返中被抹掉。
    */
-  proposal?: {
-    materialized?: boolean;
-    materialized_root_uids?: string[];
-    job_id: string;
-    accepted_pairs?: Array<[string, string]>;
-    accepted?: Array<{ from_uid: string; to_uid: string; relation?: string }>;
-  } | null;
-  /** 人工拒绝过的建议：再次应用同一份 AI 结果时不得复活 */
   rejected?: WorldBookDependencyEdgeDTO[];
 }
 export interface WorldBookConfigurationResultDTO {
@@ -893,157 +898,6 @@ export interface WorldBookConfigurationResultDTO {
   policy_revision: number;
   content_revision: string;
   applied: { categories: number; roots: number; requires_edges: number; related_edges: number };
-}
-/** AI 依赖构建任务 */
-export type DependencyJobStage =
-  | "queued" | "metadata" | "cards" | "candidates" | "adjudication"
-  | "validation" | "done" | "failed" | "cancelled";
-export interface DependencyProposalRecordDTO {
-  from_uid: string;
-  to_uid: string;
-  relation: "requires" | "related" | "none" | "unsure";
-  confidence: number;
-  reason: string;
-  evidence: string;
-  evidence_hash: string;
-  source_content_hash: string;
-  target_content_hash: string;
-  origin: string;
-  model: string;
-  prompt_version: string;
-  review_status: string;
-}
-export interface DependencyProposalResultDTO {
-  proposal_version: string;
-  model: string;
-  content_revision: string;
-  records: DependencyProposalRecordDTO[];
-  records_total?: number;
-  record_offset?: number;
-  accepted: Array<{ from_uid: string; to_uid: string; relation: string; confidence: number }>;
-  /** AI 建议的角色起点（只接受真实存在于角色目录的 id） */
-  roots?: WorldBookRootDTO[];
-  /** 完整可编辑根计划：含确定性分类根与已验证的 AI 根 */
-  configuration_roots?: WorldBookRootDTO[];
-  root_records?: WorldBookRootDTO[];
-  root_issues?: WorldBookIssueDTO[];
-  issues: WorldBookIssueDTO[];
-  cycles: string[][];
-  fanout: Record<string, number>;
-  expansion_probe: Record<string, number>;
-  stats: { records: number; requires: number; related: number; unsure: number; none: number; roots?: number };
-}
-/** 终态必须三态可区分：success 全部成功 / partial 部分批次失败 / failed 没有任何产出 */
-export type DependencyJobOutcome = "" | "success" | "partial" | "failed";
-export type WorldBookReadingMode = "adaptive" | "full";
-export interface DependencyFailedBatchDTO {
-  stage: string;
-  code?: string;
-  message?: string;
-  uids?: string[];
-  pairs?: string[][];
-  chunk_ids?: string[];
-  /** 预算耗尽等可续跑：重试只补这些批次 */
-  resumable?: boolean;
-}
-export interface DependencyProposalJobDTO {
-  job_id: string;
-  book_id: string;
-  input_hash: string;
-  model: string;
-  reading_mode: WorldBookReadingMode;
-  stage: DependencyJobStage;
-  progress: number;
-  total: number;
-  message: string;
-  created_at: number;
-  updated_at: number;
-  cancelled: boolean;
-  running?: boolean;
-  context?: {
-    session_id?: string;
-    scope_revision?: number;
-    scoped_complete?: boolean;
-    pending_frontier?: string[];
-  };
-  error: { code: string; message: string } | null;
-  calls: number;
-  failed_batches: DependencyFailedBatchDTO[];
-  card_count: number;
-  judgment_count: number;
-  /** 输入快照已变化：结果不得直接覆盖当前数据 */
-  stale?: boolean;
-  outcome?: DependencyJobOutcome;
-  /** 预算耗尽 / 批次失败后可以续跑（重试只补缺失部分） */
-  resumable?: boolean;
-  /**
-   * 开工前的**估算**（不是账单）：请求数、输入 token、预期输出 token。
-   * `estimated_input_tokens` 由与执行同一个装箱器算出，因此与真实请求规模一致；
-   * 真实用量见 `metrics.actual_*`。
-   */
-  workload?: {
-    entries?: number;
-    chunks?: number;
-    candidates?: number;
-    pairs?: number;
-    card_calls?: number;
-    adjudication_calls?: number;
-    estimated_calls?: number;
-    estimated_input_tokens?: number;
-    estimated_analysis_input_tokens?: number;
-    estimated_adjudication_input_tokens?: number;
-    expected_output_tokens?: number;
-    /** 估算是否走了真实规划器（false = 只有保守近似） */
-    planned?: boolean;
-    budget?: number;
-    reading_mode?: WorldBookReadingMode;
-    reading_coverage?: "full" | "partial";
-    reading_read_chars?: number;
-    reading_unread_chars?: number;
-    analysis_supplement_requests?: number;
-    possible_supplement_note?: string;
-  };
-  candidates?: { pairs?: number; candidates_total?: number; candidates_used?: number; deferred?: number; generic_aliases?: number };
-  chunk_report?: { entries?: number; chunks?: number; dropped_chars?: number };
-  /**
-   * 运行计数。`actual_known=false` 表示 provider **没有报告**用量，
-   * 此时 `actual_*` 是「未知」而不是 0 —— 界面必须区分这两者。
-   * `usage_partial=true` 表示只有一部分请求上报了用量，`actual_*` 是**部分合计**，
-   * 不能显示成「完整实测总量」。
-   */
-  metrics?: {
-    planned_requests?: number;
-    requests?: number;
-    json_repair_calls?: number;
-    cache_hits?: number;
-    analysis_requests?: number;
-    supplement_requests?: number;
-    adjudication_requests?: number;
-    actual_known?: boolean;
-    usage_partial?: boolean;
-    actual_prompt_tokens?: number;
-    actual_completion_tokens?: number;
-    actual_total_tokens?: number;
-    estimated_sent_tokens?: number;
-  };
-  pending_pairs?: number;
-  pending_card_uids?: number;
-  pending_chunk_ids?: number;
-  reading_report?: {
-    mode?: WorldBookReadingMode;
-    coverage: "full" | "partial";
-    total_chars: number;
-    read_chars: number;
-    unread_chars: number;
-    omitted_chars: number;
-    partial_entries: number;
-    full_entries: number;
-    planned_selected_chars?: number;
-    fallback_entries?: number;
-    supplement_entries?: number;
-  };
-  supplement?: { escalated?: boolean; pending_entries?: string[]; complete_entries?: string[] };
-  result: DependencyProposalResultDTO | null;
 }
 
 export interface WorldBookScopeDTO {
@@ -1117,7 +971,7 @@ export interface WorldBookScopePreviewDTO {
   /** 本次会话是否显式选择「全量兼容」（只影响本会话） */
   full_scope?: boolean;
   active_roots?: WorldBookRootDTO[];
-  resolved_edges?: Array<WorldBookDependencyEdgeDTO & { relation: string; active: boolean }>;
+  resolved_edges?: WorldBookResolvedEdgeDTO[];
   selection_reasons?: Record<string, string[]>;
   display_tree?: WorldBookDisplayNodeDTO[];
   cross_references?: WorldBookDependencyEdgeDTO[];
@@ -1130,6 +984,135 @@ export interface WorldBookScopePreviewDTO {
   unselected_entries?: Array<{ uid: string; name: string; category_id: string }>;
   unselected_count?: number;
   entry_names?: Record<string, string>;
+}
+
+// ── 世界书工作台：Prompt 预览（A-2）与条目依赖树（A-3）─────────────────────────
+
+export type WorldBookPreviewMode = "narrative" | "free";
+export type WorldBookPromptLayer = "stable" | "dynamic";
+
+export type WorldBookDropReason =
+  | "not_in_scope" | "keyword_miss" | "secondary_miss" | "selective_reject"
+  | "probability_miss" | "disabled" | "empty_content"
+  | "budget_exceeded" | "node_binding_demoted";
+
+export interface WorldBookPromptPreviewOrderDTO {
+  uid: string;
+  name: string;
+  seq: number;
+  layer: WorldBookPromptLayer;
+  position: number;
+  group_weight: number;
+  depth: number;
+  estimated_tokens: number;
+  reasons: string[];
+  matched_keys: string[];
+  override_from_node?: { node_id?: string; position?: number; depth?: number; group_weight?: number } | null;
+}
+
+export interface WorldBookPromptPreviewSiteDTO {
+  layer: WorldBookPromptLayer;
+  host: "reference" | "world_book" | "system_parts";
+  after_block: string;
+  before_block: string;
+  description: string;
+}
+
+export interface WorldBookPromptPreviewSkeletonDTO {
+  id: string;
+  label: string;
+  is_worldbook: boolean;
+  insert?: "before" | "after" | null;
+}
+
+export interface WorldBookPromptPreviewDroppedDTO {
+  uid: string;
+  name: string;
+  reason: WorldBookDropReason;
+}
+
+export interface WorldBookPromptPreviewTotalsDTO {
+  stable_tokens: number;
+  dynamic_tokens: number;
+  budget_tokens: number;
+  truncated: boolean;
+  candidate_count: number;
+  matched_count: number;
+}
+
+export interface WorldBookPromptPreviewDTO {
+  mode: WorldBookPreviewMode;
+  order: WorldBookPromptPreviewOrderDTO[];
+  stable_text: string;
+  dynamic_text: string;
+  sites: WorldBookPromptPreviewSiteDTO[];
+  skeleton: WorldBookPromptPreviewSkeletonDTO[];
+  dropped: WorldBookPromptPreviewDroppedDTO[];
+  totals: WorldBookPromptPreviewTotalsDTO;
+}
+
+/** 节点作用域快照（形状同 overlay.get_active_lore_scope()）；见 contract R-18 */
+export interface WorldBookNodeLoreScopeDTO {
+  book_id?: string;
+  node_id?: string;
+  allowed: string[];
+  pinned?: string[];
+  overrides?: Record<string, { position?: number; depth?: number; group_weight?: number }>;
+}
+
+export interface WorldBookPromptPreviewRequest {
+  mode: WorldBookPreviewMode;
+  input_text?: string;
+  recent_text?: string;
+  roster_character_ids?: string[];
+  manual_entry_uids?: string[];
+  full_scope?: boolean;
+  identity?: string;
+  active_char?: string | null;
+  seed?: number;
+  budget_tokens?: number;
+  policy?: WorldBookConfigurationDraft;
+  /** 可选：节点作用域快照（R-18）。提供时预览叠加该节点绑定；不提供时按纯书级预览。 */
+  lore_scope?: WorldBookNodeLoreScopeDTO | null;
+}
+
+export type WorldBookEdgeStatus = "skeleton" | "cross" | "capped" | "idle";
+
+export interface WorldBookResolvedEdgeDTO {
+  from_uid: string;
+  to_uid: string;
+  relation: "requires" | "related";
+  active: boolean;
+  status: WorldBookEdgeStatus;
+}
+
+export interface WorldBookDependencyTreeNodeDTO {
+  uid: string;
+  name: string;
+  parent_uid: string | null;
+  child_uids: string[];
+  depth: number;
+  remaining: number | null;
+  is_root: boolean;
+  /** 到达该节点的边关系：根为 requires */
+  relation: "requires" | "related";
+}
+
+export interface WorldBookDependencyTreeEdgeDTO {
+  from_uid: string;
+  to_uid: string;
+  relation: "requires" | "related";
+  status: WorldBookEdgeStatus;
+}
+
+export interface WorldBookDependencyTreeDTO {
+  book_id: string;
+  entry_uids: string[];
+  nodes: WorldBookDependencyTreeNodeDTO[];
+  edges: WorldBookDependencyTreeEdgeDTO[];
+  /** 环内边的集合（"from|to"），供前端标红 */
+  cycles: string[][];
+  issues: WorldBookIssueDTO[];
 }
 
 /** 导入报告 */

@@ -7,7 +7,7 @@ import type {
 } from "../types";
 
 /**
- * 统一草稿：分类、角色关联、起点规则、依赖边与 AI 建议**共用同一份草稿**，
+ * 统一草稿：分类、角色关联、起点规则与依赖边**共用同一份草稿**，
  * 走同一条校验/预览/撤销/保存路径，并由 `PUT /configuration` 一次原子写入。
  *
  * 这不是「把多次旧保存请求串起来」——只有一个 draft 对象、一次提交；
@@ -21,10 +21,8 @@ export interface WorldBookDraft {
   roots: WorldBookRootDTO[];
   requires_edges: WorldBookDependencyEdgeDTO[];
   related_edges: WorldBookDependencyEdgeDTO[];
-  /** 人工拒绝过的建议：再次应用同一份 AI 结果时不得复活 */
+  /** 人工拒绝记录兼容透传：旧书里已写入的值照旧带回去，不再产生新值 */
   rejected: WorldBookDependencyEdgeDTO[];
-  /** AI 构建结果：与手写草稿在同一次写入中生效，应用后清空 */
-  proposal: WorldBookConfigurationDraft["proposal"];
   /**
    * 是否显式改用 v3 按需载入规则。
    *
@@ -64,7 +62,6 @@ export const draftFrom = (detail: WorldBookDetail): WorldBookDraft => ({
   requires_edges: detail.dependency_edges ? [...detail.dependency_edges] : [],
   related_edges: detail.related_edges ? [...detail.related_edges] : [],
   rejected: (detail.dependency_rules?.rejected || []).map((edge) => ({ ...edge })),
-  proposal: null,
   adopt_v3: !!detail.dependency_rules?.roots,
 });
 
@@ -82,8 +79,8 @@ export const policyFromDraft = (draft: WorldBookDraft): WorldBookPolicyDraft => 
  * 反向投影：高级图谱按 v2 形态改动后写回统一草稿。
  *
  * 关键点：只替换「always + none」与「legacy_depth」这两类起点，
- * AI 生成的条件起点（roster_any / manual / requires_closure）原样保留，
- * 不会因为用高级视图改一条边就被静默清掉。
+ * 非 v2 形态的条件起点（roster_any / manual / requires_closure）原样保留，
+ * 不会因为用旧格式视图改一条边就被静默清掉。
  */
 export const patchFromPolicy = (
   policy: WorldBookPolicyDraft, draft: WorldBookDraft,
@@ -197,7 +194,6 @@ export const buildSaveBody = (
     if (!same(draft.related_edges, baseline?.related_edges)) body.related_edges = draft.related_edges;
   }
   if (draft.rejected.length) body.rejected = draft.rejected;
-  if (draft.proposal) body.proposal = draft.proposal;
   return body;
 };
 

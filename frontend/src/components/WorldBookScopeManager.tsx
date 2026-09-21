@@ -1,145 +1,112 @@
-import { Fragment, useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { useAppStore } from "../stores/appStore";
-import type { WorldBookCategoryDTO, WorldBookClassificationDTO, WorldBookDetail, WorldBookEntryDTO, WorldBookPolicyDraft, WorldBookScopePreviewDTO } from "../types";
+import type {
+  WorldBookActivation, WorldBookCategoryDTO, WorldBookClassificationDTO,
+  WorldBookDetail, WorldBookExpansion,
+} from "../types";
+import type { WorldBookDraft } from "../hooks/useWorldbookDraft";
 import { categoryDescendants, flattenCategoryTree } from "../utils/worldbookScope";
-import { buildWorldBookGraph, categoryNodeId, dependencyEdgeId, entryNodeId, type WorldBookGraphView, type WorldBookGraphNode } from "../utils/worldbookGraph";
 import {
-  DEPENDENCY_ROLES, ROLE_GLYPHS, ROLE_HINTS, ROLE_LABELS, defaultTreeDepthLimit, dependencyDescendants, dependencyPath,
-  type DependencyRole,
-} from "../utils/worldbookDependency";
-import WorldBookGraphCanvas, { type GraphColoring } from "./WorldBookGraphCanvas";
-import {
-  batchAddEdges, batchFixed, batchMove, batchRemoveEdges, batchSource, categoryEntryUids, knownUids,
+  batchAddEdges, batchMove, batchRemoveEdges, batchRoots, categoryEntryUids, knownUids,
 } from "../utils/worldbookBatch";
 import WorldBookGraphIcon from "./WorldBookGraphIcon";
 import WorldBookScopePreview from "./WorldBookScopePreview";
-import {
-  patchFromPolicy, policyFromDraft, type WorldBookDraft,
-} from "../hooks/useWorldbookDraft";
+import { ACTIVATION_LABELS, EXPANSION_LABELS, type WorldBookPanelProps } from "./worldbook/panel";
 import "../styles/worldbook-graph.css";
 
+/**
+ * 分类结构工作台（原「高级图谱」的 taxonomy 视图，D-1 / D-3 缩减后）。
+ *
+ * 只剩 **分类树列表 + 条目归属表 + 批量操作 + 侧栏** 四件事：
+ *  - 分类的增删改、条目归属（移入分类）、角色关联、按元数据自动分类；
+ *  - 起点（v3）的批量与逐条设置：`activation`（基础设定 / 角色入队 / 手动追加）
+ *    与 `expansion`（只含自身 / 补齐必要依赖 / 按旧深度展开 +N）；
+ *  - 依赖边的批量增删与逐条增删；
+ *  - 候选范围预览（`WorldBookScopePreview` 侧栏）。
+ *
+ * 画布（力导向关系网络 / 分层依赖树）、拖动布局、框选、在图上连线、缩略图、
+ * 五种依赖角色词表与筛选全部随 D-1 / D-3 删除。批量选择改由**列表复选框**驱动
+ * （R-20），批量建立依赖改为在批量栏用目标条目下拉选择。
+ *
+ * 全部改动只落在页面级的**统一草稿**上，由工作台页头一次原子保存：
+ * 本组件不写盘、不重新加载书，草稿在保存失败或 409 冲突时原样保留。
+ */
 const KINDS = { worldview: "世界观", character: "角色", other: "其他" };
 /** 自动分类的线索名 → 界面文案（与后端 worldbook_classify 的信号名对应）。 */
 const SIGNALS: Record<string, string> = { "uid-prefix": "uid 前缀", group: "group 字段", "name-suffix": "名称后缀" };
 const classificationName = (value: WorldBookClassificationDTO, id: string) =>
   value.categories.find((category) => category.id === id)?.name
   || value.proposal.find((category) => category.id === id)?.name || id;
-const MIME = "application/x-worldbook-entry";
-/** 固定导入托盘最多平铺这么多 chip，其余交给按分类的管理面板。 */
-const TRAY_CHIP_LIMIT = 12;
-/** 管理面板的固定行高与视口高度：虚拟滚动按这两个值算窗口。 */
-const FIXED_ROW_HEIGHT = 30;
-const FIXED_VIEWPORT = 234;
-const FIXED_OVERSCAN = 4;
-type FixedRow =
-  | { kind: "group"; id: string; name: string; level: number; uids: string[] }
-  | { kind: "entry"; uid: string; groupId: string };
-const policyFrom = (detail: WorldBookDetail): WorldBookPolicyDraft => ({
-  fixed_entry_uids: detail.import_config?.fixed_entry_uids || [],
-  dependency_sources: detail.import_config?.dependency_sources || [],
-  dependency_edges: detail.dependency_edges || [],
-  scope_mode: detail.scope_mode || "legacy",
-});
+/** 归属表一次渲染的最大行数：大书仍以搜索与分类筛选定位。 */
+const TABLE_LIMIT = 300;
+const edgeKey = (from: string, to: string) => `${from}\u0000${to}`;
+/** 激活方式的短标签（侧栏与归属表用；完整口径见 panel.ts 的 ACTIVATION_LABELS）。 */
+const ACTIVATION_SHORT: Record<WorldBookActivation, string> = {
+  always: "基础设定", roster_any: "角色入队", manual: "手动追加",
+};
 
-export default function WorldBookScopeManager({ detail: detailProp, onChanged, view = "dependencies", onCategoryChange, onEditEntry, onDirtyChange,
-  draft: unifiedDraft, patch: unifiedPatch, unifiedSave, unifiedSaving, unifiedDirty,
-  unifiedPreview, unifiedPreviewError, unifiedUndo }: {
-  detail: WorldBookDetail;
-  onChanged: () => void | Promise<void>;
-  view?: WorldBookGraphView;
-  onCategoryChange?: (id: string) => void;
-  onEditEntry?: (entry: WorldBookEntryDTO) => void;
-  onDirtyChange?: (dirty: boolean) => void;
+export interface WorldBookScopeManagerProps extends WorldBookPanelProps {
   /**
-   * 统一草稿模式：分类、条目归属、起点与依赖边都改这一份草稿，
-   * 由页面右上角一次原子保存。不传则沿用组件内部的旧策略草稿（兼容旧用法）。
+   * 兼容旧调用保留的视图开关。
+   *
+   * 本组件只剩「分类结构」（taxonomy）一种视图：历史取值 `dependencies` / `tree`
+   * 随画布一起删除（D-1 / D-3），因此**任何**取值都按分类结构渲染。
    */
-  draft?: WorldBookDraft | null;
-  patch?: (changes: Partial<WorldBookDraft>) => void;
-  unifiedSave?: () => Promise<void>;
-  unifiedSaving?: boolean;
-  unifiedDirty?: boolean;
-  unifiedPreview?: WorldBookScopePreviewDTO | null;
-  unifiedPreviewError?: string;
-  unifiedUndo?: () => void;
-}) {
+  view?: string;
+  /** 外部数据已变更（重新拉取 detail）；分类结构视图自身不写盘，故可省略。 */
+  onChanged?: () => void | Promise<void>;
+}
+
+export default function WorldBookScopeManager(props: WorldBookScopeManagerProps) {
+  const {
+    detail: detailProp, draft, patch, dirty, saving, save, undo, preview, previewError,
+    roster, setRoster,
+  } = props;
   const api = useApi();
   const store = useAppStore();
   const controlId = useId();
-  const unified = !!unifiedDraft && !!unifiedPatch;
+
   /**
-   * 统一模式：把草稿里的分类与条目归属叠到 detail 上，高级图谱看到的
+   * 把草稿里的分类与条目归属叠到 detail 上：分类结构看到的
    * 就是「保存后会变成的样子」，不需要维护第二份草稿。
    */
-  const viewDetail = useMemo(() => {
-    if (!unified || !unifiedDraft) return detailProp;
-    const moves = unifiedDraft.entry_moves;
-    const updates = unifiedDraft.entry_updates;
+  const detail = useMemo(() => {
+    const moves = draft.entry_moves;
+    const updates = draft.entry_updates;
     return {
       ...detailProp,
-      categories: unifiedDraft.categories,
-      dependency_edges: unifiedDraft.requires_edges,
-      related_edges: unifiedDraft.related_edges,
+      categories: draft.categories,
       entries: detailProp.entries.map((entry) => {
-        const patch = updates[entry.uid];
-        const category_id = patch?.category_id ?? moves[entry.uid] ?? entry.category_id;
-        const character_id = patch?.character_id ?? entry.character_id;
+        const entryPatch = updates[entry.uid];
+        const category_id = entryPatch?.category_id ?? moves[entry.uid] ?? entry.category_id;
+        const character_id = entryPatch?.character_id ?? entry.character_id;
         return category_id === entry.category_id && character_id === entry.character_id
           ? entry : { ...entry, category_id, character_id };
       }),
     } as WorldBookDetail;
-  }, [unified, unifiedDraft, detailProp]);
-  const detail = viewDetail;
-  const [localPolicy, setLocalPolicy] = useState(() => policyFrom(detailProp));
-  // 统一模式下 policy 由草稿投影而来：高级图谱与简化视图始终看到同一份配置。
-  const policy = unified && unifiedDraft ? policyFromDraft(unifiedDraft) : localPolicy;
-  const setPolicy = (next: WorldBookPolicyDraft | ((current: WorldBookPolicyDraft) => WorldBookPolicyDraft)) => {
-    const apply = (current: WorldBookPolicyDraft) => (typeof next === "function" ? next(current) : next);
-    if (unified && unifiedDraft) {
-      unifiedPatch!(patchFromPolicy(apply(policyFromDraft(unifiedDraft)), unifiedDraft));
-      return;
-    }
-    setLocalPolicy(apply);
-  };
+  }, [draft.categories, draft.entry_moves, draft.entry_updates, detailProp]);
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [selection, setSelection] = useState<{ kind: "entry" | "category"; id: string } | null>(null);
-  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [categoryDraft, setCategoryDraft] = useState<WorldBookCategoryDTO | null>(null);
   const [deleteTarget, setDeleteTarget] = useState("unclassified");
   const [assignment, setAssignment] = useState({ category_id: "unclassified", character_id: "" });
   const [characters, setCharacters] = useState<Array<{ id: string; name?: string; title?: string }> | null>(null);
   const [edgeTo, setEdgeTo] = useState("");
-  const [linkFrom, setLinkFrom] = useState<string[] | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
+  const [batchActivation, setBatchActivation] = useState<WorldBookActivation>("always");
+  const [batchExpansion, setBatchExpansion] = useState<WorldBookExpansion>("none");
   const [batchDepth, setBatchDepth] = useState(1);
   const [batchTarget, setBatchTarget] = useState("");
   const [batchCategory, setBatchCategory] = useState("unclassified");
   const [rowMenu, setRowMenu] = useState<string | null>(null);
   const [batchNote, setBatchNote] = useState("");
-  const [depth, setDepth] = useState(1);
-  const [roster, setRoster] = useState<string[]>([]);
-  const [localPreview, setLocalPreview] = useState<WorldBookScopePreviewDTO | null>(null);
-  const [localPreviewError, setLocalPreviewError] = useState("");
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [panel, setPanel] = useState<"inspector" | "preview" | "classify" | null>(null);
-  const [connectedOnly, setConnectedOnly] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const [dropActive, setDropActive] = useState(false);
-  // 固定导入管理面板：分组折叠、搜索、批量选择与虚拟滚动都只作用于本地视图状态，
-  // 条目本身仍然只存在 policy.fixed_entry_uids 里，存储格式不变。
-  const [fixedPanel, setFixedPanel] = useState(false);
-  const [fixedQuery, setFixedQuery] = useState("");
-  const [fixedCollapsed, setFixedCollapsed] = useState<Set<string>>(() => new Set());
-  const [fixedScroll, setFixedScroll] = useState(0);
-  const [coloring, setColoring] = useState<GraphColoring>("role");
-  const [roleFilter, setRoleFilter] = useState<DependencyRole[]>([]);
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  const [treeDepth, setTreeDepth] = useState<number | null>(null);
-  const [showLoose, setShowLoose] = useState(false);
   const [classification, setClassification] = useState<WorldBookClassificationDTO | null>(null);
   const [classifyError, setClassifyError] = useState("");
 
@@ -148,126 +115,31 @@ export default function WorldBookScopeManager({ detail: detailProp, onChanged, v
   const byUid = useMemo(() => new Map(detail.entries.map((entry) => [entry.uid, entry])), [detail.entries]);
   const focusedUid = selection?.kind === "entry" ? selection.id : "";
   const focused = byUid.get(focusedUid);
-  const selectedId = selection ? selection.kind === "entry" ? entryNodeId(selection.id) : categoryNodeId(selection.id) : null;
-  const localDirty = JSON.stringify(localPolicy) !== JSON.stringify(policyFrom(detail));
-  const dirty = unified ? !!unifiedDirty : localDirty;
-  const preview = unified ? (unifiedPreview ?? null) : localPreview;
-  const previewError = unified ? (unifiedPreviewError || "") : localPreviewError;
-  const saving = unified ? !!unifiedSaving : busy;
-  const fixed = new Set(policy.fixed_entry_uids);
-  const source = policy.dependency_sources.find((item) => item.entry_uid === focusedUid);
-  const selectedRelation = policy.dependency_edges.find((edge) => dependencyEdgeId(edge.from_uid, edge.to_uid) === selectedEdge);
-  const label = (uid: string) => byUid.get(uid)?.name || uid;
-  const selectedCategories = useMemo(() => categoryId ? categoryDescendants(categories, categoryId) : null, [categories, categoryId]);
-  const isDependency = view !== "taxonomy";
-  const treeView = view === "tree";
-  const graph = useMemo(() => buildWorldBookGraph(detail, policy, {
-    view, categoryId, query, connectedOnly: isDependency && connectedOnly, focusedUid,
-    roles: isDependency && roleFilter.length ? roleFilter : undefined,
-  }), [detail, policy, view, categoryId, query, connectedOnly, focusedUid, roleFilter, isDependency]);
-  const model = graph.tree;
-  const role = focused ? model?.roles.get(focused.uid) || "orphan" : null;
   const pickedSet = useMemo(() => new Set(picked), [picked]);
-  const treeNode = focused ? model?.byUid.get(focused.uid) : undefined;
-  const treeDepthLimit = treeDepth ?? (model ? defaultTreeDepthLimit(model) : 0);
-  const treeOptions = useMemo(() => (treeView && model
-    ? { depthLimit: treeDepthLimit, collapsed, showLoose }
-    : null), [treeView, model, treeDepthLimit, collapsed, showLoose]);
-  const toggleRole = (value: DependencyRole) => setRoleFilter((current) =>
-    current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
-  const toggleCollapse = (uid: string) => setCollapsed((current) => {
-    const next = new Set(current);
-    if (next.has(uid)) next.delete(uid); else next.add(uid);
-    return next;
-  });
+  const label = (uid: string) => byUid.get(uid)?.name || uid;
+  const categoryName = (id: string) => categories.find((category) => category.id === id)?.name || id;
+  const selectedCategories = useMemo(() => categoryId ? categoryDescendants(categories, categoryId) : null, [categories, categoryId]);
+  const rootOf = (uid: string) => draft.roots.find((root) => root.entry_uid === uid);
+  const requiresFrom = (uid: string) => draft.requires_edges.filter((edge) => edge.from_uid === uid);
+  const requiresTo = (uid: string) => draft.requires_edges.filter((edge) => edge.to_uid === uid);
   const filtered = detail.entries.filter((entry) =>
-    (!selectedCategories || selectedCategories.has(entry.category_id || "unclassified")) &&
-    // 角色筛选只属于依赖视图；切回分类结构时不参与过滤，也不会把目录清空。
-    (!isDependency || !roleFilter.length || roleFilter.includes(model?.roles.get(entry.uid) || "orphan")) &&
-    (!query.trim() || [entry.name, entry.uid, entry.character_id, categories.find((category) => category.id === entry.category_id)?.name,
+    (!selectedCategories || selectedCategories.has(entry.category_id || "unclassified"))
+    && (!query.trim() || [entry.name, entry.uid, entry.character_id,
+      categories.find((category) => category.id === entry.category_id)?.name,
       ...(entry.trigger_keys || [])].join(" ").toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())));
   const editingDescendants = categoryDraft ? categoryDescendants(categories, categoryDraft.id) : new Set<string>();
-  /**
-   * 固定导入条目按分类分组。组顺序沿用分类树（未分类与已不存在的分类排在最后），
-   * 只读 policy.fixed_entry_uids 与条目自身的 category_id，不改任何存储结构。
-   */
-  const fixedGroups = useMemo(() => {
-    const order = new Map(rows.map(({ category }, index) => [category.id, index]));
-    const levels = new Map(rows.map(({ category, level }) => [category.id, level]));
-    const needle = fixedQuery.trim().toLocaleLowerCase();
-    const groups = new Map<string, { id: string; name: string; level: number; uids: string[] }>();
-    for (const uid of policy.fixed_entry_uids) {
-      const entry = byUid.get(uid);
-      if (!entry) continue;   // 书里已不存在的陈旧 UID：不展示，也不顺手改写策略
-      const categoryId = entry.category_id || "unclassified";
-      const name = categories.find((category) => category.id === categoryId)?.name || categoryId;
-      if (needle && ![entry.name, entry.uid, entry.character_id, name].join(" ").toLocaleLowerCase().includes(needle)) continue;
-      const group = groups.get(categoryId);
-      if (group) group.uids.push(uid);
-      else groups.set(categoryId, { id: categoryId, name, level: levels.get(categoryId) ?? 0, uids: [uid] });
-    }
-    return [...groups.values()].sort((a, b) =>
-      (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.id) ?? Number.MAX_SAFE_INTEGER));
-  }, [policy.fixed_entry_uids, byUid, categories, rows, fixedQuery]);
-  /** 折叠后的扁平行列表：虚拟滚动按它算窗口，行高固定。 */
-  const fixedRows = useMemo(() => {
-    const out: FixedRow[] = [];
-    for (const group of fixedGroups) {
-      out.push({ kind: "group", id: group.id, name: group.name, level: group.level, uids: group.uids });
-      if (!fixedCollapsed.has(group.id)) for (const uid of group.uids) out.push({ kind: "entry", uid, groupId: group.id });
-    }
-    return out;
-  }, [fixedGroups, fixedCollapsed]);
-  const fixedMatched = fixedGroups.reduce((total, group) => total + group.uids.length, 0);
-  const fixedWindow = useMemo(() => {
-    // 列表会因折叠、搜索、批量取消固定而变短，而滚动位置可能停在旧高度上；
-    // 这里把窗口夹在有效范围内，避免出现「滚到越界位置后一片空白」。
-    const visible = Math.ceil(FIXED_VIEWPORT / FIXED_ROW_HEIGHT);
-    const first = Math.max(0, Math.min(Math.max(0, fixedRows.length - visible),
-      Math.floor(fixedScroll / FIXED_ROW_HEIGHT) - FIXED_OVERSCAN));
-    return { first, last: Math.min(fixedRows.length, first + visible + FIXED_OVERSCAN * 2) };
-  }, [fixedRows.length, fixedScroll]);
-  const fixedVisibleRows = fixedRows.slice(fixedWindow.first, fixedWindow.last);
-  const fixedRowUids = useMemo(() => fixedRows.flatMap((row) => (row.kind === "entry" ? [row.uid] : [])), [fixedRows]);
-  const toggleFixedGroup = (id: string) => setFixedCollapsed((current) => {
-    const next = new Set(current);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return next;
-  });
-  const toggleFixedPick = (uid: string) => setPicked((current) =>
-    current.includes(uid) ? current.filter((item) => item !== uid) : [...current, uid]);
-  /** 全选/反选都只作用于「当前可见（含折叠与搜索过滤后）的固定导入条目」，并并入已有批量选择。 */
-  const pickFixedVisible = () => {
-    if (!fixedRowUids.length) return;
-    setPicked((current) => [...new Set([...current, ...fixedRowUids])]);
-    setBatchNote(`已选中 ${fixedRowUids.length} 个固定导入条目（并入当前批量选择）。`);
-  };
-  const invertFixedVisible = () => {
-    const scope = new Set(fixedRowUids);
-    setPicked((current) => {
-      const kept = new Set(current);
-      return [...current.filter((uid) => !scope.has(uid)), ...[...scope].filter((uid) => !kept.has(uid))];
-    });
-  };
   const assignmentKind = categories.find((category) => category.id === assignment.category_id)?.scope_type;
 
-  // 统一模式下草稿由页面持有，这里不覆盖；只有旧的独立模式才从 detail 重置本地策略。
-  useEffect(() => { if (!unified) setLocalPolicy(policyFrom(detail)); }, [detail, unified]);
   useEffect(() => {
     setCategoryId(""); setSelection(null); setCategoryDraft(null); setError("");
-    setRoster([]); setEdgeTo(""); setLinkFrom(null); setPanel(null); setSelectedEdge(null);
-    setQuery(""); setConnectedOnly(false); setRoleFilter([]); setCollapsed(new Set()); setTreeDepth(null); setShowLoose(false);
-    setClassification(null); setClassifyError("");
-    setPicked([]); setBatchNote(""); setLinkFrom(null); setRowMenu(null); setBatchTarget("");
-  }, [detail.id]);
-  useEffect(() => {
-    setSelection(null); setSelectedEdge(null); setCategoryDraft(null); setLinkFrom(null); setPanel(null);
-    setCollapsed(new Set()); setTreeDepth(null); setRowMenu(null); setBatchNote("");
-    setColoring(view === "taxonomy" ? "kind" : "role");
-  }, [view]);
+    setEdgeTo(""); setPanel(null);
+    setQuery(""); setClassification(null); setClassifyError("");
+    setPicked([]); setBatchNote(""); setRowMenu(null); setBatchTarget("");
+    // 试选阵容属于工作台页面级状态（试算用，不进草稿），换书由工作台清空，这里不动它。
+  }, [detailProp.id]);
   useEffect(() => {
     setAssignment({ category_id: focused?.category_id || "unclassified", character_id: focused?.character_id || "" });
-    setEdgeTo(""); setDepth(1);
+    setEdgeTo("");
   }, [focused]);
   // 书重新加载后（条目被删/被改动），把批量选择与批量目标里的陈旧 UID 清掉。
   useEffect(() => {
@@ -288,398 +160,260 @@ export default function WorldBookScopeManager({ detail: detailProp, onChanged, v
     document.addEventListener("keydown", escape);
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", escape); };
   }, [rowMenu]);
-  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
-  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
-  useEffect(() => {
-    if (!dirty) return;
-    const prevent = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
-    window.addEventListener("beforeunload", prevent);
-    return () => window.removeEventListener("beforeunload", prevent);
-  }, [dirty]);
   useEffect(() => {
     let cancelled = false;
     api.getCharacters().then((items) => { if (!cancelled) setCharacters(items || []); })
       .catch(() => { if (!cancelled) setCharacters(null); });
     return () => { cancelled = true; };
   }, [api]);
-  useEffect(() => {
-    // 统一模式下预览由页面按统一草稿计算，避免这里用旧形态策略算出不一致的结果。
-    if (!isDependency || unified) return;
-    let cancelled = false;
-    setLocalPreview(null); setLocalPreviewError("");
-    const timer = setTimeout(() => {
-      api.previewWorldbookScope(detail.id, roster, policy)
-        .then((value) => { if (!cancelled) setLocalPreview(value); })
-        .catch((e) => { if (!cancelled) setLocalPreviewError(e.message || "预览失败"); });
-    }, 180);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [api, detail.id, detail.updated_at, roster, policy, view, unified]);
 
-  const run = async (action: () => Promise<unknown>, savingPolicy = false) => {
-    if (busy) return false;
-    if (!savingPolicy && dirty && !window.confirm("此操作会重新加载配置并丢弃未保存的导入策略，继续吗？")) return false;
-    setBusy(true); setError("");
-    try { await action(); await onChanged(); return true; }
-    catch (e) { setError(e instanceof Error ? e.message : "操作失败"); return false; }
-    finally { setBusy(false); }
+  /** 草稿写回：只改这一份统一草稿，不写盘。 */
+  const rootPatch = (next: WorldBookDraft): Partial<WorldBookDraft> => {
+    // v2 书里可表达的起点（always + none / legacy_depth）仍按旧口径只改 roots，
+    // 保存一次的载入范围逐条等价；v3 专属组合（roster_any / manual /
+    // requires_closure）在 v2 里没有等价表示，必须显式改用按需载入，
+    // 否则服务端会按 v2 形态把它们丢掉（与「条目与角色」页签同一口径）。
+    const v2Compatible = next.roots.every((root) => root.activation === "always"
+      && (root.expansion === "none" || root.expansion === "legacy_depth"));
+    return v2Compatible ? { roots: next.roots } : { roots: next.roots, adopt_v3: true };
   };
-  const filterCategory = (id: string) => { setCategoryId(id); onCategoryChange?.(id); };
-  const dragUid = (event: React.DragEvent) => {
-    if (busy) return "";
-    try {
-      const data = JSON.parse(event.dataTransfer.getData(MIME));
-      return data.book_id === detail.id && byUid.has(data.uid) ? data.uid as string : "";
-    } catch { return ""; }
-  };
-  const addFixed = (uid: string) => {
-    if (busy || !byUid.has(uid) || fixed.has(uid)) return;
-    setPolicy((current) => ({ ...current, fixed_entry_uids: [...current.fixed_entry_uids, uid] }));
-  };
-  const removeFixed = (uid: string) => setPolicy((current) => ({ ...current, fixed_entry_uids: current.fixed_entry_uids.filter((id) => id !== uid) }));
-  const setSource = (uid: string, maxDepth: number | null) => {
-    setPolicy((current) => ({ ...current, dependency_sources: [
-      ...current.dependency_sources.filter((item) => item.entry_uid !== uid),
-      ...(maxDepth === null ? [] : [{ entry_uid: uid, max_depth: maxDepth }]),
-    ] }));
-  };
-  const addEdge = (from: string, to: string) => {
-    if (busy || !byUid.has(from) || !byUid.has(to)) return false;
-    if (from === to) { setError("不能让条目依赖自身，请选择另一个节点。"); return false; }
-    if (policy.dependency_edges.some((edge) => edge.from_uid === from && edge.to_uid === to)) {
-      setError("这条依赖已经存在。"); return false;
-    }
-    setError("");
-    setPolicy((current) => ({ ...current, dependency_edges: [...current.dependency_edges, { from_uid: from, to_uid: to }] }));
-    setLinkFrom(null); setEdgeTo("");
+  /** 起点批量写回（R-17）：`activation === null` 表示移除这些条目的起点。 */
+  const applyRoots = (uids: string[], activation: WorldBookActivation | null,
+    expansion: WorldBookExpansion, maxDepth?: number | null) => {
+    const next = batchRoots(draft, detail, uids, activation, expansion, maxDepth);
+    // 起点已处于目标状态时不写草稿：避免无意义的脏标记（batchRoots 会稳定排序）。
+    if (JSON.stringify(next.roots) === JSON.stringify(draft.roots)) return false;
+    patch(rootPatch(next));
     return true;
   };
-  /** 批量连线：为整批来源（或整批目标）一次建立依赖，重复与自环直接跳过。 */
-  const addEdgesFrom = (fromUids: string[], to: string) => {
-    if (busy || !byUid.has(to)) return;
-    const { policy: next, added, skipped } = batchAddEdges(policy, detail, fromUids, to, "to");
-    if (!added.length) { setError(`没有新增依赖：${skipped} 条已存在或指向自身。`); }
-    else { setError(""); setPolicy(next); }
-    setBatchNote(added.length ? `已为 ${added.length} 个条目建立依赖${skipped ? `，跳过 ${skipped} 条（已存在或自环）` : ""}。` : "");
-    setLinkFrom(null); setEdgeTo("");
-  };
-  const removeEdge = (from: string, to: string) => {
-    setPolicy((current) => ({ ...current, dependency_edges: current.dependency_edges.filter((edge) => edge.from_uid !== from || edge.to_uid !== to) }));
-    setSelectedEdge(null);
-  };
-  const inspectEntry = (uid: string) => {
-    setSelection({ kind: "entry", id: uid }); setSelectedEdge(null); setCategoryDraft(null); setPanel("inspector");
-  };
-  const inspectCategory = (id: string) => {
-    const category = categories.find((item) => item.id === id);
-    setSelection({ kind: "category", id }); setSelectedEdge(null); setPanel("inspector");
-    setCategoryDraft(category && category.id !== "unclassified" ? { ...category } : null);
-    setDeleteTarget("unclassified");
-    setRowMenu(null);
-  };
-  const selectNode = (node: WorldBookGraphNode, additive = false) => {
-    if (linkFrom) {
-      if (node.kind !== "entry") { setError("依赖的目标必须是条目节点，分类只用于组织条目。"); return; }
-      addEdgesFrom(linkFrom, node.refId);
-      return;
-    }
-    if (additive && node.kind === "entry") {
-      // Ctrl / Shift 点击：只增删批量选择，不抢走属性栏的主选择。
-      setPicked((current) => current.includes(node.refId)
-        ? current.filter((uid) => uid !== node.refId) : [...current, node.refId]);
-      setBatchNote("");
-      return;
-    }
-    if (node.kind === "entry") inspectEntry(node.refId);
-    else inspectCategory(node.refId);
-  };
+  const filterCategory = (id: string) => { setCategoryId(id); };
+
   const pickMany = (uids: string[], additive: boolean) => {
     setBatchNote("");
     setPicked((current) => (additive ? [...new Set([...current, ...knownUids(detail, uids)])] : knownUids(detail, uids)));
   };
-  const pickCategory = (categoryId: string) => {
-    const uids = categoryEntryUids(detail, categoryId);
-    setPicked(uids); setBatchNote(`已选中「${categoryName(categoryId)}」下的 ${uids.length} 个条目。`);
+  const togglePick = (uid: string) => setPicked((current) =>
+    current.includes(uid) ? current.filter((item) => item !== uid) : [...current, uid]);
+  /** 分类行的复选框：整棵子树下的条目一起选 / 一起取消（R-20）。 */
+  const togglePickCategory = (id: string) => {
+    const uids = categoryEntryUids(detail, id);
+    setBatchNote("");
+    setPicked((current) => {
+      const scope = new Set(uids);
+      const allPicked = uids.length > 0 && uids.every((uid) => current.includes(uid));
+      return allPicked ? current.filter((uid) => !scope.has(uid)) : [...new Set([...current, ...uids])];
+    });
     setRowMenu(null);
   };
-  const categoryName = (categoryId: string) => categories.find((category) => category.id === categoryId)?.name || categoryId;
-  /** 整类设为导入源 / 固定导入：一次改动整棵子树下的条目。 */
-  const sourceCategory = (categoryId: string) => {
-    const uids = categoryEntryUids(detail, categoryId);
-    if (!uids.length) { setBatchNote(`「${categoryName(categoryId)}」下没有条目。`); setRowMenu(null); return; }
-    setPolicy(batchSource(policy, detail, uids, batchDepth));
-    setBatchNote(`已将「${categoryName(categoryId)}」下的 ${uids.length} 个条目设为导入源（深度 ${batchDepth}）。`);
+  const pickCategory = (id: string) => {
+    const uids = categoryEntryUids(detail, id);
+    setPicked(uids); setBatchNote(`已选中「${categoryName(id)}」下的 ${uids.length} 个条目。`);
     setRowMenu(null);
   };
-  const fixedCategory = (categoryId: string) => {
-    const uids = categoryEntryUids(detail, categoryId);
-    if (!uids.length) { setBatchNote(`「${categoryName(categoryId)}」下没有条目。`); setRowMenu(null); return; }
-    setPolicy(batchFixed(policy, detail, uids, true));
-    setBatchNote(`已将「${categoryName(categoryId)}」下的 ${uids.length} 个条目设为固定导入。`);
-    setRowMenu(null);
+
+  const addEdge = (from: string, to: string) => {
+    if (!byUid.has(from) || !byUid.has(to)) return;
+    if (from === to) { setError("不能让条目依赖自身，请选择另一个条目。"); return; }
+    if (draft.requires_edges.some((edge) => edge.from_uid === from && edge.to_uid === to)) {
+      setError("这条依赖已经存在。"); return;
+    }
+    setError("");
+    patch({ requires_edges: [...draft.requires_edges, { from_uid: from, to_uid: to }] });
+    setEdgeTo("");
   };
-  // ── 批量操作：全部只改策略草稿，照常走「保存策略」落盘 ──
-  const runBatchFixed = (on: boolean) => {
-    const next = batchFixed(policy, detail, picked, on);
-    setPolicy(next);
-    setBatchNote(next === policy ? "所选条目已处于该状态。" : on ? `已将 ${picked.length} 个条目设为固定导入。` : `已取消 ${picked.length} 个条目的固定导入。`);
-  };
-  const runBatchSource = (maxDepth: number | null) => {
-    const next = batchSource(policy, detail, picked, maxDepth);
-    setPolicy(next);
-    setBatchNote(maxDepth === null ? `已取消 ${picked.length} 个条目的导入源。` : `已将 ${picked.length} 个条目设为导入源（深度 ${maxDepth}）。`);
+  const removeEdge = (from: string, to: string) =>
+    patch({ requires_edges: draft.requires_edges.filter((edge) => edge.from_uid !== from || edge.to_uid !== to) });
+
+  // ── 批量操作：全部只改统一草稿，照常走页头那一次保存 ──
+  const runBatchRoots = (activation: WorldBookActivation | null) => {
+    const expansion: WorldBookExpansion = activation === null ? "none" : batchExpansion;
+    const changed = applyRoots(picked, activation, expansion, expansion === "legacy_depth" ? batchDepth : null);
+    setBatchNote(!changed ? "所选条目已处于该状态。"
+      : activation === null ? `已移除 ${picked.length} 个条目的起点。`
+        : `已把 ${picked.length} 个条目设为起点：${ACTIVATION_SHORT[activation]} · ${EXPANSION_LABELS[expansion]}`
+          + (expansion === "legacy_depth" ? `（深度 ${batchDepth}）` : "") + "。");
   };
   const runBatchLink = (direction: "to" | "from") => {
     if (!batchTarget) { setError("请先选择批量依赖的目标条目。"); return; }
-    const { policy: next, added, skipped } = batchAddEdges(policy, detail, picked, batchTarget, direction);
+    const { requires_edges, added, skipped } = batchAddEdges(draft, detail, picked, batchTarget, direction);
     if (!added.length) { setError(`没有新增依赖：${skipped} 条已存在或指向自身。`); return; }
-    setError(""); setPolicy(next);
+    setError(""); patch({ requires_edges });
     setBatchNote(direction === "to"
       ? `已建立 ${added.length} 条依赖：所选 → ${label(batchTarget)}。`
       : `已建立 ${added.length} 条依赖：${label(batchTarget)} → 所选。`);
   };
   const runBatchUnlink = (uids: string[], scope: string) => {
-    const { policy: next, removed } = batchRemoveEdges(policy, detail, uids);
-    setPolicy(next);
+    const { requires_edges, removed } = batchRemoveEdges(draft, detail, uids);
+    if (removed) patch({ requires_edges });
     setBatchNote(removed ? `已清除 ${scope} 的 ${removed} 条依赖边。` : `${scope}没有可清除的依赖边。`);
   };
-  const runBatchMove = async () => {
+  const runBatchMove = () => {
     const moves = batchMove(detail, picked, batchCategory);
     if (!Object.keys(moves).length) return;
-    let done: boolean;
-    if (unified) {
-      // 统一模式：移入分类只是改草稿里的条目归属，不单独写盘
-      unifiedPatch!({ entry_moves: { ...unifiedDraft!.entry_moves, ...moves } });
-      done = true;
-    } else {
-      done = !!(await run(() => api.updateWorldbookTaxonomy(detail.id, categories, moves, detail.import_config?.revision)));
-    }
-    if (done) {
-      setBatchNote(`已将 ${Object.keys(moves).length} 个条目移入「${categories.find((category) => category.id === batchCategory)?.name || batchCategory}」${unified ? "（尚未保存）" : ""}。`);
-      setPicked([]);
-    }
+    patch({ entry_moves: { ...draft.entry_moves, ...moves } });
+    setBatchNote(`已将 ${Object.keys(moves).length} 个条目移入「${categoryName(batchCategory)}」（尚未保存）。`);
+    setPicked([]);
   };
-  const startBatchLink = (uids: string[], origin: string) => {
-    const targets = knownUids(detail, uids);
-    if (!targets.length) { setError("没有可连线的条目。"); return; }
-    setLinkFrom(targets); setError("");
-    setPanel(null); setRowMenu(null);
-    setBatchNote(`已进入连线模式（${origin}）：在图中点击目标条目即可建立依赖。`);
+
+  const inspectEntry = (uid: string) => {
+    setSelection({ kind: "entry", id: uid }); setCategoryDraft(null); setPanel("inspector");
+  };
+  const inspectCategory = (id: string) => {
+    const category = categories.find((item) => item.id === id);
+    setSelection({ kind: "category", id }); setPanel("inspector");
+    setCategoryDraft(category && category.id !== "unclassified" ? { ...category } : null);
+    setDeleteTarget("unclassified");
+    setRowMenu(null);
   };
   const newCategory = () => {
     const parentId = categoryId && categoryId !== "unclassified" ? categoryId : null;
     setCategoryDraft({ id: "cat-" + crypto.randomUUID(), parent_id: parentId, name: "",
       scope_type: categories.find((category) => category.id === parentId)?.scope_type || "other", sort_order: categories.length * 10 });
-    setSelection(null); setSelectedEdge(null); setPanel("inspector");
+    setSelection(null); setPanel("inspector");
   };
-  const editEntry = () => {
-    if (!focused) return;
-    if (onEditEntry) onEditEntry(focused);
-    else if (!dirty || window.confirm("导入策略尚未保存，离开图谱会丢弃草稿。继续编辑正文吗？")) {
-      store.setWorldbookEntryJump({ bookId: detail.id, entryUid: focused.uid });
-      store.setWorldbookJumpId(detail.id); store.setCurrentView("worldbook");
-    }
+  /** 编辑正文：跳回工作台「条目」页签并由工作台打开条目编辑器。 */
+  const editEntry = (uid: string) => {
+    store.setWorldbookEntryJump({ bookId: detailProp.id, entryUid: uid });
+    store.setWorldbookTab("entries");
   };
-  const saveCategory = async () => {
+  const saveCategory = () => {
     if (!categoryDraft || !categoryDraft.name.trim() || !Number.isInteger(categoryDraft.sort_order)) return;
     const next = categories.filter((category) => category.id !== categoryDraft.id).map((category) =>
       editingDescendants.has(category.id) ? { ...category, scope_type: categoryDraft.scope_type } : category);
     next.push(categoryDraft);
-    let done: boolean;
-    if (unified) { unifiedPatch!({ categories: next }); done = true; }
-    else done = !!(await run(() => api.updateWorldbookTaxonomy(detail.id, next, {}, detail.import_config?.revision)));
-    if (done) {
-      setSelection({ kind: "category", id: categoryDraft.id }); setCategoryDraft(null); setPanel(null);
-    }
+    patch({ categories: next });
+    setSelection({ kind: "category", id: categoryDraft.id }); setCategoryDraft(null); setPanel(null);
   };
-  const deleteCategory = async () => {
+  const deleteCategory = () => {
     if (!categoryDraft || editingDescendants.has(deleteTarget)) return;
     const moved = detail.entries.filter((entry) => editingDescendants.has(entry.category_id || ""));
     if (!window.confirm("删除该分类及子分类，并将 " + moved.length + " 个条目移入所选目标？条目内容不会删除。")) return;
     const kept = categories.filter((category) => !editingDescendants.has(category.id));
     const moves = Object.fromEntries(moved.map((entry) => [entry.uid, deleteTarget]));
-    let done: boolean;
-    if (unified) {
-      unifiedPatch!({ categories: kept, entry_moves: { ...unifiedDraft!.entry_moves, ...moves } });
-      done = true;
-    } else {
-      done = !!(await run(() => api.updateWorldbookTaxonomy(detail.id, kept, moves, detail.import_config?.revision)));
-    }
-    if (done) {
-      setCategoryDraft(null); setSelection(null); setPanel(null);
-      if (editingDescendants.has(categoryId)) filterCategory("");
-    }
-  };
-  const openDependencies = () => {
-    store.setWorldbookScopeJumpId(detail.id); store.setContentHubTab("worldbook-deps"); store.setCurrentView("content");
+    patch({ categories: kept, entry_moves: { ...draft.entry_moves, ...moves } });
+    setCategoryDraft(null); setSelection(null); setPanel(null);
+    if (editingDescendants.has(categoryId)) filterCategory("");
   };
   const openClassification = async () => {
     if (panel === "classify") { setPanel(null); return; }
-    setPanel("classify"); setSelection(null); setSelectedEdge(null); setCategoryDraft(null);
-    setClassification(null); setClassifyError("");
-    try { setClassification(await api.previewWorldbookClassification(detail.id)); }
+    setPanel("classify"); setSelection(null); setCategoryDraft(null);
+    setClassification(null); setClassifyError(""); setBusy(true);
+    try { setClassification(await api.previewWorldbookClassification(detailProp.id)); }
     catch (e) { setClassifyError(e instanceof Error ? e.message : "读取分类线索失败"); }
-  };
-  const applyClassification = async () => {
-    if (!classification?.matched) return;
-    if (unified) {
-      // 统一模式：自动分类只是给草稿打一个补丁（分类 + 条目归属 + 角色关联），
-      // 由页面右上角一次保存。不调用旧接口，也就不会重新加载书、丢掉其它草稿。
-      const patchData = classification.draft_patch;
-      if (!patchData) { setError("这次分类没有可应用的结论。"); return; }
-      unifiedPatch!({
-        categories: patchData.categories,
-        entry_moves: { ...unifiedDraft!.entry_moves, ...patchData.entry_moves },
-        entry_updates: { ...unifiedDraft!.entry_updates, ...patchData.entry_updates },
-      });
-      setPanel(null);
-      setError("");
-      return;
-    }
-    // 旧用法（没有统一草稿）：应用会重新加载书，交给 run 统一确认。
-    if (await run(() => api.applyWorldbookClassification(detail.id, detail.import_config?.revision))) setPanel(null);
+    finally { setBusy(false); }
   };
   /**
-   * 保存「归属分类 + 角色关联」。
-   *
-   * 统一模式必须走草稿：直接调旧接口会立刻写盘并重新加载，把用户正在编辑的其它
-   * 改动（分类、起点、AI 建议）一起丢掉（审核反证 P2-14）。草稿路径下这些改动
-   * 与其它视图共用同一个撤销栈和同一次保存。
+   * 应用自动分类：只给统一草稿打一个补丁（分类 + 条目归属 + 角色关联），
+   * 由工作台页头一次保存。不调用旧写入接口，也就不会重新加载书、丢掉其它草稿。
    */
-  const saveAssignment = async (uid: string) => {
+  const applyClassification = () => {
+    if (!classification?.matched) return;
+    const patchData = classification.draft_patch;
+    if (!patchData) { setError("这次分类没有可应用的结论。"); return; }
+    patch({
+      categories: patchData.categories,
+      entry_moves: { ...draft.entry_moves, ...patchData.entry_moves },
+      entry_updates: { ...draft.entry_updates, ...patchData.entry_updates },
+    });
+    setPanel(null); setError("");
+  };
+  /** 归属分类 + 角色关联：走草稿，与其它改动共用同一个撤销栈和同一次保存。 */
+  const saveAssignment = (uid: string) => {
     if (!uid) return;
     const kind = categories.find((category) => category.id === assignment.category_id)?.scope_type;
-    const payload = {
-      category_id: assignment.category_id,
-      character_id: kind === "character" ? assignment.character_id : "",
-    };
-    if (unified) {
-      unifiedPatch!({ entry_updates: { ...unifiedDraft!.entry_updates, [uid]: payload } });
-      setBatchNote(`已更新「${label(uid)}」的归属（尚未保存）。`);
-      return;
-    }
-    await run(() => api.updateWorldbookEntry(detail.id, uid, payload));
+    patch({ entry_updates: { ...draft.entry_updates,
+      [uid]: { category_id: assignment.category_id, character_id: kind === "character" ? assignment.character_id : "" } } });
+    setBatchNote(`已更新「${label(uid)}」的归属（尚未保存）。`);
   };
 
-  return <section className={"wbg-workbench" + (expanded ? " wbg-expanded" : "")} aria-label={view === "taxonomy" ? "世界书分类工作台" : treeView ? "世界书依赖树工作台" : "世界书依赖工作台"}>
+  const rootLabel = (uid: string) => {
+    const root = rootOf(uid);
+    if (!root) return { text: "未配置起点", title: "不参与遍历展开；仍可能由关键词触发" };
+    return {
+      text: ACTIVATION_SHORT[root.activation],
+      title: `${ACTIVATION_LABELS[root.activation] || root.activation} · ${EXPANSION_LABELS[root.expansion] || root.expansion}`
+        + (root.expansion === "legacy_depth" ? `（深度 ${root.max_depth ?? 1}）` : ""),
+    };
+  };
+
+  return <section className="wbg-workbench" aria-label="世界书分类结构工作台">
     <header className="wbg-header">
       <div className="wbg-heading"><WorldBookGraphIcon name="graph" size={22} /><div>
-        <h3>{view === "taxonomy" ? "分类与角色关联" : treeView ? "世界书依赖树" : "世界书依赖图谱"}</h3>
-        <p>{view === "taxonomy" ? "分类组织内容，条目关联角色"
-          : treeView ? "按导入源与遍历深度分层展开；虚线边代表不会展开的依赖"
-            : "A → B 表示 A 依赖 B，分类连线不参与依赖展开"}</p>
+        <h3>分类结构</h3>
+        <p>分类组织内容，条目归属与角色关联；起点与依赖在「条目与角色」里逐条配置</p>
       </div></div>
       <div className="wbg-header-actions">
-        {isDependency && <>
-          <select className="wbg-field wbg-mode-select" aria-label="载入模式" disabled={busy} value={policy.scope_mode}
-            onChange={(event) => setPolicy((current) => ({ ...current, scope_mode: event.target.value as WorldBookPolicyDraft["scope_mode"] }))}>
-            <option value="selective">按需载入</option><option value="legacy">全量兼容</option>
-          </select>
-          <button className="wbg-button wbg-button-quiet" disabled={busy || !dirty} onClick={() => {
-            // 统一模式撤销回到服务端已保存版本，由页面统一负责
-            if (unified) { unifiedUndo?.(); setError(""); return; }
-            setPolicy(policyFrom(detail)); setError("");
-          }}>撤销草稿</button>
-          <button className="wbg-button wbg-button-primary" disabled={saving || !dirty || !preview || !!previewError}
-            onClick={() => {
-              if (unified) { void unifiedSave?.(); return; }
-              void run(() => api.updateWorldbookImportConfig(detail.id, { ...policy, expected_revision: detail.import_config?.revision }), true);
-            }}>
-            {saving ? "保存中…" : dirty ? "保存策略" : "已保存"}
-          </button>
-        </>}
-        <button className="wbg-icon-button" aria-label={expanded ? "收起图谱工作台" : "展开图谱工作台"} title={expanded ? "收起图谱工作台" : "展开图谱工作台"} onClick={() => setExpanded(!expanded)}>
-          <WorldBookGraphIcon name={expanded ? "close" : "fit"} />
+        <button className="wbg-button wbg-button-quiet" disabled={!dirty} onClick={undo}>撤销草稿</button>
+        <button className="wbg-button wbg-button-primary" disabled={saving || !dirty || !preview || !!previewError}
+          onClick={() => void save()}>
+          {saving ? "保存中…" : dirty ? "保存策略" : "已保存"}
         </button>
       </div>
     </header>
     <div className="wbg-toolbar">
-      <button className={"wbg-button wbg-button-quiet" + (libraryOpen ? " is-active" : "")} aria-expanded={libraryOpen} onClick={() => {
-        if (panel) { setPanel(null); setLibraryOpen(true); } else setLibraryOpen(!libraryOpen);
-      }}><WorldBookGraphIcon name="panel" />节点目录</button>
-      <div className="wbg-breadcrumb"><button onClick={() => filterCategory("")}>全部分类</button>{categoryId && <><span>/</span><span>{categories.find((category) => category.id === categoryId)?.name || categoryId}</span></>}</div>
-      {view === "taxonomy"
-        ? <>
-          <button className={"wbg-button wbg-button-quiet" + (panel === "classify" ? " is-active" : "")} aria-expanded={panel === "classify"}
-            title="按条目自带的 uid 前缀 / group / 名称后缀推断分类，先预览再决定是否应用" onClick={() => void openClassification()}>
-            <WorldBookGraphIcon name="tag" />自动分类
-          </button>
-          <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={newCategory}>＋ 新建分类</button>
-        </>
-        : <label className="wbg-checkbox-label"><input type="checkbox" checked={connectedOnly} onChange={(event) => setConnectedOnly(event.target.checked)} />仅已配置</label>}
+      <button className={"wbg-button wbg-button-quiet" + (libraryOpen ? " is-active" : "")} aria-expanded={libraryOpen}
+        onClick={() => setLibraryOpen(!libraryOpen)}><WorldBookGraphIcon name="panel" />分类目录</button>
+      <div className="wbg-breadcrumb"><button onClick={() => filterCategory("")}>全部分类</button>
+        {categoryId && <><span>/</span><span>{categoryName(categoryId)}</span></>}</div>
+      <button className={"wbg-button wbg-button-quiet" + (panel === "classify" ? " is-active" : "")} aria-expanded={panel === "classify"}
+        title="按条目自带的 uid 前缀 / group / 名称后缀推断分类，先预览再决定是否应用" onClick={() => void openClassification()}>
+        <WorldBookGraphIcon name="tag" />自动分类
+      </button>
+      <button className="wbg-button wbg-button-quiet" onClick={newCategory}>＋ 新建分类</button>
       <div className="wbg-toolbar-spacer" />
-      {isDependency ? <>
-        <span className={"wbg-save-state" + (dirty ? " is-dirty" : "")}>{dirty ? "有未保存修改" : "策略已同步"}</span>
-        <button className={"wbg-button" + (panel === "preview" ? " is-active" : "")} onClick={() => setPanel(panel === "preview" ? null : "preview")} aria-expanded={panel === "preview"}><WorldBookGraphIcon name="preview" />导入预览{preview && <span className="wbg-count">{preview.entry_count}</span>}</button>
-      </> : <button className="wbg-button wbg-button-quiet" onClick={openDependencies}>打开内容中心 · 依赖图谱 →</button>}
+      <span className={"wbg-save-state" + (dirty ? " is-dirty" : "")}>{dirty ? "有未保存修改" : "已同步"}</span>
+      <button className={"wbg-button" + (panel === "preview" ? " is-active" : "")} aria-expanded={panel === "preview"}
+        onClick={() => setPanel(panel === "preview" ? null : "preview")}><WorldBookGraphIcon name="preview" />导入预览
+        {preview && <span className="wbg-count">{preview.entry_count}</span>}</button>
     </div>
-    {isDependency && <div className="wbg-toolbar wbg-toolbar-sub">
-      <div className="wbg-seg" role="group" aria-label="节点着色依据">
-        <button aria-pressed={coloring === "kind"} title="按分类类型着色：世界观 / 角色 / 其他" onClick={() => setColoring("kind")}>按类型</button>
-        <button aria-pressed={coloring === "role"} title="按依赖角色着色：导入源 / 固定导入 / 中转 / 叶子 / 未配置" onClick={() => setColoring("role")}>按角色</button>
-      </div>
-      <div className="wbg-role-filter" role="group" aria-label="按依赖角色筛选节点">
-        <button className="wbg-role-chip" aria-pressed={!roleFilter.length} title="显示全部角色" onClick={() => setRoleFilter([])}>全部 <b>{detail.entries.length}</b></button>
-        {DEPENDENCY_ROLES.map((item) => <button key={item} className="wbg-role-chip" data-wbg-role={item} aria-pressed={roleFilter.includes(item)} title={ROLE_HINTS[item]}
-          onClick={() => toggleRole(item)}><i />{ROLE_LABELS[item]} <b>{graph.roles[item]}</b></button>)}
-      </div>
-      {treeView && <>
-        <label className="wbg-form-label wbg-inline-field">展开层级
-          <input className="wbg-field wbg-depth" type="number" aria-label="依赖树展开层级" min={0} max={model?.stats.maxDepth ?? 0} step={1} disabled={!model}
-            value={treeDepthLimit} onChange={(event) => setTreeDepth(Math.max(0, Math.min(model?.stats.maxDepth ?? 0, Number(event.target.value) || 0)))} />
-          <small>/ {model?.stats.maxDepth ?? 0}</small>
-        </label>
-        <button className="wbg-button wbg-button-quiet" disabled={!model || treeDepthLimit >= (model?.stats.maxDepth ?? 0)} onClick={() => setTreeDepth(model?.stats.maxDepth ?? 0)}>全部展开</button>
-        <button className="wbg-button wbg-button-quiet" disabled={!collapsed.size} onClick={() => setCollapsed(new Set())}>重置折叠</button>
-        <label className="wbg-checkbox-label" title="把固定导入但未展开的条目、以及未被任何导入源覆盖的条目放到树的底部">
-          <input type="checkbox" checked={showLoose} onChange={(event) => setShowLoose(event.target.checked)} />未覆盖条目 <b>{model ? model.stats.looseCount + model.stats.fixedOnlyCount : 0}</b>
-        </label>
-      </>}
-      <div className="wbg-toolbar-spacer" />
-      <div className="wbg-dep-stats" aria-label="依赖统计">
-        <span title="导入源条目数">源 <b>{model?.stats.sourceCount ?? 0}</b></span>
-        <span title="固定导入条目数">固定 <b>{model?.stats.fixedCount ?? 0}</b></span>
-        <span title="被至少一个导入源展开的条目数">已覆盖 <b>{model?.stats.reachableCount ?? 0}</b></span>
-        {!!model?.stats.looseCount && <span className="is-warn" title="未被任何导入源展开、也不是固定导入的条目数">未覆盖 <b>{model.stats.looseCount}</b></span>}
-        {!!model?.stats.cycleCount && <span className="is-warn" title="位于依赖环内的条目；遍历按剩余深度去重，不会死循环">依赖环 <b>{model.stats.cycleCount}</b></span>}
-        {!!model?.stats.cappedEdges && <span className="is-warn" title="上游已进入候选范围但遍历深度用尽，这些依赖不会展开">超深度边 <b>{model.stats.cappedEdges}</b></span>}
-        {!!model?.stats.idleEdges && <span title="上游未进入候选范围，这些依赖不会展开">未启用边 <b>{model.stats.idleEdges}</b></span>}
-      </div>
-    </div>}
-    {error && <div role="alert" className="wbg-notice wbg-error"><span>{error}</span><button onClick={() => { if (!dirty || window.confirm("重新加载会丢弃未保存策略，继续吗？")) void onChanged(); }}>重新加载</button><button aria-label="关闭错误提示" onClick={() => setError("")}>×</button></div>}
     {!!picked.length && <div className="wbg-toolbar wbg-batch-bar" aria-label="批量操作">
       <span className="wbg-batch-count"><WorldBookGraphIcon name="tag" size={13} />已选 <b>{picked.length}</b> 个条目</span>
-      {isDependency ? <>
-        <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => runBatchFixed(true)}>固定导入</button>
-        <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => runBatchFixed(false)}>取消固定</button>
-        <div className="wbg-batch-group">
-          <label className="wbg-form-label wbg-inline-field">导入源深度
-            <input className="wbg-field wbg-depth" type="number" aria-label="批量导入源深度" min={0} max={32} step={1} value={batchDepth}
-              onChange={(event) => setBatchDepth(Math.max(0, Math.min(32, Number(event.target.value) || 0)))} />
-          </label>
-          <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => runBatchSource(batchDepth)}>设为导入源</button>
-          <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => runBatchSource(null)}>取消导入源</button>
-        </div>
-        <div className="wbg-batch-group">
-          <label className="wbg-form-label wbg-inline-field">依赖目标
-            <select className="wbg-field wbg-batch-target" aria-label="批量依赖目标" value={batchTarget} onChange={(event) => setBatchTarget(event.target.value)}>
-              <option value="">选择条目</option>
-              {detail.entries.filter((entry) => !pickedSet.has(entry.uid))
-                .map((entry) => <option key={entry.uid} value={entry.uid}>{entry.name || entry.uid}</option>)}
-            </select>
-          </label>
-          <button className="wbg-button wbg-button-quiet" disabled={busy || !batchTarget} onClick={() => runBatchLink("to")}>所选 → 目标</button>
-          <button className="wbg-button wbg-button-quiet" disabled={busy || !batchTarget} onClick={() => runBatchLink("from")}>目标 → 所选</button>
-          <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => startBatchLink(picked, "所选条目")}>在图中点选目标</button>
-        </div>
-        <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => runBatchUnlink(picked, "所选条目")}>清空所选依赖</button>
-      </> : <>
+      <div className="wbg-batch-group">
+        <label className="wbg-form-label wbg-inline-field">起点
+          <select className="wbg-field wbg-batch-target" aria-label="批量起点激活方式" value={batchActivation}
+            onChange={(event) => setBatchActivation(event.target.value as WorldBookActivation)}>
+            {(["always", "roster_any", "manual"] as WorldBookActivation[]).map((value) =>
+              <option key={value} value={value}>{ACTIVATION_LABELS[value]}</option>)}
+          </select>
+        </label>
+        <label className="wbg-form-label wbg-inline-field">展开
+          <select className="wbg-field wbg-batch-target" aria-label="批量起点展开方式" value={batchExpansion}
+            onChange={(event) => setBatchExpansion(event.target.value as WorldBookExpansion)}>
+            {Object.entries(EXPANSION_LABELS).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+          </select>
+        </label>
+        {batchExpansion === "legacy_depth" && <label className="wbg-form-label wbg-inline-field">深度
+          <input className="wbg-field wbg-depth" type="number" aria-label="批量起点展开深度" min={0} max={32} step={1}
+            value={batchDepth} onChange={(event) => setBatchDepth(Math.max(0, Math.min(32, Number(event.target.value) || 0)))} />
+        </label>}
+        <button className="wbg-button wbg-button-quiet" onClick={() => runBatchRoots(batchActivation)}>设为起点</button>
+        <button className="wbg-button wbg-button-quiet" onClick={() => runBatchRoots(null)}>移除起点</button>
+        {batchActivation === "roster_any" && <small className="wbg-help">
+          「角色入队时选用」需要在「条目与角色」里为条目选择角色，否则保存会被拒绝。
+        </small>}
+      </div>
+      <div className="wbg-batch-group">
+        <label className="wbg-form-label wbg-inline-field">依赖目标
+          <select className="wbg-field wbg-batch-target" aria-label="批量依赖目标" value={batchTarget}
+            onChange={(event) => setBatchTarget(event.target.value)}>
+            <option value="">选择条目</option>
+            {detail.entries.filter((entry) => !pickedSet.has(entry.uid))
+              .map((entry) => <option key={entry.uid} value={entry.uid}>{entry.name || entry.uid}</option>)}
+          </select>
+        </label>
+        <button className="wbg-button wbg-button-quiet" disabled={!batchTarget} onClick={() => runBatchLink("to")}>所选 → 目标</button>
+        <button className="wbg-button wbg-button-quiet" disabled={!batchTarget} onClick={() => runBatchLink("from")}>目标 → 所选</button>
+        <button className="wbg-button wbg-button-quiet" onClick={() => runBatchUnlink(picked, "所选条目")}>清空所选依赖</button>
+      </div>
+      <div className="wbg-batch-group">
         <label className="wbg-form-label wbg-inline-field">归属分类
-          <select className="wbg-field wbg-batch-target" aria-label="批量归属分类" value={batchCategory} onChange={(event) => setBatchCategory(event.target.value)}>
+          <select className="wbg-field wbg-batch-target" aria-label="批量归属分类" value={batchCategory}
+            onChange={(event) => setBatchCategory(event.target.value)}>
             {rows.map(({ category, level }) => <option key={category.id} value={category.id}>{"　".repeat(level)}{category.name}</option>)}
           </select>
         </label>
-        <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => void runBatchMove()}>批量移入该分类</button>
-      </>}
+        <button className="wbg-button wbg-button-quiet" onClick={runBatchMove}>批量移入该分类</button>
+      </div>
       <div className="wbg-toolbar-spacer" />
       <button className="wbg-button wbg-button-quiet" onClick={() => { setPicked([]); setBatchNote(""); }}>清除选择</button>
     </div>}
@@ -687,77 +421,105 @@ export default function WorldBookScopeManager({ detail: detailProp, onChanged, v
       <span>{batchNote}</span>
       <button aria-label="关闭批量操作提示" onClick={() => setBatchNote("")}>×</button>
     </div>}
-    {previewError && isDependency && <div role="alert" className="wbg-notice wbg-error">预览未通过：{previewError}</div>}
+    {previewError && <div role="alert" className="wbg-notice wbg-error">
+      <span>预览未通过：{previewError}（保存按钮已停用，先按提示修正草稿）</span>
+    </div>}
+    {error && <div role="alert" className="wbg-notice wbg-error">
+      <span>{error}</span>
+      <button aria-label="关闭错误提示" onClick={() => setError("")}>×</button>
+    </div>}
     <div className="wbg-body">
-      {libraryOpen && <aside className="wbg-library" aria-label="节点目录">
-        <div className="wbg-panel-heading"><span>节点目录</span><button className="wbg-icon-button" aria-label="收起节点目录" onClick={() => setLibraryOpen(false)}><WorldBookGraphIcon name="close" /></button></div>
-        <label className="wbg-search"><WorldBookGraphIcon name="search" /><input placeholder="搜索名称、UID、关键词" aria-label="搜索条目节点" value={query} onChange={(event) => setQuery(event.target.value)} />{query && <button aria-label="清空节点搜索" onClick={() => setQuery("")}>×</button>}</label>
+      {libraryOpen && <aside className="wbg-library" aria-label="分类目录">
+        <div className="wbg-panel-heading"><span>分类目录</span>
+          <button className="wbg-icon-button" aria-label="收起分类目录" onClick={() => setLibraryOpen(false)}>
+            <WorldBookGraphIcon name="close" /></button></div>
+        <label className="wbg-search"><WorldBookGraphIcon name="search" />
+          <input placeholder="搜索名称、UID、关键词" aria-label="搜索条目" value={query}
+            onChange={(event) => setQuery(event.target.value)} />
+          {query && <button aria-label="清空搜索" onClick={() => setQuery("")}>×</button>}
+        </label>
         <div className="wbg-library-scroll">
           <div className="wbg-section-label">分类树 <span>{categories.length}</span></div>
           <nav className="wbg-category-tree" aria-label="分类树">
-            {rows.map(({ category, level }) => <div key={category.id}
-              className={"wbg-tree-row" + (categoryId === category.id ? " is-active" : "") + (rowMenu === category.id ? " is-open" : "")}
-              style={{ paddingLeft: 10 + Math.min(level, 8) * 13 }}>
-              <button className="wbg-tree-main" title={category.name + " · " + KINDS[category.scope_type]}
-                onClick={() => { filterCategory(category.id); inspectCategory(category.id); }}>
-                <i className="wbg-type-dot" data-wbg-kind={category.scope_type} /><span>{category.name}</span>
-                <small>{detail.entries.filter((entry) => (entry.category_id || "unclassified") === category.id).length}</small>
-              </button>
-              <button className="wbg-tree-more" aria-label={`${category.name} 的分类批量操作`} aria-expanded={rowMenu === category.id}
-                title="分类批量操作"
-                onClick={() => setRowMenu(rowMenu === category.id ? null : category.id)}>⋯</button>
-              {rowMenu === category.id && <div className="wbg-row-menu" role="menu" aria-label={`${category.name} 的分类操作`}>
-                <button role="menuitem" onClick={() => pickCategory(category.id)}>
-                  选中该分类下 {categoryEntryUids(detail, category.id).length} 个条目
+            {rows.map(({ category, level }) => {
+              const uids = categoryEntryUids(detail, category.id);
+              const allPicked = uids.length > 0 && uids.every((uid) => pickedSet.has(uid));
+              return <div key={category.id}
+                className={"wbg-tree-row" + (categoryId === category.id ? " is-active" : "") + (rowMenu === category.id ? " is-open" : "")}
+                style={{ paddingLeft: 10 + Math.min(level, 8) * 13 }}>
+                <input type="checkbox" checked={allPicked} disabled={!uids.length}
+                  aria-label={`选择分类 ${category.name} 下的条目`} onChange={() => togglePickCategory(category.id)} />
+                <button className="wbg-tree-main" title={category.name + " · " + KINDS[category.scope_type]}
+                  onClick={() => { filterCategory(category.id); inspectCategory(category.id); }}>
+                  <i className="wbg-type-dot" data-wbg-kind={category.scope_type} /><span>{category.name}</span>
+                  <small>{detail.entries.filter((entry) => (entry.category_id || "unclassified") === category.id).length}</small>
                 </button>
-                {isDependency && <>
-                  <button role="menuitem" onClick={() => sourceCategory(category.id)}>整类设为导入源（深度 {batchDepth}）</button>
-                  <button role="menuitem" onClick={() => fixedCategory(category.id)}>整类固定导入</button>
-                  <button role="menuitem" onClick={() => startBatchLink(categoryEntryUids(detail, category.id), `分类「${category.name}」`)}>整类连线到图中目标</button>
-                  <button role="menuitem" onClick={() => runBatchUnlink(categoryEntryUids(detail, category.id), `分类「${category.name}」`)}>清空整类依赖</button>
-                </>}
-                <button role="menuitem" onClick={() => { filterCategory(category.id); inspectCategory(category.id); }}>聚焦并编辑该分类</button>
-              </div>}
-            </div>)}
+                <button className="wbg-tree-more" aria-label={`${category.name} 的分类批量操作`} aria-expanded={rowMenu === category.id}
+                  title="分类批量操作"
+                  onClick={() => setRowMenu(rowMenu === category.id ? null : category.id)}>⋯</button>
+                {rowMenu === category.id && <div className="wbg-row-menu" role="menu" aria-label={`${category.name} 的分类操作`}>
+                  <button role="menuitem" onClick={() => pickCategory(category.id)}>
+                    选中该分类下 {uids.length} 个条目
+                  </button>
+                  <button role="menuitem" onClick={() => runBatchUnlink(uids, `分类「${category.name}」`)}>清空整类依赖</button>
+                  <button role="menuitem" onClick={() => { filterCategory(category.id); inspectCategory(category.id); }}>聚焦并编辑该分类</button>
+                </div>}
+              </div>;
+            })}
           </nav>
-          <div className="wbg-section-label">条目节点 <span>{filtered.length}</span></div>
-          <div className="wbg-entry-list">
-            {filtered.slice(0, 200).map((entry) => <button key={entry.uid} draggable={!busy}
-              className={"wbg-entry-row" + (focusedUid === entry.uid ? " is-active" : "") + (!entry.enabled ? " is-disabled" : "")}
-              title={entry.name + " · " + entry.uid} onClick={() => inspectEntry(entry.uid)}
-              onDragStart={(event) => { event.dataTransfer.setData(MIME, JSON.stringify({ book_id: detail.id, uid: entry.uid })); event.dataTransfer.effectAllowed = "copy"; }}>
-              <i className="wbg-entry-dot" data-wbg-kind={categories.find((category) => category.id === entry.category_id)?.scope_type || "other"} />
-              <span><strong>{entry.name || entry.uid}</strong><small>{!entry.enabled ? "已停用" : entry.character_id || entry.uid}</small></span>
-              {isDependency && <em className="wbg-role-tag" data-wbg-role={model?.roles.get(entry.uid) || "orphan"}
-                title={ROLE_LABELS[model?.roles.get(entry.uid) || "orphan"]}>{ROLE_GLYPHS[model?.roles.get(entry.uid) || "orphan"]}</em>}
-              {fixed.has(entry.uid) && <WorldBookGraphIcon name="pin" size={13} />}
-            </button>)}
-            {!filtered.length && <p className="wbg-help">没有匹配条目，试试其他关键词或清空角色筛选。</p>}
-            {filtered.length > 200 && <p className="wbg-help">显示前 200 条，请通过搜索定位更多条目。</p>}
+        </div>
+        <p className="wbg-library-foot">勾选分类会整棵子树一起选；勾选条目在右侧归属表里完成。</p>
+      </aside>}
+      <main className="wbg-stage wbg-own" aria-label="条目归属表">
+        <div className="wbg-own-head">
+          <h4>条目归属 <span className="wbg-count">{filtered.length}</span></h4>
+          <div className="wbg-own-actions">
+            <button className="wbg-button wbg-button-quiet" disabled={!filtered.length}
+              onClick={() => pickMany(filtered.map((entry) => entry.uid), false)}>全选当前列表</button>
+            {!!picked.length && <button className="wbg-button wbg-button-quiet"
+              onClick={() => { setPicked([]); setBatchNote(""); }}>清除选择</button>}
           </div>
         </div>
-        <p className="wbg-library-foot">{view === "taxonomy" ? "选中分类或条目，在侧栏编辑归属。"
-          : treeView ? "依赖树只画条目：层级来自遍历深度，分类仍可用上方分类树筛选。" : "拖入底栏可固定导入；也可在节点侧栏设置。"}</p>
-      </aside>}
-      <main className="wbg-stage">
-        <WorldBookGraphCanvas graph={graph} view={view} selectedId={selectedId} selectedEdgeId={selectedEdge} linkFromUids={linkFrom} pickedIds={picked} busy={busy}
-          coloring={coloring} tree={treeOptions} onToggleCollapse={toggleCollapse}
-          onSelectNode={selectNode} onPickMany={pickMany}
-          onSelectEdge={(id) => { setSelectedEdge(id); setSelection(null); setCategoryDraft(null); setPanel("inspector"); }}
-          onLinkStart={(uid) => { setLinkFrom([uid]); setError(""); setBatchNote(""); }} onCancelLink={() => setLinkFrom(null)}
-          onClear={() => { setSelection(null); setSelectedEdge(null); setCategoryDraft(null); if (panel === "inspector") setPanel(null); }}
-          onDropEntry={(event) => { event.preventDefault(); const uid = dragUid(event); if (uid) inspectEntry(uid); }} />
+        <div className="wbg-own-scroll">
+          {!filtered.length && <p className="wbg-help">没有匹配条目，试试其他关键词或清空分类筛选。</p>}
+          {filtered.slice(0, TABLE_LIMIT).map((entry) => {
+            const root = rootLabel(entry.uid);
+            const category = categories.find((item) => item.id === (entry.category_id || "unclassified"));
+            return <div key={entry.uid}
+              className={"wbg-own-row" + (focusedUid === entry.uid ? " is-active" : "") + (pickedSet.has(entry.uid) ? " is-picked" : "")}>
+              <input type="checkbox" checked={pickedSet.has(entry.uid)}
+                aria-label={`选择条目 ${entry.name || entry.uid}`} onChange={() => togglePick(entry.uid)} />
+              <button className="wbg-own-main" title={entry.name + " · " + entry.uid} onClick={() => inspectEntry(entry.uid)}>
+                <i className="wbg-entry-dot" data-wbg-kind={category?.scope_type || "other"} />
+                <span><strong>{entry.name || entry.uid}</strong>
+                  <small>{entry.uid}{!entry.enabled ? " · 已停用" : ""}</small></span>
+              </button>
+              <span className="wbg-chip" title="归属分类">{category?.name || "未分类"}</span>
+              <span className="wbg-chip" title="关联角色">{entry.character_id || "未关联角色"}</span>
+              <span className="wbg-chip" data-wbg-root={rootOf(entry.uid)?.activation || "none"} title={root.title}>{root.text}</span>
+              <span className="wbg-own-degree" title="出边 / 入边依赖数">
+                {requiresFrom(entry.uid).length} → · ← {requiresTo(entry.uid).length}
+              </span>
+              <button className="wbg-text-button" onClick={() => editEntry(entry.uid)}>编辑正文 ↗</button>
+            </div>;
+          })}
+        </div>
+        {filtered.length > TABLE_LIMIT && <p className="wbg-help wbg-own-foot">
+          显示前 {TABLE_LIMIT} 条，请通过搜索或分类筛选定位更多条目。
+        </p>}
       </main>
-      {panel && <aside className="wbg-inspector" aria-label={panel === "preview" ? "导入预览面板" : panel === "classify" ? "自动分类面板" : "节点属性"}>
-        <div className="wbg-panel-heading"><span>{panel === "preview" ? "导入预览" : panel === "classify" ? "自动分类" : selectedRelation ? "依赖关系" : categoryDraft ? "分类属性" : focused ? "条目属性" : "分类概览"}</span>
+      {panel && <aside className="wbg-inspector" aria-label={panel === "preview" ? "候选范围预览面板" : panel === "classify" ? "自动分类面板" : "分类与条目属性"}>
+        <div className="wbg-panel-heading">
+          <span>{panel === "preview" ? "候选范围预览" : panel === "classify" ? "自动分类" : categoryDraft ? "分类属性" : focused ? "条目属性" : "分类概览"}</span>
           <button className="wbg-icon-button" aria-label="关闭属性面板" onClick={() => setPanel(null)}><WorldBookGraphIcon name="close" /></button>
         </div>
         <div className="wbg-inspector-scroll">
           {panel === "classify" ? <>
             <div className="wbg-inspector-section"><p className="wbg-eyebrow">AUTO CLASSIFY</p><h4>按条目自带的类别分类</h4>
-              <p className="wbg-help">只认 uid 前缀、group 字段与名称后缀三类显式线索，识别不出就保持未分类，不按名字或正文猜测。应用只改分类与角色关联，不改载入模式、固定导入与依赖策略。</p>
+              <p className="wbg-help">只认 uid 前缀、group 字段与名称后缀三类显式线索，识别不出就保持未分类，不按名字或正文猜测。应用只改分类与角色关联，不改载入模式与起点策略。</p>
             </div>
-            {classifyError && <div role="alert" className="wbg-notice wbg-error"><span>{classifyError}</span><button onClick={() => void openClassification()}>重试</button></div>}
+            {classifyError && <div role="alert" className="wbg-notice wbg-error"><span>{classifyError}</span>
+              <button onClick={() => void openClassification()}>重试</button></div>}
             {!classification && !classifyError && <p className="wbg-help" role="status">正在读取条目的分类线索…</p>}
             {classification && (classification.matched === 0 ? <p className="wbg-help">{classification.reason || "没有可用的分类线索，已保持原样。"}</p> : <>
               <div className="wbg-metric-row">
@@ -788,228 +550,169 @@ export default function WorldBookScopeManager({ detail: detailProp, onChanged, v
                   {Object.entries(item.votes).map(([signal, categoryId]) => `${SIGNALS[signal] || signal} → ${classificationName(classification, categoryId)}`).join("；")}</p>)}
                 <p className="wbg-help">结论按 uid 前缀 &gt; group 字段 &gt; 名称后缀 取值；冲突条目可以人工复核。</p>
               </details>}
-              <button className="wbg-button wbg-button-primary" disabled={busy} onClick={() => void applyClassification()}>
+              <button className="wbg-button wbg-button-primary" disabled={busy} onClick={applyClassification}>
                 <WorldBookGraphIcon name="tag" />应用分类（{classification.matched} 条）
               </button>
-              <p className="wbg-help">
-                {unified
-                  ? "分类与条目归属会并入当前草稿，和别的改动一起用右上角「保存」一次性写入；载入模式与依赖策略保持不变。"
-                  : "应用会写入分类树与条目归属并刷新页面；载入模式与依赖策略保持不变。"}
-              </p>
+              <p className="wbg-help">分类与条目归属会并入当前草稿，和别的改动一起用工作台页头「保存」一次性写入；载入模式与起点策略保持不变。</p>
             </>)}
           </> : panel === "preview" ? <>
-            <div className="wbg-inspector-section"><p className="wbg-eyebrow">IMPORT SCOPE</p><h4>载入前，先看候选范围</h4><p className="wbg-help">预览不会修改会话。世界观、入队角色、固定条目与依赖展开合并后去重。</p></div>
+            <div className="wbg-inspector-section"><p className="wbg-eyebrow">IMPORT SCOPE</p><h4>载入前，先看候选范围</h4>
+              <p className="wbg-help">预览不会修改会话。基础设定、入队角色、手动追加与依赖展开合并后去重。</p></div>
             <details className="wbg-details"><summary>预览阵容 <span>{roster.length} 位</span></summary><div className="wbg-roster-list">
-              {characters?.map((character) => <label key={character.id} className="wbg-checkbox-label"><input type="checkbox" checked={roster.includes(character.id)}
-                onChange={(event) => setRoster((current) => event.target.checked ? [...current, character.id] : current.filter((id) => id !== character.id))} />{character.name || character.title || character.id}</label>)}
-              {characters?.length === 0 && <p className="wbg-help">暂无可用角色。</p>}{characters === null && <p className="wbg-help">角色目录暂不可用，仍可预览固定条目与依赖。</p>}
+              {characters?.map((character) => <label key={character.id} className="wbg-checkbox-label">
+                <input type="checkbox" checked={roster.includes(character.id)}
+                  onChange={(event) => setRoster((current) => event.target.checked ? [...current, character.id] : current.filter((id) => id !== character.id))} />
+                {character.name || character.title || character.id}</label>)}
+              {characters?.length === 0 && <p className="wbg-help">暂无可用角色。</p>}
+              {characters === null && <p className="wbg-help">角色目录暂不可用，仍可预览基础设定与依赖展开。</p>}
             </div></details>
-            {preview ? <div className="wbg-preview-content"><WorldBookScopePreview value={preview} /></div> : <p className="wbg-help" role="status">{previewError || "正在计算候选范围…"}</p>}
-            <details className="wbg-details" open><summary>导入源 <span>{policy.dependency_sources.length} 个</span></summary>
-              {policy.dependency_sources.map((item) => <div className="wbg-source-row" key={item.entry_uid}>
-                <button className="wbg-text-button" onClick={() => inspectEntry(item.entry_uid)}>{label(item.entry_uid)}</button>
-                <label>深度 <input className="wbg-field wbg-depth" type="number" min={0} max={32} step={1} disabled={busy} aria-label={label(item.entry_uid) + " 的遍历深度"} value={item.max_depth} onChange={(event) => setSource(item.entry_uid, Number(event.target.value))} /></label>
-                <button className="wbg-icon-button" aria-label={"移除导入源 " + label(item.entry_uid)} disabled={busy} onClick={() => setSource(item.entry_uid, null)}>×</button>
+            {preview ? <div className="wbg-preview-content"><WorldBookScopePreview value={preview} /></div>
+              : <p className="wbg-help" role="status">{previewError || "正在计算候选范围…"}</p>}
+            <details className="wbg-details" open><summary>起点 <span>{draft.roots.length} 个</span></summary>
+              {draft.roots.map((root) => <div className="wbg-source-row" key={root.entry_uid}>
+                <button className="wbg-text-button" onClick={() => inspectEntry(root.entry_uid)}>{label(root.entry_uid)}</button>
+                <span className="wbg-chip" title={ACTIVATION_LABELS[root.activation] || root.activation}>{ACTIVATION_SHORT[root.activation]}</span>
+                <span className="wbg-chip" title="展开方式">{EXPANSION_LABELS[root.expansion] || root.expansion}
+                  {root.expansion === "legacy_depth" ? ` ${root.max_depth ?? 1}` : ""}</span>
+                <button className="wbg-icon-button" aria-label={"移除起点 " + label(root.entry_uid)}
+                  onClick={() => { applyRoots([root.entry_uid], null, "none"); }}>×</button>
               </div>)}
-              {!policy.dependency_sources.length && <p className="wbg-help">选中条目后，可以将其设为导入源。</p>}
+              {!draft.roots.length && <p className="wbg-help">还没有起点：在「条目与角色」里把条目设为「加入基础设定」，或在归属表里勾选后批量设为起点。</p>}
             </details>
-            <p className="wbg-help">保存策略影响后续新建会话；已有会话保留候选快照，调整阵容或重新绑定时才重算。</p>
-          </> : selectedRelation ? <>
-            <div className="wbg-inspector-section"><p className="wbg-eyebrow">DIRECTED RELATION</p><h4>{label(selectedRelation.from_uid)}</h4><div className="wbg-relation-direction">↓ 依赖</div><h4>{label(selectedRelation.to_uid)}</h4></div>
-            <p className="wbg-help">仅当遍历深度覆盖这条边时，目标条目才会由该导入源展开。固定条目不隐式展开。</p>
-            <button className="wbg-button wbg-danger" disabled={busy} onClick={() => removeEdge(selectedRelation.from_uid, selectedRelation.to_uid)}>删除依赖边</button>
-            <p className="wbg-help">只修改策略草稿，不会删除条目内容。</p>
+            <p className="wbg-help">保存后影响后续新建会话；已有会话保留候选快照，调整阵容或重新绑定时才重算。</p>
           </> : <>
-            {categoryDraft && view === "taxonomy" && <fieldset disabled={busy} className="wbg-form">
+            {categoryDraft && <fieldset className="wbg-form">
               <p className="wbg-eyebrow">CATEGORY</p><h4>{categories.some((category) => category.id === categoryDraft.id) ? categoryDraft.name : "新建分类"}</h4>
-              <label className="wbg-form-label">名称<input className="wbg-field" value={categoryDraft.name} placeholder="例如：罗德岛 / 地区设定" onChange={(event) => setCategoryDraft({ ...categoryDraft, name: event.target.value })} /></label>
+              <label className="wbg-form-label">名称<input className="wbg-field" value={categoryDraft.name} placeholder="例如：罗德岛 / 地区设定"
+                onChange={(event) => setCategoryDraft({ ...categoryDraft, name: event.target.value })} /></label>
               <label className="wbg-form-label">父分类<select className="wbg-field" value={categoryDraft.parent_id || ""} onChange={(event) => {
                 const parent = categories.find((category) => category.id === event.target.value);
                 setCategoryDraft({ ...categoryDraft, parent_id: parent?.id || null, scope_type: parent?.scope_type || categoryDraft.scope_type });
               }}><option value="">根分类</option>{rows.filter(({ category }) => category.id !== "unclassified" && !editingDescendants.has(category.id)).map(({ category, level }) => <option key={category.id} value={category.id}>{"　".repeat(level)}{category.name}</option>)}</select></label>
-              <div className="wbg-form-pair"><label className="wbg-form-label">类型<select className="wbg-field" value={categoryDraft.scope_type} disabled={!!categoryDraft.parent_id} onChange={(event) => setCategoryDraft({ ...categoryDraft, scope_type: event.target.value as WorldBookCategoryDTO["scope_type"] })}>
+              <div className="wbg-form-pair"><label className="wbg-form-label">类型<select className="wbg-field" value={categoryDraft.scope_type} disabled={!!categoryDraft.parent_id}
+                onChange={(event) => setCategoryDraft({ ...categoryDraft, scope_type: event.target.value as WorldBookCategoryDTO["scope_type"] })}>
                 {Object.entries(KINDS).map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></label>
-                <label className="wbg-form-label">排序<input className="wbg-field" type="number" step={1} value={categoryDraft.sort_order} onChange={(event) => setCategoryDraft({ ...categoryDraft, sort_order: Number(event.target.value) })} /></label></div>
+                <label className="wbg-form-label">排序<input className="wbg-field" type="number" step={1} value={categoryDraft.sort_order}
+                  onChange={(event) => setCategoryDraft({ ...categoryDraft, sort_order: Number(event.target.value) })} /></label></div>
               {categoryDraft.parent_id && <p className="wbg-help">子分类沿用父分类的类型。</p>}
-              <button className="wbg-button wbg-button-primary" disabled={!categoryDraft.name.trim() || !Number.isInteger(categoryDraft.sort_order)} onClick={() => void saveCategory()}>保存分类</button>
+              <button className="wbg-button wbg-button-primary" disabled={!categoryDraft.name.trim() || !Number.isInteger(categoryDraft.sort_order)}
+                onClick={saveCategory}>保存分类</button>
               {categories.some((category) => category.id === categoryDraft.id) && <details className="wbg-details wbg-delete-section"><summary>删除分类…</summary>
                 <p className="wbg-help">包含子分类。条目内容保留，并移动到下方分类。</p>
                 <label className="wbg-form-label">条目移至<select className="wbg-field" value={deleteTarget} onChange={(event) => setDeleteTarget(event.target.value)}>
                   {rows.filter(({ category }) => !editingDescendants.has(category.id)).map(({ category }) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
-                <button className="wbg-button wbg-danger" onClick={() => void deleteCategory()}>删除分类及子分类</button>
+                <button className="wbg-button wbg-danger" onClick={deleteCategory}>删除分类及子分类</button>
               </details>}
             </fieldset>}
-            {selection?.kind === "category" && <>
-              {(isDependency || !categoryDraft) && <div className="wbg-inspector-section"><p className="wbg-eyebrow">CATEGORY</p><h4>{categories.find((category) => category.id === selection.id)?.name}</h4><p className="wbg-help">{selection.id === "unclassified" ? "未分类是永久保留的归档分类，不能删除。" : "分类用于组织与筛选；分类连线不会自动形成条目依赖。"}</p></div>}
+            {selection?.kind === "category" && !categoryDraft && <>
+              <div className="wbg-inspector-section"><p className="wbg-eyebrow">CATEGORY</p>
+                <h4>{categoryName(selection.id)}</h4>
+                <p className="wbg-help">{selection.id === "unclassified" ? "未分类是永久保留的归档分类，不能删除。" : "分类只用于组织与筛选；分类连线不会自动形成条目依赖。"}</p></div>
               <button className="wbg-button" onClick={() => filterCategory(selection.id)}>聚焦此分类</button>
               <div className="wbg-inspector-section">
                 <h5>分类批量操作</h5>
-                <p className="wbg-help">该分类及子分类共 {categoryEntryUids(detail, selection.id).length} 个条目；操作只改策略草稿，随后照常点「保存策略」。</p>
+                <p className="wbg-help">该分类及子分类共 {categoryEntryUids(detail, selection.id).length} 个条目；操作只改草稿，随后照常点「保存策略」。</p>
                 <button className="wbg-button" onClick={() => pickCategory(selection.id)}>
                   <WorldBookGraphIcon name="tag" size={13} />选中这些条目（{categoryEntryUids(detail, selection.id).length}）
                 </button>
-                {isDependency && <>
-                  <div className="wbg-form-pair">
-                    <button className="wbg-button" disabled={busy} onClick={() => sourceCategory(selection.id)}>整类设为导入源</button>
-                    <button className="wbg-button" disabled={busy} onClick={() => fixedCategory(selection.id)}>整类固定导入</button>
-                  </div>
-                  <label className="wbg-form-label">整类依赖目标
-                    <select className="wbg-field" aria-label="整类依赖目标" value={batchTarget} onChange={(event) => setBatchTarget(event.target.value)}>
-                      <option value="">选择一个条目</option>
-                      {detail.entries.map((entry) => <option key={entry.uid} value={entry.uid}>{entry.name || entry.uid}</option>)}
-                    </select>
-                  </label>
-                  <div className="wbg-form-pair">
-                    <button className="wbg-button" disabled={busy || !batchTarget}
-                      onClick={() => { const uids = categoryEntryUids(detail, selection.id); const { policy: next, added, skipped } = batchAddEdges(policy, detail, uids, batchTarget, "to");
-                        if (added.length) { setPolicy(next); setBatchNote(`已建立 ${added.length} 条依赖：分类「${categoryName(selection.id)}」→ ${label(batchTarget)}${skipped ? `，跳过 ${skipped} 条` : ""}。`); }
-                        else setBatchNote(`没有新增依赖：${skipped} 条已存在或指向自身。`); }}>整类 → 目标</button>
-                    <button className="wbg-button" disabled={busy || !batchTarget}
-                      onClick={() => { const uids = categoryEntryUids(detail, selection.id); const { policy: next, added, skipped } = batchAddEdges(policy, detail, uids, batchTarget, "from");
-                        if (added.length) { setPolicy(next); setBatchNote(`已建立 ${added.length} 条依赖：${label(batchTarget)} → 分类「${categoryName(selection.id)}」${skipped ? `，跳过 ${skipped} 条` : ""}。`); }
-                        else setBatchNote(`没有新增依赖：${skipped} 条已存在或指向自身。`); }}>目标 → 整类</button>
-                  </div>
-                  <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => startBatchLink(categoryEntryUids(detail, selection.id), `分类「${categoryName(selection.id)}」`)}>在图中点选目标连线</button>
-                  <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => runBatchUnlink(categoryEntryUids(detail, selection.id), `分类「${categoryName(selection.id)}」`)}>清空整类依赖</button>
-                </>}
+                <button className="wbg-button wbg-button-quiet" onClick={() => runBatchUnlink(categoryEntryUids(detail, selection.id), `分类「${categoryName(selection.id)}」`)}>清空整类依赖</button>
               </div>
-              {isDependency && <p className="wbg-help">切换顶部「分类结构」可编辑分类名称、父级与条目归属。</p>}
             </>}
             {focused && <>
-              <div className="wbg-inspector-section"><span className="wbg-kind-label" data-wbg-kind={categories.find((category) => category.id === focused.category_id)?.scope_type || "other"}>{KINDS[categories.find((category) => category.id === focused.category_id)?.scope_type || "other"]}</span>
+              <div className="wbg-inspector-section">
+                <span className="wbg-kind-label" data-wbg-kind={categories.find((category) => category.id === focused.category_id)?.scope_type || "other"}>
+                  {KINDS[categories.find((category) => category.id === focused.category_id)?.scope_type || "other"]}</span>
                 <h4>{focused.name || focused.uid}</h4><p className="wbg-uid">{focused.uid}</p>
                 {!focused.enabled && <p className="wbg-warning">此条目已停用，不参与实际注入。</p>}
                 <p className="wbg-entry-excerpt">{focused.content?.slice(0, 180) || "暂无正文"}</p>
               </div>
-              {isDependency && <div className="wbg-inspector-section wbg-role-panel">
-                <div className="wbg-section-heading"><h5>节点分类</h5>
-                  {/* 只放完整分类名：单字缩写（ROLE_GLYPHS）在这里与全称重复，看起来就像被截断的「固 固定导入」。 */}
-                  <span className="wbg-role-pill" data-wbg-role={role || "orphan"}>{ROLE_LABELS[role || "orphan"]}</span>
-                </div>
-                <p className="wbg-help">{ROLE_HINTS[role || "orphan"]}。</p>
-                {treeNode && model ? <>
-                  <div className="wbg-metric-row">
-                    <span>层级 <b>{treeNode.depth}</b></span>
-                    <span>剩余深度 <b>{treeNode.remaining}</b></span>
-                    <span>下游节点 <b>{dependencyDescendants(model, treeNode.uid)}</b></span>
-                    <span>直接下游 <b>{treeNode.childUids.length}</b></span>
-                  </div>
-                  <div className="wbg-tree-path" aria-label="依赖树路径">
-                    <span className="wbg-tree-path-label">起点 {label(treeNode.sourceUid)}</span>
-                    {dependencyPath(model, treeNode.uid).map((uid, index) => <Fragment key={uid}>
-                      {index > 0 && <span className="wbg-path-arrow" aria-hidden="true">→</span>}
-                      <button className={"wbg-text-button" + (uid === treeNode.uid ? " is-current" : "")} onClick={() => inspectEntry(uid)}>{label(uid)}</button>
-                    </Fragment>)}
-                  </div>
-                  {treeNode.inCycle && <p className="wbg-warning">位于依赖环内：遍历按「已访问节点的最佳剩余深度」终止，不会死循环；树上只保留第一次到达的路径。</p>}
-                </> : null}
-                {!treeNode && <p className="wbg-help">{fixed.has(focused.uid)
-                  ? "固定导入：会作为注入候选，但不沿依赖展开。"
-                  : role === "orphan" ? "未参与固定导入、导入源或依赖边；仍可能由世界观或入队角色来源进入候选。"
-                    : "已参与依赖配置，但当前策略下不会被任何导入源展开：检查上游遍历深度，或把它设为导入源。"}</p>}
-              </div>}
-              {isDependency && <fieldset disabled={busy} className="wbg-form">
-                <button role="switch" aria-checked={fixed.has(focused.uid)} className="wbg-policy-switch" onClick={() => fixed.has(focused.uid) ? removeFixed(focused.uid) : addFixed(focused.uid)}>
-                  <WorldBookGraphIcon name="pin" /><span><strong>固定导入</strong><small>始终作为候选，不自动展开依赖</small></span><i className={fixed.has(focused.uid) ? "is-on" : ""} />
-                </button>
-                <button role="switch" aria-checked={!!source} className="wbg-policy-switch" onClick={() => setSource(focused.uid, source ? null : depth)}>
-                  <WorldBookGraphIcon name="graph" /><span><strong>{source ? "已设为导入源" : "设为导入源"}</strong><small>沿出边按指定深度展开</small></span><i className={source ? "is-on" : ""} />
-                </button>
-                <label className="wbg-form-label">遍历深度 <input aria-label="遍历深度" className="wbg-field" type="number" step={1} min={0} max={32} value={source?.max_depth ?? depth} onChange={(event) => source ? setSource(focused.uid, Number(event.target.value)) : setDepth(Number(event.target.value))} /><small>0 只包含源节点，最大 32 层。</small></label>
+              <fieldset className="wbg-form">
                 <div className="wbg-inspector-section">
-                  <div className="wbg-section-heading"><h5>依赖关系</h5><button className="wbg-text-button" onClick={() => { setLinkFrom([focused.uid]); setError(""); setBatchNote(""); }}>＋ 在图中连线</button></div>
-                  <label className="wbg-form-label">依赖目标<select className="wbg-field" aria-label="依赖目标节点" value={edgeTo} onChange={(event) => setEdgeTo(event.target.value)}><option value="">选择一个条目</option>
-                    {detail.entries.filter((entry) => entry.uid !== focused.uid).map((entry) => <option key={entry.uid} value={entry.uid}>{entry.name || entry.uid}</option>)}</select></label>
-                  <button className="wbg-button" disabled={!edgeTo} onClick={() => addEdge(focused.uid, edgeTo)}><WorldBookGraphIcon name="link" />添加依赖</button>
+                  <div className="wbg-section-heading"><h5>起点</h5>
+                    <span className="wbg-chip">{rootLabel(focused.uid).text}</span></div>
+                  <p className="wbg-help">起点决定这条内容怎么进入候选范围；展开方式决定要不要顺带把它的必要依赖一起带进来。</p>
+                  <label className="wbg-form-label">激活方式<select className="wbg-field" aria-label="起点激活方式"
+                    value={rootOf(focused.uid)?.activation || ""} onChange={(event) => {
+                      const value = event.target.value as WorldBookActivation | "";
+                      if (!value) { applyRoots([focused.uid], null, "none"); return; }
+                      const expansion = rootOf(focused.uid)?.expansion
+                        || (value === "roster_any" ? "requires_closure" : "none");
+                      applyRoots([focused.uid], value, expansion, rootOf(focused.uid)?.max_depth ?? 1);
+                    }}>
+                    <option value="">不作为起点</option>
+                    {(["always", "roster_any", "manual"] as WorldBookActivation[]).map((value) =>
+                      <option key={value} value={value}>{ACTIVATION_LABELS[value]}</option>)}
+                  </select></label>
+                  <label className="wbg-form-label">展开方式<select className="wbg-field" aria-label="起点展开方式" disabled={!rootOf(focused.uid)}
+                    value={rootOf(focused.uid)?.expansion || "none"} onChange={(event) => {
+                      const root = rootOf(focused.uid);
+                      if (!root) return;
+                      applyRoots([focused.uid], root.activation, event.target.value as WorldBookExpansion, root.max_depth ?? 1);
+                    }}>
+                    {Object.entries(EXPANSION_LABELS).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+                  </select></label>
+                  {rootOf(focused.uid)?.expansion === "legacy_depth" && <label className="wbg-form-label">展开深度
+                    <input className="wbg-field" aria-label="起点展开深度" type="number" step={1} min={0} max={32}
+                      value={rootOf(focused.uid)?.max_depth ?? 1} onChange={(event) => {
+                        const root = rootOf(focused.uid);
+                        if (!root) return;
+                        applyRoots([focused.uid], root.activation, "legacy_depth", Number(event.target.value));
+                      }} /><small>0 只包含自身，最大 32 层。</small></label>}
+                  {rootOf(focused.uid)?.activation === "roster_any" && <p className="wbg-warning">
+                    这条起点只在指定角色入队时激活：请到「条目与角色」页签为它选择角色，否则保存会被拒绝。
+                  </p>}
+                  {rootOf(focused.uid)?.activation === "roster_any" && !!rootOf(focused.uid)?.character_ids?.length &&
+                    <p className="wbg-help">角色：{rootOf(focused.uid)!.character_ids!.join("、")}</p>}
+                </div>
+                <div className="wbg-inspector-section">
+                  <div className="wbg-section-heading"><h5>必要依赖</h5>
+                    <span className="wbg-chip">{requiresFrom(focused.uid).length} 条出边</span></div>
+                  <p className="wbg-help">必要条件：上方起点展开时会把它们一起补进来。仅标记相关的关系在「条目与角色」里维护。</p>
+                  <label className="wbg-form-label">依赖目标<select className="wbg-field" aria-label="依赖目标条目" value={edgeTo}
+                    onChange={(event) => setEdgeTo(event.target.value)}><option value="">选择一个条目</option>
+                    {detail.entries.filter((entry) => entry.uid !== focused.uid).map((entry) =>
+                      <option key={entry.uid} value={entry.uid}>{entry.name || entry.uid}</option>)}</select></label>
+                  <button className="wbg-button" disabled={!edgeTo} onClick={() => addEdge(focused.uid, edgeTo)}>
+                    <WorldBookGraphIcon name="link" />添加依赖</button>
                   <div className="wbg-relation-list">
-                    {policy.dependency_edges.filter((edge) => edge.from_uid === focused.uid || edge.to_uid === focused.uid).map((edge) => <div key={dependencyEdgeId(edge.from_uid, edge.to_uid)}>
-                      <span>{edge.from_uid === focused.uid ? "→" : "←"}</span><button className="wbg-text-button" onClick={() => inspectEntry(edge.from_uid === focused.uid ? edge.to_uid : edge.from_uid)}>{label(edge.from_uid === focused.uid ? edge.to_uid : edge.from_uid)}</button>
-                      <button className="wbg-icon-button" aria-label={"删除边 " + label(edge.from_uid) + " → " + label(edge.to_uid)} onClick={() => removeEdge(edge.from_uid, edge.to_uid)}>×</button>
+                    {requiresFrom(focused.uid).map((edge) => <div key={edgeKey(edge.from_uid, edge.to_uid)}>
+                      <span>→</span><button className="wbg-text-button" onClick={() => inspectEntry(edge.to_uid)}>{label(edge.to_uid)}</button>
+                      <button className="wbg-icon-button" aria-label={"删除边 " + label(edge.from_uid) + " → " + label(edge.to_uid)}
+                        onClick={() => removeEdge(edge.from_uid, edge.to_uid)}>×</button>
+                    </div>)}
+                    {requiresTo(focused.uid).map((edge) => <div key={"in:" + edgeKey(edge.from_uid, edge.to_uid)}>
+                      <span>←</span><button className="wbg-text-button" onClick={() => inspectEntry(edge.from_uid)}>{label(edge.from_uid)}</button>
+                      <button className="wbg-icon-button" aria-label={"删除边 " + label(edge.from_uid) + " → " + label(edge.to_uid)}
+                        onClick={() => removeEdge(edge.from_uid, edge.to_uid)}>×</button>
                     </div>)}
                   </div>
                 </div>
-              </fieldset>}
-              {view === "taxonomy" && <fieldset disabled={busy} className="wbg-form">
-                <label className="wbg-form-label">归属分类<select className="wbg-field" value={assignment.category_id} onChange={(event) => {
+                <label className="wbg-form-label">归属分类<select className="wbg-field" aria-label="归属分类" value={assignment.category_id} onChange={(event) => {
                   const category = categories.find((item) => item.id === event.target.value);
                   setAssignment({ category_id: event.target.value, character_id: category?.scope_type === "character" ? assignment.character_id : "" });
                 }}>{rows.map(({ category, level }) => <option key={category.id} value={category.id}>{"　".repeat(level)}{category.name}</option>)}</select></label>
-                {assignmentKind === "character" && <label className="wbg-form-label">关联角色<input className="wbg-field" list={controlId + "-characters"} placeholder="角色目录名" value={assignment.character_id} onChange={(event) => setAssignment({ ...assignment, character_id: event.target.value })} />
-                  <datalist id={controlId + "-characters"}>{characters?.map((character) => <option key={character.id} value={character.id}>{character.name || character.title || character.id}</option>)}</datalist>
-                  {characters && assignment.character_id && !characters.some((character) => character.id === assignment.character_id) && <small className="wbg-warning">角色不存在：保留关联值，但不能自动入队载入。</small>}
+                {assignmentKind === "character" && <label className="wbg-form-label">关联角色
+                  <input className="wbg-field" list={controlId + "-characters"} placeholder="角色目录名" value={assignment.character_id}
+                    onChange={(event) => setAssignment({ ...assignment, character_id: event.target.value })} />
+                  <datalist id={controlId + "-characters"}>{characters?.map((character) =>
+                    <option key={character.id} value={character.id}>{character.name || character.title || character.id}</option>)}</datalist>
+                  {characters && assignment.character_id && !characters.some((character) => character.id === assignment.character_id) &&
+                    <small className="wbg-warning">角色不存在：保留关联值，但不能自动入队载入。</small>}
                 </label>}
-                <button className="wbg-button wbg-button-primary" onClick={() => void saveAssignment(focused.uid)}>保存归属</button>
-              </fieldset>}
-              <button className="wbg-button wbg-button-quiet" onClick={editEntry}>编辑条目正文 ↗</button>
+                <button className="wbg-button wbg-button-primary" onClick={() => saveAssignment(focused.uid)}>保存归属</button>
+              </fieldset>
+              <button className="wbg-button wbg-button-quiet" onClick={() => editEntry(focused.uid)}>编辑条目正文 ↗</button>
             </>}
+            {!focused && selection?.kind !== "category" && !categoryDraft && <p className="wbg-help">
+              从左侧分类树或右侧归属表选择一项：分类可改名与调整层级，条目可设置起点、依赖与归属。
+            </p>}
           </>}
         </div>
       </aside>}
     </div>
-    {/* 托盘坞：面板以浮层形式贴在托盘上方，不参与弹性布局，画布高度不受影响。 */}
-    {isDependency ? <div className="wbg-tray-dock">
-      {fixedPanel && <section className="wbg-fixed-panel" aria-label="固定导入管理">
-      <div className="wbg-fixed-head">
-        <span className="wbg-fixed-count">固定导入 <b>{fixedMatched}</b> 条 · <b>{fixedGroups.length}</b> 组{fixedQuery ? "（已过滤）" : ""}</span>
-        <label className="wbg-search wbg-fixed-search"><WorldBookGraphIcon name="search" size={13} />
-          <input placeholder="搜索名称、UID、分类" aria-label="搜索固定导入条目" value={fixedQuery}
-            onChange={(event) => { setFixedQuery(event.target.value); setFixedScroll(0); }} />
-          {fixedQuery && <button aria-label="清空固定导入搜索" onClick={() => setFixedQuery("")}>×</button>}
-        </label>
-        <div className="wbg-fixed-batch" role="group" aria-label="固定导入批量操作">
-          <button className="wbg-button wbg-button-quiet" disabled={!fixedRowUids.length} onClick={pickFixedVisible}>全选</button>
-          <button className="wbg-button wbg-button-quiet" disabled={!fixedRowUids.length} onClick={invertFixedVisible}>反选</button>
-          <button className="wbg-button wbg-button-quiet" disabled={busy || !picked.length} onClick={() => runBatchFixed(false)}>取消固定（{picked.length}）</button>
-          <label className="wbg-form-label wbg-inline-field">移入分类
-            <select className="wbg-field wbg-batch-target" aria-label="固定导入批量归属分类" value={batchCategory}
-              onChange={(event) => setBatchCategory(event.target.value)}>
-              {rows.map(({ category, level }) => <option key={category.id} value={category.id}>{"　".repeat(level)}{category.name}</option>)}
-            </select>
-          </label>
-          <button className="wbg-button wbg-button-quiet" disabled={busy || !picked.length} onClick={() => void runBatchMove()}>批量移入</button>
-          <button className="wbg-button wbg-button-quiet" disabled={!picked.length} onClick={() => { setPicked([]); setBatchNote(""); }}>清除选择</button>
-        </div>
-      </div>
-      {/* 虚拟滚动：只渲染窗口内的行，条目再多也不会有成百上千个 DOM 节点。 */}
-      <div className="wbg-fixed-scroll" style={{ height: FIXED_VIEWPORT }} onScroll={(event) => setFixedScroll(event.currentTarget.scrollTop)}>
-        {!fixedRows.length && <p className="wbg-help wbg-fixed-empty">{fixedQuery ? "没有匹配的固定导入条目。" : "还没有固定导入条目：在节点属性里开启，或把条目拖进下方托盘。"}</p>}
-        <div className="wbg-fixed-rows" style={{ height: fixedRows.length * FIXED_ROW_HEIGHT }}>
-          {fixedVisibleRows.map((row, index) => {
-            const top = (fixedWindow.first + index) * FIXED_ROW_HEIGHT;
-            if (row.kind === "group") {
-              const folded = fixedCollapsed.has(row.id);
-              return <div key={"group:" + row.id} className="wbg-fixed-group" style={{ top, height: FIXED_ROW_HEIGHT }}>
-                <button className="wbg-fixed-group-main" aria-expanded={!folded} onClick={() => toggleFixedGroup(row.id)}>
-                  <span className="wbg-fixed-chevron" aria-hidden="true">{folded ? "▸" : "▾"}</span>
-                  <span>{row.name}</span><b>{row.uids.length}</b>
-                </button>
-                <button className="wbg-text-button" onClick={() => setPicked((current) => [...new Set([...current, ...row.uids])])}>全选本组</button>
-              </div>;
-            }
-            const entry = byUid.get(row.uid);
-            return <div key={row.uid} className={"wbg-fixed-row" + (pickedSet.has(row.uid) ? " is-picked" : "")} style={{ top, height: FIXED_ROW_HEIGHT }}>
-              <input type="checkbox" checked={pickedSet.has(row.uid)} onChange={() => toggleFixedPick(row.uid)} aria-label={"选择 " + (entry?.name || row.uid)} />
-              <span><strong>{entry?.name || row.uid}</strong><small>{entry?.character_id || row.uid}</small></span>
-              <button className="wbg-text-button" onClick={() => inspectEntry(row.uid)}>编辑</button>
-              <button className="wbg-icon-button" aria-label={"取消固定 " + (entry?.name || row.uid)} disabled={busy} onClick={() => removeFixed(row.uid)}>×</button>
-            </div>;
-          })}
-        </div>
-      </div>
-      </section>}
-      <div className={"wbg-import-tray" + (dropActive ? " is-drop-active" : "")} aria-label="固定导入区"
-        onDragOver={(event) => { event.preventDefault(); setDropActive(true); }} onDragLeave={() => setDropActive(false)}
-        onDrop={(event) => { event.preventDefault(); setDropActive(false); addFixed(dragUid(event)); }}>
-        <div className="wbg-tray-heading"><WorldBookGraphIcon name="pin" /><span>固定导入</span><b>{fixed.size}</b></div>
-        <button className={"wbg-button wbg-button-quiet" + (fixedPanel ? " is-active" : "")} aria-expanded={fixedPanel}
-          title="按分类分组浏览、搜索与批量编辑固定导入条目" onClick={() => setFixedPanel(!fixedPanel)}>按分类管理</button>
-        {/* 托盘只平铺前若干条做概览，其余交给管理面板，避免上百个 chip 把横向滚动条塞满。 */}
-        <div className="wbg-tray-chips">{policy.fixed_entry_uids.slice(0, TRAY_CHIP_LIMIT).map((uid) => <span key={uid} className="wbg-fixed-chip"><button onClick={() => inspectEntry(uid)}>{label(uid)}</button><button aria-label={"移除固定导入 " + label(uid)} disabled={busy} onClick={() => removeFixed(uid)}>×</button></span>)}
-          {!fixed.size && <span className="wbg-tray-empty">将条目拖到这里，或在节点属性中开启固定导入</span>}
-        </div>
-        {policy.fixed_entry_uids.length > TRAY_CHIP_LIMIT && <button className="wbg-tray-more" onClick={() => setFixedPanel(true)}>还有 {policy.fixed_entry_uids.length - TRAY_CHIP_LIMIT} 条 · 打开管理面板</button>}
-        <button className="wbg-button wbg-button-quiet" disabled={busy || !focusedUid || fixed.has(focusedUid)} onClick={() => addFixed(focusedUid)}>＋ 固定选中条目</button>
-      </div>
-    </div> : <footer className="wbg-taxonomy-foot">分类调整不会自动改变旧书的载入模式。完成后，可在依赖图谱中预览并启用按需载入。</footer>}
+    <footer className="wbg-taxonomy-foot">
+      分类调整不会自动改变旧书的载入模式；起点与依赖在「条目与角色」里逐条配置，
+      保存前可用「导入预览」核对候选范围。
+    </footer>
   </section>;
 }

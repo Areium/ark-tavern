@@ -350,30 +350,6 @@ export function useApi() {
       `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies/inheritance`, {
         method: "POST", body: JSON.stringify(data),
       }),
-    createSessionWorldbookJob: (sessionId: string, maxCalls?: number) =>
-      request<{ job: import("../types").DependencyProposalJobDTO }>(
-        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependency-jobs`, {
-          method: "POST", body: JSON.stringify({ reading_mode: "adaptive", ...(maxCalls ? { max_calls: maxCalls } : {}) }),
-        }),
-    listSessionWorldbookJobs: (sessionId: string) =>
-      request<{ jobs: import("../types").DependencyProposalJobDTO[] }>(
-        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependency-jobs`),
-    getSessionWorldbookJob: (sessionId: string, jobId: string) =>
-      request<{ job: import("../types").DependencyProposalJobDTO }>(
-        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependency-jobs/${encodeURIComponent(jobId)}`),
-    cancelSessionWorldbookJob: (sessionId: string, jobId: string) =>
-      request<{ job: import("../types").DependencyProposalJobDTO }>(
-        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependency-jobs/${encodeURIComponent(jobId)}/cancel`,
-        { method: "POST" }),
-    retrySessionWorldbookJob: (sessionId: string, jobId: string, maxCalls?: number) =>
-      request<{ job: import("../types").DependencyProposalJobDTO }>(
-        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependency-jobs/${encodeURIComponent(jobId)}/retry`,
-        { method: "POST", body: JSON.stringify(maxCalls ? { max_calls: maxCalls } : {}) }),
-    applySessionWorldbookJob: (sessionId: string, jobId: string, acceptedPairs: string[][]) =>
-      request<{ applied: number; dependencies: import("../types").SessionWorldbookDependenciesDTO }>(
-        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependency-jobs/${encodeURIComponent(jobId)}/apply`, {
-          method: "POST", body: JSON.stringify({ accepted_pairs: acceptedPairs }),
-        }),
     exportIndexYaml: () => request<{ yaml: string }>("/api/index/export"),
     importIndexYaml: (yaml: string) =>
       request<any>("/api/index/import", {
@@ -474,40 +450,23 @@ export function useApi() {
           policy_revision: options?.policy_revision,
           full_scope: options?.full_scope || undefined }),
       }),
-    /** 统一配置写入：分类 / 角色关联 / 起点 / 依赖边 / AI 建议，一次原子提交。 */
+    /** 统一配置写入：分类 / 角色关联 / 起点 / 依赖边，一次原子提交。 */
     putWorldbookConfiguration: (bookId: string, draft: import("../types").WorldBookConfigurationDraft) =>
       request<import("../types").WorldBookConfigurationResultDTO>(
         `/api/worldbook/${encodeURIComponent(bookId)}/configuration`, {
           method: "PUT", body: JSON.stringify(draft),
         }),
-    /** AI 自动构建依赖：一次点击即在后台开始，不需要用户写提示词或 JSON。 */
-    createDependencyProposal: (bookId: string, maxCalls?: number,
-      readingMode: import("../types").WorldBookReadingMode = "adaptive") =>
-      request<{ job: import("../types").DependencyProposalJobDTO }>(
-        `/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals`, {
-          method: "POST", body: JSON.stringify({ ...(maxCalls ? { max_calls: maxCalls } : {}),
-            reading_mode: readingMode }),
-        }),
-    listDependencyProposals: (bookId: string) =>
-      request<{
-        jobs: import("../types").DependencyProposalJobDTO[];
-        input_hash: string;
-        /** 这本书当前正在跑的任务：切视图 / 重开页面后据此恢复入口，不重复付费 */
-        active_job_id?: string | null;
-        latest_job_id?: string | null;
-      }>(`/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals`),
-    getDependencyProposal: (bookId: string, jobId: string, offset = 0, limit = 100) =>
-      request<{ job: import("../types").DependencyProposalJobDTO }>(
-        `/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals/${encodeURIComponent(jobId)}` +
-        `?offset=${offset}&limit=${limit}`),
-    cancelDependencyProposal: (bookId: string, jobId: string) =>
-      request<{ job: import("../types").DependencyProposalJobDTO }>(
-        `/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals/${encodeURIComponent(jobId)}/cancel`,
-        { method: "POST" }),
-    retryDependencyProposal: (bookId: string, jobId: string) =>
-      request<{ job: import("../types").DependencyProposalJobDTO }>(
-        `/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals/${encodeURIComponent(jobId)}/retry`,
-        { method: "POST" }),
+    /** Prompt 预览（A-2）：只读，返回单轮实际注入的文本 / 顺序 / 位置 / 未插入原因。 */
+    previewWorldbookPrompt: (bookId: string, body: import("../types").WorldBookPromptPreviewRequest) =>
+      request<import("../types").WorldBookPromptPreviewDTO>(`/api/worldbook/${encodeURIComponent(bookId)}/prompt-preview`, {
+        method: "POST", body: JSON.stringify(body),
+      }),
+    /** 条目依赖树（A-3）：与 resolve_v3_scope 的 display_tree 同构，支持一次拿回多棵子树。 */
+    getWorldbookDependencyTree: (bookId: string, entryUids: string[], maxDepth?: number) =>
+      request<import("../types").WorldBookDependencyTreeDTO>(
+        `/api/worldbook/${encodeURIComponent(bookId)}/dependency-tree` +
+        `?entry_uids=${entryUids.map(encodeURIComponent).join(",")}` +
+        (maxDepth === undefined ? "" : `&max_depth=${maxDepth}`)),
     setDefaultWorldbook: (id: string, isDefault: boolean) =>
       request<{ default_book_id: string | null }>(`/api/worldbook/${encodeURIComponent(id)}/default`, {
         method: "POST",

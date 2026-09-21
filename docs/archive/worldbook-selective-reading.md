@@ -1,5 +1,7 @@
 # 世界书智能局部阅读
 
+> 已归档（2026-09-21）：该设计随「AI 自动构建依赖」功能一并移除，见 docs/proposals/worldbook-workbench-redesign.md §2.4。
+
 依赖构建支持 `adaptive` 与 `full` 两种阅读模式。新建任务默认 `adaptive`；`full` 用于全文审计。任务创建后模式不可变，旧任务缺少该字段时按 `full` 读取。
 
 ## 工作方式

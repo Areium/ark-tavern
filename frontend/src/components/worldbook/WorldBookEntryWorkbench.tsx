@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { WorldBookEntryDTO } from "../../types";
 import WorldBookGraphIcon from "../WorldBookGraphIcon";
+import EntryDependencyTree from "./EntryDependencyTree";
 import {
   avatarUrl, characterName, makeLabeler, useCharacterDirectory, type WorldBookPanelProps,
 } from "./panel";
@@ -132,19 +133,25 @@ export default function WorldBookEntryWorkbench(props: WorldBookPanelProps & { o
           {filtered.map((entry) => {
             const tag = roleTag(entry);
             const characterId = characterOf(entry);
-            return <button key={entry.uid} className={"wbg-entry-card" + (selected === entry.uid ? " is-active" : "")}
-              onClick={() => { setSelected(entry.uid); setTarget(""); setPickCharacter(characterId); }}>
-              {characterId
-                ? <img className="wbg-avatar" src={avatarUrl(characterId)} alt=""
-                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }} />
-                : <span className="wbg-avatar is-empty" aria-hidden="true">#</span>}
-              <span className="wbg-entry-card-main">
-                <strong>{entry.name || entry.uid}</strong>
-                <small>{characterId ? characterName(characters, characterId) : entry.uid}
-                  {!entry.enabled && " · 已停用"}</small>
-              </span>
-              <em className="wbg-role-tag" data-wbg-rel={tag.kind}>{tag.text}</em>
-            </button>;
+            // A-3：依赖逐层展开的挂载点。展开状态由 EntryDependencyTree 自己持有，
+            // 与工作台「条目」页签里的那一处互相独立，也不影响本列表的筛选与分页。
+            return <div key={entry.uid} className="wbg-entry-card-wrap">
+              <button className={"wbg-entry-card" + (selected === entry.uid ? " is-active" : "")}
+                onClick={() => { setSelected(entry.uid); setTarget(""); setPickCharacter(characterId); }}>
+                {characterId
+                  ? <img className="wbg-avatar" src={avatarUrl(characterId)} alt=""
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }} />
+                  : <span className="wbg-avatar is-empty" aria-hidden="true">#</span>}
+                <span className="wbg-entry-card-main">
+                  <strong>{entry.name || entry.uid}</strong>
+                  <small>{characterId ? characterName(characters, characterId) : entry.uid}
+                    {!entry.enabled && " · 已停用"}</small>
+                </span>
+                <em className="wbg-role-tag" data-wbg-rel={tag.kind}>{tag.text}</em>
+              </button>
+              <EntryDependencyTree detail={detail} rootUids={[entry.uid]} draft={draft} patch={patch}
+                onNotice={(text) => onNotice?.(text)} />
+            </div>;
           })}
           {!filtered.length && <p className="wbg-help">没有匹配的条目。</p>}
         </div>

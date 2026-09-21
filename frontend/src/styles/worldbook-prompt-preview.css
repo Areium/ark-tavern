@@ -1,0 +1,194 @@
+/* Worldbook workbench: Prompt preview (A-2) + entry dependency tree (A-3).
+   Pure DOM + CSS, no graphics library (R-16). Built on the retained --wbg-* palette;
+   the fallbacks below only cover the case where the component renders outside the
+   workbench container (e.g. a lone SSR fixture). */
+
+.wbpp,
+.wbd {
+  --wbpp-line: var(--wbg-line, color-mix(in srgb, var(--ng-muted) 22%, transparent));
+  --wbpp-hover: var(--wbg-hover, color-mix(in srgb, var(--ng-muted) 9%, transparent));
+  --wbpp-soft: var(--wbg-accent-soft, color-mix(in srgb, var(--ng-edge-color-hl) 12%, transparent));
+  --wbpp-accent: var(--ng-edge-color-hl, #6cb6ff);
+  --wbpp-muted: var(--ng-muted, #8b95a5);
+  --wbpp-body: var(--ng-body, #c8d0da);
+  --wbpp-title: var(--ng-title, #eef2f7);
+  --wbpp-warn: var(--ng-note, #e0b45c);
+  --wbpp-danger: var(--ng-combat, #e05a5a);
+  color: var(--wbpp-body);
+}
+
+/* ══ A-2 · Prompt 预览页签 ══════════════════════════════════════════════ */
+.wbpp { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.wbpp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.wbpp-head h3 { font-size: 15px; font-weight: 650; color: var(--wbpp-title); }
+.wbpp-scope {
+  margin-top: 5px; max-width: 92ch; padding: 7px 10px; border-left: 2px solid var(--wbpp-accent);
+  background: var(--wbpp-soft); border-radius: 0 6px 6px 0; font-size: 11px; line-height: 1.75;
+}
+.wbpp-modes { display: flex; gap: 6px; flex-shrink: 0; }
+.wbpp-modes button {
+  padding: 7px 13px; border: 1px solid var(--wbpp-line); border-radius: 999px;
+  color: var(--wbpp-body); background: transparent; font-size: 12px; font-weight: 600;
+}
+.wbpp-modes button:hover { color: var(--wbpp-title); background: var(--wbpp-hover); }
+.wbpp-modes button[aria-pressed="true"] {
+  color: var(--wbpp-accent); border-color: color-mix(in srgb, var(--wbpp-accent) 45%, transparent);
+  background: var(--wbpp-soft);
+}
+
+/* 顶部骨架条 */
+.wbpp-skeleton { display: flex; flex-direction: column; gap: 6px; padding: 9px 11px; border: 1px solid var(--wbpp-line); border-radius: 9px; background: var(--ng-card-bg, transparent); }
+.wbpp-skeleton-head { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--wbpp-muted); }
+.wbpp-skeleton-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wbpp-skel { display: flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--wbpp-line); border-radius: 6px; font-size: 11px; color: var(--wbpp-muted); }
+.wbpp-skel::after { content: "→"; margin-left: 3px; color: var(--wbpp-line); }
+.wbpp-skel:last-child::after { content: none; }
+.wbpp-skel.is-worldbook { color: var(--ng-title, #fff); font-weight: 600; background: var(--wbpp-accent); border-color: var(--wbpp-accent); }
+.wbpp-skel-insert { padding: 1px 6px; border-radius: 999px; font-size: 10px; font-style: normal; color: var(--ng-card-bg, #12161c); background: #ffffffd0; }
+
+/* 三栏 */
+.wbpp-grid { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1.25fr) minmax(250px, 360px); gap: 12px; min-height: 0; flex: 1; }
+.wbpp-col { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
+.wbpp-col-scroll { overflow-y: auto; scrollbar-width: thin; padding-right: 2px; }
+.wbpp-card { display: flex; flex-direction: column; gap: 8px; padding: 11px 13px; border: 1px solid var(--wbpp-line); border-radius: 9px; background: var(--ng-card-bg, transparent); min-width: 0; }
+.wbpp-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.wbpp-card-head h4 { font-size: 12.5px; font-weight: 620; color: var(--wbpp-title); }
+.wbpp-hint { font-size: 11px; line-height: 1.75; color: var(--wbpp-muted); }
+.wbpp-hint.is-warn { color: var(--wbpp-warn); }
+.wbpp-label { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--wbpp-muted); }
+.wbpp-field {
+  width: 100%; min-width: 0; padding: 7px 9px; border: 1px solid var(--wbpp-line); border-radius: 6px;
+  color: var(--wbpp-title); background: var(--ng-card-bg, transparent); font: inherit; outline: none;
+}
+.wbpp-field:focus { border-color: var(--wbpp-accent); }
+.wbpp-textarea { min-height: 62px; resize: vertical; line-height: 1.6; }
+.wbpp-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.wbpp-row-between { justify-content: space-between; }
+.wbpp-row label { font-size: 11px; color: var(--wbpp-body); }
+.wbpp-row input[type="checkbox"] { width: 13px; height: 13px; accent-color: var(--wbpp-accent); }
+.wbpp-button { padding: 6px 10px; border: 1px solid var(--wbpp-line); border-radius: 6px; color: var(--wbpp-body); background: transparent; font: inherit; font-size: 11px; white-space: nowrap; }
+.wbpp-button:hover:not(:disabled) { color: var(--wbpp-title); background: var(--wbpp-hover); }
+.wbpp-button:disabled { opacity: .42; cursor: not-allowed; }
+.wbpp-button-primary { color: var(--wbpp-accent); border-color: color-mix(in srgb, var(--wbpp-accent) 42%, transparent); background: var(--wbpp-soft); font-weight: 600; }
+.wbpp-notice { padding: 7px 10px; border-radius: 6px; font-size: 11px; line-height: 1.7; border: 1px solid var(--wbpp-line); }
+.wbpp-notice.is-error { color: var(--wbpp-danger); border-color: color-mix(in srgb, var(--wbpp-danger) 40%, transparent); }
+.wbpp-notice.is-ok { color: var(--wbpp-accent); }
+.wbpp-seed { padding: 7px 10px; border: 1px dashed var(--wbpp-line); border-radius: 6px; font-size: 11px; color: var(--wbpp-muted); line-height: 1.7; }
+.wbpp-totals { display: flex; flex-wrap: wrap; gap: 6px; }
+.wbpp-totals li { padding: 3px 9px; border: 1px solid var(--wbpp-line); border-radius: 999px; font-size: 11px; color: var(--wbpp-body); font-variant-numeric: tabular-nums; }
+.wbpp-totals li[data-wbpp-truncated="1"] { color: var(--wbpp-warn); border-color: color-mix(in srgb, var(--wbpp-warn) 42%, transparent); }
+
+/* 阵容与手动追加 */
+.wbpp-picker { display: flex; flex-wrap: wrap; gap: 5px; max-height: 168px; overflow-y: auto; scrollbar-width: thin; }
+.wbpp-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 4px;
+  border: 1px solid var(--wbpp-line); border-radius: 999px; color: var(--wbpp-body); font-size: 11px; background: transparent;
+}
+.wbpp-chip img { width: 20px; height: 20px; border-radius: 999px; object-fit: cover; }
+.wbpp-chip:hover { color: var(--wbpp-title); background: var(--wbpp-hover); }
+.wbpp-chip.is-on { color: var(--wbpp-accent); border-color: color-mix(in srgb, var(--wbpp-accent) 42%, transparent); background: var(--wbpp-soft); }
+.wbpp-manual { display: flex; flex-direction: column; gap: 2px; max-height: 210px; overflow-y: auto; scrollbar-width: thin; }
+.wbpp-manual label { display: flex; align-items: center; gap: 7px; padding: 4px 5px; border-radius: 5px; font-size: 11px; cursor: pointer; }
+.wbpp-manual label:hover { background: var(--wbpp-hover); }
+.wbpp-manual strong { color: var(--wbpp-title); font-weight: 500; }
+.wbpp-manual small { color: var(--wbpp-muted); font-size: 10px; }
+
+/* 中栏：最终文本 */
+.wbpp-block { display: flex; flex-direction: column; gap: 4px; padding: 9px 0 0; border-top: 1px solid var(--wbpp-line); }
+.wbpp-block:first-of-type { border-top: none; padding-top: 0; }
+.wbpp-block-site { font-size: 10.5px; color: var(--wbpp-muted); line-height: 1.7; }
+.wbpp-block-body { display: flex; flex-direction: column; gap: 7px; }
+.wbpp-anchor {
+  display: block; width: 100%; text-align: left; padding: 5px 8px; border-radius: 5px;
+  border: 1px solid var(--wbpp-line); background: var(--wbpp-hover); color: var(--wbpp-accent);
+  font-size: 12px; font-weight: 620; word-break: break-all;
+}
+.wbpp-anchor:hover { background: var(--wbpp-soft); border-color: color-mix(in srgb, var(--wbpp-accent) 42%, transparent); }
+.wbpp-anchor.is-empty { color: var(--wbpp-muted); font-weight: 500; }
+.wbpp-anchor small { display: block; margin-top: 2px; font-size: 10px; font-weight: 400; color: var(--wbpp-muted); }
+.wbpp-text-body { white-space: pre-wrap; word-break: break-word; font-size: 11.5px; line-height: 1.85; color: var(--wbpp-body); }
+.wbpp-empty { padding: 9px 10px; border: 1px dashed var(--wbpp-line); border-radius: 6px; font-size: 11px; color: var(--wbpp-muted); }
+
+/* 右栏：条目与顺序 */
+.wbpp-order { display: flex; flex-direction: column; gap: 5px; }
+.wbpp-order li {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 8px; padding: 7px 8px;
+  border: 1px solid var(--wbpp-line); border-radius: 7px; font-size: 11px;
+}
+.wbpp-order li.is-hit { border-color: var(--wbpp-accent); background: var(--wbpp-soft); }
+.wbpp-seq { grid-row: span 3; display: flex; align-items: center; justify-content: center; color: var(--wbpp-muted); font-variant-numeric: tabular-nums; }
+.wbpp-order-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.wbpp-order-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.wbpp-order-title strong { color: var(--wbpp-title); font-weight: 600; word-break: break-all; }
+.wbpp-order-title small { color: var(--wbpp-muted); font-size: 10px; word-break: break-all; }
+.wbpp-layer { flex-shrink: 0; padding: 1px 7px; border-radius: 999px; font-size: 10px; background: var(--wbpp-hover); color: var(--wbpp-muted); }
+.wbpp-layer[data-wbpp-layer="stable"] { color: var(--wbpp-accent); background: var(--wbpp-soft); }
+.wbpp-layer[data-wbpp-layer="dynamic"] { color: var(--wbpp-warn); background: color-mix(in srgb, var(--wbpp-warn) 14%, transparent); }
+.wbpp-meta { color: var(--wbpp-muted); font-variant-numeric: tabular-nums; line-height: 1.7; }
+.wbpp-reasons { color: var(--wbpp-body); line-height: 1.7; }
+.wbpp-reasons em { font-style: normal; color: var(--wbpp-accent); }
+.wbpp-override { padding: 4px 7px; border-radius: 5px; font-size: 10.5px; line-height: 1.7; color: var(--wbpp-warn); border: 1px dashed color-mix(in srgb, var(--wbpp-warn) 45%, transparent); }
+
+/* 底部未插入区 */
+.wbpp-dropped { border: 1px solid var(--wbpp-line); border-radius: 9px; background: var(--ng-card-bg, transparent); }
+.wbpp-dropped > summary { padding: 9px 13px; font-size: 12px; font-weight: 600; color: var(--wbpp-title); cursor: pointer; }
+.wbpp-dropped > summary::marker { color: var(--wbpp-muted); }
+.wbpp-dropped-body { display: flex; flex-direction: column; gap: 10px; padding: 0 13px 13px; }
+.wbpp-drop-group { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px solid var(--wbpp-line); }
+.wbpp-drop-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.wbpp-drop-head b { font-size: 12px; color: var(--wbpp-title); font-weight: 620; }
+.wbpp-drop-head span { font-size: 11px; color: var(--wbpp-muted); }
+.wbpp-drop-items { display: flex; flex-wrap: wrap; gap: 5px; }
+.wbpp-drop-items li { padding: 3px 8px; border: 1px solid var(--wbpp-line); border-radius: 999px; font-size: 10.5px; color: var(--wbpp-body); }
+.wbpp-drop-items li small { margin-left: 5px; color: var(--wbpp-muted); }
+
+/* ══ A-3 · 条目依赖逐层展开 ════════════════════════════════════════════ */
+.wbd { display: flex; flex-direction: column; gap: 3px; padding: 2px 0 4px 38px; min-width: 0; }
+.wbd-toggle {
+  display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+  padding: 3px 7px; border: 1px solid transparent; border-radius: 5px;
+  color: var(--wbpp-muted); background: transparent; font: inherit; font-size: 11px;
+}
+.wbd-toggle:hover { color: var(--wbpp-title); background: var(--wbpp-hover); border-color: var(--wbpp-line); }
+.wbd-tri { flex-shrink: 0; width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; color: var(--wbpp-muted); font-size: 10px; }
+.wbd-tri.is-empty { visibility: hidden; }
+.wbd-tri:hover { color: var(--wbpp-title); }
+.wbd-count { padding: 0 5px; border-radius: 999px; background: var(--wbpp-hover); color: var(--wbpp-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.wbd-note { font-size: 10.5px; color: var(--wbpp-muted); line-height: 1.7; }
+.wbd-note.is-static { max-width: 88ch; padding: 5px 8px; border-left: 2px solid var(--wbpp-line); background: var(--wbpp-hover); border-radius: 0 5px 5px 0; }
+.wbd-toolbar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; padding: 4px 0 2px; }
+.wbd-toolbar label { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--wbpp-muted); }
+.wbd-toolbar input[type="number"] { width: 52px; padding: 3px 5px; border: 1px solid var(--wbpp-line); border-radius: 5px; background: transparent; color: var(--wbpp-title); font: inherit; font-size: 11px; }
+.wbd-toolbar input[type="checkbox"] { accent-color: var(--wbpp-accent); }
+.wbd-toolbar button { padding: 3px 8px; border: 1px solid var(--wbpp-line); border-radius: 5px; color: var(--wbpp-body); background: transparent; font: inherit; font-size: 10.5px; }
+.wbd-toolbar button:hover { color: var(--wbpp-title); background: var(--wbpp-hover); }
+.wbd-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* 逐层缩进 16px + 竖向导引线：靠嵌套容器给线，不靠定位，层级天然对齐 */
+.wbd-node { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.wbd-children { display: flex; flex-direction: column; gap: 1px; margin-left: 16px; padding-left: 4px; border-left: 1px solid var(--wbpp-line); }
+.wbd-row { position: relative; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 3px 4px; border-radius: 5px; font-size: 11px; }
+.wbd-row:hover { background: var(--wbpp-hover); }
+.wbd-row.is-dim { opacity: .62; }
+.wbd-row.is-dim strong { color: var(--wbpp-muted); }
+.wbd-row.is-cycle { border-color: color-mix(in srgb, var(--wbpp-danger) 40%, transparent); }
+.wbd-name { color: var(--wbpp-title); font-weight: 600; word-break: break-all; }
+.wbd-uid { color: var(--wbpp-muted); font-size: 10px; word-break: break-all; }
+.wbd-badge { flex-shrink: 0; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--wbpp-line); color: var(--wbpp-muted); font-size: 10px; }
+.wbd-badge.is-requires { border-style: solid; color: var(--wbpp-body); }
+.wbd-badge.is-related { border-style: dotted; }
+.wbd-badge.is-cycle { color: var(--wbpp-danger); border-color: color-mix(in srgb, var(--wbpp-danger) 55%, transparent); border-style: dashed; }
+.wbd-badge.is-status { color: var(--wbpp-warn); border-color: color-mix(in srgb, var(--wbpp-warn) 42%, transparent); }
+.wbd-remaining { color: var(--wbpp-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.wbd-dup { padding: 2px 6px; border-left: 2px solid var(--wbpp-muted); color: var(--wbpp-muted); font-size: 10.5px; line-height: 1.7; }
+.wbd-force { border: none; background: none; padding: 0; color: var(--wbpp-accent); font: inherit; font-size: 10.5px; text-decoration: underline; cursor: pointer; }
+.wbd-related { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: 16px; padding: 2px 4px; font-size: 10.5px; color: var(--wbpp-muted); border-left: 1px dotted var(--wbpp-line); }
+.wbd-edit { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; padding: 2px 4px 4px; }
+.wbd-edit select { max-width: 210px; padding: 3px 5px; border: 1px solid var(--wbpp-line); border-radius: 5px; background: var(--ng-card-bg, transparent); color: var(--wbpp-title); font: inherit; font-size: 10.5px; }
+.wbd-edit button { padding: 3px 7px; border: 1px solid var(--wbpp-line); border-radius: 5px; color: var(--wbpp-body); background: transparent; font: inherit; font-size: 10.5px; }
+.wbd-edit button:hover:not(:disabled) { color: var(--wbpp-title); background: var(--wbpp-hover); }
+.wbd-edit button:disabled { opacity: .42; cursor: not-allowed; }
+
+@container (max-width: 1100px) {
+  .wbpp-grid { grid-template-columns: minmax(0, 1fr); }
+  .wbpp-col-scroll { overflow: visible; }
+}

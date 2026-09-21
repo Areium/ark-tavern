@@ -49,7 +49,7 @@ function resumeHint(r?: CombatResumeSummaryDTO | null): string {
 }
 
 export default function SessionManagerView() {
-  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession, setCurrentView, setIndexSessionId, setChatMode, setCombatContext, setContentHubTab, setWorldbookScopeJumpId } =
+  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession, setCurrentView, setIndexSessionId, setChatMode, setCombatContext, setWorldbookTab, setWorldbookScopeJumpId } =
     useAppStore();
   const api = useApi();
 
@@ -795,8 +795,8 @@ export default function SessionManagerView() {
                     selected.worldbook_scope?.legacy_full_scope || !selected.worldbook_scope ? "当前会话沿用旧版全量范围；启用按需策略并重新绑定后，角色条目才按阵容载入。" :
                     "提示：入队角色的世界书条目随会话载入；世界观及固定/依赖条目按策略生效。未入队角色不会自动导入，可在此调整阵容。"}
                   {" "}<button className="text-blue-400 hover:underline" onClick={() => {
-                    setWorldbookScopeJumpId(selected.worldbook_id || null); setContentHubTab("worldbook-deps"); setCurrentView("content");
-                  }}>前往内容中心配置依赖 →</button>
+                    setWorldbookScopeJumpId(selected.worldbook_id || null); setWorldbookTab("load"); setCurrentView("worldbook");
+                  }}>前往世界书配置依赖 →</button>
                 </p>
               </div>
 
@@ -818,7 +818,7 @@ export default function SessionManagerView() {
                   </button>
                   {selected.mode === "story" && (
                     <button
-                      onClick={() => { setIndexSessionId(selected.id); setContentHubTab("index"); setCurrentView("content"); }}
+                      onClick={() => { setIndexSessionId(selected.id); setWorldbookTab("index"); setCurrentView("worldbook"); }}
                       className="text-xs px-3 py-1.5 rounded-lg bg-gray-700/60 text-gray-300 hover:bg-gray-700 transition-colors"
                     >
                       🔗 索引配置

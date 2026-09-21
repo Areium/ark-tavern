@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
-import { useAppStore } from "../stores/appStore";
+import { useAppStore, type WorldBookTab } from "../stores/appStore";
 import type {
   WorldBookDetail,
   WorldBookEntryDTO,
@@ -10,11 +10,10 @@ import type {
   WorldBookType,
 } from "../types";
 import SourceBadge from "./SourceBadge";
-import WorldBookGraphIcon from "./WorldBookGraphIcon";
 import AppIcon from "./AppIcon";
 import "../styles/worldbook-graph.css";
 import { useDialogMinimize } from "../hooks/useDialogMinimize";
-const WorldBookScopeManager = lazy(() => import("./WorldBookScopeManager"));
+import { useScopePreview, useWorldbookDraft } from "../hooks/useWorldbookDraft";
 import { categoryDescendants, flattenCategoryTree } from "../utils/worldbookScope";
 import {
   BOOK_TYPE_HINTS,
@@ -25,20 +24,61 @@ import {
   filterBooksByType,
   flattenLibraryHits,
   isReference,
-  normalizeDetailTab,
+  normalizeWorldbookTab,
   storyBookTargets,
   validateExcerptDraft,
-  type BookDetailTab,
   type BookTypeFilter,
   type ExcerptDraft,
   type LibraryHit,
 } from "../utils/worldbookLibrary";
+import EntryDependencyTree from "./worldbook/EntryDependencyTree";
+import LoadTab from "./worldbook/tabs/LoadTab";
+import NodeViewTab from "./worldbook/tabs/NodeViewTab";
+import PromptPreviewTab from "./worldbook/tabs/PromptPreviewTab";
+import type { WorldBookPanelProps } from "./worldbook/panel";
+// 本家索引是内置语料索引 / 会话白名单的独立页面，照旧按需加载，不拖慢条目页首屏。
+const IndexManager = lazy(() => import("./IndexManager"));
+
+/**
+ * 工作台页签定义（顺序与文案按提案 §3.1）：`entries` / `load` / `prompt` / `nodes` / `index`。
+ *
+ * 页签状态只有一份：`stores/appStore.ts` 的 `worldbookTab`（R-4）。原来工作台里那套
+ * 单独的详情页签状态已删除，「高级配置」这个说法一并取消——它就是 `load` 页签
+ * 里的「分类结构」子视图。
+ */
+export const WORLDBOOK_PANEL_TABS: ReadonlyArray<{ id: WorldBookTab; label: string; hint: string }> = [
+  { id: "entries", label: "条目", hint: "正文、触发条件、导入导出与资料库摘录" },
+  { id: "load", label: "分类与载入", hint: "配置概览、条目与角色、分类结构：决定这本书载入什么" },
+  { id: "prompt", label: "Prompt 预览", hint: "这一轮真正插进提示词的完整文本、顺序与位置" },
+  { id: "nodes", label: "节点视图", hint: "全书条目的注入顺序与依赖展开，一眼看懂谁先谁后" },
+  { id: "index", label: "本家索引", hint: "本家索引 · 内置语料索引 · 依赖完整性 · 会话白名单" },
+];
+
+/** 本家索引页签的副标题（写死，见提案 §2.2 的结论）。 */
+export const WORLDBOOK_INDEX_SUBTITLE = "内置语料索引 · 依赖完整性 · 会话白名单";
+
+/**
+ * 当前这本书**可用**的页签（R-4）。
+ *
+ * 资料库（reference）没有条目依赖与载入规则，只显示 `条目` 与 `本家索引`；
+ * `load` / `prompt` / `nodes` 对它既不渲染按钮也不渲染内容，避免出现
+ * 「点了页签却是空白详情区」。判定复用 `normalizeWorldbookTab`，
+ * 保证按钮与内容只判一次、口径一致。
+ */
+export function visibleWorldbookTabs(
+  book: Pick<WorldBookSummary, "book_type"> | null | undefined,
+): ReadonlyArray<{ id: WorldBookTab; label: string; hint: string }> {
+  return WORLDBOOK_PANEL_TABS.filter((tab) => normalizeWorldbookTab(tab.id, book) === tab.id);
+}
 
 /** 条目编辑器对话框 id（Esc 守卫与恢复入口共用） */
 const ENTRY_EDITOR_DIALOG_ID = "worldbook-entry-editor";
 
 /** 资料库检索一次最多渲染的条目数（大书不把全书正文一次铺开） */
 const LIBRARY_PAGE_SIZE = 50;
+
+/** 稳定的空数组：预览的依赖项是语义键，但传新引用容易在别处被当依赖用。 */
+const EMPTY_UIDS: string[] = [];
 
 /** 条目编辑草稿（触发词/副键用逗号分隔文本编辑） */
 interface EntryDraft {
@@ -123,8 +163,13 @@ function sourceLabel(fmt: string): string {
 export default function WorldBookManager() {
   const api = useApi();
   const sessions = useAppStore((s) => s.sessions);
+  // 工作台页签（A-1 / R-4）：唯一跨组件页签状态，跨组件跳转也都写它
+  const worldbookTab = useAppStore((s) => s.worldbookTab);
+  const setWorldbookTab = useAppStore((s) => s.setWorldbookTab);
   const worldbookJumpId = useAppStore((s) => s.worldbookJumpId);
   const setWorldbookJumpId = useAppStore((s) => s.setWorldbookJumpId);
+  const worldbookScopeJumpId = useAppStore((s) => s.worldbookScopeJumpId);
+  const setWorldbookScopeJumpId = useAppStore((s) => s.setWorldbookScopeJumpId);
   const worldbookEntryJump = useAppStore((s) => s.worldbookEntryJump);
   const setWorldbookEntryJump = useAppStore((s) => s.setWorldbookEntryJump);
 
@@ -132,13 +177,12 @@ export default function WorldBookManager() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<WorldBookDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  /** 切书时若有未保存改动，先挂起目标书等用户决定（保存并切换 / 放弃并切换 / 取消） */
+  const [pendingBook, setPendingBook] = useState<string | null>(null);
+  /** 试选阵容：只用于预览「本次范围」，不影响已保存配置 */
+  const [roster, setRoster] = useState<string[]>([]);
   const [categoryFilter, setCategoryFilter] = useState("");
-  // 默认进入「条目正文」：分类图谱是高级入口，不该是第一屏
-  const [detailTab, setDetailTab] = useState<BookDetailTab>("entries");
   useEffect(() => { setCategoryFilter(""); }, [selectedId]);
-  // 换书回到条目页：否则在剧情书里停在「分类图谱」再切到资料库，两个页签互相
-  // 把对方藏掉，详情区会空成一片白。真正的可用性收敛在 normalizeDetailTab。
-  useEffect(() => { setDetailTab("entries"); }, [selectedId]);
   const visibleCategories = categoryFilter ? categoryDescendants(detail?.categories || [], categoryFilter) : null;
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; type: "ok" | "error" } | null>(null);
@@ -191,8 +235,10 @@ export default function WorldBookManager() {
 
   // 当前选中的书是否为资料库
   const detailIsReference = !!detail && isReference(detail);
-  // 防御性收敛：即便某条路径漏了重置，资料库也只会落在条目页
-  const effectiveDetailTab = normalizeDetailTab(detailTab, detail);
+  // 生效页签：跨组件页签状态只有 worldbookTab 一份，资料库只允许「条目 / 本家索引」。
+  // 防御性收敛放在这里，按钮与内容共用同一个判定，切书后不会出现空白详情区。
+  const effectiveTab = normalizeWorldbookTab(worldbookTab, detail);
+  const visibleTabs = visibleWorldbookTabs(detail);
   const storyTargets = useMemo(() => storyBookTargets(books), [books]);
   const visibleBooks = useMemo(() => filterBooksByType(books, listFilter), [books, listFilter]);
   const counts = useMemo(() => ({
@@ -230,14 +276,6 @@ export default function WorldBookManager() {
 
   useEffect(() => { loadBooks(); }, [loadBooks]);
 
-  // ── 统一检索/其他模块跳转：选中指定书 ──
-  useEffect(() => {
-    if (worldbookJumpId) {
-      setSelectedId(worldbookJumpId);
-      setWorldbookJumpId(null);
-    }
-  }, [worldbookJumpId, setWorldbookJumpId]);
-
   // ── 加载书详情 ──
   const loadDetail = useCallback(async (id: string | null) => {
     if (!id) {
@@ -261,6 +299,73 @@ export default function WorldBookManager() {
     loadDetail(selectedId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
+
+  // ── 统一草稿 + 范围预览 + 试选阵容：提到工作台容器，页签只通过 ctx 拿到 ──
+  // 一份草稿、一次保存、同一个撤销栈（原「世界书配置」页面的那一套）。
+  const {
+    draft: bookDraft, patch: patchBookDraft, adoptV3, dirty: draftDirty, saving: draftSaving,
+    error: draftSaveError, conflict: draftConflict, save: saveDraft, undo: undoDraft, savedAt,
+  } = useWorldbookDraft(detail);
+  const { preview, loading: previewing, error: previewError } =
+    useScopePreview(detail?.id || "", detail?.updated_at, bookDraft, roster, EMPTY_UIDS, !!detail);
+  const reloadDetail = useCallback(async () => { await loadDetail(selectedId); }, [loadDetail, selectedId]);
+  const doSaveDraft = useCallback(async () => {
+    const ok = await saveDraft();
+    // 保存成功后重新拉取：修订号变化才会让草稿回到新基线（dirty 归零）。
+    if (ok) await reloadDetail();
+  }, [saveDraft, reloadDetail]);
+  useEffect(() => { if (savedAt) showToast("已保存：本次改动一次性写入，正文未被改写。"); }, [savedAt, showToast]);
+  // 有未保存草稿时防误关（草稿在 409 / 保存失败时都会保留）
+  useEffect(() => {
+    if (!draftDirty) return;
+    const prevent = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", prevent);
+    return () => window.removeEventListener("beforeunload", prevent);
+  }, [draftDirty]);
+
+  // ── 切书：有未保存改动时先问用户（保存并切换 / 放弃并切换 / 取消）──
+  const applyBookSwitch = useCallback((id: string) => {
+    setSelectedId(id);
+    // 换书回到「条目」页签：否则在剧情书里停在「分类与载入」再切到资料库，
+    // 页签按钮与内容都被隐藏，详情区会空成一片白（原「详情页签归一」的回归场景）。
+    setWorldbookTab("entries");
+    setRoster([]);
+  }, [setWorldbookTab]);
+  const selectBook = useCallback((id: string) => {
+    if (id === selectedId) return;
+    if (draftDirty) { setPendingBook(id); return; }
+    applyBookSwitch(id);
+  }, [selectedId, draftDirty, applyBookSwitch]);
+
+  // ── 跨组件跳转：全部由工作台消费（消费后清空）──
+  // 检索命中 → 选中该书 + 条目页签
+  useEffect(() => {
+    if (!worldbookJumpId) return;
+    selectBook(worldbookJumpId);
+    setWorldbookTab("entries");
+    setWorldbookJumpId(null);
+  }, [worldbookJumpId, selectBook, setWorldbookTab, setWorldbookJumpId]);
+  // 依赖相关入口 → 选中该书 + 分类与载入页签
+  useEffect(() => {
+    if (!worldbookScopeJumpId) return;
+    selectBook(worldbookScopeJumpId);
+    setWorldbookTab("load");
+    setWorldbookScopeJumpId(null);
+  }, [worldbookScopeJumpId, selectBook, setWorldbookTab, setWorldbookScopeJumpId]);
+  // 指定条目 → 选中该书 + 条目页签；条目编辑器由下方 detail 就绪后的 effect 打开，
+  // 因此这里不能提前清空跳转目标。
+  useEffect(() => {
+    if (!worldbookEntryJump) return;
+    selectBook(worldbookEntryJump.bookId);
+    setWorldbookTab("entries");
+  }, [worldbookEntryJump, selectBook, setWorldbookTab]);
+
+  /** 下发给各页签的统一投影：同一份草稿、同一条预览与保存路径、同一个试选阵容。 */
+  const panelProps: WorldBookPanelProps | null = detail && bookDraft ? {
+    detail, draft: bookDraft, patch: patchBookDraft, adoptV3,
+    dirty: draftDirty, saving: draftSaving, saveError: draftSaveError, conflict: draftConflict,
+    save: doSaveDraft, undo: undoDraft, preview, previewing, previewError, roster, setRoster,
+  } : null;
 
   // ── 会话绑定查询 ──
   useEffect(() => {
@@ -873,6 +978,39 @@ export default function WorldBookManager() {
           </p>
         )}
 
+        {/* ── 切书确认：有未保存草稿时先问用户（保存并切换 / 放弃并切换 / 取消） ── */}
+        {pendingBook !== null && <section role="dialog" aria-label="切换世界书" className="wbg-notice mb-3">
+          <span>当前世界书有未保存改动。</span>
+          <button disabled={draftSaving} onClick={async () => {
+            if (await saveDraft()) { applyBookSwitch(pendingBook); setPendingBook(null); }
+          }}>保存并切换</button>
+          <button disabled={draftSaving} onClick={() => { applyBookSwitch(pendingBook); setPendingBook(null); }}>放弃并切换</button>
+          <button onClick={() => setPendingBook(null)}>取消</button>
+        </section>}
+
+        {/* ── 工作台页头：页签栏 + 保存条（脏 / 保存中 / 冲突 / 失败，或停在 load 页签时常驻） ── */}
+        <div className="wbg-page-bar mb-3">
+          <nav className="wbg-view-tabs" aria-label="世界书工作台页签">
+            {visibleTabs.map((tab) => <button key={tab.id} title={tab.hint} aria-pressed={effectiveTab === tab.id}
+              disabled={!detail} onClick={() => setWorldbookTab(tab.id)}>{tab.label}</button>)}
+          </nav>
+          {detail && (draftDirty || draftSaving || draftConflict || !!draftSaveError || effectiveTab === "load") &&
+            <div className="wbg-page-status">
+              <span className={"wbg-save-state" + (draftDirty ? " is-dirty" : "")}>
+                {draftDirty ? "有未保存修改" : "已同步"}
+              </span>
+              {draftDirty && <button className="wbg-button wbg-button-quiet" disabled={draftSaving} onClick={undoDraft}>撤销</button>}
+              <button className="wbg-button wbg-button-primary" disabled={draftSaving || !draftDirty}
+                onClick={() => void doSaveDraft()}>{draftSaving ? "保存中…" : "保存"}</button>
+            </div>}
+        </div>
+
+        {draftSaveError && <div role="alert" className="wbg-notice wbg-error mb-3">
+          <span>{draftConflict ? "保存被拒绝：" : "保存失败："}{draftSaveError}
+            {draftConflict && "（你的草稿仍完整保留，可先对照最新数据再保存）"}</span>
+          <button onClick={() => void doSaveDraft()}>重试保存</button>
+        </div>}
+
         {detail && (
           <>
             {/* ── 书元信息 ── */}
@@ -964,8 +1102,21 @@ export default function WorldBookManager() {
               </p>
             </div>
 
-            {/* ── 资料库：跨书检索 + 加入剧情世界书 ── */}
-            {detailIsReference && (
+            {/* ── 页签内容：非条目页签都在这里，条目页签紧接其后 ── */}
+            {effectiveTab === "index" && <p className="wbg-help mb-2">本家索引 · {WORLDBOOK_INDEX_SUBTITLE}</p>}
+            {effectiveTab === "index" && <div className="wbg-index-shell">
+              <Suspense fallback={<p className="text-xs text-gray-400">加载本家索引…</p>}><IndexManager /></Suspense>
+            </div>}
+            {(effectiveTab === "load" || effectiveTab === "prompt" || effectiveTab === "nodes") && panelProps && <>
+              {effectiveTab === "load" && <LoadTab ctx={panelProps} onNotice={(text) => showToast(text)} onReload={reloadDetail} />}
+              {effectiveTab === "prompt" && <PromptPreviewTab ctx={panelProps} onNotice={(text) => showToast(text)} onReload={reloadDetail} />}
+              {effectiveTab === "nodes" && <NodeViewTab ctx={panelProps} onNotice={(text) => showToast(text)} onReload={reloadDetail} />}
+            </>}
+            {(effectiveTab === "load" || effectiveTab === "prompt" || effectiveTab === "nodes") && !panelProps &&
+              <p role="status" className="text-xs text-gray-400">正在准备配置草稿…</p>}
+
+            {/* ── 资料库：跨书检索 + 加入剧情世界书（属于条目页签） ── */}
+            {effectiveTab === "entries" && detailIsReference && (
               <div className="mb-4 p-3 rounded-lg bg-cyan-900/10 border border-cyan-800/40">
                 <h3 className="text-xs text-cyan-200 mb-2">检索资料库，挑条目加入剧情世界书</h3>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -1029,8 +1180,8 @@ export default function WorldBookManager() {
               </div>
             )}
 
-            {/* ── 会话绑定：资料库不参与解析，不显示 ── */}
-            {!detailIsReference && (
+            {/* ── 会话绑定：资料库不参与解析，不显示（属于条目页签） ── */}
+            {effectiveTab === "entries" && !detailIsReference && (
             <div className="mb-4 p-3 rounded-lg bg-gray-800/60 border border-gray-700">
               <h3 className="text-xs text-gray-400 mb-2">会话绑定</h3>
               <div className="flex items-center gap-2 flex-wrap">
@@ -1074,23 +1225,22 @@ export default function WorldBookManager() {
             </div>
             )}
 
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <nav className="wbg-view-tabs" aria-label="世界书管理视图">
-                {!detailIsReference && (
-                  <button aria-pressed={effectiveDetailTab === "taxonomy"} onClick={() => { setDetailTab("taxonomy"); setCategoryFilter(""); }}><WorldBookGraphIcon name="graph" size={14} />高级配置</button>
-                )}
-                <button aria-pressed={effectiveDetailTab === "entries"} onClick={() => setDetailTab("entries")}><WorldBookGraphIcon name="folder" size={14} />条目正文 · {detail.entries.length}</button>
-              </nav>
-              {categoryFilter && effectiveDetailTab === "entries" && <button className="text-xs text-gray-400 hover:text-gray-200" onClick={() => setCategoryFilter("")}>清除分类筛选 ×</button>}
-            </div>
-
-            {effectiveDetailTab === "taxonomy" && !detailIsReference && <div className="wbg-taxonomy-shell"><Suspense fallback={<p className="text-xs text-gray-400">加载分类图谱…</p>}><WorldBookScopeManager key={detail.id} detail={detail} view="taxonomy" onChanged={() => loadDetail(detail.id)} onCategoryChange={setCategoryFilter} onEditEntry={openEdit} /></Suspense></div>}
-
-            {/* ── 条目区 ── */}
-            {effectiveDetailTab === "entries" && <>
+            {/* ── 条目页签：筛选 / 分页 / 正文列表（依赖逐层展开的挂载点） ── */}
+            {effectiveTab === "entries" && <>
             <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
               <h3 className="panel-title">条目（{detail.entries.length}）</h3>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <select
+                  className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 max-w-[200px]"
+                  aria-label="按分类筛选条目"
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                >
+                  <option value="">全部分类</option>
+                  {flattenCategoryTree(detail.categories || []).map(({ category, level }) => (
+                    <option key={category.id} value={category.id}>{"　".repeat(level)}{category.name}</option>
+                  ))}
+                </select>
                 <input
                   className="w-48 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200"
                   placeholder="筛选条目名 / 正文 / 触发词"
@@ -1191,6 +1341,9 @@ export default function WorldBookManager() {
                       </span>
                     )}
                   </div>
+                  {/* A-3：依赖逐层展开的挂载点（展开状态由组件自己持有，不影响本列表的筛选与分页） */}
+                  {bookDraft && <EntryDependencyTree detail={detail} rootUids={[e.uid]} draft={bookDraft}
+                    patch={patchBookDraft} onNotice={(text) => showToast(text)} />}
                   <p className="mt-1 text-xs text-gray-400 line-clamp-2">
                     {e.content.slice(0, 120)}
                   </p>
