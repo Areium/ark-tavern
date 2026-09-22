@@ -7,7 +7,8 @@
 //   3. 前后端两张系统层常量表不许漂移（直接读 src/world_book.py 比对）；
 //   4. 封面选择器只接受本地文件（不是图片地址输入框），并如实说明会压缩后内嵌；
 //   5. Prompt 预览页把「系统层已排除」说出来；
-//   6. 会话条目页不给系统层条目一个「拨了没用」的会话开关。
+//   6. 会话条目页不给系统层条目一个「拨了没用」的会话开关；
+//   7. 书架项与 hero 统计**不**展示系统层条数（避免同一信息四处重复）。
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -217,7 +218,26 @@ assert.ok(indexMarkup.includes("<b>1</b> 条系统层条目"), "数量要说明�
 assert.ok(indexMarkup.includes("1 个条目"), "分母也换成会注入的条目，不是含系统层的总数");
 assert.ok(indexMarkup.includes("1 / 1 个条目"), "计数口径一致");
 
+// ── 8. 系统层条数不在世界书显示界面出标识 ──
+// 书架项与 hero 统计不展示系统层条数：条目行的分层标签、列表底部的分界行，以及
+// Prompt 预览 / 会话条目页的说明已经交代了这件事，hero 上再挂一个计数只是噪声。
+// 这两处没法用 SSR 断言（书架与详情都等异步加载），因此对源码做「不许再出现」的守卫。
+const managerSource = fs.readFileSync(
+  path.join(root, "frontend/src/components/WorldBookManager.tsx"), "utf8");
+const entryCss = fs.readFileSync(
+  path.join(root, "frontend/src/styles/worldbook-entry-refresh.css"), "utf8");
+assert.ok(!managerSource.includes("wber-book-system"), "书架项不再显示「系统 N」标识");
+assert.ok(!managerSource.includes("条系统层</span>"), "hero 统计不再显示「N 条系统层」标识");
+assert.ok(!entryCss.includes(".wber-book-system"), "随标识一起删掉死样式，避免下次被复用");
+assert.ok(!entryCss.includes(".wber-stats > span.is-system"), "hero 上的系统层胶囊样式一并删除");
+// 「单独分类」的可见出口必须还在：条目行分层标签 / 分层筛选档 / 列表分界行
+assert.ok(managerSource.includes("wber-layer is-"), "条目行仍标注分层");
+assert.ok(managerSource.includes("wber-entry-divider"), "系统层分界行仍在");
+assert.ok(managerSource.includes("wber-layer-filter"), "分层筛选档仍在");
+assert.ok(entryCss.includes(".wber-layer.is-system"), "系统层的独立配色仍在");
+assert.ok(entryCss.includes(".wber-stats > span.is-muted"), "「N 条已停用」的样式不受影响");
+
 console.log("Worldbook layer UI: three-layer classification, live entry/token stats, "
-  + "system-layer-sinks-to-bottom display order with drag locked, front-back "
-  + "constant-table parity, local-file cover picker, prompt-preview and "
-  + "session-entry system-layer notices passed.");
+  + "system-layer-sinks-to-bottom display order with drag locked, no system-layer count "
+  + "badge on shelf/hero, front-back constant-table parity, local-file cover picker, "
+  + "prompt-preview and session-entry system-layer notices passed.");

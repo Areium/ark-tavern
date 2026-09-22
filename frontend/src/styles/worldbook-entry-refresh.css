@@ -391,8 +391,8 @@ html.light .wber-shell {
   background: color-mix(in srgb, var(--wber-system) 7%, transparent); font-size: 12px; line-height: 1.7;
 }
 .wber-system-note b { color: var(--wber-text); }
-.wber-book-system { margin-left: 6px; color: var(--wber-system); font-style: normal; }
-.wber-stats > span.is-system { color: var(--wber-system); border-color: color-mix(in srgb, var(--wber-system) 40%, transparent); background: color-mix(in srgb, var(--wber-system) 10%, transparent); }
+/* 系统层条数不在书架 / hero 上单独出标识：条目行有分层标签、列表底部有分界行。
+   这两条规则曾是那两个标识的样式，随标识一起删除（.is-muted 留给「N 条已停用」）。 */
 .wber-stats > span.is-muted { opacity: .75; }
 .wber-stats small { color: var(--wber-muted); font-size: 10.5px; }
 .wbpp-system-note { display: block; margin-top: 8px; color: var(--wber-muted); }

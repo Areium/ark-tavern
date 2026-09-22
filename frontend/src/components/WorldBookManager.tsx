@@ -1006,16 +1006,13 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         {visibleBooks.map((book) => {
           const cover = safeCover(book.cover_image);
           // 选中的书用实时统计（勾选后立刻变），其余书用服务端摘要里的同口径字段。
+          // 只显示「会注入的条目 / token」：系统层条目不注入，它的条数不进书架标题栏。
           const stats = book.id === detail?.id ? liveStats : summaryEntryStats(book);
           return <button type="button" className="wber-book" data-active={selectedId === book.id}
-            key={book.id} onClick={() => setSelectedId(book.id)}
-            title={stats.system
-              ? `${book.name}（${stats.injectable} 条注入 + ${stats.system} 条系统层）`
-              : book.name}>
+            key={book.id} onClick={() => setSelectedId(book.id)} title={book.name}>
             <span className="wber-book-cover">{cover ? <img src={cover} alt="" /> : <span>{book.name.slice(0, 1) || "书"}</span>}</span>
             <span className="wber-book-copy"><strong>{book.name}</strong><small>
               {stats.injectable} 条 · 约 {stats.tokens} token
-              {!!stats.system && <em className="wber-book-system">系统 {stats.system}</em>}
             </small></span>
           </button>;
         })}
@@ -1064,16 +1061,15 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
               <p>{bookDescription || "还没有简介。"}</p>
               <button type="button" className="is-sm is-ghost" onClick={() => setEditingMeta(true)}>编辑介绍</button>
             </div>}
-            {/* 统计口径：条目 / token 只算**启用的非系统条目**，勾选后立刻变。 */}
+            {/* 统计口径：条目 / token 只算**启用的非系统条目**，勾选后立刻变。
+                系统层条数的标识不在这里展示 —— 它由条目行的分层标签、列表底部的分界行，
+                以及 Prompt 预览页的说明各自交代，hero 上再挂一个计数只是噪声。 */}
             <div className="wber-stats">
               <span title="会注入的条目：已启用且不属于系统层"><b>{liveStats.injectable}</b> 条目
                 {liveStats.total !== liveStats.injectable && <small> / 共 {liveStats.total}</small>}</span>
               <span title="启用条目的展示估算，勾选 / 取消勾选会立刻变化"><b>约 {liveStats.tokens}</b> token</span>
               {!!liveStats.disabled && <span className="is-muted" title="已停用：不注入，也不计入条目与 token">
                 {liveStats.disabled} 条已停用</span>}
-              {!!liveStats.system && <span className="is-system"
-                title="系统层：节点图 / 节点绑定。只服务画布与系统判定，永不注入，也不计入 token">
-                {liveStats.system} 条系统层</span>}
               <span className={`wber-save is-${savePhase.state}`}>{savePhase.message || "已同步"}</span>
               {savePhase.state === "error" && <button type="button" className="is-sm" onClick={() => {
                 for (const retry of retryTasks.current.values()) retry();

@@ -162,6 +162,12 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
     不给 `draggable`，手柄位置换成锁标记（`.wber-drag.is-locked`），拖到它上面会被拒绝并提示。
     这是**展示层**排序，持久化的 `entry_order`（注入顺序）不受影响 —— 拖拽仍按原有整排列语义
     写回，系统层条目留在数组末尾即可（后端要求 `entry_order` 是完整排列）。
+  - **不在书架项与 hero 统计上出系统层计数标识**（曾短暂加过「系统 N」/「N 条系统层」，已按要求去掉）：
+    同一件事已经有三个更贴上下文的出口 —— 条目行的分层标签、列表底部的分界行、Prompt 预览与会话
+    条目页的说明。hero 只留「会注入的条目 / 共 N」与「约 X token」（外加「N 条已停用」，
+    它解释的是勾选结果，属于同一处交互的反馈）。条数本身在 `bookEntryStats` /
+    `system_entry_count` 里照常可查，只是不占版面。回归守卫见
+    `scripts/test_worldbook_layer_ui.cjs` 第 8 组（对源码做「不许再出现」断言）。
 - **别让两张表漂移**：`SYSTEM_ENTRY_TYPES` / `SYSTEM_ENTRY_FENCES` 在 Python 与 TS 各有一份。
   `tests/test_worldbook_system_layer.py` 比对承载模块自己的 `_ENTRY_TYPE` / `WORLD_BOOK_FENCE`；
   `scripts/test_worldbook_layer_ui.cjs` 直接读 `src/world_book.py` 比对两张表 —— 任一侧新增类型
