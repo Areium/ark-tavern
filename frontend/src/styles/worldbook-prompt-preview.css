@@ -192,3 +192,23 @@
   .wbpp-grid { grid-template-columns: minmax(0, 1fr); }
   .wbpp-col-scroll { overflow: visible; }
 }
+
+/* 全书阅读预览 */
+.wbpp-reader { gap: 20px; }
+.wbpp-reader .wbpp-head h3 { font-size: 18px; margin-bottom: 6px; }
+.wbpp-reader-toolbar { position: relative; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.wbpp-reader-count { margin-left: 6px; opacity: .75; font-variant-numeric: tabular-nums; }
+.wbpp-reader-panel { min-width: 0; border: 1px solid var(--wbpp-line); border-radius: 12px; background: var(--ng-card-bg, transparent); overflow: hidden; }
+.wbpp-reader-caption { padding: 16px 22px; border-bottom: 1px solid var(--wbpp-line); background: var(--wbpp-hover); }
+.wbpp-reader-caption h4 { color: var(--wbpp-title); font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.wbpp-reader-text { margin: 0; padding: 24px; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.95 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--wbpp-body); }
+.wbpp-reader-panel > .wbpp-empty, .wbpp-reader-panel > .wbpp-notice { margin: 22px; }
+.wbpp-help { position: static; align-self: center; }
+.wbpp-modes .wbpp-help-trigger { width: 26px; height: 26px; padding: 0; border-radius: 50%; color: var(--wbpp-muted); cursor: help; }
+.wbpp-help-content { position: absolute; left: 0; top: calc(100% + 10px); z-index: 10; width: min(330px, 100%); padding: 12px 14px; border: 1px solid var(--wbpp-line); border-radius: 8px; background: var(--ng-card-bg, #18202c); color: var(--wbpp-body); font-size: 12px; line-height: 1.8; box-shadow: 0 8px 24px #0003; visibility: hidden; opacity: 0; pointer-events: none; }
+.wbpp-help:hover .wbpp-help-content, .wbpp-help:focus-within .wbpp-help-content { visibility: visible; opacity: 1; }
+.wbpp-reader button:focus-visible { outline: 2px solid var(--wbpp-accent); outline-offset: 3px; }
+@media (max-width: 600px) {
+  .wbpp-reader-text { padding: 16px; }
+  .wbpp-reader-caption { padding: 14px 16px; }
+}

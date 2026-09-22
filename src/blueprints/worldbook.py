@@ -1124,6 +1124,15 @@ def register(app, managers):
             if isinstance(seed, bool) or not isinstance(seed, int):
                 seed = 0
 
+            if bool(data.get("all_entries", False)):
+                metadata_uids = {
+                    entry.uid for entry in candidate.entries
+                    if node_lore_scope.is_lore_bindings_entry(entry)
+                }
+                return jsonify(candidate.preview_all_entries(
+                    mode=mode, identity=identity, active_char=active_char,
+                    excluded_entry_uids=metadata_uids))
+
             return jsonify(candidate.preview_prompt_injection(
                 mode=mode, input_text=input_text, recent_text=recent_text,
                 roster_character_ids=roster, manual_entry_uids=manual,

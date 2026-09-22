@@ -1724,6 +1724,78 @@ class WorldBook:
 
     # ── 只读 Prompt 预览（A-2 / §3.2）──
 
+    def preview_all_entries(self, *, mode="narrative", identity="博士", active_char=None,
+                            excluded_entry_uids=None) -> dict:
+        """只读全书预览：按既有注入顺序格式化全部启用条目。
+
+        该模式用于编辑器展示整本书的最终 Prompt 文本，不模拟某一轮会话，因此不看
+        候选范围、节点绑定、关键词、概率或 token 预算。排序仍复用
+        :meth:`collect_matches`，正文、分层与 token 统计仍复用同一次
+        :meth:`format_injection` trace。调用方可传入只承载编辑器元数据的条目 UID；
+        它们不会出现在正文、order 或 dropped 中。
+
+        方法始终在深拷贝上清零预算，绝不修改原书或原条目。
+        """
+        if mode not in ("narrative", "free"):
+            raise ValueError("mode 必须是 narrative 或 free")
+
+        candidate = copy.deepcopy(self)
+        candidate.budget_tokens = 0
+        excluded = {str(uid) for uid in (excluded_entry_uids or ())}
+        enabled_uids = {
+            entry.uid for entry in candidate.entries
+            if entry.enabled and entry.uid not in excluded
+        }
+        forced = EligibleSet(enabled_uids, forced_uids=enabled_uids)
+        matched = candidate.collect_matches("", "", eligible_uids=forced)
+        trace: list[dict] = []
+        stable_text, dynamic_text = candidate.format_injection(
+            matched, identity, active_char, trace=trace)
+
+        matched_by_uid = {entry.uid: entry for entry in matched}
+        included = [item for item in trace if item["included"]]
+        order = []
+        for seq, item in enumerate(included):
+            entry = matched_by_uid[item["uid"]]
+            order.append({
+                "uid": entry.uid,
+                "name": entry.name or entry.uid,
+                "seq": seq,
+                "layer": item["layer"],
+                "position": int(entry.position or 0),
+                "group_weight": int(entry.group_weight or 0),
+                "depth": int(entry.depth or 0),
+                "estimated_tokens": item["tokens"],
+                "reasons": [],
+                "matched_keys": [],
+                "override_from_node": None,
+            })
+
+        dropped = [
+            {"uid": entry.uid, "name": entry.name or entry.uid, "reason": "disabled"}
+            for entry in candidate.entries
+            if not entry.enabled and entry.uid not in excluded
+        ]
+        return {
+            "mode": mode,
+            "order": order,
+            "stable_text": stable_text,
+            "dynamic_text": dynamic_text,
+            "sites": _preview_sites(mode),
+            "skeleton": _preview_skeleton(mode),
+            "dropped": dropped,
+            "totals": {
+                "stable_tokens": sum(item["tokens"] for item in included
+                                     if item["layer"] == "stable"),
+                "dynamic_tokens": sum(item["tokens"] for item in included
+                                      if item["layer"] == "dynamic"),
+                "budget_tokens": 0,
+                "truncated": False,
+                "candidate_count": len(matched),
+                "matched_count": len(matched),
+            },
+        }
+
     def preview_prompt_injection(self, *, mode="narrative", input_text="", recent_text="",
                                  roster_character_ids=None, manual_entry_uids=None,
                                  full_scope=False, identity="博士", active_char=None,

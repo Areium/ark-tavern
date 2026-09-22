@@ -18,7 +18,7 @@ const IndexManager = lazy(() => import("./IndexManager"));
 
 export const WORLDBOOK_PANEL_TABS: ReadonlyArray<{ id: WorldBookTab; label: string; hint: string }> = [
   { id: "entries", label: "条目", hint: "阅读、编辑、排序与依赖展开" },
-  { id: "prompt", label: "Prompt 预览", hint: "查看本轮实际注入" },
+  { id: "prompt", label: "Prompt 预览", hint: "查看本世界书的静态与动态插入内容" },
   { id: "nodes", label: "节点视图", hint: "查看注入顺序与依赖结构" },
   { id: "index", label: "本家索引", hint: "内置语料索引与完整性" },
 ];
