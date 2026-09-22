@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from blueprints.sessions import register
 from session_worldbook_dependencies import (
-    apply_inheritance_update, change_relation, effective_graph, ensure_editable_scope,
+    apply_inheritance_update, change_entry_override, change_relation, effective_graph,
+    ensure_editable_scope,
     preview_inheritance_update, restore_inheritance,
 )
 from world_book import DEFAULT_CATEGORIES, WorldBook, WorldBookEntry, WorldBookManager
@@ -83,6 +84,30 @@ def test_schema2_session_upgrade_is_local_and_range_equivalent():
     assert upgraded["schema_version"] == 3
     assert set(upgraded["resolved_entry_uids"]) == set(old["resolved_entry_uids"])
     assert book.schema_version == 2 and book.dependency_rules is None
+
+
+def test_entry_enabled_override_changes_only_session_scope_and_injection():
+    book = v3_book()
+    book.entries.append(WorldBookEntry(
+        "off", name="默认停用", content="会话特调内容。", always_active=True,
+        enabled=False, category_id="other"))
+    scope = book.session_scope_snapshot(["A"])
+
+    enabled = change_entry_override(scope, "off", True, 1)
+    enabled = book.refresh_session_scope(enabled, ["A"])
+    assert "off" in enabled["resolved_entry_uids"]
+    assert enabled["local_overrides"]["entry_enabled"] == {"off": True}
+    overlay = Overlay()
+    overlay.set_worldbook_scope(enabled)
+    assert "off" in {entry.uid for entry in book.collect_matches(
+        "", "", eligible_uids=book.eligible_uids_for(overlay))}
+
+    disabled = change_entry_override(enabled, "a", False, 2)
+    disabled = book.refresh_session_scope(disabled, ["A"])
+    assert "a" not in disabled["resolved_entry_uids"]
+    restored = change_entry_override(disabled, "a", None, 3)
+    restored = book.refresh_session_scope(restored, ["A"])
+    assert "a" in restored["resolved_entry_uids"]
 
 
 class Overlay:
@@ -164,6 +189,42 @@ def test_api_schema2_snapshot_override_and_cross_session_isolation(session_api):
     preview = client.post(
         f"/api/sessions/{one}/worldbook-dependencies/inheritance-preview")
     assert preview.status_code == 200, preview.json
+
+
+def test_entry_override_api_is_scoped_to_bound_session(session_api):
+    client, _manager, books, _llm = session_api
+    book = books.load("book")
+    book.entries.append(WorldBookEntry(
+        "off", name="默认停用", content="仅本会话启用。", always_active=True,
+        enabled=False, category_id="other"))
+    books.save(book)
+    first = client.post("/api/sessions", json={"worldbook_id": "book", "roster_character_ids": ["A"]})
+    second = client.post("/api/sessions", json={"worldbook_id": "book", "roster_character_ids": ["A"]})
+    one, two = first.json["id"], second.json["id"]
+
+    initial = client.get(f"/api/sessions/{one}/worldbook-entry-overrides")
+    assert initial.status_code == 200
+    changed = client.patch(f"/api/sessions/{one}/worldbook-entry-overrides", json={
+        "entry_uid": "off", "enabled": True,
+        "expected_scope_revision": initial.json["scope_revision"],
+    })
+    assert changed.status_code == 200, changed.json
+    assert changed.json["overrides"] == {"off": True}
+    assert next(entry for entry in changed.json["entries"] if entry["uid"] == "off") == {
+        "uid": "off", "name": "默认停用", "category_id": "other",
+        "default_enabled": False, "effective_enabled": True, "selected": True,
+    }
+    other = client.get(f"/api/sessions/{two}/worldbook-entry-overrides")
+    assert other.json["overrides"] == {}
+    assert books.load("book").entries[-1].enabled is False
+
+    restored = client.patch(f"/api/sessions/{one}/worldbook-entry-overrides", json={
+        "entry_uid": "off", "enabled": None,
+        "expected_scope_revision": changed.json["scope_revision"],
+    })
+    assert restored.status_code == 200
+    assert restored.json["overrides"] == {}
+    assert next(entry for entry in restored.json["entries"] if entry["uid"] == "off")["effective_enabled"] is False
 
 
 def test_session_overlay_scope_survives_reload(tmp_path, monkeypatch):

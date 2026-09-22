@@ -573,10 +573,12 @@ class EligibleSet(set):
     详见 docs/design/worldbook/node-scoped-worldbook-loading.md（v2.1）。
     """
 
-    def __init__(self, it=(), forced_uids=frozenset(), position_overrides=None):
+    def __init__(self, it=(), forced_uids=frozenset(), position_overrides=None,
+                 enabled_overrides=None):
         super().__init__(it)
         self.forced_uids = frozenset(forced_uids)
         self.position_overrides = dict(position_overrides or {})
+        self.enabled_overrides = dict(enabled_overrides or {})
 
 
 def content_revision(entries) -> str:
@@ -1455,7 +1457,8 @@ class WorldBook:
                 "related_edges": copy.deepcopy(snapshot.get("related_edges") or []),
                 "captured_at": scope["resolved_at"],
             },
-            "local_overrides": {"requires_edges": [], "related_edges": []},
+            "local_overrides": {"requires_edges": [], "related_edges": [],
+                                "entry_enabled": {}},
             "suppressed_edges": [], "inheritance_conflicts": [], "scope_revision": 1,
         })
         if not full_scope:
@@ -1541,6 +1544,24 @@ class WorldBook:
             "requires_edges": copy.deepcopy(bound.dependency_edges),
             "related_edges": copy.deepcopy(bound.related_edges),
         })
+        enabled_overrides = managed["local_overrides"].get("entry_enabled") or {}
+        if enabled_overrides:
+            resolved = set(refreshed.get("resolved_entry_uids") or [])
+            reasons = copy.deepcopy(refreshed.get("selection_reasons") or {})
+            by_uid = {entry.uid: entry for entry in self.entries}
+            for uid, enabled in enabled_overrides.items():
+                entry = by_uid.get(uid)
+                if not entry:
+                    continue
+                if enabled and self.enabled and (entry.content or "").strip():
+                    resolved.add(uid)
+                    reasons[uid] = ["session_override"]
+                else:
+                    resolved.discard(uid)
+                    reasons.pop(uid, None)
+            refreshed["resolved_entry_uids"] = [
+                entry.uid for entry in self.entries if entry.uid in resolved]
+            refreshed["selection_reasons"] = reasons
         return refreshed
 
     def eligible_uids_for(self, overlay, *, with_reasons: bool = False):
@@ -1562,6 +1583,7 @@ class WorldBook:
                      "legacy_full_scope": True, "resolved_at": time.time()}
             overlay.set_worldbook_scope(scope)
         base = set(scope.get("resolved_entry_uids", [])) if scope.get("book_id") == self.id else set()
+        enabled_overrides = ((scope.get("local_overrides") or {}).get("entry_enabled") or {})
 
         node_scope = None
         getter = getattr(overlay, "get_active_lore_scope", None)
@@ -1572,7 +1594,7 @@ class WorldBook:
                     and candidate.get("book_id") in (None, "", self.id)):
                 node_scope = candidate
         if node_scope is None:
-            result = EligibleSet(base)
+            result = EligibleSet(base, enabled_overrides=enabled_overrides)
             if not with_reasons:
                 return result
             return result, {"node_scope": None}
@@ -1581,7 +1603,8 @@ class WorldBook:
         pinned = set(node_scope.get("pinned") or []) & allowed
         overrides = {u: o for u, o in (node_scope.get("overrides") or {}).items()
                      if u in allowed}
-        result = EligibleSet(allowed, forced_uids=pinned, position_overrides=overrides)
+        result = EligibleSet(allowed, forced_uids=pinned, position_overrides=overrides,
+                             enabled_overrides=enabled_overrides)
         if not with_reasons:
             return result
         return result, {
@@ -1613,12 +1636,13 @@ class WorldBook:
 
         forced = frozenset(getattr(eligible_uids, "forced_uids", None) or ())
         overrides = getattr(eligible_uids, "position_overrides", None) or {}
+        enabled_overrides = getattr(eligible_uids, "enabled_overrides", None) or {}
 
         matched: list[WorldBookEntry] = []
         for entry in self.entries:
             if eligible_uids is not None and entry.uid not in eligible_uids:
                 continue
-            if not entry.enabled:
+            if not enabled_overrides.get(entry.uid, entry.enabled):
                 continue
             if entry.uid not in forced:
                 if not _entry_matches(entry, scan_text):

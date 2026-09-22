@@ -20,7 +20,7 @@ from shared.helpers import json_error
 from session_manager import SessionCleanupError
 from session_resources import is_safe_entity_name
 from session_worldbook_dependencies import (
-    apply_inheritance_update, change_relation, ensure_editable_scope,
+    apply_inheritance_update, change_entry_override, change_relation, ensure_editable_scope,
     graph_view, preview_inheritance_update, restore_inheritance,
 )
 from world_book import content_revision
@@ -279,6 +279,25 @@ def register(app, managers):
         })
         return view
 
+    def _entry_override_payload(session, book, scope):
+        overrides = dict((scope.get("local_overrides") or {}).get("entry_enabled") or {})
+        selected = set(scope.get("resolved_entry_uids") or [])
+        return {
+            "session_id": session.id,
+            "book_id": book.id,
+            "book_name": book.name,
+            "scope_revision": int(scope.get("scope_revision") or 1),
+            "overrides": overrides,
+            "entries": [{
+                "uid": entry.uid,
+                "name": entry.name,
+                "category_id": entry.category_id,
+                "default_enabled": bool(entry.enabled),
+                "effective_enabled": bool(overrides.get(entry.uid, entry.enabled)),
+                "selected": entry.uid in selected,
+            } for entry in book.entries],
+        }
+
     def _get_managed(session_id, persist_upgrade=True):
         with session_mgr._lock:
             session = session_mgr._sessions.get(session_id)
@@ -341,6 +360,50 @@ def register(app, managers):
             except ValueError as exc:
                 return json_error(str(exc))
         return jsonify(_dependency_payload(session, book, scope))
+
+    @bp.route("/api/sessions/<session_id>/worldbook-entry-overrides", methods=["GET"])
+    def get_session_worldbook_entry_overrides(session_id):
+        session, book, scope, err = _get_managed(session_id)
+        if err:
+            return err
+        return jsonify(_entry_override_payload(session, book, scope))
+
+    @bp.route("/api/sessions/<session_id>/worldbook-entry-overrides", methods=["PATCH"])
+    def patch_session_worldbook_entry_overrides(session_id):
+        data = request.get_json(silent=True) or {}
+        try:
+            expected = int(data.get("expected_scope_revision"))
+        except (TypeError, ValueError):
+            return json_error("需要 expected_scope_revision")
+        entry_uid = data.get("entry_uid")
+        if not isinstance(entry_uid, str) or not entry_uid:
+            return json_error("entry_uid 必须是非空字符串")
+        if "enabled" not in data or (data["enabled"] is not None
+                                      and not isinstance(data["enabled"], bool)):
+            return json_error("enabled 必须是布尔值或 null")
+        with session_mgr._lock:
+            session = session_mgr._sessions.get(session_id)
+            if not session:
+                return json_error("会话不存在", 404)
+            _book_id, book = _session_book(session)
+            if not book:
+                return json_error("会话未绑定可用世界书", 404)
+            if entry_uid not in {entry.uid for entry in book.entries}:
+                return json_error("条目不存在", 404)
+            try:
+                def update(current):
+                    managed = ensure_editable_scope(
+                        current, book, session.scene_manager.get_scene_characters())
+                    changed = change_entry_override(
+                        managed, entry_uid, data["enabled"], expected)
+                    return book.refresh_session_scope(
+                        changed, session.scene_manager.get_scene_characters())
+                scope = session.overlay.update_worldbook_scope(update)
+            except RuntimeError as exc:
+                return json_error(str(exc), 409)
+            except ValueError as exc:
+                return json_error(str(exc))
+        return jsonify(_entry_override_payload(session, book, scope))
 
     @bp.route("/api/sessions/<session_id>/worldbook-dependencies/restore", methods=["POST"])
     def restore_session_worldbook_dependencies(session_id):

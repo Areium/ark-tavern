@@ -770,6 +770,14 @@ export interface WorldBookCategoryDTO {
   sort_order: number;
 }
 export interface WorldBookDependencyEdgeDTO { from_uid: string; to_uid: string; }
+export interface SessionWorldbookEntryOverridesDTO {
+  session_id: string;
+  book_id: string;
+  book_name: string;
+  scope_revision: number;
+  overrides: Record<string, boolean>;
+  entries: Array<{ uid: string; name: string; category_id: string; default_enabled: boolean; effective_enabled: boolean }>;
+}
 export interface SessionWorldbookDependenciesDTO {
   session_id: string;
   book_id: string;

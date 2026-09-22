@@ -20,9 +20,9 @@ export const WORLDBOOK_PANEL_TABS: ReadonlyArray<{ id: WorldBookTab; label: stri
   { id: "entries", label: "条目", hint: "阅读、编辑、排序与依赖展开" },
   { id: "prompt", label: "Prompt 预览", hint: "查看本世界书的静态与动态插入内容" },
   { id: "graph", label: "节点图", hint: "按剧情编辑节点图：整页画布增删节点与连线" },
-  { id: "index", label: "本家索引", hint: "内置语料索引与完整性" },
+  { id: "index", label: "会话条目", hint: "浏览世界书默认条目，单独调整会话开关" },
 ];
-export const WORLDBOOK_INDEX_SUBTITLE = "内置语料索引 · 依赖完整性 · 会话白名单";
+export const WORLDBOOK_INDEX_SUBTITLE = "世界书默认 · 单会话条目开关";
 
 export function visibleWorldbookTabs(book: Pick<WorldBookSummary, "book_type"> | null | undefined) {
   return WORLDBOOK_PANEL_TABS.filter((tab) => normalizeWorldbookTab(tab.id, book) === tab.id);
@@ -188,6 +188,9 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const worldbookGraphJumpId = useAppStore((state) => state.worldbookGraphJumpId);
   const setWorldbookGraphJumpId = useAppStore((state) => state.setWorldbookGraphJumpId);
   const activeSessionId = useAppStore((state) => state.activeSessionId);
+  const indexSessionId = useAppStore((state) => state.indexSessionId);
+  const setIndexSessionId = useAppStore((state) => state.setIndexSessionId);
+  const sessions = useAppStore((state) => state.sessions);
   const worldbookEntryJump = useAppStore((state) => state.worldbookEntryJump);
   const setWorldbookEntryJump = useAppStore((state) => state.setWorldbookEntryJump);
 
@@ -345,6 +348,13 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   reloadDetailRef.current = (bookId) => { void loadDetail(bookId); };
 
   useEffect(() => { void loadBooks(); }, [loadBooks]);
+  useEffect(() => {
+    if (!indexSessionId) return;
+    const boundBookId = sessions.find((session) => session.id === indexSessionId)?.worldbook_id;
+    if (!boundBookId) { setIndexSessionId(null); return; }
+    setSelectedId(boundBookId);
+    setWorldbookTab("index");
+  }, [indexSessionId, sessions, setIndexSessionId, setWorldbookTab]);
   useEffect(() => { setDetail(null); void loadDetail(selectedId); setExpanded(new Set()); setEditingUid(null); setEntryDraft(null); }, [selectedId, loadDetail]);
 
   useEffect(() => {
@@ -1121,8 +1131,9 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         {effectiveTab === "graph" && <div className="wber-graph">
           <PlotGraphPage sessionId={activeSessionId} bookId={detail.id} />
         </div>}
-        {effectiveTab === "index" && <div className="wber-index"><p>{WORLDBOOK_INDEX_SUBTITLE}</p>
-          <Suspense fallback={<p>正在加载索引…</p>}><IndexManager /></Suspense></div>}
+        {effectiveTab === "index" && <div className="wber-index">
+          <Suspense fallback={<p>正在加载会话条目…</p>}><IndexManager key={detail.id} book={detail}
+            onRefresh={() => loadDetail(detail.id)} onEditDefaults={() => setWorldbookTab("entries")} /></Suspense></div>}
       </>}
     </section>
   </main>;

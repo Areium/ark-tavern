@@ -816,12 +816,12 @@ export default function SessionManagerView() {
                   >
                     💾 导出存档
                   </button>
-                  {selected.mode === "story" && (
+                  {selected.worldbook_id && (
                     <button
                       onClick={() => { setIndexSessionId(selected.id); setWorldbookTab("index"); setCurrentView("worldbook"); }}
                       className="text-xs px-3 py-1.5 rounded-lg bg-gray-700/60 text-gray-300 hover:bg-gray-700 transition-colors"
                     >
-                      🔗 索引配置
+                      🔗 会话条目
                     </button>
                   )}
                   <button
