@@ -2,19 +2,18 @@
  * 角色 — 主页一级入口（原「内容中心」的角色内容 / 资产 / 卡牌三模块并入此处）。
  *
  * 内设四个模块页签：
- *  - 角色库（= 角色内容）：浏览全部可用角色，导入角色卡，查看详情，跳转编辑资料/卡牌。
+ *  - 角色库（= 角色内容）：浏览全部可用角色，导入角色卡，查看详情，跳转编辑设定/卡牌。
  *  - 玩家身份：创建、编辑、删除多个玩家身份角色，供创建/切换会话时使用。
  *  - 资产 / 卡牌：自原「内容中心」迁入的图片资产与卡牌管理，功能与入口完全等价。
  *
- * 角色库的分组维度两个，并列存在：
- *  - 平铺（默认，原有形态）：不分组，保持列表默认顺序；
- *  - 按世界书：一级按来源世界书分组，来源取角色目录 index.md frontmatter 的
- *    `worldbook_id`（导入角色卡时后端写入，随卡自带的内嵌世界书即由此标注），
- *    缺字段的旧数据一律归入「未分类」。
+ * 角色库只有一种形态：按来源世界书分组。来源取角色目录 index.md frontmatter 的
+ * `worldbook_id`（导入角色卡时后端写入，随卡自带的内嵌世界书即由此标注），缺字段的旧数据
+ * 一律归入「未分类」并排在最后。早先与之并列的「平铺」维度展示的是同一份列表，只差不分组，
+ * 已撤销；点分组头上的「全部」即可回到不按来源过滤的状态。
  *
  * 页签状态放在 store（`characterTab`）：角色卡详情「编辑卡牌」等跨组件跳转要落到指定页签。
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useApi } from "../hooks/useApi";
 import { useAppStore, type CharacterTab } from "../stores/appStore";
 import { useWorldbookGroups } from "../hooks/useWorldbookGroups";
@@ -22,8 +21,13 @@ import type { WorldBookSummary } from "../types";
 import MarkdownRenderer from "./MarkdownRenderer";
 import AssetManager from "./AssetManager";
 import CardManager from "./CardManager";
-import WorldbookGroupList, { GroupDimensionToggle } from "./WorldbookGroupList";
+import WorldbookGroupList from "./WorldbookGroupList";
 import AppIcon, { type AppIconName } from "./AppIcon";
+import EntityAvatar, { characterAvatarUrl } from "./roles/EntityAvatar";
+import {
+  ActionButton, EmptyState, FoldAllButton, PanelHeader, SearchInput, SourceBookBadge,
+} from "./roles/RoleWidgets";
+import "../styles/roles.css";
 
 interface CharacterSummary {
   id: string;
@@ -32,9 +36,6 @@ interface CharacterSummary {
   /** 来源世界书 id；空串 / 缺字段 = 未分类 */
   worldbook_id?: string;
 }
-
-/** 角色库的分组维度 */
-type CharacterDimension = "flat" | "worldbook";
 
 /** /api/characters 的响应 → 列表项（缺 worldbook_id 的旧数据按未分类处理） */
 const toCharacterSummaries = (data: unknown): CharacterSummary[] =>
@@ -59,16 +60,14 @@ interface CharacterDetail {
 
 /** 角色页模块页签（角色库 / 玩家身份是角色自身内容；资产 / 卡牌自内容中心迁入） */
 const MODULE_TABS: { id: CharacterTab; label: string; icon: AppIconName; hint: string }[] = [
-  { id: "characters", label: "角色库", icon: "characters", hint: "角色内容：浏览角色库、导入角色卡、查看详情" },
-  { id: "identities", label: "玩家身份", icon: "home", hint: "创建与管理玩家身份（你自己的角色卡）" },
-  { id: "images", label: "资产", icon: "image", hint: "图片资产上传 / 裁剪 / 默认图 / 来源世界书" },
+  { id: "characters", label: "角色库", icon: "characters", hint: "浏览角色库、导入角色卡、查看详情" },
+  { id: "identities", label: "玩家身份", icon: "identity", hint: "创建与管理玩家身份（你自己的角色卡）" },
+  { id: "images", label: "资产", icon: "images", hint: "图片资产：上传 / 裁剪 / 默认图 / 来源世界书" },
   { id: "cards", label: "卡牌", icon: "cards", hint: "角色与职业卡牌编辑 / 所属世界书" },
 ];
 
 /** 左列表 + 右详情的双栏骨架只服务于角色库 / 玩家身份两个模块 */
 const ROLE_MODULE_TABS = new Set<CharacterTab>(["characters", "identities"]);
-
-const AVATAR_URL = (name: string) => `/api/characters/${encodeURIComponent(name)}/avatar`;
 
 const ATTR_LABELS: Record<string, string> = {
   strength: "力量",
@@ -80,6 +79,53 @@ const ATTR_LABELS: Record<string, string> = {
   endurance: "耐力",
   agility: "敏捷",
 };
+
+/** 属性展示顺序：已知键按 ATTR_LABELS 的顺序，其余键（本家角色的中文键）保持原样排在后面 */
+const orderAttrs = (attrs: Record<string, number>): [string, number][] => {
+  const known = Object.keys(ATTR_LABELS).filter((k) => k in attrs).map((k): [string, number] => [k, attrs[k]]);
+  const rest = Object.entries(attrs).filter(([k]) => !(k in ATTR_LABELS));
+  return [...known, ...rest];
+};
+
+/** 角色详情页头的分类小标签（职业 / 种族 / 阵营） */
+function Chip({ tone, children }: { tone: "blue" | "purple" | "green"; children: ReactNode }) {
+  const cls = tone === "blue"
+    ? "bg-blue-700/50 text-blue-200"
+    : tone === "purple"
+      ? "bg-purple-700/50 text-purple-200"
+      : "bg-green-800/50 text-green-200";
+  return <span className={`px-1.5 py-0.5 rounded text-[11px] ${cls}`}>{children}</span>;
+}
+
+/** 左栏列表行：头像 + 名称 + 一行说明，角色库与玩家身份共用 */
+function ListRow({
+  id, name, sub, selected, onClick,
+}: {
+  id: string;
+  name: string;
+  sub?: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left border transition-colors ${
+        selected
+          ? "bg-amber-600/20 text-amber-300 border-amber-600/30"
+          : "text-gray-300 hover:bg-gray-800 border-transparent"
+      }`}
+    >
+      <EntityAvatar name={name} src={characterAvatarUrl(id)} size={30} />
+      <div className="min-w-0">
+        <div className="text-xs font-medium truncate">{name}</div>
+        {sub && <div className="text-[11px] text-gray-500 truncate">{sub}</div>}
+      </div>
+    </button>
+  );
+}
 
 export default function CharacterManager() {
   const api = useApi();
@@ -93,8 +139,7 @@ export default function CharacterManager() {
   const [characters, setCharacters] = useState<CharacterSummary[]>([]);
   const [charSearch, setCharSearch] = useState("");
   const [worldbooks, setWorldbooks] = useState<WorldBookSummary[]>([]);
-  const [charDimension, setCharDimension] = useState<CharacterDimension>("flat");
-  /** 角色库的来源选择："" = 全部，"__none__" = 未分类，否则为 book id（仅「按世界书」维度生效） */
+  /** 角色库的来源选择："" = 全部，"__none__" = 未分类，否则为 book id */
   const [charBookFilter, setCharBookFilter] = useState("");
   const [selectedChar, setSelectedChar] = useState<string | null>(null);
   const [charDetail, setCharDetail] = useState<CharacterDetail | null>(null);
@@ -126,15 +171,33 @@ export default function CharacterManager() {
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   };
 
+  const initDraft = (name: string, detail: CharacterDetail | null) => {
+    const meta = detail?.metadata || {};
+    setDraftName(meta.name || name);
+    setDraftSummary(meta.summary || "");
+    setDraftTags((meta.tags || []).join("、"));
+    setDraftContent(detail?.content || "");
+    setDraftAttrs(meta.attributes || {});
+  };
+
+  const resetIdentityForm = () => {
+    setDraftName("");
+    setDraftSummary("");
+    setDraftTags("");
+    setDraftContent("");
+    setDraftAttrs({});
+  };
+
   // ── 加载角色库 ──
-  useEffect(() => {
-    let cancelled = false;
+  // 玩家身份就是角色目录，新建 / 删除身份后角色库也要跟着刷新（本组件在切页签时不卸载）
+  const loadCharacters = () => {
     api.getCharacters()
-      .then((data) => {
-        if (!cancelled) setCharacters(toCharacterSummaries(data));
-      })
+      .then((data) => setCharacters(toCharacterSummaries(data)))
       .catch(() => {});
-    return () => { cancelled = true; };
+  };
+
+  useEffect(() => {
+    loadCharacters();
   }, [api]);
 
   // ── 加载世界书列表（把来源 id 解析为书名；后端不可用时不阻塞角色库）──
@@ -190,31 +253,13 @@ export default function CharacterManager() {
     return () => { cancelled = true; };
   }, [selectedIdentity, tab, api]);
 
-  const initDraft = (name: string, detail: CharacterDetail | null) => {
-    const meta = detail?.metadata || {};
-    setDraftName(meta.name || name);
-    setDraftSummary(meta.summary || "");
-    setDraftTags((meta.tags || []).join("、"));
-    setDraftContent(detail?.content || "");
-    setDraftAttrs(meta.attributes || {});
-  };
-
-  const resetIdentityForm = () => {
-    setDraftName("");
-    setDraftSummary("");
-    setDraftTags("");
-    setDraftContent("");
-    setDraftAttrs({});
-  };
-
   // ── 导入角色卡 ──
   const handleImportCharacterCard = async (file: File) => {
     setCharImporting(true);
     try {
       const res = await api.importCharacterCard(file);
       showToast(`角色「${res.character?.name || file.name}」已导入`);
-      const data = await api.getCharacters();
-      setCharacters(toCharacterSummaries(data));
+      loadCharacters();
       if (res.character?.name) {
         setCharacterTab("characters");
         setSelectedChar(res.character.name);
@@ -226,6 +271,13 @@ export default function CharacterManager() {
     }
   };
 
+  // ── 新建玩家身份：唯一入口在左栏工具栏，空状态只做文字引导 ──
+  const startCreateIdentity = () => {
+    resetIdentityForm();
+    setSelectedIdentity(null);
+    setIsCreating(true);
+  };
+
   // ── 保存玩家身份 ──
   const handleSaveIdentity = async () => {
     const name = (isCreating ? draftName : selectedIdentity) || "";
@@ -235,7 +287,7 @@ export default function CharacterManager() {
     }
     setIdentitySaving(true);
     try {
-      const tags = draftTags.split(/[、,]/).map((t) => t.trim()).filter(Boolean);
+      const tags = draftTags.split(/[、,，]/).map((t) => t.trim()).filter(Boolean);
       const metadata: Record<string, any> = {
         name: draftName.trim() || name,
         summary: draftSummary.trim(),
@@ -248,6 +300,7 @@ export default function CharacterManager() {
       await api.savePlayerIdentity(name.trim(), metadata, draftContent);
       showToast(isCreating ? "已创建玩家身份" : "已保存玩家身份");
       loadIdentities();
+      loadCharacters();
       if (isCreating) {
         setIsCreating(false);
         setSelectedIdentity(name.trim());
@@ -266,6 +319,8 @@ export default function CharacterManager() {
       await api.deletePlayerIdentity(name);
       showToast("已删除玩家身份");
       setIdentities((prev) => prev.filter((i) => i.id !== name));
+      setCharacters((prev) => prev.filter((c) => c.id !== name));
+      if (selectedChar === name) setSelectedChar(null);
       if (selectedIdentity === name) {
         setSelectedIdentity(null);
       }
@@ -306,7 +361,7 @@ export default function CharacterManager() {
     );
   }, [identities, identitySearch]);
 
-  // ── 角色库的来源世界书维度（与「平铺」并列）──
+  // ── 角色库的来源世界书分组（唯一形态）──
   // 在搜索命中的角色上再分组，因此搜索与来源选择可以叠加。
   const {
     groups: charWorldbookGroups,
@@ -323,125 +378,104 @@ export default function CharacterManager() {
   );
 
   const renderCharRow = (c: CharacterSummary) => (
-    <button
+    <ListRow
       key={c.id}
+      id={c.id}
+      name={c.name || c.id}
+      // 本家角色的 title 常与 name 同值，同值时不再重复显示一行
+      sub={c.title && c.title !== c.name ? c.title : undefined}
+      selected={selectedChar === c.id}
       onClick={() => setSelectedChar(c.id)}
-      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${
-        selectedChar === c.id
-          ? "bg-blue-600/20 text-blue-300 border border-blue-600/30"
-          : "text-gray-300 hover:bg-gray-800"
-      }`}
-    >
-      <img
-        src={AVATAR_URL(c.id)}
-        alt={c.name}
-        className="w-8 h-8 rounded object-cover border border-gray-700 bg-gray-800 shrink-0"
-        onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
-      />
-      <div className="min-w-0">
-        <div className="text-xs font-medium truncate">{c.name || c.id}</div>
-        {c.title && <div className="text-[10px] text-gray-500 truncate">{c.title}</div>}
-      </div>
-    </button>
+    />
   );
 
   const renderCharDetail = () => {
     if (!selectedChar) {
       return (
-        <div className="flex items-center justify-center h-full text-gray-500 text-sm">
-          从左侧选择一个角色查看详情
-        </div>
+        <EmptyState
+          icon="characters"
+          text="从左侧选择一个角色查看详情"
+          sub="导入的角色卡与本家角色都在这里，按来源世界书分组"
+        />
       );
     }
     if (charLoading) {
-      return <div className="flex items-center justify-center h-full text-gray-500 text-sm">加载中…</div>;
+      return <EmptyState icon="characters" text="加载中…" />;
     }
     const meta = charDetail?.metadata || {};
+    const displayName = String(meta.name || selectedChar);
     const attrs: Record<string, number> = meta.attributes || {};
     const tags: string[] = meta.tags || [];
+    const summary = String(meta.summary || "").trim();
     // 来源世界书：角色目录 index.md frontmatter 的 worldbook_id；缺字段 = 未分类
     const sourceBookId = String((meta as any).worldbook_id || "");
     const sourceBookName = sourceBookId
       ? worldbooks.find((b) => b.id === sourceBookId)?.name || sourceBookId
       : "";
     return (
-      <div className="h-full overflow-y-auto p-5 space-y-4">
-        <div className="flex items-start gap-4">
-          <img
-            src={AVATAR_URL(selectedChar)}
-            alt={meta.name || selectedChar}
-            className="w-20 h-20 rounded-lg object-cover border border-gray-700 bg-gray-800"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
-          />
-          <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-semibold text-gray-100 truncate">{meta.name || selectedChar}</h2>
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {meta.class && <span className="px-2 py-0.5 rounded bg-blue-700/40 text-blue-200 text-xs">{meta.class}</span>}
-              {meta.race && <span className="px-2 py-0.5 rounded bg-purple-700/40 text-purple-200 text-xs">{meta.race}</span>}
-              {meta.faction && <span className="px-2 py-0.5 rounded bg-green-700/40 text-green-200 text-xs">{meta.faction}</span>}
-            </div>
-            {tags.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {tags.map((t) => <span key={t} className="px-1.5 py-0.5 rounded bg-gray-700/50 text-gray-300 text-xs">{t}</span>)}
-              </div>
-            )}
-            <div className="flex flex-wrap gap-1 mt-2">
-              {sourceBookName ? (
-                <span
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-600/15 text-amber-300 border border-amber-700/40 text-[10px]"
-                  title={`来源世界书：${sourceBookName}`}
-                >
-                  <AppIcon name="worldbook" size={11} /> {sourceBookName}
-                </span>
-              ) : (
-                <span
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-gray-700/40 text-gray-500 text-[10px]"
-                  title="未关联来源世界书：手动创建，或角色卡未自带世界书"
-                >
-                  <AppIcon name="folder" size={11} /> 未分类
-                </span>
-              )}
-            </div>
+      <div className="h-full flex flex-col min-h-0">
+        <PanelHeader
+          size="lg"
+          eyebrow="角色库"
+          icon="characters"
+          title={displayName}
+          leading={<EntityAvatar name={displayName} src={characterAvatarUrl(selectedChar)} size={64} />}
+          actions={
+            <>
+              <ActionButton
+                icon="worldbook"
+                variant="blue"
+                onClick={jumpToWorldbook}
+                title="角色设定已迁移至世界书，跳转世界书页编辑"
+              >
+                编辑世界书设定
+              </ActionButton>
+              <ActionButton icon="cards" variant="amber" onClick={jumpToCards}>
+                编辑战斗卡牌
+              </ActionButton>
+            </>
+          }
+        >
+          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+            {meta.class && <Chip tone="blue">{String(meta.class)}</Chip>}
+            {meta.race && <Chip tone="purple">{String(meta.race)}</Chip>}
+            {meta.faction && <Chip tone="green">{String(meta.faction)}</Chip>}
+            <SourceBookBadge size="xs" name={sourceBookName} />
           </div>
-        </div>
-
-        {Object.keys(attrs).length > 0 && (
-          <div>
-            <h3 className="text-xs text-gray-500 mb-2 font-medium">属性</h3>
-            <div className="grid grid-cols-4 gap-2">
-              {Object.entries(attrs).map(([k, v]) => (
-                <div key={k} className="flex flex-col items-center px-2 py-1.5 rounded bg-gray-800 border border-gray-700">
-                  <span className="text-gray-400 text-[10px]">{ATTR_LABELS[k] || k}</span>
-                  <span className="text-gray-200 font-mono text-sm">{v}</span>
-                </div>
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {tags.map((t) => (
+                <span key={t} className="px-1.5 py-0.5 rounded bg-gray-700/50 text-gray-300 text-[11px]">{t}</span>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </PanelHeader>
 
-        {charDetail?.content && (
-          <div>
-            <h3 className="text-xs text-gray-500 mb-2 font-medium">背景</h3>
-            <div className="text-sm text-gray-300 leading-relaxed bg-gray-800/50 rounded-lg p-3 border border-gray-700">
-              <MarkdownRenderer content={charDetail.content} />
-            </div>
-          </div>
-        )}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {summary && <p className="text-[13px] text-gray-300 leading-relaxed">{summary}</p>}
 
-        <div className="flex flex-wrap gap-2 pt-2">
-          <button
-            onClick={jumpToWorldbook}
-            className="text-xs px-3 py-1.5 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/40 transition-colors"
-            title="角色设定已迁移至世界书，跳转世界书页编辑"
-          >
-            <AppIcon name="worldbook" size={14} /> 编辑世界书设定
-          </button>
-          <button
-            onClick={() => jumpToCards()}
-            className="text-xs px-3 py-1.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 transition-colors"
-          >
-            <AppIcon name="cards" size={14} /> 编辑战斗卡牌
-          </button>
+          {Object.keys(attrs).length > 0 && (
+            <section>
+              <h3 className="roles-section">属性</h3>
+              <div className="grid grid-cols-4 gap-2">
+                {orderAttrs(attrs).map(([k, v]) => (
+                  <div key={k} className="stat-cell flex flex-col items-center px-2 py-1.5">
+                    <span className="text-[11px] text-gray-500">{ATTR_LABELS[k] || k}</span>
+                    <span className="text-gray-200 font-mono text-sm">{v}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {charDetail?.content && (
+            <section>
+              <h3 className="roles-section">背景</h3>
+              <div className="detail-section text-sm text-gray-300 leading-relaxed p-4">
+                <MarkdownRenderer content={charDetail.content} />
+              </div>
+            </section>
+          )}
         </div>
       </div>
     );
@@ -453,137 +487,158 @@ export default function CharacterManager() {
     }
     if (!selectedIdentity) {
       return (
-        <div className="flex flex-col items-center justify-center h-full text-gray-500 text-sm gap-3">
-          <span>从左侧选择一个玩家身份，或点击「新建身份」</span>
-          <button
-            onClick={() => { resetIdentityForm(); setIsCreating(true); }}
-            className="text-xs px-3 py-1.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 transition-colors"
-          >
-            ＋ 新建身份
-          </button>
-        </div>
+        <EmptyState
+          icon="identity"
+          text="从左侧选择一个玩家身份"
+          sub="或点击左上角「新建身份」创建；玩家身份就是一份特殊的角色卡，保存后可在创建会话时选用"
+        />
       );
     }
     if (identityLoading) {
-      return <div className="flex items-center justify-center h-full text-gray-500 text-sm">加载中…</div>;
+      return <EmptyState icon="identity" text="加载中…" />;
     }
     return renderIdentityEditor();
   };
 
   const renderIdentityEditor = () => {
+    const headerName = isCreating
+      ? (draftName.trim() || "新建玩家身份")
+      : (draftName.trim() || selectedIdentity || "");
+    const fieldCls = "mt-1 w-full bg-gray-900 border border-gray-700 rounded-md px-2.5 py-1.5 text-sm text-gray-200 placeholder:text-gray-600 focus:border-amber-500/50";
     return (
-      <div className="h-full overflow-y-auto p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-gray-200">
-            {isCreating ? "新建玩家身份" : "编辑玩家身份"}
-          </h2>
-          {!isCreating && selectedIdentity && (
-            <button
-              onClick={() => selectedIdentity && handleDeleteIdentity(selectedIdentity)}
-              className="text-xs px-2.5 py-1 rounded bg-red-700/20 text-red-300 hover:bg-red-700/40 transition-colors"
-            >
-              <AppIcon name="trash" size={14} /> 删除
-            </button>
-          )}
-        </div>
-
-        <div className="space-y-3">
-          <label className="block text-xs text-gray-400">
-            身份名称
-            <input
-              className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
-              value={draftName}
-              onChange={(e) => setDraftName(e.target.value)}
-              placeholder="例如：博士、罗德岛新兵、龙门侦探"
+      <div className="h-full flex flex-col min-h-0">
+        <PanelHeader
+          eyebrow={isCreating ? "新建玩家身份" : "玩家身份"}
+          icon="identity"
+          title={headerName}
+          leading={
+            <EntityAvatar
+              name={headerName}
+              src={!isCreating && selectedIdentity ? characterAvatarUrl(selectedIdentity) : null}
+              size={44}
             />
-          </label>
+          }
+          actions={
+            !isCreating && selectedIdentity ? (
+              <ActionButton icon="trash" variant="danger" onClick={() => handleDeleteIdentity(selectedIdentity)}>
+                删除
+              </ActionButton>
+            ) : undefined
+          }
+        />
 
-          <label className="block text-xs text-gray-400">
-            简介
-            <input
-              className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
-              value={draftSummary}
-              onChange={(e) => setDraftSummary(e.target.value)}
-              placeholder="一句话描述这个身份"
-            />
-          </label>
-
-          <label className="block text-xs text-gray-400">
-            标签（、分隔）
-            <input
-              className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
-              value={draftTags}
-              onChange={(e) => setDraftTags(e.target.value)}
-              placeholder="例如：指挥官、感染者、战术专家"
-            />
-          </label>
-
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">属性（可选）</label>
-            <div className="grid grid-cols-4 gap-2">
-              {Object.entries(ATTR_LABELS).map(([key, label]) => (
-                <div key={key} className="flex flex-col items-center gap-0.5">
-                  <span className="text-[10px] text-gray-500">{label}</span>
-                  <input
-                    className="w-full bg-gray-900 border border-gray-700 rounded px-1 py-1 text-xs text-center text-gray-200"
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={draftAttrs[key] ?? ""}
-                    onChange={(e) => setDraftAttrs({ ...draftAttrs, [key]: parseInt(e.target.value) || 0 })}
-                  />
-                </div>
-              ))}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          <div className="max-w-2xl space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block text-xs text-gray-400">
+                身份名称
+                <input
+                  className={fieldCls}
+                  value={draftName}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  placeholder="例如：博士、罗德岛新兵、龙门侦探"
+                />
+              </label>
+              <label className="block text-xs text-gray-400">
+                简介
+                <input
+                  className={fieldCls}
+                  value={draftSummary}
+                  onChange={(e) => setDraftSummary(e.target.value)}
+                  placeholder="一句话描述这个身份"
+                />
+              </label>
             </div>
+
+            <label className="block text-xs text-gray-400">
+              标签（顿号或逗号分隔）
+              <input
+                className={fieldCls}
+                value={draftTags}
+                onChange={(e) => setDraftTags(e.target.value)}
+                placeholder="例如：指挥官、感染者、战术专家"
+              />
+            </label>
+
+            <section>
+              <h3 className="roles-section">属性（可选，1–10）</h3>
+              <div className="grid grid-cols-4 gap-2">
+                {Object.entries(ATTR_LABELS).map(([key, label]) => (
+                  <label key={key} className="stat-cell flex flex-col items-center gap-1 px-2 py-1.5">
+                    <span className="text-[11px] text-gray-500">{label}</span>
+                    <input
+                      className="w-full bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-xs text-center text-gray-200 font-mono"
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={draftAttrs[key] ?? ""}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        setDraftAttrs((prev) => {
+                          const next = { ...prev };
+                          if (raw === "") delete next[key];
+                          else next[key] = Math.max(1, Math.min(10, parseInt(raw, 10) || 1));
+                          return next;
+                        });
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+            </section>
+
+            <label className="block text-xs text-gray-400">
+              身份背景
+              <textarea
+                className={`${fieldCls} min-h-[160px] leading-relaxed`}
+                value={draftContent}
+                onChange={(e) => setDraftContent(e.target.value)}
+                placeholder="描述这个身份的背景、性格、目标……"
+              />
+            </label>
+
+            <div className="flex items-center gap-2 pt-1">
+              <ActionButton
+                icon="save"
+                variant="solid"
+                onClick={handleSaveIdentity}
+                disabled={identitySaving || !draftName.trim()}
+              >
+                {identitySaving ? "保存中…" : "保存身份"}
+              </ActionButton>
+              {isCreating && (
+                <ActionButton variant="ghost" onClick={() => { setIsCreating(false); resetIdentityForm(); }}>
+                  取消
+                </ActionButton>
+              )}
+            </div>
+
+            <p className="flex items-start gap-1.5 text-[11px] text-gray-500 leading-relaxed">
+              <AppIcon name="info" size={13} className="mt-0.5" />
+              <span>
+                玩家身份保存为角色目录 <code className="font-mono">characters/{(isCreating ? draftName.trim() : selectedIdentity) || "<身份名>"}/</code>，
+                创建会话或在会话大厅切换身份时可选用。头像放进该目录的 <code className="font-mono">avatar/</code> 子目录，
+                在「资产」页可查看并设为默认头像。
+              </span>
+            </p>
           </div>
-
-          <label className="block text-xs text-gray-400">
-            身份背景
-            <textarea
-              className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 min-h-[160px]"
-              value={draftContent}
-              onChange={(e) => setDraftContent(e.target.value)}
-              placeholder="描述这个身份的背景、性格、目标……"
-            />
-          </label>
         </div>
-
-        <div className="flex items-center gap-2 pt-2">
-          <button
-            onClick={handleSaveIdentity}
-            disabled={identitySaving || !draftName.trim()}
-            className="text-xs px-4 py-1.5 rounded bg-amber-600 text-white hover:bg-amber-500 disabled:opacity-50 transition-colors"
-          >
-            {identitySaving ? "保存中…" : "保存身份"}
-          </button>
-          {isCreating && (
-            <button
-              onClick={() => { setIsCreating(false); resetIdentityForm(); }}
-              className="text-xs px-3 py-1.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
-            >
-              取消
-            </button>
-          )}
-        </div>
-
-        <p className="text-[11px] text-gray-600 leading-relaxed">
-          提示：玩家身份就是一份特殊的角色卡，保存后可在创建会话或会话大厅中选择使用。
-          头像请前往「角色 → 资产」为该身份上传 avatar 图片。
-        </p>
       </div>
     );
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="roles-shell flex flex-col h-full">
       {/* ── 模块页签：角色库（角色内容）/ 玩家身份 / 资产 / 卡牌 ── */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-700/70 bg-gray-900/60 shrink-0">
         <nav className="flex items-center gap-1 overflow-x-auto" aria-label="角色页模块">
           {MODULE_TABS.map((item) => (
             <button
               key={item.id}
+              type="button"
               onClick={() => setCharacterTab(item.id)}
               title={item.hint}
+              aria-pressed={tab === item.id}
               className={
                 "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap transition-colors " +
                 (tab === item.id
@@ -602,23 +657,29 @@ export default function CharacterManager() {
         <div className="flex flex-1 min-h-0">
           {/* ── 左侧列表 ── */}
           <div className="w-72 border-r border-gray-700 flex flex-col shrink-0">
-            {/* Toolbar */}
+            {/* 工具栏：搜索 + 折叠；主动作（导入 / 新建）单独一行 */}
             <div className="p-2 border-b border-gray-700 space-y-2">
-              <input
-                className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 placeholder:text-gray-600"
-                placeholder={tab === "characters" ? "搜索角色…" : "搜索身份…"}
-                value={tab === "characters" ? charSearch : identitySearch}
-                onChange={(e) => tab === "characters" ? setCharSearch(e.target.value) : setIdentitySearch(e.target.value)}
-              />
               {tab === "characters" ? (
                 <>
-                  <button
+                  <div className="flex items-center gap-1.5">
+                    <SearchInput value={charSearch} onChange={setCharSearch} placeholder="搜索角色…" />
+                    <FoldAllButton
+                      collapsed={allCharBooksCollapsed}
+                      onToggle={() => (allCharBooksCollapsed ? expandAllCharBooks() : collapseAllCharBooks())}
+                      what="世界书分组"
+                      disabled={charWorldbookGroups.length === 0}
+                    />
+                  </div>
+                  <ActionButton
+                    icon="upload"
+                    variant="amber"
+                    className="w-full justify-center"
                     onClick={() => charFileRef.current?.click()}
                     disabled={charImporting}
-                    className="w-full text-xs px-2 py-1.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 disabled:opacity-50 transition-colors"
+                    title="导入 SillyTavern 角色卡（PNG / JSON），随卡自带的世界书会一并导入"
                   >
-                    {charImporting ? "导入中…" : <><AppIcon name="upload" size={14} /> 导入角色卡</>}
-                  </button>
+                    {charImporting ? "导入中…" : "导入角色卡"}
+                  </ActionButton>
                   <input
                     ref={charFileRef}
                     type="file"
@@ -629,103 +690,68 @@ export default function CharacterManager() {
                       if (f) { void handleImportCharacterCard(f); e.target.value = ""; }
                     }}
                   />
-                  <div className="pt-1">
-                    <GroupDimensionToggle
-                      value={charDimension}
-                      onChange={setCharDimension}
-                      options={[
-                        { id: "flat", label: "平铺", icon: "characters", hint: "原有形态：不分组，保持列表默认顺序" },
-                        { id: "worldbook", label: "按世界书", icon: "worldbook", hint: "按来源世界书分组" },
-                      ]}
-                      extra={
-                        charDimension === "worldbook" && charWorldbookGroups.length > 0 ? (
-                          <button
-                            type="button"
-                            onClick={() => (allCharBooksCollapsed ? expandAllCharBooks() : collapseAllCharBooks())}
-                            className="text-[10px] text-gray-500 hover:text-gray-300 whitespace-nowrap px-1.5 py-1 rounded hover:bg-gray-700/50 transition-colors"
-                            title={allCharBooksCollapsed ? "展开全部分组" : "折叠全部分组"}
-                          >
-                            {allCharBooksCollapsed ? "展开" : "折叠"}
-                          </button>
-                        ) : null
-                      }
-                    />
-                  </div>
                 </>
               ) : (
-                <button
-                  onClick={() => { resetIdentityForm(); setSelectedIdentity(null); setIsCreating(true); }}
-                  className="w-full text-xs px-2 py-1.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 transition-colors"
-                >
-                  ＋ 新建身份
-                </button>
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <SearchInput value={identitySearch} onChange={setIdentitySearch} placeholder="搜索身份…" />
+                  </div>
+                  <ActionButton
+                    icon="plus"
+                    variant="amber"
+                    className="w-full justify-center"
+                    onClick={startCreateIdentity}
+                    disabled={isCreating}
+                  >
+                    新建身份
+                  </ActionButton>
+                </>
               )}
             </div>
 
             {/* List */}
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
               {tab === "characters" ? (
-                charDimension === "worldbook" ? (
-                  <WorldbookGroupList
-                    groups={charWorldbookGroups}
-                    totalCount={filteredCharacters.length}
-                    activeKey={charBookFilter}
-                    collapsedKeys={collapsedCharBookKeys}
-                    onSelect={setCharBookFilter}
-                    onToggleCollapse={toggleCharBookCollapsed}
-                    renderItems={(items) =>
-                      items.length === 0 ? (
-                        <p className="text-xs text-gray-600 italic pl-1">(空)</p>
-                      ) : (
-                        items.map(renderCharRow)
-                      )
-                    }
-                    emptyHint={
-                      <p className="text-xs text-gray-600 text-center py-4">
-                        {charSearch ? "未找到匹配角色" : "暂无可用角色"}
-                      </p>
-                    }
-                  />
-                ) : filteredCharacters.length === 0 ? (
-                  <p className="text-xs text-gray-600 text-center py-4">
-                    {charSearch ? "未找到匹配角色" : "暂无可用角色"}
-                  </p>
-                ) : (
-                  filteredCharacters.map(renderCharRow)
-                )
+                <WorldbookGroupList
+                  groups={charWorldbookGroups}
+                  totalCount={filteredCharacters.length}
+                  activeKey={charBookFilter}
+                  collapsedKeys={collapsedCharBookKeys}
+                  onSelect={setCharBookFilter}
+                  onToggleCollapse={toggleCharBookCollapsed}
+                  renderItems={(items) =>
+                    items.length === 0 ? (
+                      <p className="text-xs text-gray-600 italic pl-1">(空)</p>
+                    ) : (
+                      items.map(renderCharRow)
+                    )
+                  }
+                  emptyHint={
+                    <p className="text-xs text-gray-600 text-center py-4">
+                      {charSearch ? "未找到匹配角色" : "暂无可用角色"}
+                    </p>
+                  }
+                />
               ) : (
-                filteredIdentities.length === 0 && !isCreating ? (
-                  <div className="text-center py-4">
-                    <p className="text-xs text-gray-600 mb-2">还没有玩家身份</p>
-                    <button
-                      onClick={() => { resetIdentityForm(); setIsCreating(true); }}
-                      className="text-xs px-2 py-1 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 transition-colors"
-                    >
-                      新建身份
-                    </button>
+                filteredIdentities.length === 0 ? (
+                  <div className="text-center py-6 space-y-1">
+                    <p className="text-xs text-gray-500">
+                      {identitySearch ? "未找到匹配身份" : "还没有玩家身份"}
+                    </p>
+                    {!identitySearch && !isCreating && (
+                      <p className="text-[11px] text-gray-600">点上方「新建身份」创建你自己的角色卡</p>
+                    )}
                   </div>
                 ) : (
                   filteredIdentities.map((i) => (
-                    <button
+                    <ListRow
                       key={i.id}
+                      id={i.id}
+                      name={i.name || i.id}
+                      sub={i.summary || undefined}
+                      selected={selectedIdentity === i.id && !isCreating}
                       onClick={() => { setIsCreating(false); setSelectedIdentity(i.id); }}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${
-                        selectedIdentity === i.id && !isCreating
-                          ? "bg-amber-600/20 text-amber-300 border border-amber-600/30"
-                          : "text-gray-300 hover:bg-gray-800"
-                      }`}
-                    >
-                      <img
-                        src={AVATAR_URL(i.id)}
-                        alt={i.name}
-                        className="w-8 h-8 rounded object-cover border border-gray-700 bg-gray-800 shrink-0"
-                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
-                      />
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium truncate">{i.name || i.id}</div>
-                        {i.summary && <div className="text-[10px] text-gray-500 truncate">{i.summary}</div>}
-                      </div>
-                    </button>
+                    />
                   ))
                 )
               )}

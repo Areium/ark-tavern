@@ -8,9 +8,12 @@
  * worldbook_id），详情面板可修改归属。
  *
  * 分组维度两个，并列存在：
- *  - 按类别（默认，原有维度）：按 assets 类别分组，来源下拉筛选，渲染逻辑未改动；
+ *  - 按类别（默认，原有维度）：按 assets 类别分组，来源下拉只做筛选（不再改成按书分组——
+ *    那和「按世界书」维度是同一件事）；
  *  - 按世界书：一级按来源世界书分组，组内保持原有的实体顺序与实体级折叠。
  *    两个维度的来源选择共用同一个 `bookFilter` 状态。
+ *
+ * 工具栏只有一个「折叠 / 展开」，作用于当前可见的实体（缩略图那一级）；世界书分组用各自的箭头。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
@@ -20,6 +23,10 @@ import type { AssetEntityGroupDTO, SkinCrop, WorldBookSummary } from "../types";
 import CropModal from "./assets/CropModal";
 import WorldbookGroupList, { GroupDimensionToggle } from "./WorldbookGroupList";
 import AppIcon from "./AppIcon";
+import {
+  ActionButton, EmptyState, FoldAllButton, PanelHeader, SearchInput, SourceBookBadge, ToolIconButton, WorldbookSelect,
+} from "./roles/RoleWidgets";
+import "../styles/roles.css";
 
 interface ToastState {
   message: string;
@@ -29,12 +36,28 @@ interface ToastState {
 /** 资产条目的两个来源分类维度 */
 type AssetDimension = "category" | "worldbook";
 
+interface SelectedImage {
+  url: string;
+  name: string;
+  size: number;
+  subdir: string;
+  path: string;
+  category: string;
+  entity: string;
+  entityName: string;
+}
+
+const IMAGE_ACCEPT = ".png,.jpg,.jpeg,.gif,.webp,.svg,.bmp";
+
 function formatFileSize(bytes: number): string {
   if (!bytes || bytes < 0) return "";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+/** 子目录的展示名：card_face 目录在界面上一直叫 card art */
+const subdirLabel = (subdir: string) => (subdir === "card_face" ? "card art" : subdir);
 
 export default function AssetManager() {
   const api = useApi();
@@ -50,10 +73,7 @@ export default function AssetManager() {
   const [bookFilter, setBookFilter] = useState("");
   const [dimension, setDimension] = useState<AssetDimension>("category");
   const [collapsedImageKeys, setCollapsedImageKeys] = useState<Set<string>>(new Set());
-  const [selectedImage, setSelectedImage] = useState<{
-    url: string; name: string; size: number; subdir: string;
-    path: string; category: string; entity: string;
-  } | null>(null);
+  const [selectedImage, setSelectedImage] = useState<SelectedImage | null>(null);
   const [defaultImages, setDefaultImages] = useState<Record<string, { default_avatar: string; default_skin: string; card_face: string; card_face_crop: SkinCrop | null }>>({});
   const [cropTarget, setCropTarget] = useState<{ url: string; name: string; category: string; entity: string } | null>(null);
 
@@ -132,6 +152,7 @@ export default function AssetManager() {
     try {
       await apiRef.current.deleteAssetImage(category, relativePath);
       showToast("图片已删除");
+      if (selectedImage?.path === fullPath) setSelectedImage(null);
       loadImages();
     } catch (err: any) {
       showToast(err.message || "删除失败", "error");
@@ -181,61 +202,59 @@ export default function AssetManager() {
     }
   };
 
+  const openDataDir = async () => {
+    try {
+      const { path } = await apiRef.current.getDataDir();
+      if (window.electronAPI) {
+        await window.electronAPI.openDirectory(path);
+      } else {
+        await navigator.clipboard.writeText(path);
+        showToast("路径已复制: " + path);
+      }
+    } catch { /* ignore */ }
+  };
+
   const bookName = (id: string) => worldbooks.find((b) => b.id === id)?.name || id;
+  const entityKeyOf = (item: AssetEntityGroupDTO) => `${item.category}/${item.entity}`;
 
-  // ── 筛选：名称 + 来源世界书 ──
+  // ── 筛选 ──
+  const query = imageFilter.trim().toLowerCase();
+  const matchSearch = (item: AssetEntityGroupDTO) =>
+    !query ||
+    item.entity_name.toLowerCase().includes(query) ||
+    item.category.toLowerCase().includes(query) ||
+    item.images.some((img) => img.name.toLowerCase().includes(query));
 
+  // 按类别维度：搜索 + 来源筛选一起生效
   const filtered = assetImages.filter((item) => {
     if (bookFilter === UNCLASSIFIED_KEY && item.worldbook_id) return false;
     if (bookFilter && bookFilter !== UNCLASSIFIED_KEY && item.worldbook_id !== bookFilter) return false;
-    if (!imageFilter.trim()) return true;
-    const q = imageFilter.toLowerCase();
-    return item.entity_name.toLowerCase().includes(q) ||
-      item.category.toLowerCase().includes(q) ||
-      item.images.some((img) => img.name.toLowerCase().includes(q));
+    return matchSearch(item);
   });
 
-  // 按世界书归类（有标注的实体归入其世界书分组，未标注的归入「未标注」）
-  const groupedByBook: { key: string; label: string; items: AssetEntityGroupDTO[] }[] = [];
-  if (bookFilter) {
-    const groups: Record<string, AssetEntityGroupDTO[]> = {};
-    for (const item of filtered) {
-      const key = item.worldbook_id || UNCLASSIFIED_KEY;
-      (groups[key] = groups[key] || []).push(item);
-    }
-    for (const [key, items] of Object.entries(groups)) {
-      groupedByBook.push({
-        key,
-        label: key === UNCLASSIFIED_KEY ? "未分类" : bookName(key),
-        items,
-      });
-    }
-  }
-
-  // ── 来源世界书维度（与「按类别」并列）──
-  // 只按搜索词过滤、不先按 bookFilter 过滤：分组计数要覆盖全部来源，
+  // 按世界书维度：只按搜索词过滤、不先按 bookFilter 过滤——分组计数要覆盖全部来源，
   // 未被选中的分组才不是 0 条，也才能直接点标题切换来源。
-  const searchFiltered = assetImages.filter((item) => {
-    if (!imageFilter.trim()) return true;
-    const q = imageFilter.toLowerCase();
-    return item.entity_name.toLowerCase().includes(q) ||
-      item.category.toLowerCase().includes(q) ||
-      item.images.some((img) => img.name.toLowerCase().includes(q));
-  });
+  const searchFiltered = assetImages.filter(matchSearch);
 
   const {
     groups: worldbookGroups,
     collapsedKeys: collapsedBookKeys,
     toggleCollapsed: toggleBookCollapsed,
-    expandAll: expandAllBooks,
-    collapseAll: collapseAllBooks,
-    allCollapsed: allBooksCollapsed,
     selectedItems: selectedByBook,
   } = useWorldbookGroups(searchFiltered, (item) => item.worldbook_id, worldbooks, bookFilter);
 
   /** 「折叠 / 展开」按钮的作用范围：当前维度下真正渲染出来的实体 */
   const visibleEntities: readonly AssetEntityGroupDTO[] =
     dimension === "worldbook" ? selectedByBook : filtered;
+  const entitiesAllCollapsed =
+    visibleEntities.length > 0 && visibleEntities.every((item) => collapsedImageKeys.has(entityKeyOf(item)));
+  const toggleFoldAllEntities = () => {
+    if (entitiesAllCollapsed) {
+      setCollapsedImageKeys(new Set());
+    } else {
+      setCollapsedImageKeys(new Set(visibleEntities.map(entityKeyOf)));
+    }
+  };
 
   // 按类别分组
   const grouped: Record<string, AssetEntityGroupDTO[]> = {};
@@ -243,8 +262,20 @@ export default function AssetManager() {
     (grouped[item.category] = grouped[item.category] || []).push(item);
   }
 
+  const selectImage = (item: AssetEntityGroupDTO, img: AssetEntityGroupDTO["images"][number]) =>
+    setSelectedImage({
+      url: img.url,
+      name: img.name,
+      size: img.size,
+      subdir: img.subdir || "",
+      path: img.path,
+      category: item.category,
+      entity: item.entity,
+      entityName: item.entity_name,
+    });
+
   const renderEntityGroup = (item: AssetEntityGroupDTO) => {
-    const entityKey = `${item.category}/${item.entity}`;
+    const entityKey = entityKeyOf(item);
     const defaults = defaultImages[entityKey];
     // 按 subdir 分组图片
     const subdirGroups: Record<string, AssetEntityGroupDTO["images"]> = {};
@@ -255,39 +286,47 @@ export default function AssetManager() {
     }
 
     const isEntityCollapsed = collapsedImageKeys.has(entityKey);
+    const toggleEntity = () => {
+      setCollapsedImageKeys((prev) => {
+        const next = new Set(prev);
+        if (next.has(entityKey)) next.delete(entityKey);
+        else next.add(entityKey);
+        return next;
+      });
+    };
 
     return (
-      <div key={entityKey} className="mb-2 ml-1">
-        <div
-          className="flex items-center gap-1 text-xs text-gray-400 px-1 mb-1 cursor-pointer hover:text-gray-300 transition-colors select-none"
-          onClick={() => {
-            setCollapsedImageKeys((prev) => {
-              const next = new Set(prev);
-              if (next.has(entityKey)) next.delete(entityKey);
-              else next.add(entityKey);
-              return next;
-            });
-          }}
-        >
-          <span className="w-3 flex-shrink-0"><AppIcon name={isEntityCollapsed ? "forward" : "expand"} size={12} /></span>
-          <span className="truncate flex-1" title={`${item.entity_name}（上级目录 ${item.parent_dir}）`}>
+      <div key={entityKey} className="mb-1.5 ml-1">
+        <div className="flex items-center gap-1 px-1 py-0.5 rounded text-xs text-gray-300 hover:bg-gray-800/60 select-none">
+          <button
+            type="button"
+            onClick={toggleEntity}
+            aria-expanded={!isEntityCollapsed}
+            aria-label={isEntityCollapsed ? `展开 ${item.entity_name}` : `折叠 ${item.entity_name}`}
+            className="w-4 shrink-0 flex items-center justify-center text-gray-500 hover:text-gray-300"
+          >
+            <AppIcon name={isEntityCollapsed ? "forward" : "expand"} size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={toggleEntity}
+            className="flex-1 min-w-0 text-left truncate"
+            title={`${item.entity_name}（上级目录 ${item.parent_dir}，${item.images.length} 张）`}
+          >
             {item.entity_name}
-          </span>
-          {dimension === "category" && (item.worldbook_id ? (
-            <span
-              className="text-[9px] px-1 rounded bg-amber-600/15 text-amber-300 border border-amber-700/40 shrink-0"
-              title={`来源世界书：${bookName(item.worldbook_id)}`}
-            >
-              <AppIcon name="worldbook" size={11} /> {bookName(item.worldbook_id)}
-            </span>
-          ) : (
-            <span className="text-[9px] text-gray-600 shrink-0" title="未关联来源世界书">未分类</span>
-          ))}
-          <label className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer shrink-0" title="上传到该实体" onClick={(e) => e.stopPropagation()}>
-            +
+          </button>
+          {dimension === "category" && (
+            <SourceBookBadge size="xs" name={item.worldbook_id ? bookName(item.worldbook_id) : ""} />
+          )}
+          <label
+            className="inline-flex items-center justify-center w-6 h-6 rounded text-gray-500 hover:text-amber-300 hover:bg-gray-700/50 cursor-pointer shrink-0"
+            title="上传到该实体目录"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <AppIcon name="plus" size={13} />
             <input
               type="file"
-              accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.bmp"
+              accept={IMAGE_ACCEPT}
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -300,12 +339,8 @@ export default function AssetManager() {
           </label>
         </div>
         {!isEntityCollapsed && Object.entries(subdirGroups).map(([subdir, imgs]) => (
-          <div key={subdir || "__root__"} className="mb-1 ml-1">
-            {subdir && (
-              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1 px-1">
-                {subdir === "card_face" ? "card art" : subdir}
-              </div>
-            )}
+          <div key={subdir || "__root__"} className="mb-1 ml-5">
+            {subdir && <div className="roles-subdir mb-1">{subdirLabel(subdir)}</div>}
             <div className="flex flex-wrap gap-1">
               {imgs.map((img) => {
                 const isSelected = selectedImage?.path === img.path;
@@ -313,26 +348,24 @@ export default function AssetManager() {
                 const isDefaultSkin = defaults?.default_skin === img.name;
                 const isDefaultCardFace = defaults?.card_face === img.name;
                 const isDefault = isDefaultAvatar || isDefaultSkin || isDefaultCardFace;
+                const defaultLabel = isDefaultAvatar ? "默认头像" : isDefaultSkin ? "默认立绘" : "默认卡面";
                 return (
                   <div
                     key={img.path}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={isSelected}
                     className={`relative group rounded overflow-hidden border-2 transition-colors cursor-pointer ${
                       isSelected
-                        ? "border-blue-400"
+                        ? "border-amber-400"
                         : isDefault
-                        ? "border-yellow-500/60"
-                        : "border-gray-700 hover:border-blue-500/50"
+                          ? "border-amber-700/50 hover:border-amber-500/60"
+                          : "border-gray-700 hover:border-gray-500"
                     }`}
                     style={{ width: 64, height: 64 }}
-                    onClick={() => setSelectedImage({
-                      url: img.url,
-                      name: img.name,
-                      size: img.size,
-                      subdir: img.subdir || "",
-                      path: img.path,
-                      category: item.category,
-                      entity: item.entity,
-                    })}
+                    title={`${img.name}${isDefault ? `（${defaultLabel}）` : ""}`}
+                    onClick={() => selectImage(item, img)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectImage(item, img); } }}
                   >
                     <img
                       src={img.url}
@@ -342,14 +375,15 @@ export default function AssetManager() {
                     />
                     {isDefault && (
                       <span
-                        className="absolute top-0 left-0 text-yellow-400 text-[10px] px-0.5"
-                        title={isDefaultAvatar ? "默认头像" : isDefaultSkin ? "默认立绘" : "卡面"}
+                        className="absolute top-0.5 left-0.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-black/70 text-amber-300"
+                        title={defaultLabel}
                       >
-                        ★
+                        <AppIcon name="star" size={10} fill="currentColor" />
                       </span>
                     )}
                     <button
-                      className="absolute top-0 right-0 bg-red-600/80 text-white text-[10px] px-1 rounded-bl opacity-0 group-hover:opacity-100 transition-opacity"
+                      type="button"
+                      className="absolute top-0.5 right-0.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-black/70 text-gray-300 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => {
                         e.stopPropagation();
                         if (confirm(`确定要删除 "${img.name}" 吗？`)) {
@@ -357,8 +391,9 @@ export default function AssetManager() {
                         }
                       }}
                       title="删除"
+                      aria-label={`删除 ${img.name}`}
                     >
-                      ✕
+                      <AppIcon name="close" size={10} />
                     </button>
                     <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[10px] text-gray-300 px-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                       <div className="truncate">{img.name}</div>
@@ -376,72 +411,10 @@ export default function AssetManager() {
     );
   };
 
-  const renderImageTree = () => (
-    <div>
-      <div className="flex items-center gap-1 mb-2">
-        <input
-          className="input text-xs flex-1"
-          placeholder="过滤图片名称..."
-          value={imageFilter}
-          onChange={(e) => setImageFilter(e.target.value)}
-        />
-        <button
-          onClick={() => {
-            if (collapsedImageKeys.size > 0) {
-              setCollapsedImageKeys(new Set());
-            } else {
-              const allKeys = new Set<string>();
-              for (const item of visibleEntities) {
-                allKeys.add(`${item.category}/${item.entity}`);
-              }
-              setCollapsedImageKeys(allKeys);
-            }
-          }}
-          className="text-[10px] text-gray-500 hover:text-gray-300 whitespace-nowrap px-1.5 py-1 rounded hover:bg-gray-700/50 transition-colors"
-          title={collapsedImageKeys.size > 0 ? "展开全部实体" : "折叠全部实体"}
-        >
-          {collapsedImageKeys.size > 0 ? "展开" : "折叠"}
-        </button>
-      </div>
-
-      <GroupDimensionToggle
-        value={dimension}
-        onChange={setDimension}
-        options={[
-          { id: "category", label: "按类别", icon: "content", hint: "原有维度：按资产类别（characters / classes …）分组" },
-          { id: "worldbook", label: "按世界书", icon: "worldbook", hint: "按来源世界书分组" },
-        ]}
-        extra={
-          dimension === "worldbook" && worldbookGroups.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => (allBooksCollapsed ? expandAllBooks() : collapseAllBooks())}
-              className="text-[10px] text-gray-500 hover:text-gray-300 whitespace-nowrap px-1.5 py-1 rounded hover:bg-gray-700/50 transition-colors"
-              title={allBooksCollapsed ? "展开全部分组" : "折叠全部分组"}
-            >
-              {allBooksCollapsed ? "展开" : "折叠"}
-            </button>
-          ) : null
-        }
-      />
-
-      {dimension === "category" && (
-        <select
-          className="w-full bg-gray-800/80 border border-gray-700 rounded px-2 py-1 text-[11px] text-gray-300 mb-2"
-          value={bookFilter}
-          onChange={(e) => setBookFilter(e.target.value)}
-          title="按来源世界书筛选"
-        >
-          <option value="">全部世界书</option>
-          <option value={UNCLASSIFIED_KEY}>未分类</option>
-          {worldbooks.map((b) => (
-            <option key={b.id} value={b.id}>{b.name}</option>
-          ))}
-        </select>
-      )}
-
-      {dimension === "worldbook" ? (
-        // 按世界书维度：一级按来源世界书分组，组内沿用原有实体渲染与排序
+  const renderImageTree = () => {
+    if (dimension === "worldbook") {
+      // 按世界书维度：一级按来源世界书分组，组内沿用原有实体渲染与排序
+      return (
         <WorldbookGroupList
           groups={worldbookGroups}
           totalCount={searchFiltered.length}
@@ -462,234 +435,201 @@ export default function AssetManager() {
             </p>
           }
         />
-      ) : (
-        <>
-          {filtered.length === 0 && (
-            <p className="text-xs text-gray-500 text-center py-4">
-              {imageFilter || bookFilter ? "无匹配结果" : "暂无图像资产"}
-            </p>
-          )}
-          {bookFilter ? (
-            // 按世界书归类展示
-            groupedByBook.map((group) => (
-              <div key={group.key} className="mb-3">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-300/80 py-1 mb-1">
-                  <AppIcon name="worldbook" size={13} /> {group.label}
-                  <span className="text-[10px] text-gray-600 font-normal ml-1">({group.items.length})</span>
-                </div>
-                {group.items.map(renderEntityGroup)}
-              </div>
-            ))
-          ) : (
-            Object.entries(grouped).map(([cat, items]) => (
-              <div key={cat} className="mb-3">
-                <div className="flex items-center gap-1 text-xs font-semibold text-gray-500 uppercase tracking-wider py-1 mb-1">
-                  <span>{cat}</span>
-                  <div className="flex-1" />
-                  <label className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer" title="上传到该分类">
-                    + 上传
-                    <input
-                      type="file"
-                      accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.bmp"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) { handleImageUpload(file, cat); e.target.value = ""; }
-                      }}
-                    />
-                  </label>
-                </div>
-                {items.map(renderEntityGroup)}
-              </div>
-            ))
-          )}
-        </>
-      )}
-    </div>
-  );
+      );
+    }
+    if (filtered.length === 0) {
+      return (
+        <p className="text-xs text-gray-500 text-center py-4">
+          {imageFilter || bookFilter ? "无匹配结果" : "暂无图像资产"}
+        </p>
+      );
+    }
+    return Object.entries(grouped).map(([cat, items]) => (
+      <div key={cat} className="mb-3">
+        <div className="flex items-center gap-1.5 py-1 mb-1">
+          <span className="roles-category">{cat}</span>
+          <span className="text-[11px] text-gray-600">({items.length})</span>
+          <div className="flex-1" />
+          <label
+            className="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-amber-300 cursor-pointer px-1 py-0.5 rounded hover:bg-gray-700/50"
+            title="上传到该类别目录"
+          >
+            <AppIcon name="upload" size={12} />
+            上传
+            <input
+              type="file"
+              accept={IMAGE_ACCEPT}
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) { handleImageUpload(file, cat); e.target.value = ""; }
+              }}
+            />
+          </label>
+        </div>
+        {items.map(renderEntityGroup)}
+      </div>
+    ));
+  };
 
   // ── 渲染 ──
 
+  const selectedEntity = selectedImage
+    ? assetImages.find((g) => g.category === selectedImage.category && g.entity === selectedImage.entity)
+    : undefined;
+
   return (
-    <div className="flex h-full">
+    <div className="roles-shell flex h-full">
       {/* ── 实体树侧栏 ── */}
-      <div className="w-72 border-r border-gray-700 overflow-y-auto p-3 shrink-0" id="asset-tree-sidebar">
-        <div className="flex items-center gap-1 mb-3">
-          <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded bg-blue-600/30 text-blue-300"><AppIcon name="image" size={14} />资产</span>
-          <div className="flex-1" />
-          <button
-            onClick={async () => {
-              try {
-                const { path } = await apiRef.current.getDataDir();
-                if (window.electronAPI) {
-                  await window.electronAPI.openDirectory(path);
-                } else {
-                  await navigator.clipboard.writeText(path);
-                  showToast("路径已复制: " + path);
-                }
-              } catch { /* ignore */ }
-            }}
-            className="text-xs text-gray-500 hover:text-gray-300 px-1"
-            title="打开资产文件夹"
-          >
-            <AppIcon name="folder" size={15} />
-          </button>
-          <button
-            onClick={loadImages}
-            className="text-xs text-gray-500 hover:text-gray-300"
-            title="刷新"
-          >
-            <AppIcon name="refresh" size={15} />
-          </button>
+      <div className="w-72 border-r border-gray-700 flex flex-col shrink-0">
+        <div className="p-2 border-b border-gray-700 space-y-2">
+          <div className="flex items-center gap-1.5">
+            <SearchInput value={imageFilter} onChange={setImageFilter} placeholder="过滤图片名称…" />
+            <ToolIconButton icon="folder" label="打开资产文件夹" onClick={() => void openDataDir()} />
+            <ToolIconButton icon="refresh" label="刷新" onClick={() => void loadImages()} />
+            <FoldAllButton
+              collapsed={entitiesAllCollapsed}
+              onToggle={toggleFoldAllEntities}
+              what="实体"
+              disabled={visibleEntities.length === 0}
+            />
+          </div>
+          <GroupDimensionToggle
+            value={dimension}
+            onChange={setDimension}
+            options={[
+              { id: "category", label: "按类别", icon: "images", hint: "按资产类别（characters / classes …）分组" },
+              { id: "worldbook", label: "按世界书", icon: "worldbook", hint: "按来源世界书分组" },
+            ]}
+          />
+          {dimension === "category" && (
+            <select
+              className="w-full bg-gray-800/80 border border-gray-700 rounded-md px-2 py-1 text-[11px] text-gray-300"
+              value={bookFilter}
+              onChange={(e) => setBookFilter(e.target.value)}
+              title="按来源世界书筛选"
+            >
+              <option value="">全部世界书</option>
+              <option value={UNCLASSIFIED_KEY}>未分类</option>
+              {worldbooks.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          )}
         </div>
 
-        {imagesLoading && assetImages.length === 0 ? (
-          <p className="text-gray-500 text-sm text-center py-4">加载中...</p>
-        ) : assetImages.length === 0 ? (
-          <p className="text-gray-500 text-sm text-center py-4">暂无图像资产</p>
-        ) : (
-          renderImageTree()
-        )}
+        <div className="flex-1 overflow-y-auto p-2">
+          {imagesLoading && assetImages.length === 0 ? (
+            <p className="text-gray-500 text-xs text-center py-4">加载中…</p>
+          ) : assetImages.length === 0 ? (
+            <p className="text-gray-500 text-xs text-center py-4">暂无图像资产</p>
+          ) : (
+            renderImageTree()
+          )}
+        </div>
       </div>
 
       {/* ── 预览面板 ── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 bg-gray-900/30">
         {!selectedImage ? (
-          <div className="flex items-center justify-center h-full text-gray-500">
-            <p>选择左侧图片预览</p>
-          </div>
+          <EmptyState
+            icon="images"
+            text="选择左侧图片预览"
+            sub="可设为默认头像 / 立绘 / 卡面，并标注该实体的来源世界书"
+          />
         ) : (
-          <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
-              <h2 className="text-sm font-medium text-gray-300 truncate max-w-[60%]">
-                {selectedImage.name}
-              </h2>
-              <button
-                onClick={() => setSelectedImage(null)}
-                className="text-xs text-gray-500 hover:text-gray-300"
-              >
-                ✕ 关闭
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center">
-              <div className="max-w-lg w-full">
+          <>
+            <PanelHeader
+              eyebrow={`资产 · ${selectedImage.category}`}
+              icon="images"
+              title={selectedImage.entityName}
+              actions={<ToolIconButton icon="close" label="关闭预览" onClick={() => setSelectedImage(null)} />}
+            />
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="max-w-lg mx-auto space-y-4">
                 <img
                   src={selectedImage.url}
                   alt={selectedImage.name}
-                  className="w-full max-h-96 object-contain rounded bg-gray-900/50"
+                  className="w-full max-h-96 object-contain rounded-lg bg-gray-900/50 border border-gray-700"
                 />
-                <div className="mt-4 space-y-1 text-xs text-gray-400">
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">文件名</span>
-                    <span>{selectedImage.name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">大小</span>
-                    <span>{formatFileSize(selectedImage.size)}</span>
-                  </div>
+                <dl className="roles-kv">
+                  <dt>文件名</dt>
+                  <dd className="is-mono">{selectedImage.name}</dd>
+                  <dt>大小</dt>
+                  <dd>{formatFileSize(selectedImage.size)}</dd>
                   {selectedImage.subdir && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">子目录</span>
-                      <span>{selectedImage.subdir === "card_face" ? "card art" : selectedImage.subdir}</span>
-                    </div>
+                    <>
+                      <dt>子目录</dt>
+                      <dd>{subdirLabel(selectedImage.subdir)}</dd>
+                    </>
                   )}
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">上级目录</span>
-                    <span className="text-gray-600 font-mono">
-                      {selectedImage.category}/{selectedImage.entity}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">路径</span>
-                    <span className="text-gray-600">{selectedImage.path}</span>
-                  </div>
-                  <div className="flex justify-between items-center pt-1">
-                    <span className="text-gray-500">来源世界书</span>
+                  <dt>上级目录</dt>
+                  <dd className="is-mono">{selectedImage.category}/{selectedImage.entity}</dd>
+                  <dt>路径</dt>
+                  <dd className="is-mono text-gray-500">{selectedImage.path}</dd>
+                  <dt className="self-center">来源世界书</dt>
+                  <dd>
                     <WorldbookSelect
-                      value={assetImages.find(
-                        (g) => g.category === selectedImage.category && g.entity === selectedImage.entity,
-                      )?.worldbook_id || ""}
+                      value={selectedEntity?.worldbook_id || ""}
                       worldbooks={worldbooks}
-                      onChange={(id) => {
-                        const item = assetImages.find(
-                          (g) => g.category === selectedImage.category && g.entity === selectedImage.entity,
-                        );
-                        if (item) handleSetEntityWorldbook(item, id);
-                      }}
+                      onChange={(id) => { if (selectedEntity) handleSetEntityWorldbook(selectedEntity, id); }}
                     />
-                  </div>
-                </div>
-                {/* Set as default buttons */}
-                <div className="mt-4 flex gap-2 justify-center flex-wrap">
+                  </dd>
+                </dl>
+
+                {/* 设为默认图 */}
+                <div className="flex gap-2 justify-center flex-wrap pt-1">
                   {selectedImage.subdir === "avatar" && (
-                    <button
-                      onClick={() => handleSetDefaultImage(
-                        selectedImage.category,
-                        selectedImage.entity,
-                        "avatar",
-                        selectedImage.name
-                      )}
-                      className="text-xs px-3 py-1.5 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 transition-colors"
+                    <ActionButton
+                      icon="star"
+                      variant="blue"
+                      onClick={() => handleSetDefaultImage(selectedImage.category, selectedImage.entity, "avatar", selectedImage.name)}
                     >
                       设为默认头像
-                    </button>
+                    </ActionButton>
                   )}
                   {selectedImage.subdir === "skin" && (
-                    <button
-                      onClick={() => handleSetDefaultImage(
-                        selectedImage.category,
-                        selectedImage.entity,
-                        "skin",
-                        selectedImage.name
-                      )}
-                      className="text-xs px-3 py-1.5 rounded bg-purple-600/20 text-purple-400 hover:bg-purple-600/40 transition-colors"
+                    <ActionButton
+                      icon="star"
+                      variant="purple"
+                      onClick={() => handleSetDefaultImage(selectedImage.category, selectedImage.entity, "skin", selectedImage.name)}
                     >
                       设为默认立绘
-                    </button>
+                    </ActionButton>
                   )}
                   {(selectedImage.subdir === "avatar" || selectedImage.subdir === "skin") && (
-                    <button
-                      onClick={() => handleSetDefaultImage(
-                        selectedImage.category,
-                        selectedImage.entity,
-                        "card_face",
-                        selectedImage.name
-                      )}
-                      className="text-xs px-3 py-1.5 rounded bg-amber-600/20 text-amber-400 hover:bg-amber-600/40 transition-colors"
+                    <ActionButton
+                      icon="cards"
+                      variant="amber"
+                      onClick={() => handleSetDefaultImage(selectedImage.category, selectedImage.entity, "card_face", selectedImage.name)}
+                      title="复制到 card art/ 子目录并设为卡面"
                     >
                       设为卡面
-                    </button>
+                    </ActionButton>
                   )}
                   {selectedImage.subdir === "card_face" && (
                     <>
-                      <button
-                        onClick={() => handleSetDefaultImage(
-                          selectedImage.category,
-                          selectedImage.entity,
-                          "card_face",
-                          selectedImage.name
-                        )}
-                        className="text-xs px-3 py-1.5 rounded bg-amber-600/20 text-amber-400 hover:bg-amber-600/40 transition-colors"
+                      <ActionButton
+                        icon="star"
+                        variant="amber"
+                        onClick={() => handleSetDefaultImage(selectedImage.category, selectedImage.entity, "card_face", selectedImage.name)}
                       >
                         设为默认卡面
-                      </button>
-                      <button
-                        onClick={() => setCropTarget(selectedImage)}
-                        className="text-xs px-3 py-1.5 rounded bg-green-600/20 text-green-400 hover:bg-green-600/40 transition-colors"
-                      >
+                      </ActionButton>
+                      <ActionButton icon="crop" variant="green" onClick={() => setCropTarget(selectedImage)}>
                         裁剪卡面
-                      </button>
+                      </ActionButton>
                     </>
                   )}
                 </div>
                 {selectedImage.subdir && selectedImage.subdir !== "avatar" && selectedImage.subdir !== "skin" && selectedImage.subdir !== "card_face" && (
-                  <p className="text-xs text-gray-600 text-center mt-3">
+                  <p className="text-xs text-gray-600 text-center">
                     仅 avatar/、skin/ 和 card art/ 子目录的图片可设为默认
                   </p>
                 )}
               </div>
             </div>
-          </div>
+          </>
         )}
       </div>
 
@@ -703,7 +643,7 @@ export default function AssetManager() {
 
       {toast && (
         <div
-          className={`fixed bottom-16 right-6 px-4 py-2 rounded-lg shadow-lg text-sm z-50 ${
+          className={`fixed bottom-12 right-4 px-3 py-2 rounded-lg shadow-lg text-sm z-50 ${
             toast.type === "success"
               ? "bg-green-800/90 text-green-100"
               : "bg-red-800/90 text-red-100"
@@ -713,28 +653,5 @@ export default function AssetManager() {
         </div>
       )}
     </div>
-  );
-}
-
-/** 来源世界书下拉（资产/卡牌共用的小控件） */
-export function WorldbookSelect({
-  value, worldbooks, onChange,
-}: {
-  value: string;
-  worldbooks: WorldBookSummary[];
-  onChange: (bookId: string) => void;
-}) {
-  return (
-    <select
-      className="bg-gray-800/80 border border-gray-700 rounded px-1.5 py-0.5 text-[11px] text-gray-300 max-w-[12rem]"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      title="标注来源世界书"
-    >
-      <option value="">（未标注）</option>
-      {worldbooks.map((b) => (
-        <option key={b.id} value={b.id}>{b.name}</option>
-      ))}
-    </select>
   );
 }

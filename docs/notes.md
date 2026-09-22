@@ -47,6 +47,34 @@
 
 ## 测试
 
+### 无浏览器 SSR 脚本的转译钩子必须传 `fileName`（2026-09-22，`feat/roles-ui-polish`）
+
+- **现象**：`node scripts/test_role_worldbook_nav_ui.cjs` 自 `d328ce0`（引入 `utils/worldbookGrouping.ts`）起一直
+  失败：`ReferenceError: T is not defined`，栈指向 `worldbookGrouping.ts:35`；看起来像分组逻辑坏了。
+- **根因**：钩子调用 `ts.transpileModule(source, { compilerOptions: { jsx: ReactJSX, … } })` 没传 `fileName`，
+  TypeScript 只能把源码当 `.tsx` 解析；`.ts` 里的泛型箭头函数 `<T>(items) => …` 被读成 JSX 元素 `<T>`，
+  产物变成 `exports.groupByWorldbook = (0, jsx_runtime_1.jsxs)(T, …`，运行到这一行就抛未定义。
+- **现状口径**：该脚本的钩子已传 `fileName: filename`。`test_worldbook_library_ui.cjs` /
+  `test_worldbook_scope_ui.cjs` 的钩子写法相同，只是暂未 require 到含泛型箭头函数的 `.ts` 才没炸；
+  新写 SSR 脚本请照抄带 `fileName` 的版本，`.ts` 里也不要为了迁就钩子改写成 `<T,>`。
+- **证据**：不传 `fileName` 转译 `worldbookGrouping.ts` 第 35 行即得上述 `jsxs(T, …)` 产物；主工作区在
+  `d466817` 上跑原脚本同样失败，与本分支的 UI 改动无关。
+
+### 截图验证前端（`vite.config.shot.ts`）与主开发服务器分开依赖缓存（2026-09-22，`feat/roles-ui-polish`）
+
+- **口径**：shot 配置显式 `cacheDir: node_modules/.vite-shot`。它与 `vite.config.ts` 的插件不同
+  （无 electron 插件），optimizeDeps 指纹不同；共用 `node_modules/.vite` 时后启动的一方会重新优化并覆盖
+  前者的产物，正在跑的 5173 开发服务器随之整页重载。
+- **本机可用的验证流程**（Windows，无 node 版 playwright）：在隔离 worktree 里
+  `API_PORT=5001 python src/app.py` + `npx vite --config vite.config.shot.ts`（5174 → 5001），
+  用 Python `playwright`（pip 已装 1.60，chromium 148 缓存可用）驱动；chromium 启动参数要带
+  `--proxy-server=direct:// --proxy-bypass-list=*`，否则环境变量里的本地代理会吞掉回环地址请求。
+  worktree 的 `frontend/node_modules` 用目录联接（`New-Item -ItemType Junction`）指向主仓库即可。
+- **已知未修（资产页）**：实体行上的「+」上传把文件放到实体目录**根**（`handleImageUpload(file, category, entity)`
+  → `characters/<entity>/<file>`），不进 `avatar/` / `skin/` 子目录，而后端 `set_default_image` 只认这三个
+  子目录，所以从资产页上传的图片**不能设为默认头像 / 立绘**，头像目前仍需手工放进 `avatar/`。
+  玩家身份编辑器的提示文案已按这个现状写，不再指向资产页上传。
+
 ### 世界书条目工作台持久化口径（2026-09-22，`feat/worldbook-entry-refresh`）
 
 - **顺序**：旧书没有 `entry_order` 时继续使用既有注入排序；首次拖动后写入完整 UID 排列，新增、摘录、

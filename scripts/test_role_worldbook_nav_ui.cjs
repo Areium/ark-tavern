@@ -16,7 +16,10 @@ const ts = fromFrontend("typescript");
 require.extensions[".css"] = () => {};
 for (const extension of [".ts", ".tsx"]) {
   require.extensions[extension] = (module, filename) => {
+    // fileName 必须传：不传时 transpileModule 因为设了 jsx 会把一切都当 .tsx 解析，
+    // .ts 里的泛型箭头函数 `<T>(items) => …` 就会被读成 JSX 元素 <T>，运行时报 T is not defined。
     const { outputText } = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
+      fileName: filename,
       compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2020 },
     });
     module._compile(outputText, filename);
@@ -131,5 +134,28 @@ assert.equal(library.normalizeWorldbookTab("nodes", { book_type: "story" }), "en
 assert.ok(managerSource.includes("searchWorldbooks") && managerSource.includes("wber-shelf-search"),
   "跨世界书统一检索应落在世界书书架（不随内容中心一起消失）");
 
+// ── 6. 角色页视觉整理：撤掉的重复入口不允许回流，四个模块共用一套控件与字体语言 ──
+// 角色库只按来源世界书分组：并列的「平铺」维度展示的是同一份列表，已撤销（注释里提到历史名称是允许的）
+assert.ok(!/"flat"/.test(characterSource) && !characterSource.includes("GroupDimensionToggle"),
+  "角色库不应再有「平铺 / 按世界书」维度切换（只剩按世界书分组一种形态）");
+// 资产 / 卡牌侧栏不再重复渲染与模块页签同名的「资产」/「卡牌」标语（旧写法：<svg …/>资产</span>）
+assert.ok(!/<\/svg>资产<\/span>/.test(assetsMarkup), "资产侧栏不应再有与页签重复的「资产」标语");
+assert.ok(!/<\/svg>卡牌<\/span>/.test(cardsMarkup), "卡牌侧栏不应再有与页签重复的「卡牌」标语");
+// 新建玩家身份只有工具栏一个入口，空状态只做文字引导
+assert.equal(characterSource.split("onClick={startCreateIdentity}").length - 1, 1, "「新建身份」应只有一个入口");
+const assetSource = read("frontend/src/components/AssetManager.tsx");
+const cardSource = read("frontend/src/components/CardManager.tsx");
+for (const [name, source] of [["CharacterManager", characterSource], ["AssetManager", assetSource], ["CardManager", cardSource]]) {
+  assert.ok(source.includes('from "./roles/RoleWidgets"') && source.includes('import "../styles/roles.css"'),
+    `${name} 应使用角色页共用控件与样式（components/roles + styles/roles.css）`);
+  assert.ok(source.includes('className="roles-shell'), `${name} 根节点应挂 roles-shell（字体语言作用域）`);
+}
+// 三个模块的侧栏都渲染搜索框；卡牌页新增的搜索也走同一个控件
+assert.equal((roleMarkup.match(/placeholder="搜索角色…"/g) || []).length, 1, "角色库侧栏应有一个搜索框");
+assert.equal((assetsMarkup.match(/placeholder="过滤图片名称…"/g) || []).length, 1, "资产侧栏应有一个搜索框");
+assert.equal((cardsMarkup.match(/placeholder="搜索角色 \/ 职业…"/g) || []).length, 1, "卡牌侧栏应有一个搜索框");
+// 按类别维度下来源下拉只做筛选：不再有随筛选切换出来的第二套按书分组渲染
+assert.ok(!assetSource.includes("groupedByBook"), "资产页按类别维度不应再自带一套按书分组渲染");
+
 console.log("角色/世界书两级导航：一级入口只剩 角色 / 世界书（内容中心已删除）、"
-  + "角色页四模块页签与世界书页签骨架、旧节点视图删除且节点图迁入，全部断言通过。");
+  + "角色页四模块页签与世界书页签骨架、旧节点视图删除且节点图迁入、角色页重复入口已撤且共用控件到位，全部断言通过。");

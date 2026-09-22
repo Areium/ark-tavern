@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useApi } from "../../hooks/useApi";
 import type { CombatCardsDTO, CombatCardDTO, ClassCardsDTO, ClassCardDTO } from "../../types";
+import AppIcon from "../AppIcon";
 
 type CardData = CombatCardDTO | ClassCardDTO;
 
@@ -272,9 +273,10 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
   // ── Render ──
 
   const header = (
-    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 shrink-0">
+    <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700 shrink-0">
       <div className="flex items-center gap-3 text-sm">
-        <span className="text-gray-400">{isClassMode ? "Class Cards" : "Card Editor"}</span>
+        {/* 内嵌在「角色 → 卡牌」时，实体名已由外层页头标出，这里只报卡牌数量，不再重复标题 */}
+        {!embedded && <span className="text-gray-400">{isClassMode ? "Class Cards" : "Card Editor"}</span>}
         {!embedded && (
           <select
             className="input py-1 text-sm"
@@ -303,10 +305,9 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
         )}
         {embedded && activeName && (
           <span className="text-gray-500 text-xs">
-            {isClassMode ? "class" : "character"}: {activeName}
             {isClassMode
-              ? (classCardsData && ` — ${(classCardsData.cards || []).length} cards`)
-              : (cardsData && ` — ${(cardsData.exclusive_cards || []).length} + ${(cardsData.class_cards || []).length} cards`)}
+              ? `职业卡牌 ${(classCardsData?.cards || []).length} 张`
+              : `专属 ${(cardsData?.exclusive_cards || []).length} 张 · 职业 ${(cardsData?.class_cards || []).length} 张`}
           </span>
         )}
       </div>
@@ -346,7 +347,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
 
   if (loading) {
     return embedded
-      ? <div className="flex items-center justify-center h-full text-gray-500">Loading...</div>
+      ? <div className="flex items-center justify-center h-full text-gray-500 text-sm">加载中…</div>
       : (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center">
           <div className="bg-gray-900 border border-gray-700 rounded-lg flex flex-col"
@@ -372,7 +373,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
             }`}
             onClick={() => { setTab("exclusive"); setSelectedCardIdx(null); setEditingCard(null); }}
           >
-            Exclusive ({cardsData?.exclusive_cards.length || 0})
+            专属卡牌 ({cardsData?.exclusive_cards.length || 0})
           </button>
           <button
             className={`px-4 py-2 text-sm border-b-2 transition-colors ${
@@ -382,7 +383,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
             }`}
             onClick={() => { setTab("class"); setSelectedCardIdx(null); setEditingCard(null); }}
           >
-            Class Cards ({cardsData?.class_cards.length || 0})
+            职业卡牌 ({cardsData?.class_cards.length || 0})
           </button>
         </div>
       )}
@@ -391,9 +392,9 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
         {/* Card list */}
         <div className="w-56 border-r border-gray-700 overflow-y-auto flex flex-col shrink-0">
           <div className="p-2">
-            <button className="btn btn-sm btn-ghost text-xs w-full text-left text-gray-400 hover:text-white"
+            <button className="btn btn-sm btn-ghost text-xs w-full text-left text-gray-400 hover:text-white inline-flex items-center gap-1.5"
                     onClick={newCard}>
-              + New Card
+              <AppIcon name="plus" size={13} /> 新建卡牌
             </button>
           </div>
           {cardList.map((card, idx) => (
@@ -710,7 +711,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
             </div>
           ) : (
             <div className="flex items-center justify-center h-full text-gray-600 text-sm">
-              Select a card from the list, or click '+ New Card'
+              从左侧选择一张卡牌，或点击「新建卡牌」
             </div>
           )}
         </div>
@@ -725,11 +726,12 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
         Hash: {(cardsData?._hash || classCardsData?._hash)?.slice(0, 8)}...
       </span>
       <button
-        className="btn btn-sm btn-primary"
+        className="btn btn-sm btn-primary inline-flex items-center gap-1.5"
         disabled={saving}
         onClick={saveCards}
       >
-        {saving ? "Saving..." : "Save All Changes"}
+        <AppIcon name="save" size={14} />
+        {saving ? "保存中…" : "保存全部修改"}
       </button>
     </div>
   );

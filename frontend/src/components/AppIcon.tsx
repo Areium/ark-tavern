@@ -3,16 +3,23 @@ import {
   ArrowLeft,
   BookMarked,
   BookOpenText,
+  Check,
   ChevronRight,
   ChevronDown,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Clock3,
   CloudSun,
+  Crop,
   Drama,
   Home,
   FileText,
   FolderOpen,
   Globe2,
+  IdCard,
   Image,
+  Images,
+  Info,
   Landmark,
   LibraryBig,
   Link2,
@@ -20,9 +27,12 @@ import {
   MapPinned,
   Pause,
   Play,
+  Plus,
   RefreshCw,
+  Save,
   Search,
   Settings,
+  Shapes,
   Spade,
   Star,
   Swords,
@@ -31,19 +41,23 @@ import {
   Download,
   Trash2,
   Upload,
+  UserRound,
+  UsersRound,
   Volume2,
   VolumeX,
   Workflow,
+  X,
   type LucideIcon,
 } from "lucide-react";
 
 /** 统一的 24×24、currentColor SVG 图标入口，替代平台相关的彩色 Emoji。 */
 export type AppIconName =
-  | "back" | "book" | "cards" | "characters" | "combat" | "content"
-  | "copy" | "docs" | "download" | "file" | "folder" | "forward" | "globe"
-  | "home" | "image" | "index" | "location" | "map" | "pause" | "play"
-  | "refresh" | "search" | "sessions" | "settings" | "star" | "time" | "trash"
-  | "upload" | "expand"
+  | "back" | "book" | "cards" | "characters" | "check" | "class" | "close"
+  | "collapseAll" | "combat" | "content" | "copy" | "crop" | "docs" | "download"
+  | "expandAll" | "file" | "folder" | "forward" | "globe" | "home" | "identity"
+  | "image" | "images" | "index" | "info" | "location" | "map" | "pause" | "play"
+  | "plus" | "refresh" | "save" | "search" | "sessions" | "settings" | "star"
+  | "time" | "trash" | "upload" | "user" | "users" | "expand"
   | "volume" | "volumeOff" | "warning" | "weather" | "worldbook" | "workflow";
 
 const ICONS: Record<AppIconName, LucideIcon> = {
@@ -51,24 +65,35 @@ const ICONS: Record<AppIconName, LucideIcon> = {
   book: BookOpenText,
   cards: Spade,
   characters: Drama,
+  check: Check,
+  class: Shapes,
+  close: X,
+  collapseAll: ChevronsDownUp,
   combat: Swords,
   content: LibraryBig,
   copy: Copy,
+  crop: Crop,
   docs: BookMarked,
   download: Download,
   expand: ChevronDown,
+  expandAll: ChevronsUpDown,
   file: FileText,
   folder: FolderOpen,
   forward: ChevronRight,
   globe: Globe2,
   home: Home,
+  identity: IdCard,
   image: Image,
+  images: Images,
   index: Link2,
+  info: Info,
   location: MapPin,
   map: MapPinned,
   pause: Pause,
   play: Play,
+  plus: Plus,
   refresh: RefreshCw,
+  save: Save,
   search: Search,
   sessions: Landmark,
   settings: Settings,
@@ -76,6 +101,8 @@ const ICONS: Record<AppIconName, LucideIcon> = {
   time: Clock3,
   trash: Trash2,
   upload: Upload,
+  user: UserRound,
+  users: UsersRound,
   volume: Volume2,
   volumeOff: VolumeX,
   warning: TriangleAlert,

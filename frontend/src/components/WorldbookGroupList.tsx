@@ -63,7 +63,7 @@ export default function WorldbookGroupList<T>({
       >
         <AppIcon name="content" size={13} />
         <span className="truncate">{allLabel}</span>
-        <span className="text-[10px] text-gray-500 ml-auto">({totalCount})</span>
+        <span className="text-[11px] text-gray-500 ml-auto">({totalCount})</span>
       </button>
 
       {activeMissing && (
@@ -107,7 +107,7 @@ export default function WorldbookGroupList<T>({
                   size={12}
                 />
                 <span className="truncate">{group.label}</span>
-                <span className="text-[10px] text-gray-500 shrink-0">
+                <span className="text-[11px] text-gray-500 shrink-0">
                   ({group.items.length})
                 </span>
               </button>
@@ -134,6 +134,7 @@ export interface DimensionOption<T extends string> {
 /**
  * 分组维度切换 — 在「原有分类维度」与「来源世界书维度」之间切换。
  * 两个维度并列存在：原有维度的渲染逻辑一行未改，本组件只决定当前显示哪一个。
+ * 不自带外边距，行距由调用方的工具栏统一控制。
  */
 export function GroupDimensionToggle<T extends string>({
   value,
@@ -148,9 +149,9 @@ export function GroupDimensionToggle<T extends string>({
   extra?: ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-1 mb-2">
+    <div className="flex items-center gap-1">
       <div
-        className="flex items-center gap-0.5 p-0.5 rounded bg-gray-800/70 border border-gray-700"
+        className="flex items-center gap-0.5 p-0.5 rounded-md bg-gray-800/60 border border-gray-700"
         role="group"
         aria-label="分组维度"
       >
@@ -162,13 +163,13 @@ export function GroupDimensionToggle<T extends string>({
             title={opt.hint}
             aria-pressed={value === opt.id}
             className={
-              "flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] whitespace-nowrap transition-colors " +
+              "flex items-center gap-1 px-2 py-0.5 rounded text-[11px] whitespace-nowrap transition-colors " +
               (value === opt.id
                 ? "bg-amber-600/25 text-amber-300"
                 : "text-gray-500 hover:text-gray-300")
             }
           >
-            <AppIcon name={opt.icon} size={12} />
+            <AppIcon name={opt.icon} size={13} />
             <span>{opt.label}</span>
           </button>
         ))}

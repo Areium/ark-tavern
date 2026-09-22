@@ -1,0 +1,127 @@
+/* ══════════════════════════════════════════════════════════════════════
+   角色页（CharacterManager / AssetManager / CardManager）
+   设计语言与世界书工作台同源：衬线标题 + Orbitron 眉标 + 低饱和线框。
+   色值全部取自 --ng-* 令牌（默认深色 / html.light / 皮肤均会覆盖），本文件不写死主题色；
+   其余版式仍用 Tailwind 工具类，皮肤的工具类覆盖块由 scripts/gen_skin_utils.py 生成。
+   ══════════════════════════════════════════════════════════════════════ */
+.roles-shell {
+  --roles-serif: "Noto Serif SC", "Songti SC", Georgia, serif;
+  --roles-display: "Orbitron", "Noto Sans SC", sans-serif;
+  --roles-text: var(--ng-title, #f3f4f6);
+  --roles-body: var(--ng-body, #c3c8d1);
+  --roles-muted: var(--ng-muted, #8b93a1);
+  --roles-accent: var(--ng-edge-color-hl, #dfa945);
+  --roles-line: color-mix(in srgb, var(--roles-muted) 26%, transparent);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* 眉标：Orbitron 小号大写、宽字距，压在标题上方作分类说明 */
+.roles-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--roles-display);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--roles-accent);
+  opacity: .9;
+  white-space: nowrap;
+}
+
+/* 标题：衬线，用于角色名 / 身份名 / 选中的资产名 */
+.roles-title {
+  font-family: var(--roles-serif);
+  font-weight: 700;
+  letter-spacing: .03em;
+  line-height: 1.25;
+  color: var(--roles-text);
+}
+
+/* 分节标题：小字 + 右侧延伸的细线 */
+.roles-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .14em;
+  color: var(--roles-muted);
+  white-space: nowrap;
+}
+.roles-section::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--roles-line), transparent);
+}
+
+/* 头像与首字色块（EntityAvatar） */
+.roles-avatar {
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--ng-card-bg, rgba(17, 20, 26, .94));
+  border: 1px solid var(--roles-line);
+}
+.roles-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-family: var(--roles-serif);
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(255, 255, 255, .92);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+  user-select: none;
+}
+
+/* 空状态：图标 + 一两句说明，居中 */
+.roles-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+  color: var(--roles-muted);
+  font-size: 12.5px;
+}
+.roles-empty > svg { opacity: .4; }
+.roles-empty small { display: block; font-size: 11px; opacity: .75; line-height: 1.5; }
+
+/* 键值表（资产详情） */
+.roles-kv {
+  display: grid;
+  grid-template-columns: 5.5em minmax(0, 1fr);
+  gap: 5px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+.roles-kv dt { color: var(--roles-muted); }
+.roles-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--roles-body); }
+.roles-kv dd.is-mono { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: 11px; }
+
+/* 资产分类标题（characters / classes …）：Orbitron 眉标风格的小字 */
+.roles-category {
+  font-family: var(--roles-display);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--roles-muted);
+}
+
+/* 资产缩略图网格里的子目录名（avatar / skin / card art） */
+.roles-subdir {
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--roles-muted);
+  opacity: .8;
+}
