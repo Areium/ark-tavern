@@ -314,7 +314,12 @@ def session_api(tmp_path, monkeypatch):
                 if name not in ("A", "B"): return False
                 if name not in self.characters: self.characters.append(name)
                 return True
-            self.scene_manager = SimpleNamespace(load_character=load, get_scene_characters=lambda: self.characters)
+            self.scene_manager = SimpleNamespace(
+                load_character=load,
+                get_scene_characters=lambda: self.characters,
+                # 阵容 = 主控（玩家身份）+ 队友，与 SceneManager.get_roster 同规则
+                get_roster=lambda: list(dict.fromkeys([self.player_identity, *self.characters])),
+            )
         def to_dict(self):
             return {"id": self.id, "characters": self.characters, "worldbook_scope": self.overlay.get_worldbook_scope()}
 

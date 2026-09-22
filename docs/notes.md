@@ -10,6 +10,40 @@
 
 ## 会话
 
+### 主控角色与「角色入队」是同一次选择（2026-09-23，`feat/session-main-control`）
+
+- **口径**：会话**阵容 = 主控角色（玩家身份）+ 队友**。`SceneManager.get_roster()` 是服务端口径
+  （主控在前、按名去重，`Session.to_dict()["roster"]` 与候选范围的 roster 都用它）；
+  `get_scene_characters()` 只有队友 —— 主控由玩家自己扮演，模型不替玩家说话，
+  `tests/legacy/player_identity_opening.py` 钉住「玩家身份不得出现在场景角色里」。
+  同一角色只出现一次：主控经 `identity` 声明、队友经 `roster_character_ids` 入队，两边都不重复。
+- **创建契约**：`POST /api/sessions` 的 `identity` **显式传空 = 明确没选主控 → 400**
+  （前端向导也先拦一次）；**完全不传**该字段才回落默认「博士」，只服务不使用新流程的调用方
+  （集成脚本 / 老用例）。见 `tests/test_session_main_control.py`。
+- **预览与创建必须同口径**：候选范围的 roster 取 `get_roster()`，因此向导的 `scope-preview`
+  必须传**含主控的完整阵容**（`useRosterScopePreview(bookId, lineup, …)`），否则创建时的
+  `expected_draft_hash` 校验会判「预览已过期」并 400。这条只有带世界书的真实数据才暴露，
+  `tests/legacy/main_control_flow.py` 端到端守住（自建主控 / 世界书主控两条路径）。
+- **换主控要重算范围**：`SessionManager.set_player_identity` → `SceneManager.set_player_identity`
+  → 按新阵容 refresh。会话依赖面板（`blueprints/sessions.py` 的 `_get_managed` 与四个 PATCH）
+  也一律用 `get_roster()`；用 `get_scene_characters()` 会让面板第一次打开就把主控从快照里刷掉。
+- **来源只能看 frontmatter `worldbook_id`**：空/缺字段 = 自建，非空 = 世界书（空白串不归一，
+  与 `tests/test_document_worldbook_source.py` 一致）。`/api/characters` 已带 `name` / `summary` /
+  `worldbook_id`，前端不再为「玩家身份」另开一个接口（`/api/player-identities` 仍服务于
+  角色页的身份管理与标记，但**不再**决定谁能当主控）。
+- **已知边界**：战斗编成（`shared/helpers.build_character_metas`）仍只按**场景角色**组队，
+  主控不进战斗队伍；本次改动没动战斗侧。
+
+### `tests/legacy/player_identity_opening.py` 会删掉示例玩家身份「龙门侦探」（2026-09-23）
+
+- **现象**：跑一次该 legacy 用例后，`data/worldbooks/content/characters/龙门侦探/` 消失
+  （它是未跟踪文件，`git status` 里直接不见）。
+- **根因**：该脚本把自己的夹具建在与 `scripts/shot_roles_ui.py` 的示例身份**同一个目录**上，
+  并在 `finally` 里 `shutil.rmtree(CHAR_DIR, ignore_errors=True)`。
+- **恢复**：走 UI 同一条路径重建（`PUT /api/player-identities/龙门侦探`），内容见
+  `scripts/shot_roles_ui.py` 的 `IDENTITY`（属性 / 简介 / 标签 / 正文三段）。
+  要长期保留示例身份时，先跑截图脚本、后跑 legacy 用例，或给 legacy 用例换一个夹具目录名。
+
 ### 新建向导的「入队角色」不是只由玩家点击决定（2026-09-19，`d91f22a`）
 
 - **现象**：剧情模式下选「长夜临光」后只点了一个角色，入队却有 4～5 名。

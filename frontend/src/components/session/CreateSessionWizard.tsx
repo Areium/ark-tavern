@@ -1,11 +1,19 @@
 /**
  * 新建会话向导 — 游戏式分步创建：
- * 模式&战斗模式 → 剧情（可选） → 世界书（可选） → 角色入队（可选） → 命名创建
+ * 模式&战斗模式 → 剧情（可选） → 世界书（可选） → 主控与阵容 → 命名创建
  *
- * 阵容步骤展示的是**服务端真实解析结果**：候选统计、载入树与选用原因都来自
+ * **主控角色与角色入队是同一次选择**：玩家在「主控与阵容」这一步从同一份候选目录里
+ * 挑一个角色当主控（= 本次会话的玩家身份，一切玩家发言/视角都指向它），该角色随即
+ * 入队；队友在同一个列表里多选。候选目录来自 `/api/characters`，自建角色与世界书
+ * 角色混排并逐条标注来源（选择逻辑见 `CharacterPicker` / `utils/characterCatalog`）。
+ *
+ * 没有主控就不能创建：向导在「下一步 / 创建」前给出提示，后端对显式空 identity
+ * 同样直接 400（`blueprints/sessions.py`），不会静默落到默认身份。
+ *
+ * 阵容步骤展示的是**服务端真实解析结果**：候选统计、载入树与选用理由都来自
  * `POST /scope-preview`，前端不自己再走一遍遍历。创建会话本身不调用任何 LLM。
  *
- * 点选剧情会按该剧情的开场角色**预选**阵容（排除玩家身份与角色库中不存在的角色）。
+ * 点选剧情会按该剧情的开场角色**预选**阵容（排除主控与角色库中不存在的角色）。
  * 预选出来的角色在界面上标为「剧情预选」并在顶部显式说明——它们已经处于入队状态，
  * 点一下磁贴是取消而非选中；玩家可以逐个取消或清空重选。
  */
@@ -14,19 +22,14 @@ import { useAppStore } from "../../stores/appStore";
 import { useApi } from "../../hooks/useApi";
 import { useDialogMinimize } from "../../hooks/useDialogMinimize";
 import { useRosterScopePreview } from "../../hooks/useWorldbookDraft";
+import {
+  buildCharacterCatalog, buildLineup, mainControlError,
+  summaryText, type CharacterDoc,
+} from "../../utils/characterCatalog";
 import type { PlotInfo, WorldBookSummary, Session } from "../../types";
+import CharacterPicker from "./CharacterPicker";
+import EntityAvatar, { characterAvatarUrl } from "../roles/EntityAvatar";
 import WorldBookScopePreview from "../WorldBookScopePreview";
-
-interface CharItem {
-  id: string;
-  name: string;
-  title?: string;
-}
-
-/** 角色显示名（/api/characters 返回 title/name，兼容两者） */
-const charName = (c: CharItem) => c.name || c.title || c.id;
-/** 角色加载键：目录名（slug），后端按目录加载 */
-const charKey = (c: CharItem) => c.id || charName(c);
 
 const REASON_LABELS: Record<string, string> = {
   always: "基础设定", roster: "角色入队", requires: "必要依赖", manual: "手动追加",
@@ -45,10 +48,9 @@ interface CreateSessionWizardProps {
 
 const STEP_LABELS: Record<string, string> = {
   mode: "模式选择",
-  identity: "玩家身份",
   plot: "选择剧情",
   worldbook: "绑定世界书",
-  roster: "角色入队",
+  lineup: "主控与阵容",
   finish: "命名创建",
 };
 
@@ -61,10 +63,12 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const [step, setStep] = useState(0);
   const [mode, setMode] = useState<"story" | "free">(chatMode);
   const [combatMode, setCombatMode] = useState<"narrative" | "tactical">("narrative");
-  const [identity, setIdentity] = useState("博士");
+  /** 主控角色（= 玩家身份）；空串 = 还没选，此时不能创建会话 */
+  const [mainControl, setMainControl] = useState("");
   const [plotId, setPlotId] = useState("");
   const [worldbookId, setWorldbookId] = useState<string | null>(null);
-  const [roster, setRoster] = useState<string[]>([]);
+  /** 队友（场景 NPC）。主控不在此列：主控由 identity 单独声明，避免重复入队 */
+  const [teammates, setTeammates] = useState<string[]>([]);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -80,18 +84,23 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   // ── 数据 ──
   const [plots, setPlots] = useState<PlotInfo[]>([]);
   const [books, setBooks] = useState<WorldBookSummary[]>([]);
-  const [characters, setCharacters] = useState<CharItem[]>([]);
-  const [identities, setIdentities] = useState<{ id: string; name: string; summary: string; tags: string[] }[]>([]);
+  const [charDocs, setCharDocs] = useState<CharacterDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [plotSearch, setPlotSearch] = useState("");
-  const [charSearch, setCharSearch] = useState("");
-  const [identitySearch, setIdentitySearch] = useState("");
 
-  // 最小化：已填内容（步骤/身份/剧情/阵容/名称）保留，与关闭独立
+  // 候选目录：自建 + 世界书角色，唯一的角色数据源（主控与队友共用）
+  const catalog = useMemo(() => buildCharacterCatalog(charDocs, books), [charDocs, books]);
+  const catalogItems = catalog.items;
+  // 阵容 = 主控 + 队友（去重，主控在前）；这就是提交给后端的入队名单
+  const lineup = useMemo(() => buildLineup(mainControl, teammates), [mainControl, teammates]);
+  const mainControlItem = catalogItems.find((item) => item.key === mainControl) || null;
+  const controlError = mainControlError(mainControl, catalogItems);
+
+  // 最小化：已填内容（步骤/主控/剧情/阵容/名称）保留，与关闭独立
   const dialog = useDialogMinimize("create-session-wizard", "新建会话", open);
 
   const steps = useMemo(
-    () => (mode === "story" ? ["mode", "identity", "plot", "worldbook", "roster", "finish"] : ["mode", "identity", "worldbook", "roster", "finish"]),
+    () => (mode === "story" ? ["mode", "plot", "worldbook", "lineup", "finish"] : ["mode", "worldbook", "lineup", "finish"]),
     [mode]
   );
 
@@ -100,31 +109,16 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     return q ? plots.filter((p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)) : plots;
   }, [plots, plotSearch]);
 
-  const filteredChars = useMemo(() => {
-    const q = charSearch.trim().toLowerCase();
-    return q ? characters.filter((c) => charName(c).toLowerCase().includes(q) || c.id.toLowerCase().includes(q)) : characters;
-  }, [characters, charSearch]);
-
-  const filteredIdentities = useMemo(() => {
-    const q = identitySearch.trim().toLowerCase();
-    if (!q) return identities;
-    return identities.filter((i) =>
-      (i.name || "").toLowerCase().includes(q) ||
-      (i.summary || "").toLowerCase().includes(q) ||
-      (i.tags || []).some((t) => t.toLowerCase().includes(q))
-    );
-  }, [identities, identitySearch]);
-
   // 打开时重置并加载数据
   useEffect(() => {
     if (!open) return;
     setStep(0);
     setMode(chatMode);
     setCombatMode("narrative");
-    setIdentity("博士");
+    setMainControl("");
     setPlotId("");
     setWorldbookId(null);
-    setRoster([]);
+    setTeammates([]);
     setName("");
     setError("");
     setManualUids([]);
@@ -138,21 +132,22 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
       api.listPlots(),
       api.listWorldbooks(),
       api.getCharacters(),
-      api.getPlayerIdentities(),
-    ]).then(([p, b, c, i]) => {
+    ]).then(([p, b, c]) => {
       if (cancelled) return;
       if (p.status === "fulfilled") setPlots(p.value || []);
       if (b.status === "fulfilled") setBooks(b.value?.books || []);
-      if (c.status === "fulfilled") setCharacters(c.value || []);
-      if (i.status === "fulfilled") setIdentities(i.value || []);
+      // /api/characters 已带 name/summary/worldbook_id：自建与世界书角色都在这里
+      if (c.status === "fulfilled") setCharDocs((c.value as CharacterDoc[]) || []);
       setLoading(false);
     });
     return () => { cancelled = true; };
   }, [open, api, chatMode]);
 
-  // 阵容变化后重新解析候选范围：防抖 + 过时响应保护（旧响应不会覆盖新结果）
+  // 阵容变化后重新解析候选范围：防抖 + 过时响应保护（旧响应不会覆盖新结果）。
+  // 预览用**完整阵容**（含主控），与服务端 `SceneManager.get_roster()` 同口径，
+  // 否则创建时的指纹校验会判定预览过期。
   const { preview: scopePreview, loading: scopeLoading, error: scopeError } = useRosterScopePreview(
-    worldbookId || "", roster.filter((key) => key !== identity), manualUids, fullScope,
+    worldbookId || "", lineup, manualUids, fullScope,
     open && !!worldbookId,
   );
 
@@ -161,34 +156,53 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const current = steps[step];
   const isLast = step === steps.length - 1;
   // 当前阵容里仍保留的剧情预选角色（玩家取消掉的不再计入）
-  const presetSelected = roster.filter((key) => plotPreset.includes(key));
+  const presetSelected = lineup.filter((key) => plotPreset.includes(key));
   const plotLabel = plots.find((p) => p.id === plotId)?.name || plotId;
+  const itemName = (key: string) => catalogItems.find((item) => item.key === key)?.name || key;
 
-  const toggleRoster = (name: string) => {
-    setRoster((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
+  /** 选定主控：同时把它从队友里摘掉（同一个角色不走两条入队路径）。 */
+  const selectMainControl = (key: string) => {
+    setError("");
+    setMainControl(key);
+    setTeammates((prev) => prev.filter((item) => item !== key));
   };
 
-  /** 清空阵容：留空是合法选择，但要让玩家知道这一点的后果（见下方空阵容提示）。 */
-  const clearRoster = () => setRoster([]);
+  const toggleTeammate = (key: string) => {
+    if (key === mainControl) return;   // 主控已在阵容里，队友列表不再重复收
+    setTeammates((prev) => (prev.includes(key) ? prev.filter((n) => n !== key) : [...prev, key]));
+  };
 
-  /** 点选剧情：按剧情开场角色预选阵容，并记录预选名单用于界面标记。
+  /** 清空队友：留空是合法选择，但要让玩家知道这一点的后果（见下方空阵容提示）。 */
+  const clearTeammates = () => setTeammates([]);
+
+  /** 点选剧情：按剧情开场角色预选队友，并记录预选名单用于界面标记。
    *
-   * 预选只包含「非玩家身份」且「角色库中确实存在」的角色；服务端在收到显式
+   * 预选只包含「非主控」且「角色库中确实存在」的角色；服务端在收到显式
    * roster 时不会再用开场角色补齐，所以这里预选出来的就是最终阵容的起点。
    */
   const pickPlot = (id: string) => {
     setPlotId(id);
+    const known = new Set(catalogItems.map((item) => item.key));
     const preset = id
       ? ((plots.find((p) => p.id === id)?.initial_characters || [])
-        .filter((name) => name !== (identity || "博士") && characters.some((c) => charKey(c) === name)))
+        .filter((key) => key !== mainControl && known.has(key)))
       : [];
-    setRoster(preset);
+    setTeammates(preset);
     setPlotPreset(preset);
   };
 
   const goNext = () => {
     setError("");
+    // 主控是必选项：没选就不放行（前端先拦，后端另有兜底校验）
+    if (current === "lineup" && controlError) {
+      setError(controlError);
+      return;
+    }
     if (isLast) {
+      if (controlError) {
+        setError(controlError);
+        return;
+      }
       void handleCreate();
       return;
     }
@@ -199,11 +213,13 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     setCreating(true);
     setError("");
     try {
-      // 世界书绑定、角色入队与候选条目范围由服务端一次完成，首轮不会全量载入。
+      // 主控通过 identity 声明（它同时是阵容首位），队友通过 roster_character_ids 入队；
+      // 后端把两者合成阵容（`SceneManager.get_roster()`），同一角色只算一次。
+      // 世界书绑定、角色入队与候选条目范围由服务端完成，首轮不会全量载入。
       // 带上预览指纹：预览已过期时宁可报错，也不静默用一套不同的范围创建会话。
       const session = await api.createSession(
         mode, name.trim(), mode === "story" ? plotId : "", combatMode,
-        identity || "博士", worldbookId || "", roster, manualUids,
+        mainControl, worldbookId || "", teammates, manualUids,
         scopePreview?.draft_hash || "", fullScope,
       );
       onCreated(session);
@@ -326,94 +342,6 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
             </div>
           )}
 
-          {!loading && current === "identity" && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-gray-400">
-                  选择你的玩家身份 — 你将以该角色身份参与对话（默认：博士）
-                </p>
-                <button
-                  onClick={() => { setCharacterTab("identities"); setCurrentView("characters"); onClose(); }}
-                  className="text-[11px] px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
-                >
-                  管理玩家身份
-                </button>
-              </div>
-              {/* 默认身份：博士 */}
-              <div
-                className={`pick-card p-3 flex items-center gap-3 ${identity === "博士" ? "selected" : ""}`}
-                onClick={() => setIdentity("博士")}
-              >
-                <img
-                  src="/api/characters/博士/avatar"
-                  alt="博士"
-                  className="char-avatar"
-                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
-                />
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-gray-200">
-                    博士
-                    <span className="badge badge-narrative ml-2">默认玩家身份</span>
-                  </div>
-                  <div className="text-[10px] text-gray-500 mt-0.5 truncate">
-                    罗德岛战术指挥官 · 失忆的战场决策者
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <p className="text-[11px] text-gray-500">或从已创建的玩家身份中选择</p>
-                <input
-                  className="input text-xs w-48"
-                  placeholder="搜索身份..."
-                  value={identitySearch}
-                  onChange={(e) => setIdentitySearch(e.target.value)}
-                />
-              </div>
-              {identities.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-6">
-                  暂无自定义玩家身份，可点击右上角「管理玩家身份」创建。
-                </p>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-72 overflow-y-auto lobby-scroll pr-1">
-                  {filteredIdentities.map((i) => {
-                    const selected = identity === i.id;
-                    return (
-                      <div
-                        key={i.id}
-                        className={`char-tile p-2.5 flex flex-col items-center gap-1.5 ${selected ? "selected" : ""}`}
-                        onClick={() => setIdentity(i.id)}
-                        title={selected ? `以「${i.name}」身份参与对话` : `选择「${i.name}」作为你的身份`}
-                      >
-                        <div className="relative w-full flex justify-center">
-                          <img
-                            src={`/api/characters/${encodeURIComponent(i.id)}/avatar`}
-                            alt={i.name}
-                            className="char-avatar"
-                            onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
-                          />
-                          {selected && (
-                            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-black text-[10px] font-bold flex items-center justify-center shadow">
-                              ✓
-                            </span>
-                          )}
-                        </div>
-                        <span className={`text-xs truncate w-full text-center ${selected ? "text-amber-300 font-medium" : "text-gray-200"}`}>
-                          {i.name || i.id}
-                        </span>
-                        {selected && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-600/30 text-amber-300">
-                            我的身份
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
           {!loading && current === "plot" && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -493,90 +421,121 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
             </div>
           )}
 
-          {!loading && current === "roster" && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
+          {!loading && current === "lineup" && (
+            <div className="space-y-4">
+              {/* ① 主控角色：唯一的「玩家身份」选择入口，选中即入队 */}
+              <section className="space-y-2" aria-label="主控角色">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-gray-400">
+                    <span className="text-amber-300 font-medium">主控角色（必选）</span>
+                    {" "}— 你将以该角色身份参与对话，它同时作为入队角色加入本次会话。
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { setCharacterTab("characters"); setCurrentView("characters"); onClose(); }}
+                    className="text-[11px] px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+                  >
+                    去角色库创建角色
+                  </button>
+                </div>
+
+                {mainControlItem ? (
+                  <div className="pick-card p-3 flex items-center gap-3 selected">
+                    <EntityAvatar name={mainControlItem.name} src={characterAvatarUrl(mainControlItem.key)} size={40} />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-gray-200 truncate">
+                        {mainControlItem.name}
+                        <span className="badge badge-narrative ml-2">本次主控 · 玩家身份</span>
+                        <span className="badge badge-wb ml-1.5">已入队</span>
+                      </div>
+                      <div className="text-[10px] text-gray-500 mt-0.5 truncate">{summaryText(mainControlItem)}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setMainControl("")}
+                      className="text-[11px] text-gray-400 hover:text-gray-200 px-2 py-1 rounded bg-gray-700/60"
+                    >
+                      取消选择
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-amber-300" role="alert">
+                    还没选主控：选一个角色才能创建会话（它会是你的玩家身份，并同时入队）。
+                  </p>
+                )}
+
+                <CharacterPicker
+                  items={catalogItems}
+                  mode="single"
+                  selected={mainControl ? [mainControl] : []}
+                  onSelect={selectMainControl}
+                  preferredBookId={worldbookId}
+                  skippedCount={catalog.skipped}
+                  selectedBadge="本次主控"
+                  searchPlaceholder="搜索角色（自建 / 世界书）..."
+                  emptyText="暂无可用角色，可前往「角色」页面导入角色卡"
+                  listClassName="max-h-60"
+                />
+              </section>
+
+              {/* ② 队友入队：与主控共用同一份候选目录与选择逻辑 */}
+              <section className="space-y-2 pt-1 border-t border-gray-700/60" aria-label="队友入队">
                 <p className="text-xs text-gray-400">
-                  选择入队角色（可选）{roster.length > 0 && <span className="text-amber-300">
-                    {" "}— 已选 {roster.length} 名
+                  <span className="text-gray-200 font-medium">队友入队（可选）</span>
+                  {" "}— 一起进入场景的其他角色
+                  {teammates.length > 0 && <span className="text-amber-300">
+                    {" "}— 已选 {teammates.length} 名
                     {presetSelected.length > 0 && <span className="text-cyan-300">（其中剧情预选 {presetSelected.length} 名）</span>}
                   </span>}
                 </p>
-                <input
-                  className="input text-xs w-48"
-                  placeholder="搜索角色..."
-                  value={charSearch}
-                  onChange={(e) => setCharSearch(e.target.value)}
-                />
-              </div>
 
-              {plotPreset.length > 0 && (
-                <div className={`wbg-notice ${roster.length === 0 ? "wbg-warn" : "wbg-ok"} rounded-md`} role="status">
-                  <span>
-                    《{plotLabel}》已按剧情开场角色自动预选 <b>{plotPreset.length}</b> 名，
-                    磁贴上标为「<span className="text-cyan-300">剧情预选</span>」。
-                    <b>它们已经处于入队状态</b>，点一下磁贴是取消而不是选中；不想要就逐个点掉，或直接清空重选。
-                  </span>
-                  {roster.length > 0 && (
-                    <button type="button" onClick={clearRoster}>清空阵容</button>
-                  )}
-                </div>
-              )}
-
-              {roster.length === 0 && (
-                <p className="text-[11px] text-amber-300" role="alert">
-                  {mode === "story" && plotId
-                    ? "阵容为空：本次会话不会载入任何角色。剧情开场角色只在未指定阵容时由服务端补齐，这里显式留空就不会补。"
-                    : "阵容为空：本次会话不会载入任何角色，创建后可到会话大厅的「角色阵容」入队。"}
-                </p>
-              )}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-72 overflow-y-auto lobby-scroll pr-1">
-                {filteredChars.map((c) => {
-                  const key = charKey(c);
-                  const selected = roster.includes(key);
-                  const preselected = plotPreset.includes(key);
-                  return (
-                    <div
-                      key={c.id}
-                      className={`char-tile p-2.5 flex flex-col items-center gap-1.5 ${selected ? "selected" : ""}`}
-                      onClick={() => toggleRoster(key)}
-                      title={selected
-                        ? `${preselected ? "剧情预选（点一下取消）" : "已入队"}：${charName(c)}`
-                        : `点击将 ${charName(c)} 入队`}
-                    >
-                      <div className="relative w-full flex justify-center">
-                        <img
-                          src={`/api/characters/${encodeURIComponent(key)}/avatar`}
-                          alt={charName(c)}
-                          className="char-avatar"
-                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
-                        />
-                        {selected && (
-                          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-black text-[10px] font-bold flex items-center justify-center shadow">
-                            ✓
-                          </span>
-                        )}
-                      </div>
-                      <span className={`text-xs truncate w-full text-center ${selected ? "text-amber-300 font-medium" : "text-gray-200"}`}>
-                        {charName(c)}
-                      </span>
-                      {selected && (
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
-                          preselected ? "bg-cyan-600/20 text-cyan-300" : "bg-amber-600/30 text-amber-300"}`}>
-                          {preselected ? "剧情预选" : "已入队"}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-                {filteredChars.length === 0 && (
-                  <p className="text-gray-500 text-sm col-span-full text-center py-6">暂无可用角色，可前往「资产」页面导入角色卡</p>
+                {plotPreset.length > 0 && (
+                  <div className={`wbg-notice ${teammates.length === 0 ? "wbg-warn" : "wbg-ok"} rounded-md`} role="status">
+                    <span>
+                      《{plotLabel}》已按剧情开场角色自动预选 <b>{plotPreset.length}</b> 名，
+                      磁贴上标为「<span className="text-cyan-300">剧情预选</span>」。
+                      <b>它们已经处于入队状态</b>，点一下磁贴是取消而不是选中；不想要就逐个点掉，或直接清空重选。
+                    </span>
+                    {teammates.length > 0 && (
+                      <button type="button" onClick={clearTeammates}>清空队友</button>
+                    )}
+                  </div>
                 )}
-              </div>
 
-              {!worldbookId && <p className="text-[11px] text-gray-500">
-                未绑定世界书：阵容不会影响设定载入。上一步可以选一本世界书。
-              </p>}
+                {teammates.length === 0 && (
+                  <p className="text-[11px] text-amber-300" role="alert">
+                    {mode === "story" && plotId
+                      ? "队友为空：本次会话只会载入主控角色。剧情开场角色只在未指定阵容时由服务端补齐，这里显式留空就不会补。"
+                      : "队友为空：本次会话只载入主控角色，创建后可到会话大厅的「角色阵容」入队。"}
+                  </p>
+                )}
+
+                <CharacterPicker
+                  items={catalogItems}
+                  mode="multi"
+                  selected={teammates}
+                  onSelect={toggleTeammate}
+                  lockedKeys={mainControl ? [mainControl] : []}
+                  lockedLabel="主控（已在阵容）"
+                  preferredBookId={worldbookId}
+                  selectedBadge="已入队"
+                  searchPlaceholder="搜索队友（自建 / 世界书）..."
+                  emptyText="暂无可用角色，可前往「角色」页面导入角色卡"
+                  listClassName="max-h-60"
+                />
+              </section>
+
+              {/* ③ 阵容 → 候选范围（服务端真实解析） */}
+              <section className="space-y-2" aria-label="本次阵容">
+                <p className="text-[11px] text-gray-500">
+                  本次阵容 {lineup.length} 名：{lineup.length
+                    ? lineup.map((key) => itemName(key) + (key === mainControl ? "（主控）" : (plotPreset.includes(key) ? "（剧情预选）" : ""))).join("、")
+                    : "（空）"}
+                </p>
+                {!worldbookId && <p className="text-[11px] text-gray-500">
+                  未绑定世界书：阵容不会影响设定载入。上一步可以选一本世界书。
+                </p>}
+              </section>
 
               {worldbookId && <div className="wbg-card space-y-3" aria-label="候选范围">
                 <div className="wbg-card-head">
@@ -711,7 +670,9 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   <span className={`badge ${mode === "story" ? "badge-story" : "badge-free"}`}>
                     {mode === "story" ? "📖 剧情模式" : "🕊️ 自由模式"}
                   </span>
-                  <span className="badge badge-narrative">🎭 玩家身份：{identity || "博士"}</span>
+                  <span className="badge badge-narrative">
+                    🎭 主控（玩家身份）：{mainControl ? itemName(mainControl) : "未选择"}
+                  </span>
                   <span className={`badge ${combatMode === "tactical" ? "badge-tactical" : "badge-narrative"}`}>
                     {combatMode === "tactical" ? "⚔️ 战术模式" : "📜 纯剧情"}
                   </span>
@@ -721,17 +682,17 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   {worldbookId && (
                     <span className="badge badge-wb">📖 {books.find((b) => b.id === worldbookId)?.name || worldbookId}</span>
                   )}
-                  {roster.length > 0 && (
+                  {lineup.length > 0 && (
                     <>
-                      <span className="badge badge-narrative">👥 已入队 {roster.length} 名</span>
+                      <span className="badge badge-narrative">👥 阵容 {lineup.length} 名（含主控）</span>
                       {presetSelected.length > 0 && (
                         <span className="badge badge-wb">🗺 剧情预选 {presetSelected.length} 名</span>
                       )}
                       <p className="text-[11px] text-gray-400 w-full mt-1">
-                        角色：{roster.map((k) => {
-                          const c = characters.find((x) => charKey(x) === k);
-                          return (c ? charName(c) : k) + (plotPreset.includes(k) ? "（剧情预选）" : "");
-                        }).join("、")}
+                        角色：{lineup.map((key) =>
+                          itemName(key)
+                          + (key === mainControl ? "（主控）" : (plotPreset.includes(key) ? "（剧情预选）" : ""))
+                        ).join("、")}
                       </p>
                     </>
                   )}
@@ -748,13 +709,15 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-700/70 shrink-0">
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-gray-700/70 shrink-0">
           <button
             onClick={onClose}
             className="text-xs text-gray-500 hover:text-gray-300 px-3 py-1.5 rounded transition-colors"
           >
             取消
           </button>
+          {/* 错误条：任何步骤的提示都在按钮旁可见（例如「还没选主控」） */}
+          {error && <p className="text-xs text-red-400 flex-1 text-right" role="alert">{error}</p>}
           <div className="flex items-center gap-2">
             {step > 0 && (
               <button
@@ -767,7 +730,8 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
             )}
             <button
               onClick={goNext}
-              disabled={creating}
+              disabled={creating || (isLast && !!controlError)}
+              title={isLast && controlError ? controlError : undefined}
               className={`btn px-6 py-2 text-sm ${isLast ? "btn-hero" : "bg-blue-600 hover:bg-blue-500 text-white"}`}
             >
               {creating ? "创建中..." : isLast ? "创建并进入" : "下一步"}

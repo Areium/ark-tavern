@@ -186,7 +186,8 @@ class SceneManager:
     _MAX_SCENE_LOG = 20
 
     def __init__(self, llm, registry, overlay=None, wiki_manager=None, session_context=None,
-                 combat_mode: str = "narrative", worldbook_manager=None):
+                 combat_mode: str = "narrative", worldbook_manager=None,
+                 player_identity: str = ""):
         self._llm = llm
         self._registry = registry
         self._overlay = overlay  # SessionOverlay instance
@@ -194,6 +195,8 @@ class SceneManager:
         self._session_context = session_context
         self._combat_mode = combat_mode
         self._worldbook_manager = worldbook_manager  # WorldBookManager | None
+        # 主控角色（玩家身份）：阵容成员，但**不是**场景 NPC（见 get_roster）
+        self.player_identity = (player_identity or "").strip()
 
         # {name: CharacterAgent}
         self._agents: dict[str, CharacterAgent] = {}
@@ -251,8 +254,34 @@ class SceneManager:
         return True
 
     def get_scene_characters(self) -> list[str]:
-        """返回场景中所有角色名。"""
+        """返回场景中所有角色名（= 队友 NPC，不含主控角色）。"""
         return list(self._agents.keys())
+
+    def get_roster(self) -> list[str]:
+        """返回会话阵容：主控角色在前，其后是场景中的队友 NPC，按名去重。
+
+        阵容与「场景角色」是两个不同口径，不能合并：
+        - **阵容**是内容口径：谁参加了这次会话。主控角色也是阵容成员，它的世界书
+          条目要按 roster 规则载入，前端阵容列表也只显示这一份（不会重复一条）。
+        - **场景角色**是叙事口径：`_agents` 里只有队友。主控由玩家自己扮演，
+          模型不该替玩家说话，所以主控永远不在此列（见 legacy 用例
+          `tests/legacy/player_identity_opening.py`）。
+        """
+        roster = [self.player_identity] if self.player_identity else []
+        roster.extend(self._agents.keys())
+        return list(dict.fromkeys(roster))
+
+    def set_player_identity(self, name: str) -> None:
+        """更新主控角色，并按新阵容重算候选范围。
+
+        主控换了，属于旧主控的 roster 条目应当退出、新主控的条目应当进来，
+        因此这里必须刷新，而不是只改一个字段。
+        """
+        name = (name or "").strip()
+        if name == self.player_identity:
+            return
+        self.player_identity = name
+        self._refresh_worldbook_scope()
 
     # ── 世界书 ──
 
@@ -379,18 +408,20 @@ class SceneManager:
         book = self._resolve_worldbook()
         if not book:
             return
+        # 阵容口径（主控 + 队友），不是场景角色口径：主控的条目也要跟着载入
+        roster = self.get_roster()
         try:
             updater = getattr(self._overlay, "update_worldbook_scope", None)
             if updater:
                 updater(lambda current: (
-                    book.refresh_session_scope(current, self.get_scene_characters())
+                    book.refresh_session_scope(current, roster)
                     if current is not None else None))
             else:
                 # 兼容旧 overlay / 外部实现；内置 SessionOverlay 始终走上面的原子路径。
                 scope = self._overlay.get_worldbook_scope()
                 if scope is not None:
                     self._overlay.set_worldbook_scope(
-                        book.refresh_session_scope(scope, self.get_scene_characters()))
+                        book.refresh_session_scope(scope, roster))
         except (TypeError, ValueError) as exc:
             logger.warning("重算世界书范围失败，保留原快照: %s", exc)
             return

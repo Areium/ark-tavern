@@ -1465,7 +1465,8 @@ def register(app, managers):
             # 资料库只供浏览/检索/摘录，绑定会话会改变会话的解析结果 → 明确拒绝
             if book.is_reference:
                 return json_error("资料库不能绑定到会话；请选择一本剧情世界书", 409)
-            roster = session.scene_manager.get_scene_characters()
+            # 阵容口径（主控 + 队友）：换绑书时主控的条目也要跟着进来
+            roster = session.scene_manager.get_roster()
             # v3 书绑定完整规则快照（不只是版本号），会话可据此恢复它创建时的规则。
             scope = (book.session_scope_snapshot(roster) if book.v3_enabled
                      else book.resolve_import_scope(roster))

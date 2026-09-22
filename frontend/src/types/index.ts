@@ -33,7 +33,13 @@ export interface Session {
   worldbook_scope?: WorldBookScopeDTO | null;
   created_at: number;
   usable: boolean;
+  /** 场景角色（NPC 队友）。主控角色不在其中：它由 `player_identity` 声明 */
   characters: string[];
+  /**
+   * 会话阵容：主控角色在前 + 队友，已去重（后端 `SceneManager.get_roster()`）。
+   * 阵容列表显示这一份，同一角色不会因「身份」与「入队」两条路径出现两次。
+   */
+  roster?: string[];
   character_colors: Record<string, string>;
   active_character: string | null;
   environment: {

@@ -91,6 +91,8 @@ class Session:
             wiki_manager=wiki_manager, session_context=self.wiki_context,
             combat_mode=self.combat_mode,
             worldbook_manager=worldbook_manager,
+            # 主控角色：与场景 NPC 一起构成阵容，但自己不是 NPC
+            player_identity=self.player_identity,
         )
         self.environment = EnvironmentState()
         self.environment.load_default()
@@ -654,9 +656,12 @@ class Session:
             "created_at": self.created_at,
             "usable": self.is_usable,
             "characters": self.scene_manager.get_scene_characters(),
+            # 阵容（主控 + 队友）：前端阵容列表与候选范围都用这一份，
+            # 主控只出现一次，不会因为「身份」与「入队」两条路径重复。
+            "roster": self.scene_manager.get_roster(),
             "character_colors": {
                 name: c
-                for name in self.scene_manager.get_scene_characters()
+                for name in self.scene_manager.get_roster()
                 if (c := get_theme_color(name))
             },
             "active_character": self.scene_manager.active,
@@ -1015,13 +1020,18 @@ class SessionManager:
             return False
 
     def set_player_identity(self, session_id: str, identity: str) -> bool:
-        """设置会话的玩家身份角色，并持久化到 session.json。"""
+        """设置会话的主控角色，并持久化到 session.json。
+
+        主控同时是阵容成员：它的世界书条目按 roster 规则载入，因此换主控要顺带
+        重算候选范围（由 `SceneManager.set_player_identity` 负责）。
+        """
         identity = (identity or "").strip() or "博士"
         with self._lock:
             session = self._sessions.get(session_id)
             if not session:
                 return False
             session.player_identity = identity
+            session.scene_manager.set_player_identity(identity)
             self._save_session_meta(session)
             return True
 

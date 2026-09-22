@@ -125,8 +125,16 @@ def register(app, managers):
                 resolved = _resolve_plot_dir(plot_id) or plot_id
                 plot_name = resolved
 
-        # 玩家身份角色（用户自身，默认"博士"）
-        player_identity = str(data.get("identity", "") or "").strip() or "博士"
+        # 主控角色（用户自身扮演的角色）：与角色入队合并为同一次选择。
+        # 走该流程的客户端**总是**显式带上 identity；显式传空 = 明确没选 → 拒绝创建
+        # （前端也会先拦一次，这里兜底，避免绕过 UI 建出没有主控的会话）。
+        # 完全不传该字段只留给不使用该流程的调用方（集成脚本 / 老测试），沿用默认「博士」。
+        if "identity" not in data:
+            player_identity = "博士"
+        else:
+            player_identity = str(data.get("identity") or "").strip()
+            if not player_identity:
+                return json_error("必须选择主控角色：identity 不能为空")
 
         worldbook_id = str(data.get("worldbook_id", "") or "").strip()
         roster = data.get("roster_character_ids", [])
@@ -158,7 +166,9 @@ def register(app, managers):
                 if character != player_identity and not session.scene_manager.load_character(character):
                     raise ValueError(f"无法加载入队角色：{character}")
             # 以**实际加载成功**的阵容解析候选范围（加载失败的角色已在上面抛错）。
-            roster_ids = session.scene_manager.get_scene_characters()
+            # 阵容 = 主控 + 队友：主控也是入队角色，它的条目按 roster 规则载入，
+            # 但主控不是场景 NPC（scene_manager 里只有队友），同一角色只算一次。
+            roster_ids = session.scene_manager.get_roster()
             # 「本次会话全量兼容」是显式选择，只作用于这个会话，不改这本书的规则。
             full_scope = bool(data.get("full_scope"))
             if book is not None:
@@ -306,7 +316,7 @@ def register(app, managers):
             book_id, book = _session_book(session)
             if not book:
                 return session, None, None, json_error("会话未绑定可用世界书", 404)
-            roster = session.scene_manager.get_scene_characters()
+            roster = session.scene_manager.get_roster()
             try:
                 current = session.overlay.get_worldbook_scope()
                 needs_refresh = (not isinstance(current, dict)
@@ -349,11 +359,11 @@ def register(app, managers):
             try:
                 def update(current):
                     managed = ensure_editable_scope(
-                        current, book, session.scene_manager.get_scene_characters())
+                        current, book, session.scene_manager.get_roster())
                     changed = change_relation(managed, a, b, data.get("relation"), expected,
                         bool(data.get("enable_source_expansion")))
                     return book.refresh_session_scope(
-                        changed, session.scene_manager.get_scene_characters())
+                        changed, session.scene_manager.get_roster())
                 scope = session.overlay.update_worldbook_scope(update)
             except RuntimeError as exc:
                 return json_error(str(exc), 409)
@@ -393,11 +403,11 @@ def register(app, managers):
             try:
                 def update(current):
                     managed = ensure_editable_scope(
-                        current, book, session.scene_manager.get_scene_characters())
+                        current, book, session.scene_manager.get_roster())
                     changed = change_entry_override(
                         managed, entry_uid, data["enabled"], expected)
                     return book.refresh_session_scope(
-                        changed, session.scene_manager.get_scene_characters())
+                        changed, session.scene_manager.get_roster())
                 scope = session.overlay.update_worldbook_scope(update)
             except RuntimeError as exc:
                 return json_error(str(exc), 409)
@@ -422,11 +432,11 @@ def register(app, managers):
             try:
                 def update(current):
                     managed = ensure_editable_scope(
-                        current, book, session.scene_manager.get_scene_characters())
+                        current, book, session.scene_manager.get_roster())
                     changed = restore_inheritance(managed, expected,
                         data.get("from_uid"), data.get("to_uid"))
                     return book.refresh_session_scope(
-                        changed, session.scene_manager.get_scene_characters())
+                        changed, session.scene_manager.get_roster())
                 scope = session.overlay.update_worldbook_scope(update)
             except RuntimeError as exc:
                 return json_error(str(exc), 409)
@@ -458,12 +468,12 @@ def register(app, managers):
             try:
                 def update(current):
                     managed = ensure_editable_scope(
-                        current, book, session.scene_manager.get_scene_characters())
+                        current, book, session.scene_manager.get_roster())
                     preview = preview_inheritance_update(managed, book)
                     changed = apply_inheritance_update(
                         managed, preview, expected, str(data.get("preview_hash") or ""))
                     return book.refresh_session_scope(
-                        changed, session.scene_manager.get_scene_characters())
+                        changed, session.scene_manager.get_roster())
                 scope = session.overlay.update_worldbook_scope(update)
             except RuntimeError as exc:
                 return json_error(str(exc), 409)

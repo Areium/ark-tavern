@@ -132,6 +132,8 @@ class FakeSession:
         self.scene_manager = type("Scene", (), {
             "load_character": lambda _s, name: self.characters.append(name) is None,
             "get_scene_characters": lambda _s: list(self.characters),
+            # 替身没有 player_identity：阵容 = 场景角色（与真实实现同规则）
+            "get_roster": lambda _s: list(self.characters),
         })()
     def to_dict(self):
         return {"id": self.id, "worldbook_scope": self.overlay.get_worldbook_scope(),

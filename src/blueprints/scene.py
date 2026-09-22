@@ -36,16 +36,21 @@ def register(app, managers):
 
     @bp.route("/api/sessions/<session_id>/characters", methods=["GET"])
     def list_scene_characters(session_id: str):
-        """获取当前场景中的角色列表。"""
+        """获取当前场景中的角色列表。
+
+        `characters` 仍是场景 NPC 口径（主控不在其中，模型不替玩家说话）；
+        阵容（含主控）看 `session.to_dict()["roster"]`。
+        """
         session = _get_session(session_mgr, session_id)
         if not session:
             return json_error("会话不存在", 404)
         chars = session.scene_manager.get_scene_characters()
         return jsonify({
             "characters": chars,
+            "roster": session.scene_manager.get_roster(),
             "active": session.scene_manager.active,
             "character_colors": {
-                name: c for name in chars
+                name: c for name in session.scene_manager.get_roster()
                 if (c := get_theme_color(name))
             },
         })

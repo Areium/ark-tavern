@@ -318,6 +318,8 @@ def session_api(tmp_path, monkeypatch):
             self.scene_manager = type("S", (), {
                 "load_character": staticmethod(load),
                 "get_scene_characters": lambda s: self.characters,
+                # 这个替身没有 player_identity，阵容就等于场景角色（与真实实现同规则）
+                "get_roster": lambda s: list(self.characters),
             })()
 
         def to_dict(self):
