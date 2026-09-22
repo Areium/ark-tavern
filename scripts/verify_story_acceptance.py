@@ -96,7 +96,7 @@ def run_model(args, report):
             write_report(args.out, report)
             return 2
         report["model"] = getattr(llm, "model", None) or audit_config().get("cloud_model")
-        # Fresh installation from this checkout's data/packs, not the user's
+        # Fresh installation from this checkout's data/worldbooks/packs, not the user's
         # possibly edited data/worldbooks or existing sessions/dependency jobs.
         session = create_story(ctx, combat_mode="tactical", worldbook_id="arknights")
         report["worldbook_id"] = session.overlay.get_worldbook_id()

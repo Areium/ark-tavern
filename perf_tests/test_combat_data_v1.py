@@ -1,6 +1,6 @@
 """
-战斗数据层集成测试（v1）：敌人（`data/enemies/*.md`）与战斗节点
-（`data/combat/nodes/*.json`）→ 加载器 → CombatUnit/引擎。
+战斗数据层集成测试（v1）：敌人（`data/worldbooks/content/enemies/*.md`）与战斗节点
+（`data/worldbooks/content/combat/nodes/*.json`）→ 加载器 → CombatUnit/引擎。
 
 覆盖 design §8.1 / §10.2 的新字段贯通，以及 §12 硬性测试
 「敌人声明的行动槽与实际每轮动作数一致」「敌人 XP 与威胁点单调相关」。
@@ -23,8 +23,8 @@ if os.path.join(_ROOT, "src") not in sys.path:
 import frontmatter  # noqa: E402
 from combat_data_loader import CombatDataLoader  # noqa: E402
 
-ENEMY_DIR = os.path.join(_ROOT, "data", "enemies")
-NODE_DIR = os.path.join(_ROOT, "data", "combat", "nodes")
+ENEMY_DIR = os.path.join(_ROOT, "data", "worldbooks", "content", "enemies")
+NODE_DIR = os.path.join(_ROOT, "data", "worldbooks", "content", "combat", "nodes")
 
 
 def _enemy_files():
@@ -140,7 +140,7 @@ class EncounterDataTests(unittest.TestCase):
     def test_plot_combat_markers_resolve(self):
         """剧情节拍里的 `[COMBAT:<id>]` 必须都能解析到节点（转换后 id 不变）。"""
         loader = CombatDataLoader()
-        plot_dir = os.path.join(_ROOT, "data", "plots")
+        plot_dir = os.path.join(_ROOT, "data", "worldbooks", "content", "plots")
         for path in sorted(glob.glob(os.path.join(plot_dir, "*", "index.md"))):
             with open(path, "r", encoding="utf-8") as f:
                 text = f.read()

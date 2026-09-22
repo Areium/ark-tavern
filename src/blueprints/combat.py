@@ -6,7 +6,8 @@ import json
 import uuid
 import time
 import logging
-from pathlib import Path
+
+from data_paths import CONTENT_ROOT
 
 from flask import Blueprint, jsonify, request
 
@@ -33,10 +34,6 @@ from combat_settlement import (
 
 logger = logging.getLogger(__name__)
 
-# Project root for loading test combat config
-_project_root = Path(__file__).resolve().parent.parent.parent
-
-
 def _get_session(session_mgr, session_id):
     """Retrieve a session by id, or return None."""
     session = session_mgr.get_session(session_id)
@@ -49,7 +46,7 @@ def _load_combat_test_config() -> dict:
     """Load the combat test plot config from data/plots/combat-test/index.md."""
     import frontmatter
 
-    plot_path = _project_root / "data" / "plots" / "combat-test" / "index.md"
+    plot_path = CONTENT_ROOT / "plots" / "combat-test" / "index.md"
     if not plot_path.exists():
         raise ValueError("战斗测试配置文件不存在: data/plots/combat-test/index.md")
     with open(plot_path, "r", encoding="utf-8") as f:

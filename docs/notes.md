@@ -14,7 +14,7 @@
 
 - **现象**：剧情模式下选「长夜临光」后只点了一个角色，入队却有 4～5 名。
 - **根因**：点选剧情磁贴时会用该剧情 frontmatter 的 `initial_characters` **覆盖** roster
-  （`CreateSessionWizard.tsx` 的 `pickPlot`）。`data/plots/near-light/index.md` 的开场角色是
+  （`CreateSessionWizard.tsx` 的 `pickPlot`）。`data/worldbooks/content/plots/near-light/index.md` 的开场角色是
   临光、瑕光、砾、阿米娅、玛恩纳·临光 共 5 名，点剧情即预勾 5 个；预勾磁贴与玩家自选原先
   完全同款，点一下已预勾的角色其实是在**取消**（5 − 1 = 4）。
 - **现状口径**：
@@ -41,6 +41,9 @@
   `xfail` 表示缺陷复现，不能计入通过。战斗模拟 120 次通过结构/执行检查，但普通战压力偏低。
 - **证据**：[完整功能矩阵与修复顺序](qa/2026-09-20-story-audit.md)、
   [剧情设计](scenarios/greybridge-echoes/README.md)、`tests/test_greybridge_acceptance.py`。
+- **后续修正（2026-09-22，`feat/worldbook-data-layout`）**：DocumentManager 已补平铺 Markdown
+  的读取回退，QA-07（`急救包.md` 可列出但详情 404）随数据布局迁移修复；本节列出的其余剧情缺陷
+  未因该修复自动关闭，仍以各自验收用例为准。
 
 ## 测试
 
@@ -91,3 +94,19 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
   混用会让 `card_calls` 断言假失败。
 - v3 状态断言：普通保存应断言「保存前后 v3 状态一致」（`after.v3_enabled == original.v3_enabled`），
   不要硬编码 `not after.v3_enabled` —— 预装书早已是 v3。
+
+## 数据布局
+
+### 世界书内容与运行时书文件分层（2026-09-22，`feat/worldbook-data-layout`）
+
+- **现象**：旧布局把随程序分发的角色、剧情、战斗、音频等内容散放在 `data/` 根目录，
+  同时把用户书和设置放在 `data/worldbooks/`，路径职责不清且打包、迁移容易漏项。
+- **现状口径**：13 个分发内容目录统一位于 `data/worldbooks/content/`；预装包位于
+  `data/worldbooks/packs/`；`categories.yaml` 留在 `data/` 根目录；用户书 JSON、
+  `settings.json`、备份和会话数据保持原位。环境内容只有 `Location/` 与 `weather/`，
+  时段预设仍是代码内置列表，不存在 `environment/time/` 目录。
+- **迁移限制**：`scripts/migrate_data_layout.py` 默认仅预览，`--apply` 在全部目标无内容冲突时才移动；
+  可中断重跑，但不会覆盖不同内容，也不会重新生成预装包或刷新已安装书。运行迁移前应停止应用，
+  冲突需人工确认后再重跑。
+- **证据**：`tests/test_data_layout.py` 覆盖 Document/Wiki 与内容 API、素材 URL、临时候选剧情、
+  战斗节点提示刷新、背景引用和生成器临时输出；迁移行为由 `tests/test_data_layout_migration.py` 覆盖。

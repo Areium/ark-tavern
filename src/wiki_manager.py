@@ -19,6 +19,7 @@ import logging
 
 import yaml
 import frontmatter
+from data_paths import categories_path, data_root
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ class WikiManager:
 
     def _build_catalog(self):
         """扫描 categories.yaml 所有类别，解析 frontmatter 构建全量索引。"""
-        yaml_path = os.path.join(self._root, "data", "categories.yaml")
+        yaml_path = categories_path(self._root)
         if not os.path.isfile(yaml_path):
             logger.warning("categories.yaml 未找到: %s", yaml_path)
             return
@@ -62,7 +63,7 @@ class WikiManager:
             if dir_rel.startswith("data/"):
                 full_dir = os.path.join(self._root, dir_rel)
             else:
-                full_dir = os.path.join(self._root, "data", dir_rel)
+                full_dir = os.path.join(data_root(self._root), dir_rel)
             if os.path.isdir(full_dir):
                 self._scan_category(cat_name, full_dir)
 

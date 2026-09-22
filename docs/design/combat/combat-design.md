@@ -22,15 +22,15 @@ combat_session.py（会话包装：生命周期/玩家操作/奖励回写/SSE �
         │       ├── card_json_loader.py —— cards.json → 卡牌实例（唯一真相源，带缓存）
         │       └── dice.py           —— d20 命中/伤害/治疗判定
         │
-        └── combat_data_loader.py —— 敌人/节点/背景加载（节点与背景 `data/combat/` · 敌人 `data/enemies/`）
+        └── combat_data_loader.py —— 敌人/节点/背景加载（节点与背景 `data/worldbooks/content/combat/` · 敌人 `data/worldbooks/content/enemies/`）
 ```
 
 数据源：
-- 敌人：`data/enemies/*.md`（frontmatter `name/class/combat_stats/drop_items/drop_rate/xp_reward`）
-- 战斗节点：`data/combat/nodes/<node_id>.json`（地图/波次/条件/奖励/打法/剧情节拍绑定）
-- 格子类型：`data/combat/tiles/<tile_id>.json`（可扩展地形与格子效果；内置 ground/wall/cover/high_ground/hazard_fire）
-- 背景：`data/combat/backgrounds/<bg_id>/index.md` + 图片
-- 卡牌：`data/characters/<角色>/combat.json`（专属）+ `data/classes/<职业>/cards.json`（职业池）
+- 敌人：`data/worldbooks/content/enemies/*.md`（frontmatter `name/class/combat_stats/drop_items/drop_rate/xp_reward`）
+- 战斗节点：`data/worldbooks/content/combat/nodes/<node_id>.json`（地图/波次/条件/奖励/打法/剧情节拍绑定）
+- 格子类型：`data/worldbooks/content/combat/tiles/<tile_id>.json`（可扩展地形与格子效果；内置 ground/wall/cover/high_ground/hazard_fire）
+- 背景：`data/worldbooks/content/combat/backgrounds/<bg_id>/index.md` + 图片
+- 卡牌：`data/worldbooks/content/characters/<角色>/combat.json`（专属）+ `data/worldbooks/content/classes/<职业>/cards.json`（职业池）
 
 ## 2. 战场（自由尺寸 + 地形）
 
@@ -72,7 +72,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 - 移动：**1 个人 AP 可移动最多 `mobility // 2`（曼哈顿格）**；斜向一步记 2 格，绕地形按 Dijkstra 代价。
 - 出牌/移动都先经 `validate_card_play` / `validate_move` 预检（AP、回合、卡牌归属、职业限制、
   射程与合法目标）；拒绝时不消耗任何资源、不弃牌。
-- 战斗态不跨进程保存；升级收益与难度参数由 `data/combat/rules/{growth,difficulty}.json` 配置（按 mtime 热加载）。
+- 战斗态不跨进程保存；升级收益与难度参数由 `data/worldbooks/content/combat/rules/{growth,difficulty}.json` 配置（按 mtime 热加载）。
 
 ## 5. 命中 / 伤害 / 治疗
 
@@ -89,7 +89,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 ## 7. 卡牌
 
 - **9 职业 × 8 张（5 basic + 3 elite）= 72 张**；每角色起始卡组 7 张（5 basic + 2 elite）。
-- **单一真相源（v1）**：运行时卡表只读 `data/classes/<职业>/cards.json`
+- **单一真相源（v1）**：运行时卡表只读 `data/worldbooks/content/classes/<职业>/cards.json`
   （`card_json_loader.py` 带缓存，`card_data.py` 为薄封装）。
   `blueprints/cards.py` 写盘后调用 `clear_cache()` 刷新；`perf_tests/test_card_json_roundtrip.py`
   验证 JSON 与迁移前硬编码表的结构等价，`perf_tests/fixtures/cards_python_snapshot.json` 是迁移基线。
@@ -131,7 +131,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 
 ## 10. 消耗品与奖励
 
-- **已实现战斗消耗品**：物品 frontmatter `combat_effect: {type: heal}`，使用消耗 1 共享 AP（如 `data/items/急救包.md`）。
+- **已实现战斗消耗品**：物品 frontmatter `combat_effect: {type: heal}`，使用消耗 1 共享 AP（如 `data/worldbooks/content/items/急救包.md`）。
 - **奖励结算（v1）**：
   `XP = (遭遇 rewards.xp + 0.35 × Σ 敌人 xp_reward) × 打法倍率`；
   打法倍率钳制在 **0.75–1.20**（突袭上限 1.20、谈判下限 0.75；撤退 ≤0.25 保留低倍率）。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从 Ark-Models 导入角色/敌人 spine 到 data/characters/<名>/spine/<variant>/Front|Back/。
+"""从 Ark-Models 导入角色/敌人 spine 到 data/worldbooks/content/characters/<名>/spine/<variant>/Front|Back/。
 
 命名转换：Ark-Models 的 build_char_<key>.{atlas,png,skel} → <variant>.{atlas,png,skel}
 其中 variant 是前端 SPINE_VARIANT / ENEMY_SPINE_VARIANT 的值（char_ 前缀，# → _）。
@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 ARK_REPO = os.path.join("assets", "_ark_models_tmp")
-DEST = os.path.join("data", "characters")
+DEST = os.path.join("data", "worldbooks", "content", "characters")
 
 # 中文名 → (Ark-Models key, 前端 variant 名)
 MAPPING = {

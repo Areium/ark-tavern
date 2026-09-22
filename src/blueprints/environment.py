@@ -2,21 +2,18 @@
 Environment blueprint — 环境状态管理、预设列表、任务系统。
 """
 
-import os
 import logging
-from pathlib import Path
 
 import frontmatter
 from flask import Blueprint, jsonify, request
+from data_paths import PROJECT_ROOT, content_root
 
 from shared.helpers import json_error
 from session_overlay import _resolve_plot_dir, _parse_quests_md
 
 logger = logging.getLogger(__name__)
 
-# Project root from inside blueprints/ is two levels up → src/
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_REPO_ROOT = Path(_project_root).parent  # repo root for data/ access
+_REPO_ROOT = PROJECT_ROOT
 
 # 时间预设列表
 _TIME_PRESETS = ["清晨", "上午", "中午", "下午", "傍晚", "夜晚", "深夜"]
@@ -85,38 +82,41 @@ def register(app, managers):
     @bp.route("/api/environment/presets", methods=["GET"])
     def environment_presets():
         """扫描环境预设（地点、天气、时间）并返回可用选项。"""
-        env_root = _REPO_ROOT / "data" / "environment"
+        env_root = content_root(_REPO_ROOT) / "environment"
 
         # 扫描地点
         locations: list[dict] = []
         loc_dir = env_root / "Location"
         if loc_dir.is_dir():
-            for item in sorted(loc_dir.iterdir()):
-                if item.is_dir():
-                    index_md = item / "index.md"
-                    if index_md.is_file():
-                        try:
-                            with open(index_md, "r", encoding="utf-8") as f:
-                                fm = frontmatter.load(f)
-                            locations.append({
-                                "id": item.name,
-                                "name": fm.metadata.get("name", item.name),
-                            })
-                        except Exception:
-                            locations.append({"id": item.name, "name": item.name})
-                elif item.is_file() and item.suffix == ".md":
-                    stem = item.stem
-                    if stem in ("_index", "_INDEX", "README", "TEMPLATE", "index"):
-                        continue
-                    try:
-                        with open(item, "r", encoding="utf-8") as f:
-                            fm = frontmatter.load(f)
-                        locations.append({
-                            "id": stem,
-                            "name": fm.metadata.get("name", stem),
-                        })
-                    except Exception:
-                        locations.append({"id": stem, "name": stem})
+            for index_md in sorted(loc_dir.rglob("index.md")):
+                relative_id = index_md.parent.relative_to(loc_dir).as_posix()
+                if relative_id == ".":
+                    continue
+                fallback_name = index_md.parent.name
+                try:
+                    with open(index_md, "r", encoding="utf-8") as f:
+                        fm = frontmatter.load(f)
+                    locations.append({
+                        "id": relative_id,
+                        "name": fm.metadata.get("name", fallback_name),
+                    })
+                except Exception:
+                    locations.append({"id": relative_id, "name": fallback_name})
+
+            for item in sorted(loc_dir.rglob("*.md")):
+                stem = item.stem
+                if stem in ("_index", "_INDEX", "README", "TEMPLATE", "index"):
+                    continue
+                relative_id = item.relative_to(loc_dir).with_suffix("").as_posix()
+                try:
+                    with open(item, "r", encoding="utf-8") as f:
+                        fm = frontmatter.load(f)
+                    locations.append({
+                        "id": relative_id,
+                        "name": fm.metadata.get("name", stem),
+                    })
+                except Exception:
+                    locations.append({"id": relative_id, "name": stem})
 
         # 扫描天气
         weathers: list[dict] = []
@@ -203,7 +203,7 @@ def register(app, managers):
 
         # 验证剧情目录存在
         resolved = _resolve_plot_dir(plot_id) or plot_id
-        plot_dir = _REPO_ROOT / "data" / "plots" / resolved
+        plot_dir = content_root(_REPO_ROOT) / "plots" / resolved
         if not plot_dir.is_dir():
             return json_error(f"剧情不存在: {plot_id}", 404)
 

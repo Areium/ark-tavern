@@ -11,14 +11,14 @@
 """
 
 import logging
-from pathlib import Path
+
+from data_paths import CONTENT_ROOT
 
 import frontmatter
 
 logger = logging.getLogger(__name__)
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_CHARS_DIR = _REPO_ROOT / "data" / "characters"
+_CHARS_DIR = CONTENT_ROOT / "characters"
 
 # identity → 档案文本 | None（不存在/解析失败），进程内缓存
 _profile_cache: dict[str, str | None] = {}

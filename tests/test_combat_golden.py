@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from combat_session import CombatSession  # noqa: E402
 
 GOLDEN_PATH = Path(__file__).resolve().parent / "golden" / "combat_openings.json"
-NODE_DIR = ROOT / "data" / "combat" / "nodes"
+NODE_DIR = ROOT / "data" / "worldbooks" / "content" / "combat" / "nodes"
 
 # 固定阵容与种子：模拟"标准小队"，保证开局状态可复现
 ROSTER = ["阿米娅", "银灰", "灵知"]

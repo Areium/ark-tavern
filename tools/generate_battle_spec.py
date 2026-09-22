@@ -7,7 +7,7 @@
 
     python3 tools/generate_battle_spec.py --node-id enc_gen_1 --band T2 --seed 42
     python3 tools/generate_battle_spec.py --band T3 --seed 7 --out /tmp/gen.json
-    for i in $(seq 1 5); do python3 tools/generate_battle_spec.py --node-id enc_rg_$i --seed $i --out data/combat/nodes/enc_rg_$i.json --force; done
+    for i in $(seq 1 5); do python3 tools/generate_battle_spec.py --node-id enc_rg_$i --seed $i --out data/worldbooks/content/combat/nodes/enc_rg_$i.json --force; done
 
 产物一定通过 `tools/validate_battle_spec.py`（生成后自校验，失败自动换种子重试）。
 """

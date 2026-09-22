@@ -1,23 +1,23 @@
-# data/ 类别注册表
+# data/worldbooks/content/ 类别注册表
 # 系统启动时加载此文件，建立 类别ID → 目录 映射。
-# 取代旧 data/_INDEX.md 中的 index + hierarchy 部分。
+# 取代旧 data/worldbooks/content/_INDEX.md 中的 index + hierarchy 部分。
 categories:
-  characters: data/characters/
-  races: data/races/
-  classes: data/classes/
-  factions: data/factions/
-  items: data/items/
-  locations: data/environment/Location/
-  weather: data/environment/weather/
-  plots: data/plots/
-  world: data/world/
-  attributes: data/attributes/
-  enemies: data/enemies/
-  combat_nodes: data/combat/nodes/
-  combat_tiles: data/combat/tiles/
-  combat_backgrounds: data/combat/backgrounds/
-  audio: data/audio/
-  rules: data/rules/
+  characters: data/worldbooks/content/characters/
+  races: data/worldbooks/content/races/
+  classes: data/worldbooks/content/classes/
+  factions: data/worldbooks/content/factions/
+  items: data/worldbooks/content/items/
+  locations: data/worldbooks/content/environment/Location/
+  weather: data/worldbooks/content/environment/weather/
+  plots: data/worldbooks/content/plots/
+  world: data/worldbooks/content/world/
+  attributes: data/worldbooks/content/attributes/
+  enemies: data/worldbooks/content/enemies/
+  combat_nodes: data/worldbooks/content/combat/nodes/
+  combat_tiles: data/worldbooks/content/combat/tiles/
+  combat_backgrounds: data/worldbooks/content/combat/backgrounds/
+  audio: data/worldbooks/content/audio/
+  rules: data/worldbooks/content/rules/
 
 # 层级定义（用于文档管理界面分组）
 hierarchy:

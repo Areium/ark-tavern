@@ -22,12 +22,13 @@ import logging
 import re
 from pathlib import Path
 
+from data_paths import CONTENT_ROOT
+
 import yaml
 
 logger = logging.getLogger(__name__)
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_CHARS_DIR = _REPO_ROOT / "data" / "characters"
+_DEFAULT_CHARS_DIR = CONTENT_ROOT / "characters"
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 

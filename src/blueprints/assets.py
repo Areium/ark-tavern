@@ -2,12 +2,9 @@
 Assets blueprint — 静态资源服务。
 """
 
-from pathlib import Path
 from urllib.parse import quote
 from flask import Blueprint, jsonify, request, send_from_directory
-
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-
+from data_paths import CONTENT_ROOT
 
 def register(app, managers):
     bp = Blueprint("assets", __name__)
@@ -19,7 +16,7 @@ def register(app, managers):
 
     @bp.route("/api/assets/data-dir", methods=["GET"])
     def get_data_dir():
-        return jsonify({"path": str(_REPO_ROOT / "data")})
+        return jsonify({"path": str(CONTENT_ROOT)})
 
     @bp.route("/api/assets/<category>/<path:filename>", methods=["GET"])
     def serve_asset(category, filename):

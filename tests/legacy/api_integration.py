@@ -148,7 +148,7 @@ finally:
     for kind, key in created_sessions:
         if kind == "book":
             client.delete(f"/api/worldbook/{key}")
-    char_dir = REPO / "data" / "characters"
+    char_dir = REPO / "data" / "worldbooks" / "content" / "characters"
     # 导入会按重名自动加后缀（集成测试卡_2 …），因此按前缀兜底清理，
     # 避免中断/异常路径把测试角色留在 data/ 里。
     candidates = set(created_chars)

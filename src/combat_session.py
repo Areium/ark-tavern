@@ -26,6 +26,7 @@ from combat_engine.card_data import get_starting_deck
 from combat_engine.engine import CombatEngine, CombatEvent
 from combat_data_loader import CombatDataLoader, apply_enemy_overrides
 from combat_rules import band_scaling, difficulty_rules
+from data_paths import CONTENT_ROOT
 
 logger = logging.getLogger(__name__)
 
@@ -305,9 +306,7 @@ class CombatSession:
     def _load_character_meta(self, name: str) -> dict | None:
         """Load a character's YAML frontmatter from data/characters/<name>/index.md."""
         import frontmatter
-        from pathlib import Path
-        project_root = Path(__file__).resolve().parent.parent
-        path = project_root / "data" / "characters" / name / "index.md"
+        path = CONTENT_ROOT / "characters" / name / "index.md"
         if not path.exists():
             logger.warning("Character file not found: %s", path)
             return None

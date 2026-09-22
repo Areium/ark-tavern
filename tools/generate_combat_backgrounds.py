@@ -3,8 +3,8 @@
 
 工作流（详见 docs/design/combat/combat-background-prompts.md）：
 
-  --scaffold   扫描遭遇战(background)与地点(combat_bg)引用了、但
-               data/combat/backgrounds/ 下还不存在的背景 ID，自动创建
+  --scaffold   扫描战斗节点(background)与地点(combat_bg)引用了、但
+               data/worldbooks/content/combat/backgrounds/ 下还不存在的背景 ID，自动创建
                index.md 并按地点文档拼好提示词草稿，供人工审修。
   --dry-run    打印所有缺图背景的完整提示词，方便粘贴到任意生图工具。
   （无参数）   读取 config/image_config.json，调用 OpenAI 兼容的
@@ -30,9 +30,9 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_BG_ROOT = _PROJECT_ROOT / "data" / "combat" / "backgrounds"
-_ENC_ROOT = _PROJECT_ROOT / "data" / "combat" / "encounters"
-_LOC_ROOT = _PROJECT_ROOT / "data" / "environment" / "Location"
+_BG_ROOT = _PROJECT_ROOT / "data" / "worldbooks" / "content" / "combat" / "backgrounds"
+_NODE_ROOT = _PROJECT_ROOT / "data" / "worldbooks" / "content" / "combat" / "nodes"
+_LOC_ROOT = _PROJECT_ROOT / "data" / "worldbooks" / "content" / "environment" / "Location"
 _CONFIG_PATH = _PROJECT_ROOT / "config" / "image_config.json"
 
 _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
@@ -87,15 +87,15 @@ def set_image_field(bg_dir: Path, filename: str):
 # ── --scaffold：为被引用但缺失的背景建草稿 ──
 
 def _referenced_bg_ids() -> dict[str, str]:
-    """收集被引用的背景 ID → 来源描述（encounter 文件或 location index.md 路径）。"""
+    """收集被引用的背景 ID → 来源描述（node JSON 或 location index.md 路径）。"""
     refs: dict[str, str] = {}
-    for enc in sorted(_ENC_ROOT.glob("*.md")):
+    for enc in sorted(_NODE_ROOT.glob("*.json")):
         try:
-            bg = str(frontmatter.load(enc).metadata.get("background") or "")
+            bg = str(json.loads(enc.read_text(encoding="utf-8")).get("background") or "")
         except Exception:
             continue
         if bg:
-            refs.setdefault(bg, f"encounter:{enc.stem}")
+            refs.setdefault(bg, f"node:{enc.stem}")
     if _LOC_ROOT.is_dir():
         for index in sorted(_LOC_ROOT.rglob("index.md")):
             try:

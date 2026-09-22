@@ -8,7 +8,7 @@
  *   各自持久化（localStorage），互不干扰。
  *
  * 数据：图文档（布局层）整图存世界书条目（plot_graph_<plot_id>，见
- * src/plot_graphs.py）；剧情/战斗内容仍在 data/plots 与 data/combat/nodes，
+ * src/plot_graphs.py）；剧情/战斗内容仍在 data/worldbooks/content/plots 与 data/worldbooks/content/combat/nodes，
  * 图节点用 ref 引用，点开走既有抽屉编辑器（StoryBeatEditor / BattleNodeForm）。
  * 编辑走快照撤销栈（Ctrl+Z / Ctrl+Shift+Z），保存 Ctrl+S，切剧情时自动落盘。
  *
@@ -614,7 +614,7 @@ export default function PlotGraphPage({ sessionId }: Props) {
           className="text-[11px] px-2 py-1 rounded bg-amber-700/30 border border-amber-600/50 hover:bg-amber-700/50 disabled:opacity-40"
           disabled={!doc}
           onClick={() => { const c = canvasApi.current?.centerWorld(); if (c) setCombatModal({ wx: c.x, wy: c.y, id: "", name: "", error: "" }); }}
-          title="新建战斗节点（写入 data/combat/nodes 并上图）"
+          title="新建战斗节点并加入节点图"
         >＋ 战斗节点</button>
         <button
           className="text-[11px] px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 disabled:opacity-30"
@@ -668,7 +668,7 @@ export default function PlotGraphPage({ sessionId }: Props) {
           );
         })}
         {overview && plots.length === 0 && (
-          <span className="text-xs text-gray-500 px-2">这本书暂无剧情（data/plots/ 下未标注归属该书）</span>
+          <span className="text-xs text-gray-500 px-2">这本书暂无关联剧情</span>
         )}
         <div className="flex-1" />
         <button

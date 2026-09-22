@@ -15,6 +15,7 @@ from typing import Optional
 
 import frontmatter
 import yaml
+from data_paths import categories_path
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,7 @@ class DocumentManager:
 
     def _load_index(self):
         """加载 data/categories.yaml 注册表。"""
-        yaml_path = os.path.join(self._root, "data", "categories.yaml")
+        yaml_path = categories_path(self._root)
         if not os.path.isfile(yaml_path):
             logger.warning("categories.yaml 不存在: %s", yaml_path)
             return
@@ -504,16 +505,16 @@ class DocumentManager:
         Returns:
             {"hash": "...", "path": "..."}
         """
-        cat = self._categories.get(category_id)
-        if not cat:
-            raise ValueError(f"未知文档类别: {category_id}")
-
-        entity_dir = os.path.join(cat.directory, doc_id)
-        filepath = os.path.join(entity_dir, "index.md")
+        filepath = self._resolve_path(category_id, doc_id)
+        if not filepath:
+            if category_id not in self._categories:
+                raise ValueError(f"未知文档类别: {category_id}")
+            raise ValueError(f"非法文档路径: {doc_id}")
 
         if os.path.isfile(filepath):
             raise FileExistsError(f"文档已存在: {doc_id}")
 
+        entity_dir = os.path.dirname(filepath)
         os.makedirs(entity_dir, exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
             if metadata:
@@ -595,11 +596,18 @@ class DocumentManager:
 
         target_rel = new_path or doc_path
         cat = self._categories[category_id]
+        target_candidates = self._document_candidates(category_id, target_rel)
+        if not target_candidates:
+            raise ValueError(f"非法目标路径: {target_rel}")
+        target_entity_file, target_flat_file = target_candidates
+        existing_target = self._resolve_path(category_id, target_rel)
+        if existing_target and os.path.isfile(existing_target):
+            raise FileExistsError(f"目标已存在: {target_rel}")
 
         # 判断是实体文件夹还是传统文件
         if os.path.basename(old_filepath) == "index.md":
             old_entity_dir = os.path.dirname(old_filepath)
-            new_entity_dir = os.path.join(cat.directory, target_rel)
+            new_entity_dir = os.path.dirname(target_entity_file)
 
             if old_entity_dir == new_entity_dir:
                 raise ValueError("源路径和目标路径相同")
@@ -612,7 +620,7 @@ class DocumentManager:
             self._cleanup_empty_dirs(os.path.dirname(old_entity_dir), cat.directory)
             logger.info("实体文件夹已移动: %s → %s", old_entity_dir, new_entity_dir)
         else:
-            new_filepath = os.path.join(cat.directory, f"{target_rel}.md")
+            new_filepath = target_flat_file
 
             if old_filepath == new_filepath:
                 raise ValueError("源路径和目标路径相同")
@@ -680,15 +688,41 @@ class DocumentManager:
 
     # ── 内部方法 ──
 
+    def _document_candidates(self, category_id: str,
+                             doc_path: str) -> Optional[tuple[str, str]]:
+        """Return safe entity and flat-file candidates for a document id."""
+        cat = self._categories.get(category_id)
+        if not cat or not isinstance(doc_path, str) or not doc_path.strip():
+            return None
+
+        relative = doc_path.strip().replace("\\", os.sep).replace("/", os.sep)
+        base = os.path.realpath(cat.directory)
+        entity_path = os.path.realpath(os.path.join(base, relative, "index.md"))
+        flat_path = os.path.realpath(os.path.join(base, f"{relative}.md"))
+        try:
+            if (os.path.commonpath((base, entity_path)) != base
+                    or os.path.commonpath((base, flat_path)) != base):
+                return None
+        except ValueError:
+            return None
+        return entity_path, flat_path
+
     def _resolve_path(self, category_id: str, doc_path: str) -> Optional[str]:
         """将 category_id + doc_path 解析为实际文件路径。
 
-        使用实体文件夹格式：{dir}/{doc_path}/index.md
+        实体文件夹 `{dir}/{doc_path}/index.md` 优先；若不存在则回退到
+        传统平铺文件 `{dir}/{doc_path}.md`。两者都不存在时返回实体路径，
+        供保存/创建沿用默认的实体文件夹格式。
         """
-        cat = self._categories.get(category_id)
-        if not cat:
+        candidates = self._document_candidates(category_id, doc_path)
+        if not candidates:
             return None
-        return os.path.join(cat.directory, doc_path, "index.md")
+        entity_path, flat_path = candidates
+        if os.path.isfile(entity_path):
+            return entity_path
+        if os.path.isfile(flat_path):
+            return flat_path
+        return entity_path
 
     @staticmethod
     def _hash_file(filepath: str) -> str:

@@ -9,6 +9,8 @@ import shutil
 import tempfile
 import copy
 from pathlib import Path
+
+from data_paths import PROJECT_ROOT, content_root, memory_root
 from urllib.parse import quote
 
 import frontmatter
@@ -27,10 +29,7 @@ logger = logging.getLogger(__name__)
 
 _SESSION_BG_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 
-# Project root = src/ (from blueprints/sessions.py)
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Repository root for data/ access
-_REPO_ROOT = Path(_project_root).parent
+_REPO_ROOT = PROJECT_ROOT
 
 
 def _load_plot_opening(session, plot_id: str, load_characters: bool = True):
@@ -151,7 +150,7 @@ def register(app, managers):
             if plot_id and mode == "story":
                 from session_overlay import _resolve_plot_dir
                 resolved = _resolve_plot_dir(plot_id) or plot_id
-                if (_REPO_ROOT / "data" / "plots" / resolved).is_dir():
+                if (content_root(_REPO_ROOT) / "plots" / resolved).is_dir():
                     session.overlay.load_quests_from_plot(plot_id)
                     _load_plot_opening(session, plot_id, load_characters="roster_character_ids" not in data)
                     session.overlay.init_session_docs(plot_id)
@@ -412,7 +411,7 @@ def register(app, managers):
         """会话级战斗背景覆盖图：data/memory/sessions/<mode>/<id>/backgrounds/<file>。"""
         from flask import send_from_directory
 
-        sessions_dir = _REPO_ROOT / "data" / "memory" / "sessions"
+        sessions_dir = memory_root(_REPO_ROOT) / "sessions"
         safe_name = filename.replace("\\", "/")
         for mode in ("story", "free"):
             bg_dir = sessions_dir / mode / session_id / "backgrounds"
@@ -673,7 +672,7 @@ def register(app, managers):
     @bp.route("/api/plots", methods=["GET"])
     def list_plots():
         """列出所有可用剧情（从 data/plots/ 子目录扫描）。"""
-        plots_dir = _REPO_ROOT / "data" / "plots"
+        plots_dir = content_root(_REPO_ROOT) / "plots"
         if not plots_dir.is_dir():
             return jsonify([])
 
@@ -707,7 +706,7 @@ def register(app, managers):
     @bp.route("/api/player-identities", methods=["GET"])
     def list_player_identities():
         """返回所有标记为 player_identity=true 的角色卡摘要。"""
-        chars_dir = _REPO_ROOT / "data" / "characters"
+        chars_dir = content_root(_REPO_ROOT) / "characters"
         identities = []
         if chars_dir.is_dir():
             for entry in sorted(chars_dir.iterdir()):
@@ -741,7 +740,7 @@ def register(app, managers):
         metadata["player_identity"] = True
         metadata.setdefault("name", name)
 
-        char_dir = _REPO_ROOT / "data" / "characters" / name
+        char_dir = content_root(_REPO_ROOT) / "characters" / name
         char_dir.mkdir(parents=True, exist_ok=True)
         md_path = char_dir / "index.md"
 
@@ -783,7 +782,7 @@ def register(app, managers):
         if name == "博士":
             return json_error("不能删除默认身份「博士」", 400)
 
-        char_dir = _REPO_ROOT / "data" / "characters" / name
+        char_dir = content_root(_REPO_ROOT) / "characters" / name
         md_path = char_dir / "index.md"
         if not md_path.is_file():
             return json_error("玩家身份不存在", 404)

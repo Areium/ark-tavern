@@ -14,11 +14,11 @@ import threading
 from pathlib import Path
 
 from combat_engine.card import Card
+from data_paths import CONTENT_ROOT
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_CLASS_DIR = _PROJECT_ROOT / "data" / "classes"
+_CLASS_DIR = CONTENT_ROOT / "classes"
 
 _cache: dict[str, list[Card]] = {}
 _cache_lock = threading.Lock()

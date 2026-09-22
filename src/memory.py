@@ -3,6 +3,8 @@ import logging
 import os
 import re
 
+from data_paths import PROJECT_ROOT
+
 logger = logging.getLogger(__name__)
 
 # 本地 ONNX 嵌入单例（chromadb DefaultEmbeddingFunction）：
@@ -98,8 +100,7 @@ class VectorMemory:
         # 相对路径锚定到仓库根目录：进程 cwd 不同（src/ 或根目录）时
         # 会产生两份分裂的记忆库，统一落盘到 <repo>/data/memory
         if not os.path.isabs(persist_dir):
-            repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            persist_dir = os.path.join(repo_root, persist_dir)
+            persist_dir = os.path.join(PROJECT_ROOT, persist_dir)
 
         import chromadb
         from chromadb.config import Settings

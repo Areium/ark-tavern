@@ -6,8 +6,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 REPO = Path(__file__).resolve().parents[2]
-PLOT_DIR = REPO / "data" / "plots" / "_test_identity_plot"
-CHAR_DIR = REPO / "data" / "characters" / "龙门侦探"
+PLOT_DIR = REPO / "data" / "worldbooks" / "content" / "plots" / "_test_identity_plot"
+CHAR_DIR = REPO / "data" / "worldbooks" / "content" / "characters" / "龙门侦探"
 
 
 def main():

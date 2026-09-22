@@ -7,6 +7,7 @@ import re
 import frontmatter
 import yaml
 
+from data_paths import CONTENT_ROOT
 from memory import VectorMemory, resolve_embed_fn
 
 logger = logging.getLogger(__name__)
@@ -54,9 +55,7 @@ class CharacterAgent:
         )
 
     def load_character(self, character_name: str, overrides: dict = None) -> str:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(base_dir)
-        chars_dir = os.path.join(project_root, "data", "characters")
+        chars_dir = str(CONTENT_ROOT / "characters")
 
         # 查找实体文件夹（{name}/index.md）
         entity_path = os.path.join(chars_dir, character_name, "index.md")

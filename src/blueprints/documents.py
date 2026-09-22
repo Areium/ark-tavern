@@ -10,6 +10,7 @@ from pathlib import Path
 import yaml
 import frontmatter
 from flask import Blueprint, jsonify, request
+from data_paths import categories_path, data_root
 
 from shared.helpers import json_error
 from shared.cache import invalidate_all_caches
@@ -31,7 +32,7 @@ _entities_cache: dict = {"data": None, "timestamp": 0.0}
 
 def _load_hierarchy():
     """加载 categories.yaml 的层级结构，返回按 level 排序的列表。"""
-    yaml_path = _REPO_ROOT / "data" / "categories.yaml"
+    yaml_path = categories_path(_REPO_ROOT)
     if not yaml_path.is_file():
         logger.warning("categories.yaml not found: %s", yaml_path)
         return []
@@ -54,7 +55,7 @@ def _load_all_entities():
     if _entities_cache["data"] is not None and (now - _entities_cache["timestamp"]) < 30:
         return _entities_cache["data"]
 
-    yaml_path = _REPO_ROOT / "data" / "categories.yaml"
+    yaml_path = categories_path(_REPO_ROOT)
     if not yaml_path.is_file():
         return {}
 
@@ -73,7 +74,7 @@ def _load_all_entities():
         if dir_rel.startswith("data/"):
             full_dir = _REPO_ROOT / dir_rel
         else:
-            full_dir = _REPO_ROOT / "data" / dir_rel
+            full_dir = data_root(_REPO_ROOT) / dir_rel
         if not full_dir.is_dir():
             continue
 

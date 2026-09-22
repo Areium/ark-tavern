@@ -14,7 +14,7 @@ from combat_map import (  # noqa: E402
     resolve_map,
 )
 
-NODE_DIR = ROOT / "data" / "combat" / "nodes"
+NODE_DIR = ROOT / "data" / "worldbooks" / "content" / "combat" / "nodes"
 
 
 def _map(**overrides) -> dict:
@@ -152,7 +152,7 @@ def test_to_dict_round_trips_through_resolve_map():
 @pytest.mark.parametrize("path", sorted(NODE_DIR.glob("*.json")), ids=lambda p: p.stem)
 def test_all_shipped_nodes_have_valid_maps(path: Path):
     node = json.loads(path.read_text(encoding="utf-8"))
-    battle_map = resolve_map(node.get("map"), tiles_dir=ROOT / "data" / "combat" / "tiles")
+    battle_map = resolve_map(node.get("map"), tiles_dir=ROOT / "data" / "worldbooks" / "content" / "combat" / "tiles")
     assert battle_map.rows > 0 and battle_map.cols > 0
     assert battle_map.deploy_zone("player") and battle_map.deploy_zone("enemy")
     for wave in node.get("waves", []) or []:

@@ -2,9 +2,7 @@
 Index blueprint — 全局依赖聚合、导入/导出、会话索引配置。
 """
 
-import os
 import logging
-from pathlib import Path
 
 import yaml
 from flask import Blueprint, jsonify, request
@@ -12,13 +10,11 @@ from flask import Blueprint, jsonify, request
 from shared.helpers import json_error
 from shared.cache import invalidate_all_caches
 import index_manager as idxmgr
+from data_paths import DATA_ROOT
 
 logger = logging.getLogger(__name__)
 
-# Project root from inside blueprints/ is two levels up → src/
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_REPO_ROOT = Path(_project_root).parent  # repo root for data/ access
-_DATA_ROOT = str(_REPO_ROOT / "data")
+_DATA_ROOT = str(DATA_ROOT)
 
 
 def _get_session(session_mgr, session_id):

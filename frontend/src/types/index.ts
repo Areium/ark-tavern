@@ -1193,7 +1193,7 @@ export interface BattleMapDTO {
   };
 }
 
-/** 战斗节点 JSON（与后端 data/combat/nodes/<id>.json 一一对应） */
+/** 战斗节点 JSON（与后端 data/worldbooks/content/combat/nodes/<id>.json 一一对应） */
 export interface BattleNodeDTO {
   schema_version?: number;
   node_id: string;
@@ -1247,7 +1247,7 @@ export interface BattleNodeOverviewDTO {
   missing?: boolean;
 }
 
-/** 节点图剧情节拍（来自 data/plots/<id>/index.md 的叙述区） */
+/** 节点图剧情节拍（来自 data/worldbooks/content/plots/<id>/index.md 的叙述区） */
 export interface PlotFlowBeatDTO {
   id: string;
   keep_on_deviate: boolean;

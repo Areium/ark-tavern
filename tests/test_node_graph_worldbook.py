@@ -1,6 +1,7 @@
 """节点图与世界书归属：plot_flows 解析、node_graph 过滤、导入自动标注。
 
-使用仓库内真实数据（data/plots、data/combat/nodes 均已标注归属 arknights），
+使用仓库内真实数据（data/worldbooks/content/plots、data/worldbooks/content/combat/nodes
+均已标注归属 arknights），
 除 import 打标测试外不写盘。
 """
 

@@ -24,12 +24,14 @@ import time
 import zipfile
 from pathlib import Path
 
+from data_paths import CONTENT_ROOT, MEMORY_ROOT, PROJECT_ROOT
+
 logger = logging.getLogger(__name__)
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_SESSIONS_DIR = _REPO_ROOT / "data" / "memory" / "sessions"
-_CHARS_DIR = _REPO_ROOT / "data" / "characters"
-_BG_ROOT = _REPO_ROOT / "data" / "combat" / "backgrounds"
+_REPO_ROOT = PROJECT_ROOT
+_SESSIONS_DIR = MEMORY_ROOT / "sessions"
+_CHARS_DIR = CONTENT_ROOT / "characters"
+_BG_ROOT = CONTENT_ROOT / "combat" / "backgrounds"
 
 _FORMAT_VERSION = 1
 _SNAPSHOT_EXTS = {".md", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}

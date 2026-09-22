@@ -8,7 +8,7 @@
 
 ## 1. 背景沿革（为什么不再有「三个模块」）
 
-内容中心最初由「资产 / 索引」两个分立页面合并而来；早期并存的 **文档管理入口（前端 `DocumentManager.tsx`）已移除**——世界观语料改由 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包（`data/packs/arknights.json`），浏览与编辑统一走世界书模块。（后端 `src/document_manager.py` 与 `documents` blueprint 仍保留，继续承担文档 CRUD。）
+内容中心最初由「资产 / 索引」两个分立页面合并而来；早期并存的 **文档管理入口（前端 `DocumentManager.tsx`）已移除**——世界观语料改由 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包（`data/worldbooks/packs/arknights.json`），浏览与编辑统一走世界书模块。（后端 `src/document_manager.py` 与 `documents` blueprint 仍保留，继续承担文档 CRUD。）
 世界书**未并入**内容中心，仍是独立入口：其管理页负责书的 CRUD / 导入 / 条目编辑。依赖配置与索引一度挂在内容中心（「世界书图谱」「索引」两个 Tab），2026-09 起全部收回世界书工作台的五个页签（`条目` / `分类与载入` / `Prompt 预览` / `节点视图` / `本家索引`），内容中心不再有任何世界书相关 Tab。
 
 ## 2. 统一管理模式
@@ -31,16 +31,16 @@
 
 | 来源 | 含义 | 存储 | 管理规则 |
 |---|---|---|---|
-| **预装（preinstalled）** | 随程序分发的方舟整合包，首次启动自动安装 | 分发源：`data/packs/*.json`（git 跟踪）；安装副本：`data/worldbooks/<id>.json`（gitignored） | 与导入内容**完全相同**：可编辑、可停用、可删除；删除后可从分发源一键「重装」 |
+| **预装（preinstalled）** | 随程序分发的方舟整合包，首次启动自动安装 | 分发源：`data/worldbooks/packs/*.json`（git 跟踪）；安装副本：`data/worldbooks/<id>.json`（gitignored） | 与导入内容**完全相同**：可编辑、可停用、可删除；删除后可从分发源一键「重装」 |
 | **导入（imported）** | 用户导入/新建（第三方世界书、自制内容） | `data/worldbooks/*.json`（gitignored） | 完全可写 |
 
 要点：
 
 1. **存储统一**：所有书都在 `data/worldbooks/`，同一份列表、同一套 CRUD、同一个启用/停用开关——管理模式只有一套，可解释。
-2. **开箱即用**：`WorldBookManager` 初始化时自动把 `data/packs/` 下的整合包复制到 `data/worldbooks/`（不存在才装），新用户零配置即有方舟世界书。
+2. **开箱即用**：`WorldBookManager` 初始化时自动把 `data/worldbooks/packs/` 下的整合包复制到 `data/worldbooks/`（不存在才装），新用户零配置即有方舟世界书。
 3. **来源标识（徽章）**：预装 = 青（可「重装」还原），导入 = 紫。仅作来源说明，不影响任何操作权限。
 4. **程序 IP 中立**：用户可整体停用/卸载方舟整合包，导入自己的世界观内容，程序不绑定方舟。
-5. 文档侧（角色/剧情/索引）属于程序内置故事内容（`data/<category>/`）；**角色卡导入**（SillyTavern 角色卡 PNG/JSON → `data/characters/<slug>/` + 内嵌世界书）已实现，frontmatter 带 `source: imported` 来源标识。
+5. 文档侧（角色/剧情/索引）属于程序内置故事内容（`data/<category>/`）；**角色卡导入**（SillyTavern 角色卡 PNG/JSON → `data/worldbooks/content/characters/<slug>/` + 内嵌世界书）已实现，frontmatter 带 `source: imported` 来源标识。
 
 ### 2.3 启用/停用语义统一
 
@@ -50,7 +50,7 @@
 
 ### 2.4 开箱即用：方舟整合包
 
-1. `scripts/generate_builtin_worldbook.py`：从 `data/characters/*/index.md`（角色名/别名/设定摘要）与 `data/plots/`（剧情概述）生成 `data/packs/arknights.json`（角色条目：触发词=角色名+别名；剧情条目：触发词=剧情名）。
+1. `scripts/generate_builtin_worldbook.py`：从 `data/worldbooks/content/characters/*/index.md`（角色名/别名/设定摘要）与 `data/worldbooks/content/plots/`（剧情概述）生成 `data/worldbooks/packs/arknights.json`（角色条目：触发词=角色名+别名；剧情条目：触发词=剧情名）。
 2. 首次启动自动安装到 `data/worldbooks/arknights.json`（source=preinstalled）。
 3. 解析回退链：**会话绑定 > 全局默认书 > 已启用的预装包（arknights）** —— 新用户零配置即有世界书生效。
 
@@ -69,7 +69,7 @@
 - `POST /api/worldbook/<id>/reinstall`：从分发源重装预装整合包（恢复出厂内容）。
 - `POST /api/worldbook/<id>/duplicate`：复制任意书为新导入书（做变体/备份）。
 - `GET /api/worldbook/search?q=`：跨书/条目检索。
-- `resolve`：回退到已安装且启用的预装包（`data/packs/` 分发源存在且 `data/worldbooks/` 中副本 enabled）。
+- `resolve`：回退到已安装且启用的预装包（`data/worldbooks/packs/` 分发源存在且 `data/worldbooks/` 中副本 enabled）。
 
 ### 前端
 
@@ -88,7 +88,7 @@
 
 ## 5. 数据模型（世界书存储格式）
 
-分发源：`data/packs/<id>.json`（git 跟踪）→ 首次启动安装副本：`data/worldbooks/<id>.json`（gitignored）：
+分发源：`data/worldbooks/packs/<id>.json`（git 跟踪）→ 首次启动安装副本：`data/worldbooks/<id>.json`（gitignored）：
 
 ```json
 {

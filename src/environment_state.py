@@ -1,14 +1,13 @@
 import os
 import re
 import logging
-from pathlib import Path
 
 import frontmatter
+from data_paths import CONTENT_ROOT
 
 logger = logging.getLogger(__name__)
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_ENV_DIR = str(_REPO_ROOT / "data" / "environment")
+_DEFAULT_ENV_DIR = str(CONTENT_ROOT / "environment")
 
 
 class SceneObject:

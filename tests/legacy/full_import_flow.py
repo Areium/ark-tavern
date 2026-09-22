@@ -82,7 +82,7 @@ with tempfile.TemporaryDirectory() as td:
     check("正文含开场白分节", "## 开场白" in index_md and "## 场景" in index_md)
     check("头像已写入", (tmp / "chars" / "妮芙芙" / "avatar").is_dir())
 
-    # ── 2. 玩家身份档案加载（博士 = data/characters 已有）──
+    # ── 2. 玩家身份档案加载（博士 = data/worldbooks/content/characters 已有）──
     profile = load_player_profile("博士")
     check("玩家身份档案（博士）", profile and "玩家身份：博士" in profile and "身份简介" in profile)
     check("玩家身份档案缓存", load_player_profile("博士") is profile)

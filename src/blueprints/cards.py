@@ -23,6 +23,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request
 
 from shared.json_hash import compute_json_hash
+from data_paths import CONTENT_ROOT
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +36,8 @@ def _invalidate_card_cache() -> None:
     except Exception:  # 模块未加载时忽略（引擎未初始化）
         pass
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-CHAR_DIR = PROJECT_ROOT / "data" / "characters"
-CLASS_DIR = PROJECT_ROOT / "data" / "classes"
+CHAR_DIR = CONTENT_ROOT / "characters"
+CLASS_DIR = CONTENT_ROOT / "classes"
 
 
 def _compute_hash(data: dict) -> str:

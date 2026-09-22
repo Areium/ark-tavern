@@ -3,7 +3,10 @@ __pycache__/
 logs/
 .history/
 data/memory/
-data/worldbooks/
+data/worldbooks/*
+!data/worldbooks/content/
+!data/worldbooks/packs/
+!data/worldbooks/README.md
 data/worldbook_jobs/
 data/worldbook_analysis/
 config/llm_config.json
@@ -13,7 +16,7 @@ venv/
 .dev-pids
 /assets/
 .vite/
-data/characters/*/spine/
+data/worldbooks/content/characters/*/spine/
 perf_tests/results_*.json
 
 # 本地运行时数据/代理临时目录
@@ -30,3 +33,6 @@ perf_tests/results_*.json
 # 本地保留、不入库；如需重新纳入版本控制，先删掉下面两行再 git add -f。
 docs/archive/architecture.html
 docs/archive/architecture.architecture.json
+
+# Retired runtime caches retained by the explicit migration tool
+data/archive/

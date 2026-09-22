@@ -5,7 +5,7 @@
     python tools/verify_character_resources.py [--book arknights] [--json]
 
 核对项：
-  1. 世界书条目覆盖：每个角色实体在 data/packs/<book>.json 中都有对应条目
+  1. 世界书条目覆盖：每个角色实体在 data/worldbooks/packs/<book>.json 中都有对应条目
   2. 立绘：每个角色实体都有 avatar / skin / card_face 三类图像
   3. Spine：每个角色实体的 spine/ 目录含完整的 Front|Back × (skel|atlas|png)
   4. 世界书归属：每个角色实体 index.md frontmatter 的 worldbook_id == <book>
@@ -25,8 +25,8 @@ from pathlib import Path
 import frontmatter
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DATA_CHARS = REPO_ROOT / "data" / "characters"
-PACKS_DIR = REPO_ROOT / "data" / "packs"
+DATA_CHARS = REPO_ROOT / "data" / "worldbooks" / "content" / "characters"
+PACKS_DIR = REPO_ROOT / "data" / "worldbooks" / "packs"
 WORLDBOOKS_DIR = REPO_ROOT / "data" / "worldbooks"
 PIXI_SCENE = REPO_ROOT / "frontend" / "src" / "components" / "combat" / "PixiCombatScene.tsx"
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}

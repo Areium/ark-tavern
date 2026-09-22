@@ -2,7 +2,7 @@
  * 战斗节点编辑表单 — 单个战斗节点的完整编辑器（抽屉内挂载）。
  *
  * 从原 BattleNodeEditor 的右侧编辑区抽出：基本信息 / 地图绘制 / 敌人编成 /
- * 难度奖励 / 校验。数据面不变：`data/combat/nodes/<node_id>.json` 唯一真相源，
+ * 难度奖励 / 校验。数据面不变：`data/worldbooks/content/combat/nodes/<node_id>.json` 唯一真相源，
  * 保存走 `_hash` 冲突检测（409 → 提示重新加载），校验由服务端判定。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

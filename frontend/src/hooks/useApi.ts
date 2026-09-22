@@ -666,7 +666,7 @@ export function useApi() {
         `/api/plot-graphs/${encodeURIComponent(plotId)}`,
         { method: "PUT", body: JSON.stringify({ book_id: bookId, graph: doc, display_name: displayName }) }),
 
-    /** 格子类型注册表（内置 + data/combat/tiles/*.json） */
+    /** 格子类型注册表（内置 + data/worldbooks/content/combat/tiles/*.json） */
     listCombatTiles: () =>
       request<{ tiles: any[]; warnings: string[] }>("/api/combat/tiles"),
 

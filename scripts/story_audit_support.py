@@ -46,19 +46,19 @@ def candidate_app(*, config_path: Path | None = None, root: Path | None = None):
         # No user sessions, assets, secrets, job caches or audio are copied.
         # Markdown, character cards, enemy templates and class cards are needed
         # by the real production loaders. All mutations target this copy.
+        content = data / "worldbooks" / "content"
         shutil.copytree(
-            ROOT / "data", data,
-            ignore=shutil.ignore_patterns(
-                "memory", "worldbooks", "worldbook_jobs", "worldbook_analysis",
-                "audio", "spine", "__pycache__",
-            ),
+            ROOT / "data" / "worldbooks" / "content", content,
+            ignore=shutil.ignore_patterns("audio", "spine", "__pycache__"),
         )
+        shutil.copyfile(ROOT / "data" / "categories.yaml", data / "categories.yaml")
+        shutil.copytree(ROOT / "data" / "worldbooks" / "packs", data / "worldbooks" / "packs")
         spec = manifest()
-        plot_dir = data / "plots" / spec["plot_id"]
+        plot_dir = content / "plots" / spec["plot_id"]
         plot_dir.mkdir()
         shutil.copyfile(PACK / "plot.md", plot_dir / "index.md")
         for node_id in spec["battles"]:
-            target = data / "combat" / "nodes" / f"{node_id}.json"
+            target = content / "combat" / "nodes" / f"{node_id}.json"
             if target.exists():
                 raise ValueError(f"Candidate node collides with shipped content: {node_id}")
             shutil.copyfile(PACK / "battles" / target.name, target)
@@ -74,19 +74,47 @@ def candidate_app(*, config_path: Path | None = None, root: Path | None = None):
                 "memory_interval": 999,
             }), encoding="utf-8")
 
+        import CharacterAgent as ca
+        import avatar_color as av
+        import character_card as cc
         import combat_data_loader as cdl
         import combat_nodes as cn
         import combat_resume as cr
+        import combat_rules as rules
+        import combat_session as combat_session_module
+        import environment_state as environment_state_module
         import llm_backend_manager as lb
+        import memory as memory_module
+        import player_profile as player_profile_module
         import session_export as se
         import session_manager as sm
         import session_overlay as so
         import world_book as wb
+        from combat_engine import card_json_loader
         from load_llm import ApiModelConfig, ModelConfig
         from wiki_manager import WikiManager
 
+        # Track every Chroma client created against this audit root. A story
+        # reload may construct another SessionManager outside app._managers, so
+        # walking only the app's current agents misses live SQLite handles.
+        import chromadb
+        audit_clients = []
+        persistent_client = chromadb.PersistentClient
+        root_resolved = root.resolve()
+
+        def tracked_persistent_client(*args, **kwargs):
+            client = persistent_client(*args, **kwargs)
+            client_path = kwargs.get("path", args[0] if args else "./chroma")
+            try:
+                Path(client_path).resolve().relative_to(root_resolved)
+            except (OSError, TypeError, ValueError):
+                return client
+            audit_clients.append(client)
+            return client
+
         # LLMBackendManager updates process-local defaults; restore those too.
         stack.enter_context(patch.dict(os.environ, dict(os.environ)))
+        stack.enter_context(patch.object(chromadb, "PersistentClient", tracked_persistent_client))
         for cls, fields in [(ApiModelConfig, ("api_key", "base_url", "model", "max_tokens")),
                             (ModelConfig, ("model", "max_tokens"))]:
             for key in fields:
@@ -96,19 +124,41 @@ def candidate_app(*, config_path: Path | None = None, root: Path | None = None):
             (so, "_PROJECT_ROOT", root), (so, "_SESSIONS_DIR", sessions),
             (sm, "_SESSIONS_DIR", sessions), (sm, "_registry", WikiManager(str(root))),
             (se, "_REPO_ROOT", root), (se, "_SESSIONS_DIR", sessions),
-            (se, "_CHARS_DIR", data / "characters"),
-            (se, "_BG_ROOT", data / "combat" / "backgrounds"),
-            (cdl, "_DATA_DIR", data / "combat"),
-            (cn, "NODE_DIR", data / "combat" / "nodes"),
-            (cn, "PLOT_DIR", data / "plots"), (cn, "TILES_DIR", data / "combat" / "tiles"),
+            (se, "_CHARS_DIR", content / "characters"),
+            (se, "_BG_ROOT", content / "combat" / "backgrounds"),
+            (ca, "CONTENT_ROOT", content),
+            (av, "_CHARS_ROOT", content / "characters"),
+            (cc, "_DEFAULT_CHARS_DIR", content / "characters"),
+            (combat_session_module, "CONTENT_ROOT", content),
+            (environment_state_module, "_DEFAULT_ENV_DIR", str(content / "environment")),
+            (memory_module, "PROJECT_ROOT", root),
+            (player_profile_module, "_CHARS_DIR", content / "characters"),
+            (player_profile_module, "_profile_cache", {}),
+            (card_json_loader, "_CLASS_DIR", content / "classes"),
+            (card_json_loader, "_cache", {}),
+            (rules, "RULES_DIR", content / "combat" / "rules"),
+            (rules, "_cache", {}),
+            (cdl, "_DATA_DIR", content / "combat"),
+            (cn, "NODE_DIR", content / "combat" / "nodes"),
+            (cn, "PLOT_DIR", content / "plots"), (cn, "TILES_DIR", content / "combat" / "tiles"),
             (cr, "TEST_RESUME_DIR", data / "memory" / "combat_resumes"),
             (wb, "_WORLDBOOKS_DIR", data / "worldbooks"),
-            (wb, "_PACKS_DIR", data / "packs"), (lb, "_CONFIG_PATH", cfg),
+            (wb, "_PACKS_DIR", data / "worldbooks" / "packs"), (lb, "_CONFIG_PATH", cfg),
         ]:
             stack.enter_context(patch.object(module, key, value))
-        from blueprints import sessions as sessions_bp, environment as environment_bp
+        from blueprints import (
+            assets as assets_bp,
+            cards as cards_bp,
+            combat as combat_bp,
+            environment as environment_bp,
+            sessions as sessions_bp,
+        )
         stack.enter_context(patch.object(sessions_bp, "_REPO_ROOT", root))
         stack.enter_context(patch.object(environment_bp, "_REPO_ROOT", root))
+        stack.enter_context(patch.object(assets_bp, "CONTENT_ROOT", content))
+        stack.enter_context(patch.object(cards_bp, "CHAR_DIR", content / "characters"))
+        stack.enter_context(patch.object(cards_bp, "CLASS_DIR", content / "classes"))
+        stack.enter_context(patch.object(combat_bp, "CONTENT_ROOT", content))
         import app as app_module
         from document_manager import DocumentManager
 
@@ -118,7 +168,15 @@ def candidate_app(*, config_path: Path | None = None, root: Path | None = None):
             stack.enter_context(patch.object(lb.LLMBackendManager, "get_llm", return_value=(None, None)))
         app = app_module.create_app()
         app.config.update(TESTING=True)
-        yield {"app": app, "client": app.test_client(), "root": root, "manifest": spec}
+        try:
+            yield {"app": app, "client": app.test_client(), "root": root, "manifest": spec}
+        finally:
+            # Chroma keeps SQLite open on Windows until each client is closed.
+            # Only clients whose storage path resolved inside this owned audit
+            # root were recorded; live project memory clients are never closed.
+            for client in reversed(audit_clients):
+                if hasattr(client, "close"):
+                    client.close()
 
 
 def create_story(ctx, *, combat_mode="narrative", roster=None, worldbook_id=""):

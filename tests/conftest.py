@@ -3,7 +3,7 @@
 **测试残留战斗节点的自愈清理**
 
 `tests/test_combat_nodes.py` 与 `tests/test_combat_growth_balance.py` 会在
-`data/combat/nodes/` 下临时建节点文件，正常路径由 `finally` 删掉。但若用例在
+`data/worldbooks/content/combat/nodes/` 下临时建节点文件，正常路径由 `finally` 删掉。但若用例在
 进入 `try` 之前就失败（典型：上次残留让 `POST /api/combat/nodes` 返回 400
 「已存在」，而那句 assert 在 `try` 之外），`finally` 永远不会执行，残留就此
 留下；下一次运行时：
@@ -18,7 +18,7 @@ conftest 在测试模块被收集**之前**导入，因此在这里清残留可�
 
 from pathlib import Path
 
-_NODE_DIR = Path(__file__).resolve().parent.parent / "data" / "combat" / "nodes"
+_NODE_DIR = Path(__file__).resolve().parent.parent / "data" / "worldbooks" / "content" / "combat" / "nodes"
 
 #: 仅由测试临时创建、不应长期存在的节点 id
 _STALE_TEST_NODES = (

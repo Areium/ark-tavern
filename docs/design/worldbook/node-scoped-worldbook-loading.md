@@ -40,7 +40,7 @@
 | # | 概念 | 载体 | 是否注入叙事上下文 | 代码位置 |
 |---|---|---|---|---|
 | A | **剧情图节点**（编辑器布局） | 每个剧情一条世界书条目 `plot_graph_<plot_id>` | **否**（`trigger_keys: []` 且非常驻，明确只服务编辑器） | `src/plot_graphs.py` `encode_graph_for_worldbook` |
-| B | **战斗节点** | `data/combat/nodes/<id>.json` | **是**（`trigger_keys = [name, node_id]`，被提及才触发） | `src/combat_nodes.py` `encode_node_for_worldbook` |
+| B | **战斗节点** | `data/worldbooks/content/combat/nodes/<id>.json` | **是**（`trigger_keys = [name, node_id]`，被提及才触发） | `src/combat_nodes.py` `encode_node_for_worldbook` |
 | C | **剧情树节点 / 作者节拍** | `overlay._data["story_tree"]["nodes"]` + `beat_state` | 间接（渲染成 `plot_state.md` / `plot_log.md`） | `src/session_overlay.py` |
 
 绑定面挂在 **C** 上，它自身又有两层载体：
@@ -58,8 +58,8 @@
 flowchart TD
     subgraph AUTHOR["作者侧（编辑器，持久化）"]
         PG["剧情图节点<br/>plot_graphs.py"]
-        BEAT["节拍 beat<br/>data/plots/*/index.md"]
-        NODE["战斗节点<br/>data/combat/nodes/*.json"]
+        BEAT["节拍 beat<br/>data/worldbooks/content/plots/*/index.md"]
+        NODE["战斗节点<br/>data/worldbooks/content/combat/nodes/*.json"]
         WB["世界书条目<br/>uid / trigger_keys"]
     end
 
@@ -610,7 +610,7 @@ def _resolve_or_reuse(self, node, prev_scope):
 
 ## 附录 B：一个具体例子（`fengxue_guojing`，真实数据）
 
-`data/plots/fengxue_guojing/index.md` 实况：**6 章 21 拍**，节拍 id 是**语义化**的
+`data/worldbooks/content/plots/fengxue_guojing/index.md` 实况：**6 章 21 拍**，节拍 id 是**语义化**的
 （`beat_arrival` / `beat_ambush` / `beat_reveal` …），**不是序号**；
 21 拍里 20 拍是 `keep_on_deviate: true`，只有 `beat_end` 是 `false`
 （`src/combat_nodes.py:582` 的解析规则：括号里含 `false` 即为假，缺省为真）。

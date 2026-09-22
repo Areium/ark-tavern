@@ -39,7 +39,7 @@
 | `session_worldbook_dependencies.py` | 会话世界书继承基线、pair 屏蔽、本地边/起点展开覆盖、有效图、恢复继承与全局版本更新预览；不写全局书 |
 | `session_context.py` | 按会话缓存文档摘要 |
 | `session_resources.py` / `session_export.py` | 会话级资源（背景/形象覆盖）与会话存档导出 |
-| `environment_state.py` | 地点/天气/时间状态机，从 `data/environment/` 加载 |
+| `environment_state.py` | 地点/天气/时间状态机，从 `data/worldbooks/content/environment/` 加载 |
 | `wiki_manager.py` | 文档目录 + 三级深度提取（summary/core/full）+ `imports` 引用解析 |
 | `document_manager.py` | 文件 CRUD + 哈希冲突检测 |
 | `index_manager.py` | 基于 `imports` 字段的文档关系图，YAML 导出/导入 |
@@ -48,7 +48,7 @@
 
 ### 2.3 世界书与记忆
 
-- `world_book.py` — 世界书（酒馆 Lorebook 兼容）：4 源解析（v1/v2/卡内嵌/jsonl）+ 关键词触发匹配 + 注入格式化 + 回灌导出 + `WorldBookManager`（`data/worldbooks/`，gitignored）。
+- `world_book.py` — 世界书（酒馆 Lorebook 兼容）：4 源解析（v1/v2/卡内嵌/jsonl）+ 关键词触发匹配 + 注入格式化 + 回灌导出 + `WorldBookManager`（`data/worldbooks/*.json`，gitignored）。
   **注入纪律：常驻 position-0 条目进稳定层，触发型条目一律进动态层（前缀缓存稳定）。**
   `eligible_uids_for` 返回 `EligibleSet`（候选集 + `forced_uids`/`position_overrides` 元数据随集合传递，注入调用点零改动）。
   **书用途 `book_type`**：`story`（剧情世界书，可绑定会话/设为默认/参与解析）| `reference`（资料库，只供浏览、检索与摘录）。缺字段的旧数据按 `story` 读取；`resolve()` 与预装回退无条件排除 `reference`；`excerpt_entries()` 提供整批原子摘录（新 UID、来源不被修改、保留 `excerpt_source` 可追溯来源）。详见 `docs/design/worldbook/worldbook-library.md`。
@@ -66,11 +66,11 @@
 | 模块 | 职责 |
 |---|---|
 | `combat_session.py` | 战斗会话包装器：组装 CombatEngine + CombatDataLoader，管理生命周期、玩家操作、敌人 AI、SSE 推送 |
-| `combat_data_loader.py` | 加载战斗节点 `data/combat/nodes/*.json`、敌人 `data/enemies/*.md`（叙事 attributes + 战斗 combat_stats，缺 combat_stats 时按 attributes 派生）与 `backgrounds/` |
+| `combat_data_loader.py` | 加载战斗节点 `data/worldbooks/content/combat/nodes/*.json`、敌人 `data/worldbooks/content/enemies/*.md`（叙事 attributes + 战斗 combat_stats，缺 combat_stats 时按 attributes 派生）与 `backgrounds/` |
 | `combat_map.py` | 战斗地图 JSON：尺寸/格子类型注册表/部署区解析与校验（行列定位错误、软锁警告、上限 40×40） |
 | `combat_nodes.py` | 战斗节点注册表：JSON 读写 + `_hash` 冲突检测 + 校验 + 剧情节拍绑定/进度 + 世界书归属（节点 `worldbook_id`，剧情/资产/卡牌同约定）+ 剧情流程解析 `plot_flows`（章节/节拍/`[COMBAT:]` 引用，只收剧情叙述区）+ 节点图数据 `node_graph`（`shared/json_hash.py` 与卡牌共用哈希） |
 | `combat_balance.py` | 威胁模型（五类模板/威胁点/阶段带推荐/预算对照），校验器、编辑器与生成工具共用 |
-| `combat_rules.py` | 战斗配置加载：`data/combat/rules/{growth,difficulty}.json`（升级属性点、阶段带缩放与威胁容差，按 mtime 热加载） |
+| `combat_rules.py` | 战斗配置加载：`data/worldbooks/content/combat/rules/{growth,difficulty}.json`（升级属性点、阶段带缩放与威胁容差，按 mtime 热加载） |
 
 战斗引擎（`src/combat_engine/`）：
 
@@ -117,13 +117,13 @@
 - `components/combat/CombatView.tsx` — 战斗主控（50k+ LOC，最大组件）
 - `components/combat/NodeFlowEditor.tsx` — 节点流编辑器（内容中心「节点图」Tab）：先选世界书再编辑，横向可展开节点图同屏呈现剧情节点（plot 章节/节拍）与战斗节点（`[COMBAT:]` 引用连线），点击节点开右侧抽屉编辑、支持增删
 - `components/combat/BattleNodeForm.tsx` — 单个战斗节点编辑表单（抽屉内挂载：地图绘制 BattleMapCanvas + 敌人编成与血量覆盖 + 服务端校验 + 试打）
-- `components/combat/StoryBeatEditor.tsx` — 剧情节拍编辑抽屉（对 `data/plots/<id>/index.md` 做节拍增删改，配合 `utils/plotBeatEditor.ts` 的 Markdown 手术）
+- `components/combat/StoryBeatEditor.tsx` — 剧情节拍编辑抽屉（对 `data/worldbooks/content/plots/<id>/index.md` 做节拍增删改，配合 `utils/plotBeatEditor.ts` 的 Markdown 手术）
 - `components/combat/` 其余 — CSS 网格（CombatGrid：行列自由尺寸 + 地形着色 + 部署区标识）+ PixiJS Spine 覆盖层（PixiCombatScene，runtime-3.8）+ 手牌（CombatHand）+ 卡组查看（DeckViewer）+ 卡牌编辑（CardEditor）+ 状态/事件面板 + Spine 动画规格（`spineAnimSpecs.ts`）
 - `audio/audioManager.ts` — 战斗音效管理
 
 ### 3.4 管理页
 
-- `components/ContentHub.tsx` — 内容中心（Tab：资产/卡牌/节点图；世界书图谱与索引已迁入世界书工作台页签；文档管理入口已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包 `data/packs/arknights.json`，浏览与编辑走世界书模块；后端 `document_manager.py` + `blueprints/documents.py` 仍在）
+- `components/ContentHub.tsx` — 内容中心（Tab：资产/卡牌/节点图；世界书图谱与索引已迁入世界书工作台页签；文档管理入口已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包 `data/worldbooks/packs/arknights.json`，浏览与编辑走世界书模块；后端 `document_manager.py` + `blueprints/documents.py` 仍在）
 - `components/AssetManager.tsx` — 资产目录：图片上传/裁剪/默认图，实体显示上级目录与来源世界书（frontmatter `worldbook_id`），按书筛选与归类
 - `components/CardManager.tsx` — 卡牌管理：角色/职业卡牌编辑（CardEditor），条目显示所属世界书，按书筛选
 - `components/WorldBookManager.tsx` — 世界书工作台：顶层按用途分「剧情世界书 / 资料库」（带筛选与计数），详情是带页签的工作台——**条目 / 分类与载入 / Prompt 预览 / 节点视图 / 本家索引**（原「高级配置」双页签已并入 `分类与载入`；`本家索引` 页签副标题是「内置语料索引 · 依赖完整性 · 会话白名单」）；导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、条目编辑器、剧情书的会话绑定与默认书、酒馆格式导出；资料库以检索/浏览为主，可就地把条目「加入剧情世界书」（提交前可编辑标题/正文/触发词）。纯逻辑在 `utils/worldbookLibrary.ts`
@@ -152,6 +152,11 @@
 ---
 
 ## 4. 内容工具与脚本
+
+数据布局见 `data/README.md`：内容与资源在 `data/worldbooks/content/`，预装包在
+`data/worldbooks/packs/`；统一路径由 `src/data_paths.py` 定义。升级本地素材运行
+`scripts/migrate_data_layout.py` 预览后加 `--apply` 执行。用户书与会话不迁移。
+
 
 战斗内容工具（`tools/`）：
 
@@ -232,7 +237,7 @@ docs/
 |---|---|
 | `combat-core-design.md` | 章节战斗化改造方案，已实现；「7×7 网格不改」条款已作废 |
 | `redundancy-scan-2026-09-12.md` | 代码冗余扫描报告；其建议已全部落地（死代码删除、导入清理等），结论见当时提交 |
-| `2026-08-06-fengxue-guojing-plan.md`、`2026-08-06-fengxue-guojing-design.md` | 「风雪过境」剧情的实现计划与设计稿；剧情已随程序分发，且文中 `data/combat/encounters/*.md` + 7×7 网格结构已被 JSON 节点 + 自由尺寸取代 |
+| `2026-08-06-fengxue-guojing-plan.md`、`2026-08-06-fengxue-guojing-design.md` | 「风雪过境」剧情的实现计划与设计稿；剧情已随程序分发，且文中 `data/worldbooks/content/combat/encounters/*.md` + 7×7 网格结构已被 JSON 节点 + 自由尺寸取代 |
 | `combat-embedding.html` | 战斗嵌入剧情的讲解图；引用了已删除的 `tests/test_combat_trigger.py` 与作废的 7×7 口径（其「数值权威在引擎、模型零数值授权」原则仍有效，见 `design/combat/combat-design.md`） |
 | `architecture.html`、`architecture.architecture.json` | 由外部工具 archify 2.16.0 导出的架构图（与边车源文件，需同去同留）；内容停留在 2026-09-05，且 96% 体积是 vendored viewer 运行时。**重新生成不是本仓库的构建步骤**，架构现状见本文件。**已加入 `.gitignore`、不再入库**（本地/历史提交里仍有），因此新克隆的仓库里看不到这两个文件 |
 | `rag-retrieval.html`、`two-phase-narration.html` | 上述两篇讲解图的原 HTML；内容已转为等价的 `design/narrative/rag-retrieval.md` / `design/narrative/two-phase-narration.md` 并补上新机制 |

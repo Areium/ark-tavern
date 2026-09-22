@@ -252,7 +252,6 @@ def test_unknown_quest_cannot_be_created_by_status_patch(ctx):
     require_acceptance(r.status_code == 404, f"Unknown quest PATCH returned HTTP {r.status_code}")
 
 
-@pytest.mark.xfail(strict=True, raises=KnownProductGap, reason="QA-07: listed flat Markdown items cannot be read/added")
 def test_listed_flat_item_can_be_added_to_scene(ctx):
     session = create_story(ctx, roster=["阿米娅"])
     docs = ctx["app"]._managers["document"].list_documents("items")

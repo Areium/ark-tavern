@@ -30,7 +30,7 @@ import frontmatter  # noqa: E402
 from combat_balance import classify_enemy, node_budget_report  # noqa: E402
 from combat_data_loader import CombatDataLoader  # noqa: E402
 
-ENEMY_DIR = ROOT / "data" / "enemies"
+ENEMY_DIR = ROOT / "data" / "worldbooks" / "content" / "enemies"
 REPORT_MD = ROOT / "perf_tests" / "balance_audit_report.md"
 
 

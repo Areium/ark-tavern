@@ -88,7 +88,7 @@ def test_import_creates_character(tmp_path, monkeypatch):
 
     # 隔离数据目录：角色写入 character_card._DEFAULT_CHARS_DIR；世界书同样隔离
     from pathlib import Path
-    tmp_char = tmp_path / "data" / "characters"
+    tmp_char = tmp_path / "data" / "worldbooks" / "content" / "characters"
     tmp_char.mkdir(parents=True)
     monkeypatch.setattr(wb_mod, "_WORLDBOOKS_DIR", tmp_path / "worldbooks")
 

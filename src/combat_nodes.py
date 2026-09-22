@@ -25,15 +25,16 @@ import logging
 import re
 from pathlib import Path
 
+from data_paths import CONTENT_ROOT
+
 from combat_map import MapError, resolve_map
 from shared.json_hash import compute_json_hash
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-NODE_DIR = _PROJECT_ROOT / "data" / "combat" / "nodes"
-TILES_DIR = _PROJECT_ROOT / "data" / "combat" / "tiles"
-PLOT_DIR = _PROJECT_ROOT / "data" / "plots"
+NODE_DIR = CONTENT_ROOT / "combat" / "nodes"
+TILES_DIR = CONTENT_ROOT / "combat" / "tiles"
+PLOT_DIR = CONTENT_ROOT / "plots"
 
 TEMPLATE_STEM = "TEMPLATE_node"
 

@@ -1346,7 +1346,7 @@ export default function CombatView() {
 
           <div className="border-t border-combat-divider pt-3 mt-1">
             <p className="text-xs text-gray-600 mb-2">
-              测试模式：无需会话，从 data/plots/combat-test/index.md 加载角色和随机敌人
+              测试模式：无需会话，使用测试剧情中的角色和随机敌人
             </p>
             <button
               className="w-full py-2.5 bg-emerald-900/60 hover:bg-emerald-800/60 text-emerald-200 rounded-lg text-sm font-medium transition-all disabled:opacity-40 border border-emerald-800/50"

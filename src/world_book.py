@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from data_paths import PACKS_ROOT, WORLDBOOKS_ROOT
 from worldbook_scope import (
     EXTENSION_KEY, UNCLASSIFIED, validate_categories, validate_policy,
     expand_sources, find_scope_extension,
@@ -48,11 +49,10 @@ from worldbook_classify import classify_entries, needs_classification
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_WORLDBOOKS_DIR = _PROJECT_ROOT / "data" / "worldbooks"
+_WORLDBOOKS_DIR = WORLDBOOKS_ROOT
 
 # 整合包分发源（随程序分发，git 跟踪）：首次启动自动安装到 _WORLDBOOKS_DIR
-_PACKS_DIR = _PROJECT_ROOT / "data" / "packs"
+_PACKS_DIR = PACKS_ROOT
 # 未显式配置全局默认书时，按此顺序回退到已安装且启用的预装包（无则跳过）
 _PACK_FALLBACK_IDS = ["arknights"]
 

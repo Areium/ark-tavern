@@ -14,7 +14,7 @@ CV 审计与数值迁移（design 方案 §3 / §11 P1-1）。
 4. 可缩放价值（伤害/治疗/护盾）占比低于 25% 的卡不做向下缩放：砍伤害既救不回
    CV 又会破坏卡牌形态，保留数值并记为 effect_dominated 例外；
 5. 纯治疗卡允许低于预算至多 35%（support_discount，方案 §5.2 治疗术示例认可）；
-6. 结果写回 data/classes/<职业>/cards.json（含 cv_budget / cv_estimated），
+6. 结果写回 data/worldbooks/content/classes/<职业>/cards.json（含 cv_budget / cv_estimated），
    并输出 perf_tests/fixtures/cv_audit.json 与 perf_tests/cv_audit_report.md。
 """
 import argparse
@@ -32,7 +32,7 @@ from combat_engine import cv as cvmod                       # noqa: E402
 from combat_engine.card import Card                          # noqa: E402
 from combat_engine.card_json_loader import load_all_class_cards  # noqa: E402  (测试/外部用)
 
-CLASS_DIR = os.path.join(_ROOT, "data", "classes")
+CLASS_DIR = os.path.join(_ROOT, "data", "worldbooks", "content", "classes")
 REPORT_JSON = os.path.join(_ROOT, "perf_tests", "fixtures", "cv_audit.json")
 REPORT_MD = os.path.join(_ROOT, "perf_tests", "cv_audit_report.md")
 # 迁移基线：迁移前 Python 旧表快照（作为固定审计夹具纳入版本库）。

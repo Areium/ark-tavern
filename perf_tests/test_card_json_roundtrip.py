@@ -1,6 +1,6 @@
 """
 卡牌数据源迁移验证：
-1. data/classes/<职业>/cards.json 与迁移前 Python 旧表逐字段等价；
+1. data/worldbooks/content/classes/<职业>/cards.json 与迁移前 Python 旧表逐字段等价；
 2. 每张卡的 JSON 往返（to_dict → from_dict → to_dict）无损；
 3. cards.json 的 _hash 与内容一致（前端编辑器的冲突检测依赖它）；
 4. 新增成长字段（rank/upgrade_branch/exhaust/power_tier/cv_budget/
@@ -24,7 +24,7 @@ from combat_engine.card_data import get_cards_for_class, get_starting_deck  # no
 from combat_engine.card_json_loader import clear_cache, load_all_class_cards  # noqa: E402
 
 SNAPSHOT = os.path.join(_HERE, "fixtures", "cards_python_snapshot.json")
-CLASS_DIR = os.path.join(_ROOT, "data", "classes")
+CLASS_DIR = os.path.join(_ROOT, "data", "worldbooks", "content", "classes")
 
 GROWTH_FIELDS = ("rank", "upgrade_branch", "exhaust", "power_tier",
                  "cv_budget", "cv_estimated", "balance_version")

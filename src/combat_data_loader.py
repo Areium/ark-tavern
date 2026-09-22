@@ -16,14 +16,15 @@ import json
 import logging
 from pathlib import Path
 
+from data_paths import CONTENT_ROOT
+
 import frontmatter
 
 from combat_engine.entity import CombatUnit
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_DATA_DIR = _PROJECT_ROOT / "data" / "combat"
+_DATA_DIR = CONTENT_ROOT / "combat"
 
 # 敌人可写字段 → CombatUnit 属性（战斗数值覆盖用）
 _ENEMY_STAT_FIELDS = {

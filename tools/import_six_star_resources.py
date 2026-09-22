@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把「明日方舟」全部六星干员的资源落进 data/characters/。
+"""把「明日方舟」全部六星干员的资源落进 data/worldbooks/content/characters/。
 
 素材来源（本地镜像，gitignored）：assets/ArknightsGameResource/
   - avatar/<cid>.png / <cid>_2.png     —— 精英0 / 精英2 头像（180×180）
@@ -11,7 +11,7 @@
 六星口径：character_table.json 中 rarity == 5（0 起算）且 profession 不属于
 TOKEN / TRAP（召唤物、装置、陷阱不是干员）。
 
-实体口径（写入 data/characters/<中文名>/）：
+实体口径（写入 data/worldbooks/content/characters/<中文名>/）：
   - index.md       —— frontmatter（name/class/race/summary/tags/theme_color/
                       default_avatar/default_skin/worldbook_id）+ 官方档案正文
   - avatar/        —— 头像（default_avatar 指向 <cid>.png）
@@ -38,10 +38,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MIRROR = REPO_ROOT / "assets" / "ArknightsGameResource"
-CHAR_DIR = REPO_ROOT / "data" / "characters"
+CHAR_DIR = REPO_ROOT / "data" / "worldbooks" / "content" / "characters"
 EXCEL = MIRROR / "gamedata" / "excel"
 
-# profession（character_table）→ data/classes/ 目录名
+# profession（character_table）→ data/worldbooks/content/classes/ 目录名
 CLASS_CN = {
     "PIONEER": "先锋",
     "WARRIOR": "近卫",
@@ -179,7 +179,7 @@ def _render_index(char: dict, cid: str, sections: list[tuple[str, str]],
     lines.append(f"default_skin: {default_skin}")
     lines.append("imports:")
     lines.append(f"- classes/{cls_cn}")
-    if race and (REPO_ROOT / "data" / "races" / race).is_dir():
+    if race and (REPO_ROOT / "data" / "worldbooks" / "content" / "races" / race).is_dir():
         lines.append(f"- races/{race}")
     lines.append(f"name: {_yaml_scalar(name)}")
     if race:

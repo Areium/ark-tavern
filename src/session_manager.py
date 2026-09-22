@@ -23,11 +23,11 @@ from session_overlay import SessionOverlay
 from session_context import SessionContext
 from combat_resume import read_resume, session_resume_path, summarize as _summarize_resume
 from combat_engine.engine import CombatEvent
+from data_paths import MEMORY_ROOT
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_SESSIONS_DIR = _PROJECT_ROOT / "data" / "memory" / "sessions"
+_SESSIONS_DIR = MEMORY_ROOT / "sessions"
 
 # Shared registry — all sessions share the same entity index
 _registry: Optional[WikiManager] = None

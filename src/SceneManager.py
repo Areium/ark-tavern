@@ -301,7 +301,7 @@ class SceneManager:
         """加载角色加入当前场景。首次加载会创建 CharacterAgent 并缓存。
 
         Args:
-            name: 角色名（对应 data/characters/{name}/index.md）
+            name: 角色名（对应 data/worldbooks/content/characters/{name}/index.md）
 
         Returns:
             True 表示加载成功，False 表示文件不存在或解析失败。
@@ -685,11 +685,11 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             tasks.append(
                 f"- 判断叙述中是否出现了需要触发回合制战斗的明确的敌对冲突：\n"
                 f"  袭击、交火、武装对峙（武器出鞘/即将动手）等场面。\n"
-                f"  MUST：出现上述场面时 combat_trigger 必须填写遭遇ID，不得为 null；\n"
+                f"  出现上述场面且有适合的可用节点时，combat_trigger 填写列表中的节点 ID；\n"
                 f"  仅言语争吵或没有动手意图的对峙不算。\n"
                 f"  从以下列表直接选择语义最接近的遭遇，不要过度分析匹配度：\n"
                 f"  可用遭遇：{encounters}\n"
-                f"  无法判断时使用默认遭遇（初遇整合运动）。\n"
+                f"  列表为空或没有合适节点时返回 null，不得编造节点 ID。\n"
                 f"  将结果填入 combat_trigger 字段（格式：{{\"encounter_id\": \"遭遇ID\", \"params\": null}}）。\n"
                 f"  可选：在 combat_trigger.params 中设置 status_effects，\n"
                 f"  格式 {{\"角色名\": {{\"hp_penalty\": 0.0~1.0}}}}"
@@ -837,41 +837,20 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             return ""
         return "【对话历史】\n" + "\n\n".join(reversed(parts))
 
-    # 遭遇目录缓存（避免每次叙述都扫描文件系统）
-    _encounters_cache: list[str] | None = None
+    def _list_encounters(self) -> str:
+        """Read current battle nodes; never advertise removed Markdown encounters.
 
-    @classmethod
-    def _list_encounters(cls) -> str:
-        """返回可用遭遇的缓存列表字符串（id（中文名），供战斗触发任务语义匹配）。
-
-        实测：纯机器 ID 列表导致模型在多个候选间过度推理（单案例空响应耗尽 2048
-        tokens），注入中文名后触发召回 +8pt 且推理明显收敛。
+        Resolve ownership through the same registry used by the worldbook editor.
+        Do not cache: node edits and session book changes must take effect immediately.
         """
-        if cls._encounters_cache is None:
-            import os
+        from combat_nodes import node_exists, node_overview
 
-            import frontmatter as _fm
-
-            encounters_dir = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "data", "combat", "encounters",
-            )
-            result = []
-            if os.path.isdir(encounters_dir):
-                for f in sorted(os.listdir(encounters_dir)):
-                    if not f.endswith(".md"):
-                        continue
-                    entry_id = f[:-3]
-                    name = ""
-                    try:
-                        with open(os.path.join(encounters_dir, f), "r", encoding="utf-8") as fh:
-                            meta = _fm.load(fh).metadata
-                        name = str(meta.get("name") or "")
-                    except Exception:
-                        name = ""
-                    result.append(f"{entry_id}（{name}）" if name else entry_id)
-            cls._encounters_cache = result
-        return "、".join(cls._encounters_cache) if cls._encounters_cache else "初遇整合运动"
+        book = self._resolve_worldbook()
+        rows, _ = node_overview(book_id=book.id if book else None)
+        return "、".join(
+            f"{row['node_id']}（{row['name']}）"
+            for row in rows if node_exists(row["node_id"])
+        ) or "（无可用战斗节点）"
 
     def _valid_beat_ids(self) -> list[str]:
         """当前会话剧情中全部真实节拍 id（用于校验分支目标）。

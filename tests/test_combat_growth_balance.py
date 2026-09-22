@@ -167,7 +167,7 @@ def test_band_scaling_applies_in_session_when_enabled():
                                 "positions": [[2, 4]]}]}],
         "difficulty": {"band": "T2", "apply_band_scaling": True, "threat_budget": 2.0},
     }
-    path = ROOT / "data" / "combat" / "nodes" / f"{node_id}.json"
+    path = ROOT / "data" / "worldbooks" / "content" / "combat" / "nodes" / f"{node_id}.json"
     try:
         path.write_text(json.dumps(node, ensure_ascii=False, indent=2), encoding="utf-8")
         state = CombatSession("band-test").start(node_id, character_names=["阿米娅"])
@@ -199,7 +199,7 @@ def _run(tool: str, *args) -> subprocess.CompletedProcess:
 
 
 def test_validate_cli_accepts_shipped_node():
-    res = _run("validate_battle_spec.py", str(ROOT / "data/combat/nodes/enc_training.json"))
+    res = _run("validate_battle_spec.py", str(ROOT / "data/worldbooks/content/combat/nodes/enc_training.json"))
     assert res.returncode == 0, res.stderr
     assert "OK" in res.stdout
 
@@ -275,7 +275,7 @@ def test_audit_report_written_with_tables():
 
 def test_validate_endpoint_returns_threat_metrics():
     client = create_app().test_client()
-    node = json.loads((ROOT / "data/combat/nodes/enc_defense.json").read_text(encoding="utf-8"))
+    node = json.loads((ROOT / "data/worldbooks/content/combat/nodes/enc_defense.json").read_text(encoding="utf-8"))
     res = client.post("/api/combat/nodes/validate", json={"node": node})
     assert res.status_code == 200
     payload = res.get_json()

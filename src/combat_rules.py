@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
+
+from data_paths import CONTENT_ROOT
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-# 放在 data/combat/rules/（引擎数据），不是 data/rules/（叙事规则文档目录，会被 wiki 检索）
-RULES_DIR = _PROJECT_ROOT / "data" / "combat" / "rules"
+# 放在 content/combat/rules/（引擎数据），不是 content/rules/（叙事规则文档目录）
+RULES_DIR = CONTENT_ROOT / "combat" / "rules"
 
 DEFAULT_GROWTH: dict = {
     "attribute_points_per_level": 1,

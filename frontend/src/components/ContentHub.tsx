@@ -9,7 +9,7 @@
  *  - 世界书不在内部重复承载：上一级导航「世界书」页（工作台页签：条目 / 分类与载入 /
  *    Prompt 预览 / 节点视图 / 本家索引）为唯一入口，检索命中直接跳该页的「条目」页签。
  *  - 文档管理已移除：世界观语料经 scripts/generate_builtin_worldbook.py 整理为
- *    「世界书整合包」（data/packs/arknights.json），随世界书导入/预装分发。
+ *    「世界书整合包」（data/worldbooks/packs/arknights.json），随世界书导入/预装分发。
  *  - 战斗节点编辑：先选世界书再编辑（NodeFlowEditor），节点数据归属所选世界书。
  */
 import { useEffect, useRef, useState } from "react";

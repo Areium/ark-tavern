@@ -20,11 +20,12 @@ import threading
 from pathlib import Path
 
 import frontmatter
+from data_paths import PROJECT_ROOT, content_root, memory_root
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_SESSIONS_DIR = _PROJECT_ROOT / "data" / "memory" / "sessions"
+_PROJECT_ROOT = PROJECT_ROOT
+_SESSIONS_DIR = memory_root(_PROJECT_ROOT) / "sessions"
 
 _PLOT_LOG_HEADER = (
     "# 剧情进度日志\n\n"
@@ -1843,7 +1844,7 @@ class SessionOverlay:
 
 def _resolve_plot_dir(plot_id: str) -> str | None:
     """通过扫描 data/plots/ 子目录查找指定 plot_id 对应的目录名。"""
-    base = _PROJECT_ROOT / "data" / "plots"
+    base = content_root(_PROJECT_ROOT) / "plots"
     if not base.is_dir():
         return None
     if (base / plot_id / "index.md").is_file():
@@ -1867,7 +1868,7 @@ def _read_plot_file(plot_id: str) -> tuple[dict, str] | None:
     resolved = _resolve_plot_dir(plot_id)
     if not resolved:
         return None
-    md = _PROJECT_ROOT / "data" / "plots" / resolved / "index.md"
+    md = content_root(_PROJECT_ROOT) / "plots" / resolved / "index.md"
     if md.is_file():
         with open(md, "r", encoding="utf-8") as f:
             post = frontmatter.load(f)

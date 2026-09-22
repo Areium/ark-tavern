@@ -51,7 +51,7 @@ const SPINE_VARIANT: Record<string, string> = {
   "凯尔希": "char_003_kalts",
 };
 
-// 敌人 Spine 变体 — 约定与角色一致：文件放 data/characters/<敌名>/spine/<变体>/Front|Back/，
+// 敌人 Spine 变体 — 约定与角色一致：文件放 data/worldbooks/content/characters/<敌名>/spine/<变体>/Front|Back/，
 // 在此注册敌名即可启用；未注册或加载失败的敌人自动回退 fallback token。
 // 来源 Ark-Models models_enemies（tools/import_spine.py enemies），均含 Idle/Attack/Die。
 const ENEMY_SPINE_VARIANT: Record<string, string> = {

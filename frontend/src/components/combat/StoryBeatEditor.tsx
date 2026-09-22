@@ -1,7 +1,7 @@
 /**
  * 剧情节拍编辑抽屉 — 节点图中"剧情节点"的编辑面板。
  *
- * 数据面：data/plots/<plot_id>/index.md（剧情唯一真相源，叙述引擎共用）。
+ * 数据面：data/worldbooks/content/plots/<plot_id>/index.md（剧情唯一真相源，叙述引擎共用）。
  * 通过 documents API 读写（带 _hash 冲突检测），节拍增删改在本端做
  * Markdown 手术（utils/plotBeatEditor），保存后由后端重新解析出图。
  */
@@ -257,7 +257,7 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
                 disabled={busy || !dirty}
               >保存节拍</button>
               <p className="text-[10px] text-gray-600">
-                保存写入 data/plots/{plotId}/index.md（保留 frontmatter，_hash 冲突检测）。
+                保存到当前剧情；如有其他修改，会提示保存冲突。
               </p>
             </div>
           </section>

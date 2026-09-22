@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从 PseudoMon/arknights-audio 下载方舟战斗音效/BGM 到 data/audio/。
+"""从 PseudoMon/arknights-audio 下载方舟战斗音效/BGM 到 data/worldbooks/content/audio/。
 
 源仓库: https://github.com/PseudoMon/arknights-audio (global-server-voices 分支)
 音频为 WAV，浏览器原生支持。脚本幂等：已存在且非空则跳过。
@@ -11,7 +11,7 @@ import sys
 import urllib.request
 
 BASE_URL = "https://raw.githubusercontent.com/PseudoMon/arknights-audio/global-server-voices/"
-DEST_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "audio")
+DEST_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "worldbooks", "content", "audio")
 
 # 目标文件名 → 源仓库路径
 SFX = {

@@ -16,7 +16,7 @@ from combat_nodes import (  # noqa: E402
     validate_node,
 )
 
-NODE_DIR = ROOT / "data" / "combat" / "nodes"
+NODE_DIR = ROOT / "data" / "worldbooks" / "content" / "combat" / "nodes"
 
 
 @pytest.fixture(scope="module")
