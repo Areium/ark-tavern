@@ -506,22 +506,15 @@ const promptTabModule = require(path.join(root, "frontend/src/components/worldbo
 const promptMarkup = renderToStaticMarkup(React.createElement(promptTabModule.default, {
   ctx: panel, onNotice() {}, onReload: async () => {},
 }));
-for (const expected of ["剧情模式", "自由模式", "Prompt 预览", "宿主提示词骨架", "当前输入", "最近对话",
-  "用当前会话最近 10 条真实对话填充", "手动追加条目", "试选阵容", "最终文本", "条目与顺序",
-  "未插入条目", "固定种子 seed=0", "全量兼容", "token 预算"]) {
-  assert.ok(promptMarkup.includes(expected), `Prompt 预览骨架应包含「${expected}」`);
+for (const expected of ["Prompt 预览", "世界书插入内容", "静态层", "动态层", "最终文本", "复制本层文本", "动态层触发方式"]) {
+  assert.ok(promptMarkup.includes(expected), `Prompt 预览应包含「${expected}」`);
 }
-assert.ok(promptMarkup.includes(promptTabModule.PROMPT_PREVIEW_SCOPE_NOTE), "分工文案逐字写死");
-assert.ok(promptMarkup.includes("配置概览的范围预览回答「哪些是候选」"));
-assert.ok(promptMarkup.includes("前者按书，后者按单轮"));
-assert.ok(promptMarkup.includes(promptTabModule.SEED_NOTE), "固定种子提示逐字写死");
-assert.ok(promptMarkup.includes("概率条目按固定种子抽取，结果可复现。"));
-assert.ok(promptMarkup.includes("仅本次预览"), "手动追加写明只影响本次预览");
-assert.equal(promptTabModule.PROMPT_PREVIEW_SCOPE_NOTE,
-  "配置概览的范围预览回答「哪些是候选」；这里回答「这一轮实际插进去什么、插在哪个位置、什么顺序」。前者按书，后者按单轮。");
-assert.deepEqual(promptTabModule.PREVIEW_MODES.map((item) => item.label), ["剧情模式", "自由模式"]);
-assert.ok(promptMarkup.includes(promptTabModule.MODE_LABELS.narrative));
-assert.ok(!promptMarkup.includes("世界书图谱"), "R-22：旧说法不出现在 Prompt 预览里");
+for (const removed of ["当前输入", "最近对话", "手动追加条目", "试选阵容", "未插入条目", "条目与顺序", "宿主提示词骨架", "token 预算"]) {
+  assert.ok(!promptMarkup.includes(removed), `Prompt 预览不再显示「${removed}」`);
+}
+assert.ok(promptMarkup.includes(promptTabModule.PROMPT_PREVIEW_SCOPE_NOTE));
+assert.ok(promptMarkup.includes(promptTabModule.DYNAMIC_TRIGGER_NOTE));
+assert.ok(promptMarkup.includes('aria-describedby="wbpp-trigger-help"'));
 
 const entryTreeModule = require(path.join(root, "frontend/src/components/worldbook/EntryDependencyTree.tsx"));
 // 有 requires 出边：渲染折叠三角 + 出边数

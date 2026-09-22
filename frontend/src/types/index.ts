@@ -1078,6 +1078,8 @@ export interface WorldBookNodeLoreScopeDTO {
 }
 
 export interface WorldBookPromptPreviewRequest {
+  /** 全书内容预览：启用条目按已触发展示，不受单轮筛选或预算截断。 */
+  all_entries?: boolean;
   mode: WorldBookPreviewMode;
   input_text?: string;
   recent_text?: string;

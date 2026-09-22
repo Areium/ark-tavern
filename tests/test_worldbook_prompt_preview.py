@@ -152,6 +152,75 @@ def test_same_input_and_seed_returns_byte_identical_response(api):
                                          "truncated", "candidate_count", "matched_count"}
 
 
+def test_all_entries_previews_every_enabled_non_metadata_entry(api):
+    """全书模式忽略范围、节点、关键词、概率与预算，并保留原始静动态分层。"""
+    client, manager, _ = api
+    book = manager.load("book")
+    book.entries.append(entry(
+        "bindings", content="```json arknights_tavern_lore_bindings\n{}\n```",
+        always_active=True, position=0,
+        raw={"extensions": {"arknights_tavern": {"entry_type": "lore_bindings"}}},
+    ))
+    book.entry_order = [item.uid for item in reversed(book.entries)]
+
+    payload = preview(
+        client, all_entries=True, input_text="", recent_text="", budget_tokens=1,
+        lore_scope={"book_id": "book", "node_id": "n", "allowed": [],
+                    "pinned": [], "overrides": {}},
+    )
+    expected = {item.uid for item in book.entries
+                if item.enabled and item.uid != "bindings"}
+    expected_order = ["world"] + [
+        uid for uid in book.entry_order
+        if uid in expected and uid != "world"
+    ]
+
+    assert order_uids(payload) == expected_order
+    assert set(dropped_map(payload)) == {"off"}
+    assert "bindings" not in order_uids(payload)
+    assert "bindings" not in dropped_map(payload)
+    assert payload["totals"] == {
+        "stable_tokens": next(item["estimated_tokens"] for item in payload["order"]
+                              if item["uid"] == "world"),
+        "dynamic_tokens": sum(item["estimated_tokens"] for item in payload["order"]
+                              if item["layer"] == "dynamic"),
+        "budget_tokens": 0,
+        "truncated": False,
+        "candidate_count": len(expected),
+        "matched_count": len(expected),
+    }
+    assert next(item for item in payload["order"] if item["uid"] == "world")["layer"] == "stable"
+    assert all(item["layer"] == "dynamic" for item in payload["order"]
+               if item["uid"] != "world")
+    assert heading_names(payload["stable_text"]) == ["世界设定"]
+    assert set(heading_names(payload["dynamic_text"])) == {
+        item.name for item in book.entries if item.enabled and item.uid not in {"world", "bindings"}
+    }
+
+
+def test_all_entries_is_read_only_and_default_mode_keeps_runtime_semantics(api):
+    """全书预览不改内存/磁盘；未传或显式 false 时仍走原单轮逻辑。"""
+    client, manager, tmp_path = api
+    book = manager.load("book")
+    path = Path(tmp_path) / "book.json"
+    disk_before = (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns)
+    memory_before = copy.deepcopy(book.to_dict())
+
+    all_payload = preview(client, all_entries=True, budget_tokens=1)
+    assert "miss" in order_uids(all_payload)
+    assert "prob" in order_uids(all_payload)
+    assert manager.load("book").to_dict() == memory_before
+    assert (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns) == disk_before
+
+    omitted = preview(client, input_text="", seed=0)
+    explicit_false = preview(client, all_entries=False, input_text="", seed=0)
+    assert omitted == explicit_false
+    assert "miss" not in order_uids(omitted)
+    assert "prob" not in order_uids(omitted)
+    assert dropped_map(omitted)["miss"] == "keyword_miss"
+    assert dropped_map(omitted)["prob"] == "keyword_miss"
+
+
 def test_seed_decides_probability_entries_and_stays_reproducible(api):
     """概率条目按独立的 `random.Random(seed)` 抽签：换种子可改结果、同种子必同结果。
 
