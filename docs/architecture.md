@@ -59,7 +59,7 @@
 
 > **2026-09 变更（世界书工作台重构）**：世界书依赖的「AI 自动构建」整条链路已移除——构建内核（原 `worldbook_builder.py` / `worldbook_builder_plan.py` / `worldbook_reading.py`）、`dependency-proposals` 系列接口、前端构建面板与会话侧 AI 微调一并删除，两篇专项设计归档到 `docs/archive/`。见 `docs/proposals/worldbook-workbench-redesign.md` §2.4。
 >
-> **删的是画布与「让模型替你猜依赖」，不是依赖功能**：依赖数据、分类、载入规则、统一草稿的保存与撤销、范围预览、节点绑定全部保留，改在 `分类与载入` 与 `节点视图` 里人工维护；旧书里已有的 AI 关系照常载入与展开（`origin` / `model` / `evidence` / `review_status` / `rejected` / `edge_meta` 等字段保留、只停写）。
+> **删的是画布与「让模型替你猜依赖」，不是依赖功能**：依赖数据、分类、载入规则、统一草稿的保存与撤销、范围预览、节点绑定全部保留，但旧「分类与载入」页签已撤销、其子视图（`LoadTab` / `WorldBookConfigOverview` / `WorldBookEntryWorkbench`）当前都没有任何引用，依赖配置的编辑 UI 未挂载（`patch` 无调用点，`条目` 页上的保存条实际不可达，保留原路径待接线）；旧书里已有的 AI 关系照常载入与展开（`origin` / `model` / `evidence` / `review_status` / `rejected` / `edge_meta` 等字段保留、只停写）。
 
 ### 2.4 战斗后端
 
@@ -102,7 +102,7 @@
 
 ### 3.1 入口与外壳
 
-`main.tsx`（React 18 createRoot）→ `App.tsx`：GameTopBar（管理页顶栏：返回主菜单 + 管理页导航，返回入口全站唯一）+ StatusBar（状态栏）+ 内容区（HomeMenu / ChatView / CombatView / SessionManagerView / CharacterManager / WorldBookManager / ContentHub / DocsView / SettingsPanel）。轮询后端状态 5s、LLM 状态 10s、会话列表 15s。
+`main.tsx`（React 18 createRoot）→ `App.tsx`：GameTopBar（管理页顶栏：返回主菜单 + 管理页导航，返回入口全站唯一）+ StatusBar（状态栏）+ 内容区（HomeMenu / ChatView / CombatView / SessionManagerView / CharacterManager / WorldBookManager / DocsView / SettingsPanel）。轮询后端状态 5s、LLM 状态 10s、会话列表 15s。
 
 ### 3.2 聊天
 
@@ -115,7 +115,7 @@
 ### 3.3 战斗
 
 - `components/combat/CombatView.tsx` — 战斗主控（50k+ LOC，最大组件）
-- `components/combat/NodeFlowEditor.tsx` — 节点流编辑器（内容中心「节点图」Tab）：先选世界书再编辑，横向可展开节点图同屏呈现剧情节点（plot 章节/节拍）与战斗节点（`[COMBAT:]` 引用连线），点击节点开右侧抽屉编辑、支持增删
+- `components/combat/PlotGraphPage.tsx` — 剧情节点图页（世界书工作台「节点图」页签挂载，以当前选中的世界书为受控书；原内容中心一级入口与本页签一并归位）：整页画布同屏呈现剧情节点（plot 章节/节拍）与战斗节点（`[COMBAT:]` 引用连线），点开节点走右侧抽屉编辑（`StoryBeatEditor` / `BattleNodeForm`）、支持增删，编辑走快照撤销栈（`Ctrl+Z` 撤销 / `Ctrl+S` 保存）。原 `NodeFlowEditor.tsx` 已被本页取代、不再存在
 - `components/combat/BattleNodeForm.tsx` — 单个战斗节点编辑表单（抽屉内挂载：地图绘制 BattleMapCanvas + 敌人编成与血量覆盖 + 服务端校验 + 试打）
 - `components/combat/StoryBeatEditor.tsx` — 剧情节拍编辑抽屉（对 `data/worldbooks/content/plots/<id>/index.md` 做节拍增删改，配合 `utils/plotBeatEditor.ts` 的 Markdown 手术）
 - `components/combat/` 其余 — CSS 网格（CombatGrid：行列自由尺寸 + 地形着色 + 部署区标识）+ PixiJS Spine 覆盖层（PixiCombatScene，runtime-3.8）+ 手牌（CombatHand）+ 卡组查看（DeckViewer）+ 卡牌编辑（CardEditor）+ 状态/事件面板 + Spine 动画规格（`spineAnimSpecs.ts`）
@@ -123,13 +123,13 @@
 
 ### 3.4 管理页
 
-- `components/ContentHub.tsx` — 内容中心（Tab：资产/卡牌/节点图；世界书图谱与索引已迁入世界书工作台页签；文档管理入口已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为通用资料库与独立剧情书，分发源位于 `data/worldbooks/packs/`，浏览与编辑走世界书模块；后端 `document_manager.py` + `blueprints/documents.py` 仍在）
+- `components/CharacterManager.tsx` — 「角色」页（模块页签：**角色库 / 玩家身份 / 资产 / 卡牌**；页签状态 `characterTab` 在 store，角色卡详情「编辑卡牌」等跨组件跳转直接落到指定页签）：角色库浏览与角色卡导入、玩家身份维护；**资产（`AssetManager.tsx`）与卡牌（`CardManager.tsx`）由已删除的「内容中心」一级入口并入本页**，节点图并入世界书工作台的「节点图」页签（`components/combat/PlotGraphPage.tsx`，整页画布）；文档管理入口早已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为通用资料库与独立剧情书，分发源位于 `data/worldbooks/packs/`，浏览与编辑走世界书模块；后端 `document_manager.py` + `blueprints/documents.py` 仍在
 - `components/AssetManager.tsx` — 资产目录：图片上传/裁剪/默认图，实体显示上级目录与来源世界书（frontmatter `worldbook_id`），按书筛选与归类
 - `components/CardManager.tsx` — 卡牌管理：角色/职业卡牌编辑（CardEditor），条目显示所属世界书，按书筛选
-- `components/WorldBookManager.tsx` — 世界书工作台：顶层按用途分「剧情世界书 / 资料库」（带筛选与计数），详情是带页签的工作台——**条目 / 分类与载入 / Prompt 预览 / 节点视图 / 本家索引**（原「高级配置」双页签已并入 `分类与载入`；`本家索引` 页签副标题是「内置语料索引 · 依赖完整性 · 会话白名单」）；导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、条目编辑器、剧情书的会话绑定与默认书、酒馆格式导出；资料库以检索/浏览为主，可就地把条目「加入剧情世界书」（提交前可编辑标题/正文/触发词）。纯逻辑在 `utils/worldbookLibrary.ts`
+- `components/WorldBookManager.tsx` — 世界书工作台：顶层按用途分「剧情世界书 / 资料库」（带筛选与计数），详情是带页签的工作台——**条目 / Prompt 预览 / 节点图 / 本家索引**（旧「分类与载入」页签已撤销：其子视图当前未挂载，依赖配置暂无编辑 UI，`条目` 页上的保存条实际不可达，保留原路径待接线；`本家索引` 页签副标题是「内置语料索引 · 依赖完整性 · 会话白名单」）；导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、条目编辑器、剧情书的会话绑定与默认书、酒馆格式导出；资料库以检索/浏览为主，可就地把条目「加入剧情世界书」（提交前可编辑标题/正文/触发词）。纯逻辑在 `utils/worldbookLibrary.ts`
 - `components/session/SessionWorldbookDependencies.tsx` — 会话大厅内的依赖微调：继承/本地/屏蔽关系、实际纳入原因、全局继承更新预览（面板只保留人工部分：增删 `requires` / `related`、屏蔽继承、恢复继承；会话侧 AI 微调入口已移除）
-- `components/WorldBookManager.tsx`（工作台容器）/ `components/worldbook/tabs/LoadTab.tsx` / `components/WorldBookScopeManager.tsx` — 「世界书」页是带页签的工作台：**统一草稿与页头保存条**（一次 `PUT /configuration` 原子写入，409 保留草稿；页头那条显示「有未保存修改 / 已同步」+ 撤销 + 保存）住在容器 `WorldBookManager.tsx` 里；`分类与载入` 页签由 `LoadTab.tsx` 承载 **配置概览 / 条目与角色 / 分类结构** 三个子视图（子视图是页签本地状态，不进全局 store），分别渲染 `WorldBookConfigOverview` / `WorldBookEntryWorkbench` / `WorldBookScopeManager`；`WorldBookScopeManager` 已缩减为分类结构子视图（分类树 + 条目归属表 + 批量起点 / 批量依赖 / 批量归属，图谱画布与其交互已删），由统一草稿投影而来并写回同一草稿，条件起点（`roster_any` / `manual` / `requires_closure`）不会被静默清掉。原 `WorldBookDependencyPage.tsx` 已删除——它自带的世界书选择下拉与保存条已分别并进容器与页头。`components/worldbook/` 下是配置概览（基础设定 / 角色设定 / 关联补充 / 待处理 + 试选阵容 + 本次范围预览）、条目与角色（四个常见动作）与共享类型；`hooks/useWorldbookDraft.ts` 提供统一草稿与两个带防抖 / 过时响应保护的预览钩子；`WorldBookScopePreview.tsx` 同时用于创建向导
-- 世界书工作台的页签容器与纯逻辑：`components/worldbook/tabs/`（`LoadTab` / `PromptPreviewTab` / `NodeViewTab`）+ `components/worldbook/EntryDependencyTree.tsx` / `utils/worldbookNodeView.ts` / `utils/worldbookDependencyTree.ts` / `utils/worldbookPromptPreview.ts` / `utils/worldbookBatch.ts` — 世界书工作台的五个页签与纯逻辑：**节点视图**把全书启用且有正文的条目从左到右排成一条轨道（排列键 = 服务端真实注入排序键 `position` 升序 → `group_weight` 降序 → `depth` 升序 → `uid` 升序），每个节点向下展开 `requires` 依赖，重复到达的条目渲染为灰节点（口径取自服务端 `display_tree[].repeated` / `first_parent_uid` / `display_index`，前端不自算第二套去重）；**Prompt 预览**走 `eligible_uids_for` → `collect_matches` → `format_injection` 同一条路径（固定种子），给出 `order[]` / `stable_text` / `dynamic_text` / `sites[]` / `skeleton[]` / `dropped[]` / `totals`；**条目依赖逐层展开**与 `resolve_v3_scope` 的 `display_tree` 同构；批量策略变换（起点批量 / 建边 / 清边 / 移入分类）是纯函数，只改草稿不写盘。全部为纯 SVG + DOM，不引入图形库（旧画布 `WorldBookGraphCanvas.tsx` 与 `utils/worldbookGraph.ts` 已整文件删除）
+- `components/WorldBookManager.tsx`（工作台容器）/ `components/worldbook/tabs/LoadTab.tsx` / `components/WorldBookScopeManager.tsx` — 「世界书」页是带页签的工作台：**统一草稿与页头保存条**（一次 `PUT /configuration` 原子写入，409 保留草稿；页头那条显示「有未保存修改 / 已同步」+ 撤销 + 保存）住在容器 `WorldBookManager.tsx` 里；`分类与载入` 页签由 `LoadTab.tsx` 承载 **配置概览 / 条目与角色 / 分类结构** 三个子视图（子视图是页签本地状态，不进全局 store），分别渲染 `WorldBookConfigOverview` / `WorldBookEntryWorkbench` / `WorldBookScopeManager`——该页签已撤销，这三个文件当前都没有任何引用（死代码）：依赖配置的编辑 UI 未挂载、`patch` 无调用点，`条目` 页上的「节点配置有未保存修改」保存条实际不可达，保留原路径待接线；`WorldBookScopeManager` 已缩减为分类结构子视图（分类树 + 条目归属表 + 批量起点 / 批量依赖 / 批量归属，图谱画布与其交互已删），由统一草稿投影而来并写回同一草稿，条件起点（`roster_any` / `manual` / `requires_closure`）不会被静默清掉。原 `WorldBookDependencyPage.tsx` 已删除——它自带的世界书选择下拉与保存条已分别并进容器与页头。`components/worldbook/` 下是配置概览（基础设定 / 角色设定 / 关联补充 / 待处理 + 试选阵容 + 本次范围预览）、条目与角色（四个常见动作）与共享类型；`hooks/useWorldbookDraft.ts` 提供统一草稿与两个带防抖 / 过时响应保护的预览钩子；`WorldBookScopePreview.tsx` 同时用于创建向导
+- 世界书工作台的页签容器与纯逻辑：`components/worldbook/tabs/`（`PromptPreviewTab`）+ `components/worldbook/EntryDependencyTree.tsx` / `utils/worldbookDependencyTree.ts` / `utils/worldbookPromptPreview.ts` / `utils/worldbookBatch.ts` — 世界书工作台的四个页签与纯逻辑：**节点图**页签直接挂 `components/combat/PlotGraphPage.tsx`（整页画布按当前选中的世界书编辑剧情节点图，页面本身见 §3.3；原「节点视图」轨道页连同 `NodeViewTab.tsx` / `utils/worldbookNodeView.ts` 已整组删除，轨道排序键与灰节点那套口径不再存在）；**Prompt 预览**走 `eligible_uids_for` → `collect_matches` → `format_injection` 同一条路径（固定种子），给出 `order[]` / `stable_text` / `dynamic_text` / `sites[]` / `skeleton[]` / `dropped[]` / `totals`；**条目依赖逐层展开**与 `resolve_v3_scope` 的 `display_tree` 同构；批量策略变换（起点批量 / 建边 / 清边 / 移入分类）是纯函数，只改草稿不写盘。全部为纯 SVG + DOM，不引入图形库（旧画布 `WorldBookGraphCanvas.tsx` 与 `utils/worldbookGraph.ts` 已整文件删除）
 - `components/SettingsPanel.tsx` — LLM 配置/主题/叙述选项
 
 ### 3.5 状态与数据获取
@@ -170,7 +170,7 @@
 
 生成流程与硬性约束见 skill `combat-designer`，规格说明见 `docs/design/combat/battle-spec.md`。
 
-其他脚本：`scripts/generate_builtin_worldbook.py`（世界书整合包）、`scripts/gen_skin_utils.py`（皮肤颜色工具类生成）、`scripts/run_tests.sh`（统一测试入口）、`scripts/test_worldbook_scope_ui.cjs`（分类树工具 / 批量起点与依赖与归属 / 候选范围预览 / 分类结构 SSR / 工作台页签骨架，以及依赖展开树与 Prompt 预览的纯函数与 SSR 检查）、`scripts/test_worldbook_node_view_ui.cjs`（**节点视图**的纯函数与 SSR 检查：轨道排序键、灰节点去重口径、确定性布局、规模截断、六项统计、五种边视觉）、`scripts/test_worldbook_library_ui.cjs`（资料库体验：用途筛选/分组、摘录载荷折算、工作台页签归一（资料库恒为 `条目` 页签）、SSR 骨架）。
+其他脚本：`scripts/generate_builtin_worldbook.py`（世界书整合包）、`scripts/gen_skin_utils.py`（皮肤颜色工具类生成）、`scripts/run_tests.sh`（统一测试入口）、`scripts/test_worldbook_scope_ui.cjs`（分类树工具 / 批量起点与依赖与归属 / 候选范围预览 / 分类结构 SSR / 工作台页签骨架，以及依赖展开树与 Prompt 预览的纯函数与 SSR 检查）、`scripts/test_worldbook_library_ui.cjs`（资料库体验：用途筛选/分组、摘录载荷折算、工作台页签归一（资料库恒为 `条目` 页签）、SSR 骨架）。
 
 ---
 
@@ -212,7 +212,7 @@ docs/
 | `design/narrative/rag-retrieval.md` | 知识注入的四条召回通道（依赖预加载 / 关键词世界书 / 预取 Hook / `wiki_query` 按需）、分层注入与记忆系统 |
 | `design/narrative/two-phase-narration.md` | 两阶段叙述：创作与系统层解耦、结构化产物字段、三级 JSON 兜底与按调用类型思考档位 |
 | `design/narrative/prompt.md` | 本项目提示词书写约定（已采用 / 未采用 / 顺序约定） |
-| `design/content-hub-design.md` | 内容中心整合设计 |
+| `design/content-hub-design.md` | 内容中心整合设计（内容中心一级入口已于 2026-09 拆解为「角色 + 世界书」两级，见文首「后续变更」） |
 
 ### 5.2 `proposals/` —— 目标态提案
 

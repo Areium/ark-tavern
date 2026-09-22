@@ -79,7 +79,7 @@ flowchart LR
 作用域在剧情树节点落盘时冻结、随回档一起走，注入路径上零解析。
 书内无绑定条目 / 自由模式 / 老会话一律关闭，行为与旧版一致。详见 `docs/design/worldbook/node-scoped-worldbook-loading.md`。
 
-**依赖自动构建（已移除）**：世界书起点与依赖的原「AI 自动构建」链路（元数据索引 → 分段 → 明确引用候选对 → 分析卡 → 判定 → 程序校验）已于 2026-09 随世界书工作台重构删除，两篇专项设计归档到 `docs/archive/worldbook-builder-performance.md`、`docs/archive/worldbook-selective-reading.md`。依赖关系改由人在工作台 `分类与载入` / `节点视图` 里手工维护（**依赖功能本身保留**），见 `docs/proposals/worldbook-workbench-redesign.md` §2.4。
+**依赖自动构建（已移除）**：世界书起点与依赖的原「AI 自动构建」链路（元数据索引 → 分段 → 明确引用候选对 → 分析卡 → 判定 → 程序校验）已于 2026-09 随世界书工作台重构删除，两篇专项设计归档到 `docs/archive/worldbook-builder-performance.md`、`docs/archive/worldbook-selective-reading.md`。依赖关系不再由模型构建、改由人手工维护（**依赖功能本身保留**）——但旧工作台 `分类与载入` 页签已撤销、`节点视图` 页签已随 2026-09 信息架构合并整页删除，依赖配置的编辑 UI 当前未挂载（详见 `docs/design/worldbook/worldbook-on-demand.md` 的 2026-09 变更说明）。AI 自动构建的删除范围见 `docs/proposals/worldbook-workbench-redesign.md` §2.4。
 
 ## 效果基准
 

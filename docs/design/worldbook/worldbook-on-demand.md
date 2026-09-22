@@ -4,7 +4,7 @@
 
 ## 使用入口
 
-**世界书 → 分类与载入**（工作台第 2 个页签）默认给三个子视图，共用同一份**统一草稿**（分类、角色关联、起点规则、依赖边），右上角一次「保存」原子写入；切视图、切页签都不丢草稿，保存失败或版本冲突（409）也保留草稿。想看「这一轮实际插进去了什么」去 `Prompt 预览`，想看顺序与依赖的全局形状去 `节点视图`。
+**世界书 → 条目**（工作台第 1 个页签）：依赖配置的**统一草稿**（分类、角色关联、起点规则、依赖边）仍是一次「保存」原子写入（`PUT /configuration`），切视图、切页签都不丢草稿，保存失败或版本冲突（409）也保留草稿；但它的三个子视图（配置概览 / 条目与角色 / 分类结构）原属「分类与载入」页签，该页签已撤销、三个子视图当前未挂载（`LoadTab` / `WorldBookConfigOverview` / `WorldBookEntryWorkbench` 都没有任何引用，`patch` 无调用点）——**依赖配置目前没有活的编辑 UI**，`条目` 页上的保存条实际不可达，保留原路径待接线。想看「这一轮实际插进去了什么」去 `Prompt 预览`；那张看顺序与依赖全局形状的轨道图（原 `节点视图` 页签）已随页签一并删除，注入顺序可看 `Prompt 预览` 的 `order[]`、依赖可看条目页的逐层展开。
 
 - **配置概览**：把「这本书怎么载入」压成四组——**基础设定**（所有会话候选）/ **角色设定**（入队时选用）/ **关联补充** / **待处理**，外加「试选阵容」与「本次范围预览」。待处理只列真要动手的项（依赖引用了不存在的条目、角色分类缺角色关联、起点指定的角色不在目录里、必要依赖成环等）；**条目没被当前试选阵容选中不算错误**。
 - **条目与角色**：条目列表 + 详情，四个常见动作覆盖绝大多数情况（见下）。显示角色名与头像，实际写入配置的仍然是角色目录 ID。
@@ -19,7 +19,7 @@
 | 选用此条时同时选用… | `requires` 边 | 参与遍历，对方被一起补上 |
 | 仅标记相关 | `related` 边 | 只作浏览，**不展开** |
 
-**世界书 → 分类与载入** 的 **分类结构**：分类树、条目归属与角色关联，工具栏提供「自动分类」（先预览再应用）。切到 `条目` 页签可浏览和编辑原有条目正文。
+**世界书 → 分类结构**（原「分类与载入」页签的子视图；该页签已撤销、子视图当前未挂载，工具栏入口待接线）：分类树、条目归属与角色关联，工具栏提供「自动分类」（先预览再应用）。`条目` 页可浏览和编辑条目正文。
 
 **创建会话**：选定世界书和阵容后展示服务端真实解析的候选统计、载入树与选用原因；创建时一次性初始化剧情、阵容、绑定与范围快照，失败不会留下半成品会话。创建全程**不调用任何 LLM**。
 
@@ -41,7 +41,7 @@ v3 把「分类」和「载入」彻底分开：**分类只负责组织内容，
 
 > **已移除（2026-09，提案 D-4）**：原本「配置概览右侧一次点击 → 后台读完整本书 → 逐条给出起点与依赖建议 → 人工逐条复核后应用」的整条 LLM 构建链路（含后台任务、阶段进度、重试、待复核列表与「证据过期」提示，以及会话面板里的 AI 微调入口）连同 `src/worldbook_builder.py` / `src/worldbook_builder_plan.py` / `src/worldbook_reading.py`、`dependency-proposals` 系列接口一并删除；性能与阅读模式两篇专项设计已归档到 `docs/archive/`。见 `docs/proposals/worldbook-workbench-redesign.md` §2.4。
 >
-> **删的是「让模型替你猜依赖」，不是依赖功能**：依赖数据（`requires` / `related`）、分类、载入规则、统一草稿的保存与撤销、范围预览、节点绑定全部保留，改在 `分类与载入` 与 `节点视图` 里由人手工维护。旧书里**已经存在的 AI 关系照常载入与展开**——`origin` / `model` / `prompt_version` / `source_content_hash` / `evidence` / `review_status` / `job_id` / `locked` 与 `rules.rejected` / `edge_meta` 保留为兼容透传（**停写不删**），可以人工增删。
+> **删的是「让模型替你猜依赖」，不是依赖功能**：依赖数据（`requires` / `related`）、分类、载入规则、统一草稿的保存与撤销、范围预览、节点绑定全部保留，改由人手工维护——但旧「分类与载入」页签已撤销、其子视图当前未挂载，依赖配置的编辑 UI 处于未接线状态（保留原路径待接线）。旧书里**已经存在的 AI 关系照常载入与展开**——`origin` / `model` / `prompt_version` / `source_content_hash` / `evidence` / `review_status` / `job_id` / `locked` 与 `rules.rejected` / `edge_meta` 保留为兼容透传（**停写不删**），可以人工增删。
 
 ## 条目的类型与起点
 
@@ -71,13 +71,15 @@ v3 把「分类」和「载入」彻底分开：**分类只负责组织内容，
 - **角色设定**（character）由 `characters_<角色目录名>_index` 推导出 `character_id`；推导不出目录名的条目落到 **角色条目（未关联）**（other），因为角色分类的条目必须带角色关联才能保存。
 - **物品 / 敌人 / 剧情设定 / 节点图**（other）沿用旧约定，不参与世界观候选。
 
-入口在 `分类与载入` 页签的**分类结构**工具栏「自动分类」：先出方案（可归类/无线索条数、将写入的分类与条目数、线索来源、冲突与未识别明细），再点「应用分类」写入。预装整合包在分类形同未分类时会自动补齐，**不覆盖用户已编辑过的分类**；外部的酒馆书没有这类元数据，一律保持原样，需要时走这个显式入口。
+入口在原 `分类与载入` 页签的**分类结构**工具栏「自动分类」（该页签已撤销、**分类结构**子视图当前未挂载，入口待接线）：先出方案（可归类/无线索条数、将写入的分类与条目数、线索来源、冲突与未识别明细），再点「应用分类」写入。预装整合包在分类形同未分类时会自动补齐，**不覆盖用户已编辑过的分类**；外部的酒馆书没有这类元数据，一律保持原样，需要时走这个显式入口。
 
 **自动分类只改「条目属于哪一类」与随之而来的角色关联，不改载入模式、起点与依赖策略**（旧格式字段 `fixed_entry_uids` / `dependency_sources` 也不动）——旧书仅修分类不会自动启用按需载入（与 `PUT taxonomy` 的纪律一致）。
 
 ## 节点视图与依赖展开
 
-工作台用两种方式看依赖，**都只读**，数据都来自服务端解析结果，前端不自己再走一遍遍历。
+工作台看依赖的方式**都只读**，数据都来自服务端解析结果，前端不自己再走一遍遍历。
+
+> **2026-09 变更**：下面第一种「`节点视图` 页签」（轨道图 / 灰节点 / 统计条那一套）已**整页删除**——组件 `components/worldbook/tabs/NodeViewTab.tsx`、样式 `styles/worldbook-node-view.css`、纯逻辑 `utils/worldbookNodeView.ts` 与 UI 测试脚本 `scripts/test_worldbook_node_view_ui.cjs` 一并移除，其位置由「世界书 → `节点图`」页签（`components/combat/PlotGraphPage.tsx`，剧情节点画布）接替；该小节保留当时的实现记录。第二种「条目依赖逐层展开」的**只读阅读**仍在用（`EntryDependencyTree` 挂在 `条目` 页），但它上面那条「在展开行上加 / 移除依赖」的编辑路径与依赖配置的其它编辑 UI 一样当前未挂载（`patch` 无调用点、保存条实际不可达），`Prompt 预览` 不受影响。
 
 **`节点视图` 页签（替代原画布）**
 
@@ -89,7 +91,7 @@ v3 把「分类」和「载入」彻底分开：**分类只负责组织内容，
 - **只读**：不提供节点拖拽、画布平移缩放、框选、在图上连线、节点位置持久化；布局完全确定性，同一份输入永远同一张图。轨道条目 > 120 启用虚拟化；子树节点总数 > 400 时截断显示并提示「已隐藏 N 个下游节点，可用筛选或展开层级收窄」，**截断只影响显示，不影响真实候选**。
 - **口径提醒**：轨道上的「先后」是**静态注入顺序键**，不是「本轮一定按此顺序全部插入」——每轮实际命中由关键词、概率与 token 预算决定；是否真的注入看 `Prompt 预览`。
 
-**条目依赖逐层展开（`条目` 与 `分类与载入` 两处）**
+**条目依赖逐层展开（`条目` 页）**
 
 - 列表行行首有折叠三角，**仅当存在 `requires` 出边时显示**（`related` 出边不算展开来源），旁挂出边数徽标；逐层缩进 16px 并有竖向导引线，默认展开 1 层。两处共用一个 `EntryDependencyTree`，展开状态互相独立，不改动列表本身的筛选与分页。
 - 行内容：名称 + uid + 边关系徽标（`requires` 实线参与展开 / `related` 点线仅提示不可再展开）+ 条目状态徽标（停用 / 正文为空 / 不存在）+ `remaining`（该路径还剩几跳预算）。
@@ -97,9 +99,9 @@ v3 把「分类」和「载入」彻底分开：**分类只负责组织内容，
 - 工具条：「展开到 N 层」「折叠全部」「只看 requires（隐藏 related）」。固定说明行写明「这是**静态依赖关系**，不代表该条目本轮一定载入；实际候选看『分类与载入』，实际注入看『Prompt 预览』」。
 - 展开行右侧可直接「＋加依赖 / －移除」，写入**统一草稿**，由页头一次 `PUT /api/worldbook/<id>/configuration` 保存；不做拖拽连线。
 
-数据来源：节点视图读 `POST /api/worldbook/<id>/scope-preview`（`display_tree` / `resolved_edges` / `cross_references` / `issues` / `selection_reasons` / `active_roots`），依赖展开树读 `GET /api/worldbook/<id>/dependency-tree`（与 `display_tree` 同构）。两者都复用 `resolve_v3_scope` 的同一段 BFS（多源入队 + 按最大剩余深度去重 + 环终止），因此「条目页看到的依赖」与「分类与载入页看到的范围」永远一致。
+数据来源：节点视图读 `POST /api/worldbook/<id>/scope-preview`（`display_tree` / `resolved_edges` / `cross_references` / `issues` / `selection_reasons` / `active_roots`），依赖展开树读 `GET /api/worldbook/<id>/dependency-tree`（与 `display_tree` 同构）。两者都复用 `resolve_v3_scope` 的同一段 BFS（多源入队 + 按最大剩余深度去重 + 环终止），因此「条目页看到的依赖」与「范围预览看到的范围」永远一致。
 
-导入策略使用草稿：预览通过后点击「保存策略」，也可「撤销草稿」。切换世界书或关闭页面时会提醒未保存策略。`分类与载入` 页签里的分类与归属动作也只修改统一草稿，右上角保存一次提交；旧书仅编辑分类不会自动启用 v3。
+导入策略使用草稿：预览通过后点击「保存策略」，也可「撤销草稿」。切换世界书或关闭页面时会提醒未保存策略。`条目` 页里的分类与归属动作也只修改统一草稿，右上角保存一次提交；旧书仅编辑分类不会自动启用 v3。
 
 > **与 v3 的关系**：界面的主表述已经是 v3 的**起点**口径——起点 = `activation`（基础设定（所有会话候选） / 角色入队时选用 / 仅手动追加）× `expansion`（只含自身 / 补齐必要依赖 / 按旧深度展开 + N）。D-3 已把「固定导入 / 导入源」这套旧词汇从界面删除（分类结构不再渲染相关按钮与开关），它们**只在数据层作为 v2 兼容字段保留**：旧 `fixed_entry_uids` ↔ 起点 `always + none`、旧 `dependency_sources` ↔ 起点 `always + legacy_depth`，仅用于旧书读回与旧格式写回（`PUT /import-config`）的兼容解释。界面与后端读写的是**同一份统一草稿**，写回只替换这两类起点，`roster_any` / `manual` / `requires_closure` 这些条件起点（原先多由 AI 生成，现在由人工配置）原样保留；依赖边 ↔ `requires` 边，保存走页面的统一 `PUT /configuration`。
 
@@ -143,7 +145,7 @@ v3 书（`dependency_rules` 非空）按起点解析：
 | 全量兼容 | 会话创建时显式选择 `full_scope`，载入全部启用且有正文的条目 |
 | 关联补充 | **不进入候选**，只作浏览 |
 
-各来源取并集并按 UID 去重；停用、空正文条目不参与注入。预览会返回 `active_roots`、`resolved_edges`（含 `active` 与读时派生的 `status`：`skeleton` / `cross` / `capped` / `idle`）、`selection_reasons`、`display_tree`（含 `repeated` / `first_parent_uid` / `display_index`）、`cross_references`、`issues` 与 `draft_hash`。**v3 遍历只有服务端一处**，条目依赖展开与节点视图都读它的结果。
+各来源取并集并按 UID 去重；停用、空正文条目不参与注入。预览会返回 `active_roots`、`resolved_edges`（含 `active` 与读时派生的 `status`：`skeleton` / `cross` / `capped` / `idle`）、`selection_reasons`、`display_tree`（含 `repeated` / `first_parent_uid` / `display_index`）、`cross_references`、`issues` 与 `draft_hash`。**v3 遍历只有服务端一处**，条目依赖展开读它的结果。
 
 v2 书（未启用 v3）沿用旧语义（下表是**旧格式口径**，界面主表述已换成「起点 + `activation` / `expansion`」，见上）：
 
@@ -192,7 +194,7 @@ v2 书（未启用 v3）沿用旧语义（下表是**旧格式口径**，界面�
 改写用户选择。角色入离队的刷新在 overlay 锁内完成读改写，保留 manual/full_scope
 与所有会话覆盖。
 
-> **会话侧 AI 微调已移除（2026-09，提案 D-4）**：会话依赖面板只保留**纯本地**能力——人工增删 `requires` / `related`、屏蔽继承（`suppressed_edges`）、恢复继承、`inheritance - suppressed_edges + local_overrides` 公式与角色入离队刷新；原先「让模型分析会话候选并给出建议边」的独立任务目录、端点与入口一并删除。面板入口改到工作台 `分类与载入` 页签下。
+> **会话侧 AI 微调已移除（2026-09，提案 D-4）**：会话依赖面板只保留**纯本地**能力——人工增删 `requires` / `related`、屏蔽继承（`suppressed_edges`）、恢复继承、`inheritance - suppressed_edges + local_overrides` 公式与角色入离队刷新；原先「让模型分析会话候选并给出建议边」的独立任务目录、端点与入口一并删除。面板入口改到工作台 `分类与载入` 页签下（该页签后续已撤销，其子视图当前未挂载，入口待接线）。
 
 - `SceneManager` 和 `CharacterAgent` 都按候选 UID 过滤，并继续遵守「常驻 position-0 进稳定层，触发型进动态层」的前缀缓存约束。
 - 导出酒馆格式时，分类、导入策略和角色关联保存在 `extensions.arknights_tavern` 命名空间。复制与回灌保留这些元数据；其他客户端可以忽略该扩展。
@@ -218,9 +220,9 @@ v2 书（未启用 v3）沿用旧语义（下表是**旧格式口径**，界面�
 
 后端：`src/worldbook_scope.py` 负责纯校验与遍历（v2 与 v3 并存，v2 函数逐字保留）；`src/worldbook_classify.py` 负责条目自动分类（纯函数，只读条目元数据）；`src/world_book.py` 负责候选解析、预览、迁移、兼容、不可变规则版本与存储。
 
-前端：`WorldBookManager` 是工作台容器（页签 `entries` / `load` / `prompt` / `nodes` / `index`，跨组件页签状态收敛为一套 `worldbookTab`）；`components/worldbook/tabs/LoadTab.tsx`（原 `WorldBookDependencyPage`）管配置概览 / 条目与角色 / 分类结构三个子视图；统一草稿与页头保存条在容器 `WorldBookManager` 里；`components/worldbook/tabs/PromptPreviewTab.tsx` 是三栏 + 骨架条 + 未插入区的 Prompt 预览；`components/worldbook/tabs/NodeViewTab.tsx` 是节点视图（虚拟化横向轨道 + 向下展开 + 灰节点 + 属性栏 + 与 `Prompt 预览` 联动）；`components/worldbook/EntryDependencyTree.tsx` 是两处列表共用的依赖展开树；`hooks/useWorldbookDraft.ts` 提供统一草稿（`draftFrom` / `rootsFromV2` / `buildSaveBody`）与两个预览钩子 `useScopePreview` / `useRosterScopePreview`（均带防抖 + 序号过时响应保护）——旧书的 `fixed_entry_uids` / `dependency_sources` 由 `rootsFromV2` 读成 `always` 起点（v2 兼容字段仍在），`buildSaveBody` 负责把草稿拼成统一保存体；`utils/worldbookNodeView.ts` / `utils/worldbookDependencyTree.ts` / `utils/worldbookPromptPreview.ts` 是三个页签的纯逻辑。图谱画布（`WorldBookGraphCanvas` 与 `utils/worldbookGraph.ts`）已整文件删除；节点视图沿用纯 SVG + DOM，不依赖额外图形库，也不改动战斗画布。
+前端：`WorldBookManager` 是工作台容器（页签 `entries` / `prompt` / `graph` / `index`，跨组件页签状态收敛为一套 `worldbookTab`；旧 `load` 页签已收敛回 `entries`）；`components/worldbook/tabs/LoadTab.tsx`（原 `WorldBookDependencyPage`）管配置概览 / 条目与角色 / 分类结构三个子视图，该页签当前已不再挂载；统一草稿与页头保存条在容器 `WorldBookManager` 里；`components/worldbook/tabs/PromptPreviewTab.tsx` 是三栏 + 骨架条 + 未插入区的 Prompt 预览；`components/combat/PlotGraphPage.tsx` 是「节点图」页签（整页画布，替代原 `NodeViewTab.tsx` 的节点视图轨道页，该组件已随节点视图一并删除）；`components/worldbook/EntryDependencyTree.tsx` 是两处列表共用的依赖展开树；`hooks/useWorldbookDraft.ts` 提供统一草稿（`draftFrom` / `rootsFromV2` / `buildSaveBody`）与两个预览钩子 `useScopePreview` / `useRosterScopePreview`（均带防抖 + 序号过时响应保护）——旧书的 `fixed_entry_uids` / `dependency_sources` 由 `rootsFromV2` 读成 `always` 起点（v2 兼容字段仍在），`buildSaveBody` 负责把草稿拼成统一保存体；`utils/worldbookDependencyTree.ts` / `utils/worldbookPromptPreview.ts` 是页签的纯逻辑（原 `utils/worldbookNodeView.ts` 已随节点视图删除）。图谱画布（`WorldBookGraphCanvas` 与 `utils/worldbookGraph.ts`）已整文件删除；页面沿用纯 SVG + DOM，不依赖额外图形库，也不改动战斗画布。
 
-`utils/worldbookDependency.ts` **已整文件删除**（布局、节点角色分类与依赖树建模随画布一并移除）；批量策略变换等纯函数在 `utils/worldbookBatch.ts`。**遍历语义现在只有服务端一处**（`worldbook_scope.py` 的 `resolve_v3_scope`），条目依赖展开树与节点视图都读它的结果，前端不再复制第二套会话遍历。这些前端纯函数都不写盘、不改策略，只读 `WorldBookDetail` + 统一草稿（`WorldBookPolicyDraft` 仍作为按书 API 的 v2 形态保留在 `useApi.ts` 一侧）。`worldbook_classify.py` 同样不写盘：`from_dict` 的自动补齐与接口的显式应用都通过同一份方案，前者额外受「预装包 + 分类形同未分类」两个条件约束。
+`utils/worldbookDependency.ts` **已整文件删除**（布局、节点角色分类与依赖树建模随画布一并移除）；批量策略变换等纯函数在 `utils/worldbookBatch.ts`。**遍历语义现在只有服务端一处**（`worldbook_scope.py` 的 `resolve_v3_scope`），条目依赖展开树读它的结果，前端不再复制第二套会话遍历。这些前端纯函数都不写盘、不改策略，只读 `WorldBookDetail` + 统一草稿（`WorldBookPolicyDraft` 仍作为按书 API 的 v2 形态保留在 `useApi.ts` 一侧）。`worldbook_classify.py` 同样不写盘：`from_dict` 的自动补齐与接口的显式应用都通过同一份方案，前者额外受「预装包 + 分类形同未分类」两个条件约束。
 
 ## 验证
 
@@ -230,11 +232,11 @@ v2 书（未启用 v3）沿用旧语义（下表是**旧格式口径**，界面�
 角色刷新、schema2 局部升级、全局更新冲突、跨会话隔离、保存重载与并发门禁（会话侧
 AI 微调任务相关的 stale / 取消 / 预算中断恢复 / scoped LLM 用例已随提案 §2.4 删除）。
 
-前端纯工具与真实 React SSR 检查可单独运行两个脚本：`node scripts/test_worldbook_scope_ui.cjs`（分类树工具 / 批量起点与依赖与归属 / 候选范围预览 / 分类结构 SSR / 工作台页签骨架，以及依赖展开树与 Prompt 预览的纯函数与 SSR 断言）与 `node scripts/test_worldbook_node_view_ui.cjs`（**节点视图**：轨道排序键、灰节点去重口径、确定性布局、规模截断、六项统计、五种边视觉的纯函数与 SSR 断言）。节点视图断言单独成文件，是为了让两个前端单元不再争同一个脚本（`test_worldbook_scope_ui.cjs` 保留分类树 / 批量 / 依赖展开树 / Prompt 预览的断言）。前端构建在 `frontend/` 运行 `npm run build`。
+前端纯工具与真实 React SSR 检查可单独运行脚本 `node scripts/test_worldbook_scope_ui.cjs`（分类树工具 / 批量起点与依赖与归属 / 候选范围预览 / 分类结构 SSR / 工作台页签骨架，以及依赖展开树与 Prompt 预览的纯函数与 SSR 断言；原节点视图断言文件 `scripts/test_worldbook_node_view_ui.cjs` 已随节点视图一并删除）。前端构建在 `frontend/` 运行 `npm run build`。
 
 > AI 构建的真实模型验证脚本 `scripts/verify_worldbook_builder_llm.py` 已随该功能删除（同批删除的还有 `scripts/benchmark_worldbook_builder.py` 与 `scripts/benchmark_worldbook_selective_reading.py`）。Prompt 预览与依赖展开的验收改为确定性用例：同输入两次请求**字节一致**、`dropped.reason` 九类覆盖、零写盘（请求前后书文件哈希与 mtime 不变）、依赖树与 `display_tree` 同构、灰节点去重口径与 `best` 表逐条一致。
 
-SSR 与 stub 都不代替浏览器验收。浏览器还需验证：五个页签的切换与跳转（内容中心检索命中 → 工作台 `条目`，会话侧 → `分类与载入` / `本家索引`）、切换世界书或资料库时的页签归一、保存失败与 409 后草稿仍在、配置概览的试选阵容与范围预览联动、条目与角色的四个动作、条目页与分类与载入页两处的依赖逐层展开（灰行、环、`related` 不展开）、Prompt 预览的三栏与未插入原因分区、节点视图的轨道顺序 / 灰节点 / 筛选 / 与 `Prompt 预览` 联动，以及会话向导阵容步骤的候选树与手动追加取消。
+SSR 与 stub 都不代替浏览器验收。浏览器还需验证：四个页签的切换与跳转（书架检索命中 → 工作台 `条目`，会话侧 → `本家索引`）、切换世界书或资料库时的页签归一、保存失败与 409 后草稿仍在、配置概览的试选阵容与范围预览联动、条目与角色的四个动作、条目页的依赖逐层展开（灰行、环、`related` 不展开）、Prompt 预览的三栏与未插入原因分区、`节点图` 页签的画布与剧情切换，以及会话向导阵容步骤的候选树与手动追加取消。
 
 > Windows 中文环境下 `pytest tests/` 有 4 个战斗用例会因 subprocess 按 GBK 解码中文输出而失败（`stdout is None`）。加 `PYTHONUTF8=1` 后全过；这与世界书无关，属工作区环境问题。
 

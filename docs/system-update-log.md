@@ -14,6 +14,70 @@
 ---
 
 ## 更新记录
+### 2026-09-22 — 信息架构合并：内容中心拆解 + 角色/世界书两级
+
+> UI 与信息架构专项（承接 09-12 的信息架构整治）：一级入口由六项收敛为五项——
+> 「内容中心」整页删除，资产与卡牌并入「角色」页的模块页签，节点图并入世界书
+> 工作台并替换掉旧的「节点视图」页签，跨世界书统一检索迁到世界书书架。
+
+- **「内容中心」一级入口删除**：`ContentHub.tsx` 整文件删除，store 的
+  `contentHubTab` 一并移除；主菜单（`HomeMenu.tsx`）与顶栏（`GameTopBar.tsx`）
+  只剩 会话大厅 / 角色 / 世界书 / 文档 / 设置，原「角色管理」标签改为「角色」。
+- **资产 / 卡牌并入「角色」页**：`CharacterManager.tsx` 现有四个模块页签
+  角色库 / 玩家身份 / 资产 / 卡牌，页签状态收敛为 store 的 `characterTab`
+  （`characters` / `identities` / `images` / `cards`），跨组件跳转直接落到指定页签。
+- **节点图并入世界书工作台，替换旧「节点视图」**：工作台页签由
+  `条目` / `Prompt 预览` / `节点视图` / `本家索引` 改为
+  `条目` / `Prompt 预览` / `节点图` / `本家索引`（页签值 `nodes` → `graph`），
+  新页签挂 `components/combat/PlotGraphPage.tsx`，以当前选中的世界书为受控书、
+  整页画布编辑。
+  - 旧的「节点视图」**整页删除**（记录条目注入顺序的那张只读轨道图）：组件
+    `components/worldbook/tabs/NodeViewTab.tsx`、样式
+    `styles/worldbook-node-view.css`、纯逻辑 `utils/worldbookNodeView.ts`、
+    UI 测试脚本 `scripts/test_worldbook_node_view_ui.cjs` 全部移除；只服务于它的
+    `promptPreviewOrder` 死状态一并删除。
+- **依赖配置的编辑 UI 处于未接线状态**（本次核实）：`分类与载入` 页签早已撤销，
+  其三个子视图 `components/worldbook/tabs/LoadTab.tsx` /
+  `components/worldbook/WorldBookConfigOverview.tsx` /
+  `components/worldbook/WorldBookEntryWorkbench.tsx` 当前没有任何引用，配置草稿的
+  `patch` 无调用点；`条目` 页上的「节点配置有未保存修改」保存条实际不可达，
+  保留原路径待接线（草稿、接口与数据不变）。
+- **统一检索迁到世界书书架**：原内容中心顶栏的跨世界书条目检索移到世界书工作台
+  左侧书架上方；命中后选中该书、跳到「条目」页签并预填条目筛选。
+- **跨页跳转改写**：战斗页战前简报的「⚙ 编辑此节点」由「内容中心 → 节点图」
+  改为「世界书 → 节点图」（先定位该节点归属的世界书，再落到节点图页签）；
+  会话大厅 / 新建会话向导的「管理玩家身份」跳到「角色 → 玩家身份」；角色卡详情的
+  「编辑卡牌」切到「角色 → 卡牌」。
+- **受影响文件（本批主要改动）**：
+  - 删除：`frontend/src/components/ContentHub.tsx`、
+    `frontend/src/components/worldbook/tabs/NodeViewTab.tsx`、
+    `frontend/src/styles/worldbook-node-view.css`、
+    `frontend/src/utils/worldbookNodeView.ts`、
+    `scripts/test_worldbook_node_view_ui.cjs`；
+  - 前端：`frontend/src/App.tsx`、`components/HomeMenu.tsx`、
+    `components/GameTopBar.tsx`、`components/CharacterManager.tsx`、
+    `components/AssetManager.tsx`、`components/CardManager.tsx`、
+    `components/WorldBookManager.tsx`、`components/combat/CombatView.tsx`、
+    `components/combat/PlotGraphPage.tsx`、`components/session/SessionManagerView.tsx`、
+    `components/session/CreateSessionWizard.tsx`、
+    `components/worldbook/tabs/types.ts`、`stores/appStore.ts`、`types/index.ts`、
+    `utils/worldbookLibrary.ts`、`styles/worldbook-graph.css`、`styles/worldbook-entry-refresh.css`
+    （节点图页签的满幅画布布局 + 书架统一检索的样式）、`style.css` 与 `ErrorBoundary.tsx` /
+    `AssetManager.tsx` / `CardManager.tsx` / `WorldBookScopePreview.tsx` 的注释与文案
+    （仅去掉对已删入口/页签的指路）；
+  - 皮肤生成块：`scripts/gen_skin_utils.py`（仅注释口径）与重跑生成物
+    `styles/skin-prts.css` / `styles/skin-tavern.css`（内容中心删除后，仅它使用的颜色工具类
+    不再出现在扫描结果里；顺带收进此前漏生成的一项）；
+  - 测试脚本：新增 `scripts/test_role_worldbook_nav_ui.cjs`（导航结构 / 角色页模块页签 /
+    工作台四页签 / 已删文件不回流）；改 `scripts/test_worldbook_scope_ui.cjs`、
+    `scripts/test_worldbook_library_ui.cjs`；
+  - 文档：`docs/architecture.md`、`docs/tutorial.md`、`README.md`、
+    `docs/design/content-hub-design.md`、
+    `docs/design/worldbook/worldbook-on-demand.md`、
+    `docs/design/worldbook/worldbook-library.md`、
+    `docs/design/narrative/rag-retrieval.md` 与 `docs/system-update-log.md`
+    （本文件）。
+
 ### 2026-09-12 — 信息架构整治：内容中心去重 + 世界书归属 + 节点图编辑器
 
 > UI 与信息架构专项：消除重复入口、收敛功能层级、把"世界书"确立为内容归属的
