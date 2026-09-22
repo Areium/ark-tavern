@@ -157,20 +157,18 @@ assert.ok(preview.includes("基础设定") && !preview.includes("固定导入"),
 
 // ── SSR：新工作台 WorldBookManager 骨架 ─────────────────────────────────────
 const managerMarkup = renderToStaticMarkup(React.createElement(Manager, {}));
-for (const label of ["条目", "分类与载入", "Prompt 预览", "节点视图", "本家索引"]) {
-  assert.ok(managerMarkup.includes(`>${label}</button>`), `工作台页签 ${label} 应在骨架里`);
-}
-assert.ok(managerMarkup.includes(managerModule.WORLDBOOK_INDEX_SUBTITLE),
-  "本家索引页签的副标题写死为「内置语料索引 · 依赖完整性 · 会话白名单」");
+assert.ok(managerMarkup.includes("从左侧书架选一本世界书"), "未选书时渲染书架与明确空状态");
+assert.ok(!managerMarkup.includes(managerModule.WORLDBOOK_INDEX_SUBTITLE),
+  "未选中世界书时不提前渲染本家索引内容");
 assert.ok(!managerMarkup.includes("高级配置"), "「高级配置」这个说法不再出现");
 assert.ok(!managerMarkup.includes("世界书图谱"), "R-22：旧说法不出现在任何 UI 文案里");
 assert.equal(managerModule.WORLDBOOK_INDEX_SUBTITLE, "内置语料索引 · 依赖完整性 · 会话白名单");
 assert.deepEqual(managerModule.WORLDBOOK_PANEL_TABS.map((tab) => tab.id),
-  ["entries", "load", "prompt", "nodes", "index"], "页签顺序按提案 §3.1");
+  ["entries", "prompt", "nodes", "index"], "分类与载入页签已移除");
 assert.deepEqual(managerModule.visibleWorldbookTabs({ book_type: "reference" }).map((tab) => tab.id),
   ["entries", "index"], "R-4：资料库只显示 条目 / 本家索引");
 assert.deepEqual(managerModule.visibleWorldbookTabs({ book_type: "story" }).map((tab) => tab.id),
-  ["entries", "load", "prompt", "nodes", "index"], "剧情书的五个页签都可达");
+  ["entries", "prompt", "nodes", "index"], "剧情书的四个页签都可达");
 
 // 节点视图断言见 `scripts/test_worldbook_node_view_ui.cjs`（R-23：独立脚本，避免与本文件争用）。
 // ── WU-E · Prompt 预览纯函数（A-2）──────────────────────────────────────────
@@ -530,14 +528,13 @@ const entryTreeModule = require(path.join(root, "frontend/src/components/worldbo
 const depMarkup = renderToStaticMarkup(React.createElement(entryTreeModule.default, {
   detail, rootUids: ["amiya"], draft, patch() {}, onNotice() {},
 }));
-assert.ok(depMarkup.includes("依赖展开"), "有 requires 出边时渲染折叠三角");
+assert.ok(depMarkup.includes("依赖条目"), "有 requires 出边时渲染简洁的依赖阅读入口");
 assert.ok(depMarkup.includes("▸") && depMarkup.includes('aria-expanded="false"'), "默认收起，展开 1 层由组件内部状态控制");
-// 没有 requires 出边：不渲染三角，只显示一行说明
+// 没有 requires 出边：不渲染入口，避免每条卡片出现无用说明
 const leafMarkup = renderToStaticMarkup(React.createElement(entryTreeModule.default, {
   detail, rootUids: ["world"], draft, patch() {}, onNotice() {},
 }));
-assert.ok(leafMarkup.includes("没有可展开的必要依赖"));
-assert.ok(!leafMarkup.includes("依赖展开"), "没有 requires 出边时不渲染三角");
+assert.equal(leafMarkup, "");
 const rowsMarkup = renderToStaticMarkup(React.createElement(entryTreeModule.DependencyTreeRows, {
   tree: deep, requiresOnly: false,
 }));

@@ -364,14 +364,17 @@ export function useApi() {
     // ── 世界书（酒馆 Lorebook 兼容） ──
     listWorldbooks: () =>
       request<{ books: import("../types").WorldBookSummary[] }>("/api/worldbook"),
-    createWorldbook: (name: string, budgetTokens = 0, bookType?: import("../types").WorldBookType) =>
+    createWorldbook: (name: string, budgetTokens = 0, bookType?: import("../types").WorldBookType,
+      meta?: { description?: string; cover_image?: string }) =>
       request<{ book: import("../types").WorldBookSummary }>("/api/worldbook", {
         method: "POST",
-        body: JSON.stringify({ name, budget_tokens: budgetTokens, book_type: bookType }),
+        body: JSON.stringify({ name, budget_tokens: budgetTokens, book_type: bookType, ...meta }),
       }),
     getWorldbook: (id: string) =>
       request<import("../types").WorldBookDetail>(`/api/worldbook/${encodeURIComponent(id)}`),
-    updateWorldbook: (id: string, data: { name?: string; budget_tokens?: number; enabled?: boolean; book_type?: import("../types").WorldBookType }) =>
+    updateWorldbook: (id: string, data: { name?: string; description?: string; cover_image?: string;
+      budget_tokens?: number; enabled?: boolean; book_type?: import("../types").WorldBookType;
+      expected_revision?: number }) =>
       request<{ book: import("../types").WorldBookSummary }>(`/api/worldbook/${encodeURIComponent(id)}`, {
         method: "PUT",
         body: JSON.stringify(data),
@@ -407,14 +410,14 @@ export function useApi() {
     exportWorldbook: (id: string) =>
       request<{ name: string; format: string; data: any }>(
         `/api/worldbook/${encodeURIComponent(id)}/export`),
-    createWorldbookEntry: (bookId: string, entry: Partial<import("../types").WorldBookEntryDTO>) =>
-      request<{ entry: import("../types").WorldBookEntryDTO }>(
+    createWorldbookEntry: (bookId: string, entry: Partial<import("../types").WorldBookEntryDTO> & { expected_revision?: number }) =>
+      request<{ entry: import("../types").WorldBookEntryDTO; edit_revision: number }>(
         `/api/worldbook/${encodeURIComponent(bookId)}/entries`, {
           method: "POST",
           body: JSON.stringify(entry),
         }),
-    updateWorldbookEntry: (bookId: string, entryId: string, entry: Partial<import("../types").WorldBookEntryDTO>) =>
-      request<{ entry: import("../types").WorldBookEntryDTO }>(
+    updateWorldbookEntry: (bookId: string, entryId: string, entry: Partial<import("../types").WorldBookEntryDTO> & { expected_revision?: number }) =>
+      request<{ entry: import("../types").WorldBookEntryDTO; edit_revision: number }>(
         `/api/worldbook/${encodeURIComponent(bookId)}/entries/${encodeURIComponent(entryId)}`, {
           method: "PUT",
           body: JSON.stringify(entry),
@@ -423,6 +426,12 @@ export function useApi() {
       request<any>(
         `/api/worldbook/${encodeURIComponent(bookId)}/entries/${encodeURIComponent(entryId)}`, {
           method: "DELETE",
+        }),
+    reorderWorldbookEntries: (bookId: string, entryOrder: string[], expectedRevision: number) =>
+      request<{ entry_order: string[]; edit_revision: number }>(
+        `/api/worldbook/${encodeURIComponent(bookId)}/entry-order`, {
+          method: "PUT",
+          body: JSON.stringify({ entry_order: entryOrder, expected_revision: expectedRevision }),
         }),
     updateWorldbookTaxonomy: (bookId: string, categories: import("../types").WorldBookCategoryDTO[],
       entryMoves: Record<string, string> = {}, expectedRevision?: number) =>

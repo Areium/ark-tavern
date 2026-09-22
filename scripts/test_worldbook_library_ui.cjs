@@ -25,7 +25,8 @@ const {
   filterBooksByType, flattenLibraryHits, groupBooksByType, isReference,
   normalizeWorldbookTab, resolveCategoryForTarget, validateExcerptDraft,
 } = require(path.join(root, "frontend/src/utils/worldbookLibrary.ts"));
-const WorldBookManager = require(path.join(root, "frontend/src/components/WorldBookManager.tsx")).default;
+const managerModule = require(path.join(root, "frontend/src/components/WorldBookManager.tsx"));
+const WorldBookManager = managerModule.default;
 
 // ── 用途判定：缺字段一律 story（与后端 normalize_book_type 的缺省一致）──
 assert.equal(bookTypeOf(null), "story");
@@ -120,15 +121,14 @@ assert.equal(resolveCategoryForTarget("source-only", targetCategories), "unclass
 assert.equal(resolveCategoryForTarget(undefined, targetCategories), "unclassified");
 assert.equal(resolveCategoryForTarget("worldview", []), "worldview", "没有分类信息时不乱改");
 
-// ── 页签归一（R-4）：唯一页签状态只接受 5 个已知值，资料库只允许 条目 / 本家索引 ──
-// 回归场景：用户在剧情书里停在「分类与载入」，再切到资料库 —— 这三个页签对资料库
-// 既不渲染按钮也不渲染内容，若 tab 仍是 load，条目页也不会渲染，详情区整个空白。
+// ── 页签归一：旧 load 一律回到条目；资料库只允许 条目 / 本家索引 ──
 assert.equal(normalizeWorldbookTab("entries", { book_type: "reference" }), "entries");
 assert.equal(normalizeWorldbookTab("index", { book_type: "reference" }), "index");
 assert.equal(normalizeWorldbookTab("load", { book_type: "reference" }), "entries");
 assert.equal(normalizeWorldbookTab("prompt", { book_type: "reference" }), "entries");
 assert.equal(normalizeWorldbookTab("nodes", { book_type: "reference" }), "entries");
-for (const tab of ["entries", "load", "prompt", "nodes", "index"]) {
+assert.equal(normalizeWorldbookTab("load", { book_type: "story" }), "entries");
+for (const tab of ["entries", "prompt", "nodes", "index"]) {
   assert.equal(normalizeWorldbookTab(tab, { book_type: "story" }), tab);
   // 缺字段（旧数据）按 story 处理；没有选中书时也不做收窄
   assert.equal(normalizeWorldbookTab(tab, {}), tab);
@@ -152,14 +152,14 @@ const renderManager = () => renderToStaticMarkup(React.createElement(WorldBookMa
 // 组件挂载即走真实 useApi（会打网络）；这里只断言它在无数据时的静态骨架。
 const markup = renderManager();
 assert.ok(markup.includes("世界书"));
-assert.ok(markup.includes("新建 / 导入为"), "列表侧要有用途选择");
-assert.ok(markup.includes("用于剧情") && markup.includes("存入资料库"), "两种用途都要可点");
-assert.ok(markup.includes("剧情世界书 · 0") && markup.includes("资料库 · 0"), "顶层筛选带计数");
-assert.ok(markup.includes("选择左侧世界书"), "没选书时详情区给出明确指引，不留白");
-// 工作台页签骨架：五项文案与顺序按提案 §3.1，且不再出现「高级配置」
-for (const label of ["条目", "分类与载入", "Prompt 预览", "节点视图", "本家索引"]) {
-  assert.ok(markup.includes(`>${label}</button>`), `工作台页签 ${label} 应在骨架里`);
-}
+assert.ok(markup.includes(">新建</button>") && markup.includes(">导入</button>"), "书架提供应用内新建与文件导入入口");
+assert.ok(markup.includes(">剧情</button>") && markup.includes(">资料</button>"), "两种用途都可筛选");
+assert.ok(markup.includes("从左侧书架选一本世界书"), "没选书时详情区给出明确指引，不留白");
+assert.deepEqual(managerModule.WORLDBOOK_PANEL_TABS.map((tab) => tab.id),
+  ["entries", "prompt", "nodes", "index"], "工作台只保留四个页签");
+assert.equal(managerModule.estimateDisplayTokens("中文"), 2, "CJK 基本区逐字计数");
+assert.equal(managerModule.estimateDisplayTokens("abcd"), 1, "非中文 code point 每四个估算一 token");
+assert.equal(managerModule.estimateDisplayTokens("😀😀😀😀"), 1, "emoji 按 code point 而非 UTF-16 单元计数");
 assert.ok(!markup.includes("高级配置"), "「高级配置」不再是工作台的说法");
 assert.ok(!markup.includes("分类图谱 · "), "分类图谱不再作为独立视图出现");
 

@@ -651,6 +651,8 @@ export type WorldBookType = "story" | "reference";
 export interface WorldBookSummary {
   id: string;
   name: string;
+  description?: string;
+  cover_image?: string;
   source_format: string;
   /** 来源：preinstalled（预装整合包）/ imported（用户导入）——统一管理，均可编辑 */
   source: "preinstalled" | "imported";
@@ -663,6 +665,8 @@ export interface WorldBookSummary {
   /** 书级启用开关，停用不参与解析 */
   enabled: boolean;
   budget_tokens: number;
+  estimated_tokens?: number;
+  edit_revision?: number;
   entry_count: number;
   created_at: number;
   updated_at: number;
@@ -740,6 +744,8 @@ export interface WorldBookExcerptResultDTO {
 /** 世界书详情（含条目） */
 export interface WorldBookDetail extends WorldBookSummary {
   entries: WorldBookEntryDTO[];
+  entry_order?: string[];
+  has_explicit_entry_order?: boolean;
   schema_version?: number;
   scope_mode?: "legacy" | "selective";
   categories?: WorldBookCategoryDTO[];

@@ -23,8 +23,8 @@ type ViewName = "home" | "chat" | "sessions" | "settings" | "combat" | "worldboo
 /** 内容中心 Tab：只剩三项（D-2）。世界书相关能力全部收敛到「世界书」工作台页签。 */
 export type ContentHubTab = "images" | "cards" | "combat";
 
-/** 世界书工作台页签（A-1）：entries 条目 / load 分类与载入 / prompt Prompt 预览 / nodes 节点视图 / index 本家索引 */
-export type WorldBookTab = "entries" | "load" | "prompt" | "nodes" | "index";
+/** 世界书工作台页签：分类与载入已收敛回条目页。 */
+export type WorldBookTab = "entries" | "prompt" | "nodes" | "index";
 
 /** 最小化对话框的恢复入口信息（key = 对话框 id） */
 export interface MinimizedDialogEntry {
@@ -49,7 +49,7 @@ interface AppState {
   /** 检索命中等入口：跳到工作台 `entries` 页签并选中该书 + 条目 */
   worldbookJumpId: string | null;
   setWorldbookJumpId: (id: string | null) => void;
-  /** 依赖相关入口：跳到工作台 `load` 页签（分类与载入） */
+  /** 旧依赖入口：统一跳到工作台 `entries` 页签。 */
   worldbookScopeJumpId: string | null;
   setWorldbookScopeJumpId: (id: string | null) => void;
   worldbookEntryJump: { bookId: string; entryUid: string } | null;

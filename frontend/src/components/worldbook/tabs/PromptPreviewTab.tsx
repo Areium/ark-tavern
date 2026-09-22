@@ -45,9 +45,9 @@ export const MODE_LABELS: Record<string, string> = Object.fromEntries(
 export const LAYER_LABELS: Record<string, string> = { stable: "稳定层", dynamic: "动态层" };
 /** 原因 → 该去哪一页修（未列出的原因只在提示里给做法，不做跳转）。 */
 export const DROP_REASON_TABS: Record<string, WorldBookTab> = {
-  not_in_scope: "load",
-  node_binding_demoted: "load",
-  budget_exceeded: "load",
+  not_in_scope: "entries",
+  node_binding_demoted: "entries",
+  budget_exceeded: "entries",
   disabled: "entries",
   empty_content: "entries",
 };

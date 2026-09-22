@@ -99,9 +99,21 @@ export function compareInjectionOrder(
 }
 
 /** 轨道：全书启用且有正文的条目，按静态注入排序键从左到右排成单一序列。 */
-export function trackOrder(entries: WorldBookEntryDTO[] | null | undefined): NodeViewTrackRow[] {
+export function trackOrder(entries: WorldBookEntryDTO[] | null | undefined,
+  explicitOrder?: readonly string[] | null): NodeViewTrackRow[] {
   const rows = (entries || []).filter(isTrackEntry).slice();
-  rows.sort(compareInjectionOrder);
+  if (explicitOrder?.length) {
+    const index = new Map(explicitOrder.map((uid, position) => [uid, position]));
+    rows.sort((a, b) => {
+      const layerA = a.position === 0 && a.always_active ? 0 : 1;
+      const layerB = b.position === 0 && b.always_active ? 0 : 1;
+      return layerA - layerB
+        || (index.get(a.uid) ?? explicitOrder.length) - (index.get(b.uid) ?? explicitOrder.length)
+        || compareInjectionOrder(a, b);
+    });
+  } else {
+    rows.sort(compareInjectionOrder);
+  }
   return rows.map((entry, seq) => ({
     key: trackNodeKey(entry.uid),
     uid: entry.uid,
@@ -301,7 +313,7 @@ export function buildNodeViewModel(
   const categoryNames = new Map<string, string>();
   for (const category of detail?.categories || []) categoryNames.set(category.id, category.name);
 
-  const track = trackOrder(entries);
+  const track = trackOrder(entries, detail?.has_explicit_entry_order ? detail.entry_order : null);
   const trackByUid = new Map(track.map((row) => [row.uid, row] as const));
 
   const treeRows = preview?.display_tree || [];

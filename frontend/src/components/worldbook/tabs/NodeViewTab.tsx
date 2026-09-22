@@ -13,7 +13,7 @@ import "../../../styles/worldbook-node-view.css";
 
 /** 假设说明（提案 §3.4.2 / §8 假设 1）——「先后」是静态注入顺序键，不是本轮实际命中序列 */
 export const NODE_VIEW_ORDER_NOTE =
-  "这里的「先后」指静态注入顺序键（position 升序 → group_weight 降序 → depth 升序 → uid 升序），"
+  "这里的「先后」指静态注入顺序键：优先使用条目页显式保存的同层顺序；旧书尚未拖动排序时沿用 position 升序 → group_weight 降序 → depth 升序 → uid 升序，"
   + "不是「本轮一定按这个顺序全部插入」：每轮实际命中是关键词 / 概率 / token 预算决定的子集，"
   + "轨道顺序表达的是「若都被命中时的插入次序」。";
 
@@ -139,6 +139,7 @@ export default function NodeViewTab(
   );
 
   const [selectedKey, setSelectedKey] = useState(initialSelectedKey);
+  const [linkTarget, setLinkTarget] = useState("");
   // 默认只展开已激活起点的子树；若预设了选中节点（深链 / SSR 断言），把它的到达路径一并展开，
   // 否则选中的节点根本不在渲染集合里。
   const [expanded, setExpanded] = useState<string[]>(() => {
@@ -157,7 +158,6 @@ export default function NodeViewTab(
   const [problemFilter, setProblemFilter] = useState("");
   const [onlyRoots, setOnlyRoots] = useState(false);
   const [onlyMatched, setOnlyMatched] = useState(false);
-  const [linkTarget, setLinkTarget] = useState("");
   const [viewport, setViewport] = useState({ left: 0, width: DEFAULT_VIEWPORT_WIDTH });
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const minimapRef = useRef<HTMLDivElement | null>(null);
@@ -302,12 +302,9 @@ export default function NodeViewTab(
   const addDependency = (node: NodeViewNode) => {
     if (!detail || !linkTarget) return;
     const check = canAddRequiresEdge(draft.requires_edges, node.uid, linkTarget);
-    if (!check.ok) {
-      onNotice(check.reason);
-      return;
-    }
+    if (!check.ok) { onNotice(check.reason); return; }
     patch({ requires_edges: [...draft.requires_edges, { from_uid: node.uid, to_uid: linkTarget }] });
-    onNotice(`已加入统一草稿：${node.name} → ${detail.entries.find((entry) => entry.uid === linkTarget)?.name || linkTarget}（保存后生效）`);
+    onNotice(`已加入节点页草稿：${node.name} → ${detail.entries.find((entry) => entry.uid === linkTarget)?.name || linkTarget}`);
     setLinkTarget("");
   };
 
@@ -381,10 +378,10 @@ export default function NodeViewTab(
             全量兼容下 `resolved_edges` 为空（服务端不解析依赖闭包），照常渲染会显示「依赖环 0 个」，
             与提示条自相矛盾且事实上错误（这本书书级有 2 个环）。这里选**标为不适用**而不是改用
             `detail.dependency_edges` 算书级环：统计条整体是「本次范围」口径，混进一个书级数字会
-            出现第二个语义来源；书级依赖关系本身仍可在「分类与载入」与节点属性栏逐条查看。
+            出现第二个语义来源；书级依赖关系仍可在条目展开区与节点属性栏逐条查看。
           */}
           <span role="listitem" title={stats.fullScope
-            ? `${FULL_SCOPE_STATS_TITLE}书级依赖关系仍可在「分类与载入」或节点属性栏逐条查看。`
+            ? `${FULL_SCOPE_STATS_TITLE}书级依赖关系仍可在条目展开区或节点属性栏逐条查看。`
             : `口径：环的个数（一个二元环算 1 个）。环内边共 ${stats.cycleEdges} 条。`}>
             <b>依赖环</b>{stats.fullScope
               ? "不适用"
@@ -712,16 +709,11 @@ export default function NodeViewTab(
                 <div className="wbnv-add-dep">
                   <select className="wbg-field" value={linkTarget} onChange={(event) => setLinkTarget(event.target.value)}>
                     <option value="">选择要依赖的条目…</option>
-                    {detail?.entries.map((entry) => (
-                      <option key={entry.uid} value={entry.uid}>{entry.name || entry.uid}</option>
-                    ))}
+                    {detail?.entries.map((entry) => <option key={entry.uid} value={entry.uid}>{entry.name || entry.uid}</option>)}
                   </select>
-                  <button type="button" className="wbg-button" disabled={!linkTarget}
-                    onClick={() => addDependency(selected)}>加依赖</button>
+                  <button type="button" className="wbg-button" disabled={!linkTarget} onClick={() => addDependency(selected)}>加依赖</button>
                 </div>
-                <p className="wbnv-help">
-                  「加依赖」只写统一草稿（自环与重复边会被拦住），保存由工作台一次原子写入；本页不连线、不拖拽、不持久化节点位置。
-                </p>
+                <p className="wbnv-help">节点页保留依赖配置；修改后用页面上方的局部保存条提交。</p>
               </div>
             </>}
           </aside>

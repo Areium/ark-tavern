@@ -46,9 +46,9 @@ export function isReference(book: Pick<WorldBookSummary, "book_type"> | null | u
  * 单一来源约定：类型与 `stores/appStore.ts` 的 `WorldBookTab` 同值域，
  * 这里额外提供一个本地别名，供纯逻辑（Node 断言）在不引入 React/store 的情况下使用。
  */
-export type WorldBookTabId = "entries" | "load" | "prompt" | "nodes" | "index";
+export type WorldBookTabId = "entries" | "prompt" | "nodes" | "index";
 
-const KNOWN_WORLDBOOK_TABS = new Set<WorldBookTabId>(["entries", "load", "prompt", "nodes", "index"]);
+const KNOWN_WORLDBOOK_TABS = new Set<WorldBookTabId>(["entries", "prompt", "nodes", "index"]);
 
 /**
  * 把「期望的页签」收敛到当前这本书**真实可用**的页签。
@@ -68,6 +68,7 @@ export function normalizeWorldbookTab(
   tab: WorldBookTabId | string | null | undefined,
   book: Pick<WorldBookSummary, "book_type"> | null | undefined,
 ): WorldBookTabId {
+  // Old links/bookmarks used `load`; keep them working by normalizing to entries.
   const known = KNOWN_WORLDBOOK_TABS.has(tab as WorldBookTabId) ? (tab as WorldBookTabId) : "entries";
   if (!isReference(book)) return known;
   // 本家索引管的是内置语料索引 / 会话白名单，与被选中的世界书无关，资料库下同样可达。

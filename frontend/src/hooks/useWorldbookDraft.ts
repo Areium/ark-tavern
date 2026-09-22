@@ -77,6 +77,18 @@ export const draftFrom = (detail: WorldBookDetail): WorldBookDraft => ({
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+function withoutMissingEntries(draft: WorldBookDraft, validUids: Set<string>): WorldBookDraft {
+  return {
+    ...draft,
+    roots: draft.roots.filter((root) => validUids.has(root.entry_uid)),
+    requires_edges: draft.requires_edges.filter((edge) => validUids.has(edge.from_uid) && validUids.has(edge.to_uid)),
+    related_edges: draft.related_edges.filter((edge) => validUids.has(edge.from_uid) && validUids.has(edge.to_uid)),
+    rejected: draft.rejected.filter((edge) => validUids.has(edge.from_uid) && validUids.has(edge.to_uid)),
+    entry_moves: Object.fromEntries(Object.entries(draft.entry_moves).filter(([uid]) => validUids.has(uid))),
+    entry_updates: Object.fromEntries(Object.entries(draft.entry_updates).filter(([uid]) => validUids.has(uid))),
+  };
+}
+
 export function useWorldbookDraft(detail: WorldBookDetail | null) {
   const api = useApi();
   const [draft, setDraft] = useState<WorldBookDraft | null>(() => (detail ? draftFrom(detail) : null));
@@ -84,13 +96,51 @@ export function useWorldbookDraft(detail: WorldBookDetail | null) {
   const [error, setError] = useState("");
   const [conflict, setConflict] = useState(false);
   const [savedAt, setSavedAt] = useState(0);
+  const [baseline, setBaseline] = useState<WorldBookDraft | null>(() => (detail ? draftFrom(detail) : null));
+  const [baselineRevision, setBaselineRevision] = useState(detail?.import_config?.revision ?? 0);
+  const draftRef = useRef(draft);
+  const baselineRef = useRef(baseline);
+  const baselineRevisionRef = useRef(baselineRevision);
+  const latestServerBaselineRef = useRef(baseline);
+  const latestServerRevisionRef = useRef(baselineRevision);
+  const bookRef = useRef(detail?.id || "");
+  draftRef.current = draft;
 
-  const baseline = useMemo(() => (detail ? draftFrom(detail) : null), [detail]);
-  // 只有换书或保存成功后重新加载才重置草稿；切换视图、切 Tab 都不会丢。
+  // 外部条目/排序/元信息写入也会推进配置 revision。刷新基线时保留用户尚未
+  // 保存的节点草稿；换书或当前草稿干净时才采用服务器配置。
   const bookId = detail?.id || "";
   const revision = detail?.import_config?.revision ?? 0;
-  useEffect(() => { setDraft(detail ? draftFrom(detail) : null); setError(""); setConflict(false); },
-    [bookId, revision]);
+  useEffect(() => {
+    const next = detail ? draftFrom(detail) : null;
+    const nextRevision = detail?.import_config?.revision ?? 0;
+    latestServerBaselineRef.current = next;
+    latestServerRevisionRef.current = nextRevision;
+    const switched = bookRef.current !== bookId;
+    const current = draftRef.current;
+    const previousBaseline = baselineRef.current;
+    const hadUnsavedChanges = !switched && !!current && !!previousBaseline && !same(current, previousBaseline);
+    bookRef.current = bookId;
+    if (switched || !hadUnsavedChanges) {
+      baselineRef.current = next; baselineRevisionRef.current = nextRevision;
+      setBaseline(next); setBaselineRevision(nextRevision); setDraft(next);
+      setError(""); setConflict(false);
+      return;
+    }
+    if (next && previousBaseline && current) {
+      const validUids = new Set((detail?.entries || []).map((entry) => entry.uid));
+      const prunedPrevious = withoutMissingEntries(previousBaseline, validUids);
+      if (same(next, previousBaseline) || same(next, prunedPrevious)) {
+        const kept = same(next, prunedPrevious) ? withoutMissingEntries(current, validUids) : current;
+        baselineRef.current = next; baselineRevisionRef.current = nextRevision;
+        setBaseline(next); setBaselineRevision(nextRevision); setDraft(kept);
+        setError(""); setConflict(false);
+        return;
+      }
+    }
+    // 真正的配置并发修改不能借一次外部 revision 推进绕过 CAS。
+    setConflict(true);
+    setError("配置已在别处变更；当前草稿已保留，请撤销并重新编辑后再保存");
+  }, [bookId, revision, detail]);
 
   const dirty = !!draft && !!baseline && !same(draft, baseline);
 
@@ -110,19 +160,29 @@ export function useWorldbookDraft(detail: WorldBookDetail | null) {
 
   /** 撤销：回到服务端已保存的版本（不是回到上一次编辑）。 */
   const undo = useCallback(() => {
-    setDraft(baseline ? { ...baseline } : null);
+    const latest = latestServerBaselineRef.current;
+    const latestRevision = latestServerRevisionRef.current;
+    baselineRef.current = latest; baselineRevisionRef.current = latestRevision;
+    setBaseline(latest); setBaselineRevision(latestRevision);
+    setDraft(latest ? { ...latest } : null);
     setError("");
     setConflict(false);
-  }, [baseline]);
+  }, []);
 
   const save = useCallback(async (): Promise<boolean> => {
     if (!detail || !draft || saving) return false;
     setSaving(true); setError(""); setConflict(false);
     try {
-      await api.putWorldbookConfiguration(detail.id, {
+      const submitted = draft;
+      const result = await api.putWorldbookConfiguration(detail.id, {
         ...buildSaveBody(draft, baseline),
-        expected_revision: detail.import_config?.revision,
+        expected_revision: baselineRevision,
       });
+      const next = draftFrom(result.book);
+      baselineRef.current = next; baselineRevisionRef.current = result.policy_revision;
+      latestServerBaselineRef.current = next; latestServerRevisionRef.current = result.policy_revision;
+      setBaseline(next); setBaselineRevision(result.policy_revision);
+      setDraft((current) => same(current, submitted) ? next : current);
       setSavedAt(Date.now());
       return true;
     } catch (e) {
@@ -134,7 +194,7 @@ export function useWorldbookDraft(detail: WorldBookDetail | null) {
     } finally {
       setSaving(false);
     }
-  }, [api, detail, draft, saving, baseline]);
+  }, [api, detail, draft, saving, baseline, baselineRevision]);
 
   return { draft, setDraft, patch, adoptV3, dirty, saving, error, conflict, savedAt, save, undo, baseline };
 }

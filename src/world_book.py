@@ -864,11 +864,16 @@ class WorldBook:
                  categories: list = None, dependency_edges: list = None,
                  import_config: dict = None, scope_mode: str = None,
                  dependency_rules: dict = None, related_edges: list = None,
-                 policy_revisions: list = None, book_type: str = DEFAULT_BOOK_TYPE):
+                 policy_revisions: list = None, book_type: str = DEFAULT_BOOK_TYPE,
+                 description: str = "", cover_image: str = "",
+                 entry_order: list = None, edit_revision: int = 1):
         self.id = book_id
         self.name = name or book_id
         self.source_format = source_format
         self.budget_tokens = budget_tokens  # 0 = 不限制
+        self.description = str(description or "")
+        self.cover_image = str(cover_image or "")
+        self.edit_revision = max(0, _to_int(edit_revision, 0))
         self.book_type = normalize_book_type(book_type)
         # source: "preinstalled"（随程序分发的整合包，安装副本）| "imported"（用户导入）
         self.source = source if source in (SOURCE_PREINSTALLED, "imported") else "imported"
@@ -877,6 +882,17 @@ class WorldBook:
         self.updated_at = time.time()
         self.pack_rev = str(pack_rev or "")
         self.entries: list[WorldBookEntry] = list(entries or [])
+        known_order = {entry.uid for entry in self.entries}
+        if isinstance(entry_order, list):
+            normalized_order = []
+            for uid in entry_order:
+                uid = str(uid or "")
+                if uid in known_order and uid not in normalized_order:
+                    normalized_order.append(uid)
+            # An explicit order is only valid when it names every entry exactly once.
+            self.entry_order = normalized_order if len(normalized_order) == len(self.entries) else None
+        else:
+            self.entry_order = None
         self.schema_version = 3 if dependency_rules else 2
         self.scope_mode = scope_mode or ("selective" if schema_version >= 2 and categories else "legacy")
         if self.scope_mode not in ("legacy", "selective"):
@@ -938,6 +954,32 @@ class WorldBook:
     def is_reference(self) -> bool:
         """资料库：只浏览、检索、摘录，不参与会话解析，也不能设为默认或被绑定。"""
         return self.book_type == BOOK_TYPE_REFERENCE
+
+    def bump_edit_revision(self) -> int:
+        """Advance the optimistic-edit revision for UI writes."""
+        self.edit_revision += 1
+        return self.edit_revision
+
+    @staticmethod
+    def legacy_entry_sort_key(entry: WorldBookEntry):
+        """The pre-refresh static order. Old books keep this exact behaviour."""
+        return (entry.position, -entry.group_weight, entry.depth, entry.uid)
+
+    def effective_entry_order(self) -> list[str]:
+        """Return the full UI/injection order without mutating stored entries."""
+        if self.entry_order is not None:
+            return list(self.entry_order)
+        return [entry.uid for entry in sorted(self.entries, key=self.legacy_entry_sort_key)]
+
+    def estimated_tokens(self) -> int:
+        """Fixed display estimate for the complete book; never changes budget_tokens."""
+        total = 0
+        for entry in self.entries:
+            text = entry.content
+            if entry.name:
+                text = f"### {entry.name}\n{text}"
+            total += estimate_tokens(text)
+        return total
 
     def rules_snapshot(self, revision: int = None) -> dict:
         """返回可恢复的规则快照：优先取指定修订的不可变版本，否则用当前规则。"""
@@ -1058,6 +1100,9 @@ class WorldBook:
             "name": self.name,
             "source_format": self.source_format,
             "budget_tokens": self.budget_tokens,
+            "description": self.description,
+            "cover_image": self.cover_image,
+            "edit_revision": self.edit_revision,
             "source": self.source,
             "enabled": self.enabled,
             "book_type": self.book_type,
@@ -1070,6 +1115,9 @@ class WorldBook:
             "dependency_edges": self.dependency_edges,
             "import_config": self.import_config,
         }
+        # Missing means legacy ordering. Persist only after an explicit reorder.
+        if self.entry_order is not None:
+            data["entry_order"] = list(self.entry_order)
         if self.dependency_rules is not None:
             data["dependency_rules"] = self.dependency_rules
         # related_edges 独立持久化：v3 书与「已配置关联补充但尚未启用 v3」的书都要能往返
@@ -1090,6 +1138,10 @@ class WorldBook:
             entries=[WorldBookEntry.from_dict(e) for e in data.get("entries", [])],
             source_format=str(data.get("source_format", SOURCE_MANUAL)),
             budget_tokens=int(data.get("budget_tokens", 0)),
+            description=str(data.get("description", "") or ""),
+            cover_image=str(data.get("cover_image", "") or ""),
+            entry_order=data.get("entry_order"),
+            edit_revision=data.get("edit_revision", 1),
             source=str(data.get("source", "imported")),
             enabled=bool(data.get("enabled", True)),
             pack_rev=str(data.get("pack_rev", "")),
@@ -1599,7 +1651,20 @@ class WorldBook:
             matched = patched
 
         # 排序：position（卡前/卡后）→ group_weight 降序 → depth 升序
-        matched.sort(key=lambda e: (e.position, -e.group_weight, e.depth, e.uid))
+        if self.entry_order is None:
+            matched.sort(key=self.legacy_entry_sort_key)
+        else:
+            explicit = {uid: index for index, uid in enumerate(self.entry_order)}
+
+            def explicit_key(entry):
+                # Stable-layer entries are emitted in the stable host and every other
+                # entry in the dynamic host. Keep that discipline even when a node
+                # position override changes an entry's layer.
+                layer = 0 if entry.position == 0 and entry.always_active else 1
+                return (layer, explicit.get(entry.uid, len(explicit)),
+                        *self.legacy_entry_sort_key(entry))
+
+            matched.sort(key=explicit_key)
         return matched
 
     # ── 格式化 ──
@@ -1860,6 +1925,9 @@ class WorldBook:
         extension = {EXTENSION_KEY: {
             "schema_version": self.schema_version, "scope_mode": self.scope_mode,
             "book_type": self.book_type,
+            "description": self.description,
+            "cover_image": self.cover_image,
+            "entry_order": list(self.entry_order) if self.entry_order is not None else None,
             "categories": copy.deepcopy(self.categories),
             "dependency_edges": copy.deepcopy(self.dependency_edges),
             "import_config": copy.deepcopy(self.import_config),
@@ -2245,6 +2313,8 @@ class WorldBookManager:
         return {
             "id": book.id,
             "name": book.name,
+            "description": book.description,
+            "cover_image": book.cover_image,
             "source_format": book.source_format,
             "source": book.source,
             "book_type": book.book_type,
@@ -2252,6 +2322,8 @@ class WorldBookManager:
             "is_preinstalled": self.is_preinstalled(book.id),
             "enabled": book.enabled,
             "budget_tokens": book.budget_tokens,
+            "estimated_tokens": book.estimated_tokens(),
+            "edit_revision": book.edit_revision,
             "entry_count": len(book.entries),
             "created_at": book.created_at,
             "updated_at": book.updated_at,
@@ -2275,6 +2347,7 @@ class WorldBookManager:
 
     def save(self, book: WorldBook):
         """统一保存（预装包安装副本与导入书同样可写）。"""
+        book.bump_edit_revision()
         book.updated_at = time.time()
         temporary = None
         try:
@@ -2333,6 +2406,15 @@ class WorldBookManager:
                          source_format=report.source_format, scope_mode="legacy",
                          book_type=resolved_type)
         if extension:
+            book.description = str(extension.get("description", "") or "")
+            book.cover_image = str(extension.get("cover_image", "") or "")
+            requested_order = extension.get("entry_order")
+            if isinstance(requested_order, list):
+                ordered = [str(uid) for uid in requested_order]
+                known = {entry.uid for entry in entries}
+                if (len(ordered) == len(known) and len(set(ordered)) == len(ordered)
+                        and set(ordered) == known):
+                    book.entry_order = ordered
             if not isinstance(extension.get("import_config", {}), dict):
                 raise ValueError("导入的 import_config 必须是对象")
             book.categories = validate_categories(extension.get("categories", []))
@@ -2381,6 +2463,9 @@ class WorldBookManager:
             related_edges=copy.deepcopy(book.related_edges),
             policy_revisions=copy.deepcopy(book.policy_revisions),
             book_type=book.book_type,
+            description=book.description,
+            cover_image=book.cover_image,
+            entry_order=copy.deepcopy(book.entry_order),
         )
         new_book.created_at = time.time()
         new_book.updated_at = time.time()
@@ -2533,6 +2618,8 @@ class WorldBookManager:
         created = []
         for built in prepared:
             staged.entries.append(built)
+            if staged.entry_order is not None:
+                staged.entry_order.append(built.uid)
             created.append(built)
         staged.import_config["revision"] = staged.import_config.get("revision", 1) + 1
         self.save(staged)

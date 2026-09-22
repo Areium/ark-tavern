@@ -795,7 +795,7 @@ export default function SessionManagerView() {
                     selected.worldbook_scope?.legacy_full_scope || !selected.worldbook_scope ? "当前会话沿用旧版全量范围；启用按需策略并重新绑定后，角色条目才按阵容载入。" :
                     "提示：入队角色的世界书条目随会话载入；世界观及固定/依赖条目按策略生效。未入队角色不会自动导入，可在此调整阵容。"}
                   {" "}<button className="text-blue-400 hover:underline" onClick={() => {
-                    setWorldbookScopeJumpId(selected.worldbook_id || null); setWorldbookTab("load"); setCurrentView("worldbook");
+                    setWorldbookScopeJumpId(selected.worldbook_id || null); setWorldbookTab("entries"); setCurrentView("worldbook");
                   }}>前往世界书配置依赖 →</button>
                 </p>
               </div>

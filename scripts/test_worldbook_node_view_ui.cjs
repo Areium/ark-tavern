@@ -724,7 +724,7 @@ assert.ok(!fullScopeMarkup.includes("<b>依赖环</b>0 个"), "F-8：不再出�
 assert.ok(fullScopeMarkup.includes("<b>已在范围内</b>不适用"), "三项范围统计统一显示「不适用」");
 assert.ok(fullScopeMarkup.includes("不解析依赖闭包，因此这一项不反映本次范围"),
   "F-8：title 里说明为什么会不适用");
-assert.ok(fullScopeMarkup.includes("书级依赖关系仍可在「分类与载入」或节点属性栏逐条查看"),
+assert.ok(fullScopeMarkup.includes("书级依赖关系仍可在条目展开区或节点属性栏逐条查看"),
   "F-8：指向能看到书级依赖关系的地方");
 const fullScopeStatsLine = (fullScopeMarkup.match(/<div class="wbnv-stats"[\s\S]*?<\/div>/) || [""])[0]
   .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();

@@ -254,6 +254,9 @@ def _entry_from_payload(payload: dict, uid: str = None) -> WorldBookEntry:
         match_whole_words=bool(payload.get("match_whole_words", False)),
         category_id=str(payload.get("category_id", "") or "unclassified"),
         character_id=str(payload.get("character_id", "") or "").strip(),
+        excerpt_source=copy.deepcopy(payload.get("excerpt_source"))
+        if isinstance(payload.get("excerpt_source"), dict) else {},
+        raw=copy.deepcopy(payload.get("raw")) if isinstance(payload.get("raw"), dict) else {},
     )
 
 
@@ -417,6 +420,19 @@ def register(app, managers):
                 return
             yield copy.deepcopy(book), None
 
+    def _revision_conflict(book, data):
+        """Optional optimistic guard used by the workbench autosave endpoints."""
+        if not isinstance(data, dict) or "expected_revision" not in data:
+            return None
+        try:
+            expected = int(data["expected_revision"])
+        except (TypeError, ValueError):
+            return json_error("expected_revision 必须是整数", 400)
+        if expected != book.edit_revision:
+            return json_error(
+                f"世界书已被其它操作更新（当前修订 {book.edit_revision}），请重试", 409)
+        return None
+
     class SessionOccupancyUnknown(Exception):
         """无法可靠列举会话占用状态（会话服务存在，但枚举失败）。
 
@@ -488,6 +504,8 @@ def register(app, managers):
         detail = {
             "id": book.id,
             "name": book.name,
+            "description": book.description,
+            "cover_image": book.cover_image,
             "source_format": book.source_format,
             "source": book.source,
             "book_type": book.book_type,
@@ -495,6 +513,10 @@ def register(app, managers):
             "is_preinstalled": wb_mgr.is_preinstalled(book.id),
             "enabled": book.enabled,
             "budget_tokens": book.budget_tokens,
+            "estimated_tokens": book.estimated_tokens(),
+            "edit_revision": book.edit_revision,
+            "entry_order": book.effective_entry_order(),
+            "has_explicit_entry_order": book.entry_order is not None,
             "created_at": book.created_at,
             "updated_at": book.updated_at,
             "entry_count": len(book.entries),
@@ -539,6 +561,10 @@ def register(app, managers):
             return json_error(str(e), 400)
         book = wb_mgr.create_book(name, budget_tokens=max(0, budget),
                                   book_type=book_type)
+        book.description = str(data.get("description", "") or "")
+        book.cover_image = str(data.get("cover_image", "") or "")
+        if book.description or book.cover_image:
+            wb_mgr.save(book)
         return jsonify({"book": _book_detail(book, include_entries=False)}), 201
 
     # ── 2. 导入 ──
@@ -642,6 +668,9 @@ def register(app, managers):
             if err:
                 return err
             data = request.json or {}
+            conflict = _revision_conflict(book, data)
+            if conflict:
+                return conflict
             if "name" in data:
                 new_name = str(data["name"] or "").strip()
                 if new_name:
@@ -651,6 +680,10 @@ def register(app, managers):
                     book.budget_tokens = max(0, int(data["budget_tokens"] or 0))
                 except (TypeError, ValueError):
                     return json_error("budget_tokens 必须是整数")
+            if "description" in data:
+                book.description = str(data.get("description") or "")
+            if "cover_image" in data:
+                book.cover_image = str(data.get("cover_image") or "")
             if "enabled" in data:
                 book.enabled = bool(data["enabled"])
             if "book_type" in data:
@@ -728,23 +761,32 @@ def register(app, managers):
         with _locked_book(book_id) as (book, err):
             if err:
                 return err
+            data = request.json or {}
+            conflict = _revision_conflict(book, data)
+            if conflict:
+                return conflict
             try:
-                entry = _entry_from_payload(request.json or {})
+                entry = _entry_from_payload(data)
                 _validate_entry_scope(book, entry)
                 if any(e.uid == entry.uid for e in book.entries):
                     raise ValueError("条目 UID 已存在")
             except (TypeError, ValueError) as e:
                 return json_error(str(e))
             book.entries.append(entry)
+            if book.entry_order is not None:
+                book.entry_order.append(entry.uid)
             book.import_config["revision"] += 1
             wb_mgr.save(book)
-            return jsonify({"entry": entry.to_dict()}), 201
+            return jsonify({"entry": entry.to_dict(), "edit_revision": book.edit_revision}), 201
 
     @bp.route("/api/worldbook/<book_id>/entries/<entry_id>", methods=["PUT"])
     def update_entry(book_id, entry_id):
         with _locked_book(book_id) as (book, err):
             if err:
                 return err
+            conflict = _revision_conflict(book, request.json or {})
+            if conflict:
+                return conflict
             for i, e in enumerate(book.entries):
                 if e.uid == entry_id:
                     try:
@@ -755,12 +797,12 @@ def register(app, managers):
                         _validate_entry_scope(book, updated)
                     except (TypeError, ValueError) as exc:
                         return json_error(str(exc))
-                    # 保留 raw 以便导出回灌（编辑过的字段在 export_st 时会被覆盖）
-                    updated.raw = e.raw
+                    # Hidden fields survive partial edits; the payload builder copies
+                    # raw and excerpt_source from the current entry.
                     book.entries[i] = updated
                     book.import_config["revision"] += 1
                     wb_mgr.save(book)
-                    return jsonify({"entry": updated.to_dict()})
+                    return jsonify({"entry": updated.to_dict(), "edit_revision": book.edit_revision})
             return json_error("条目不存在", 404)
 
     @bp.route("/api/worldbook/<book_id>/entries/<entry_id>", methods=["DELETE"])
@@ -771,6 +813,8 @@ def register(app, managers):
             for i, e in enumerate(book.entries):
                 if e.uid == entry_id:
                     book.entries.pop(i)
+                    if book.entry_order is not None:
+                        book.entry_order = [uid for uid in book.entry_order if uid != entry_id]
                     affected = {"dependency_edges": sum(entry_id in (edge["from_uid"], edge["to_uid"]) for edge in book.dependency_edges),
                                 "fixed_entries": int(entry_id in book.import_config["fixed_entry_uids"]),
                                 "dependency_sources": sum(s["entry_uid"] == entry_id for s in book.import_config["dependency_sources"])}
@@ -801,6 +845,29 @@ def register(app, managers):
                     wb_mgr.save(book)
                     return jsonify({"message": "已删除", "affected": affected})
             return json_error("条目不存在", 404)
+
+    @bp.route("/api/worldbook/<book_id>/entry-order", methods=["PUT"])
+    def reorder_entries(book_id):
+        """Atomically persist a complete entry permutation."""
+        with _locked_book(book_id) as (book, err):
+            if err:
+                return err
+            data = request.json or {}
+            conflict = _revision_conflict(book, data)
+            if conflict:
+                return conflict
+            order = data.get("entry_order")
+            if not isinstance(order, list) or any(not isinstance(uid, str) for uid in order):
+                return json_error("entry_order 必须是 UID 字符串数组", 400)
+            known = [entry.uid for entry in book.entries]
+            if len(order) != len(known) or len(set(order)) != len(order) or set(order) != set(known):
+                return json_error("entry_order 必须完整且不重复地包含本书全部条目", 400)
+            book.entry_order = list(order)
+            wb_mgr.save(book)
+            return jsonify({
+                "entry_order": book.effective_entry_order(),
+                "edit_revision": book.edit_revision,
+            })
 
     # ── 4.0.1 节点级世界书绑定（docs/design/worldbook/node-scoped-worldbook-loading.md） ──
 
@@ -843,6 +910,8 @@ def register(app, managers):
                     break
             else:
                 book.entries.append(entry)
+                if book.entry_order is not None:
+                    book.entry_order.append(entry.uid)
             book.import_config["revision"] += 1
             wb_mgr.save(book)
             return jsonify({"bindings": payload, "entry_uid": entry.uid})
