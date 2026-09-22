@@ -95,6 +95,40 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
 - v3 状态断言：普通保存应断言「保存前后 v3 状态一致」（`after.v3_enabled == original.v3_enabled`），
   不要硬编码 `not after.v3_enabled` —— 预装书早已是 v3。
 
+### 无浏览器 SSR 断言脚本里，zustand 只读得到初始快照（2026-09-22）
+
+`scripts/test_*_ui.cjs`（`ts.transpileModule` 加载 `.tsx` + `react-dom/server`）是本地主力断言手段，
+但它有一条硬边界：**不能用 store 状态去驱动 SSR 输出**。
+
+- **现象**：`useAppStore.setState({ characterTab: "cards" })` 之后渲染，`useAppStore.getState()`
+  返回 `cards`，而 `renderToStaticMarkup` 出来的 markup 仍是 `characters` 那一屏
+  （探针输出：`after setState: cards` / `renders cards manager? false | renders role column? true`）。
+  即同一进程里出现两个真相，按状态对比 markup 的断言会恒等或恒不等，是假阳性。
+- **根因**（zustand 4.5.7，已读 `frontend/node_modules/zustand/` 源码确认）：`useStore` 的服务端快照是
+  `api.getServerState || api.getInitialState`（`esm/index.js:20`），而 `getInitialState` 永远返回
+  **store 创建时**那一份 —— `setState` 重新赋值的是 `state`，从不动 `initialState`
+  （`esm/vanilla.js:8,12-13,26-28`）。React 18 服务端渲染取 `getServerSnapshot`，于是走的就是初始快照。
+- **不能从外面 patch**：`create()` 里是 `Object.assign(useBoundStore, api)`（`esm/index.js:35`）单向拷贝，
+  而 `useStore` 闭包持有的是内部 `api` 对象。所以给绑定 store 挂 `useAppStore.getServerState = ...`
+  **不会被读到**。真要接管，只能用 `createStore` 自建 store 再配导入出的 `useStore`（`esm/index.js:48`）
+  渲染——但依赖未文档化的 `getServerState` 约定，仅适合断言脚本，不要用在产品代码里。
+- **什么断言仍然有效**（判据不是「SSR 能不能用」，而是「这一步是否依赖 store 的当前值」）：
+
+  | 断言写法 | 可行 | 说明 |
+  | --- | --- | --- |
+  | store 迁移：`getState()` + action | ✅ | 不经过 React 服务端快照 |
+  | 源码接线：读 `.tsx` 文本 `includes` | ✅ | 纯文本 |
+  | 组件导出的常量/配置（如 `WORLDBOOK_PANEL_TABS`） | ✅ | 不读 store |
+  | SSR markup 中**不随 store 变化**的部分（页签标签齐全、旧文案已消失、两模块 markup 不同） | ✅ | 这些量本来就不依赖被切的那个字段 |
+  | SSR markup 中**随 store 变化**的部分（切到卡牌应渲染 CardManager） | ❌ | 就是上面那条现象 |
+  | 真按状态渲染 | ✅ | 上 playwright；本机未装，`scripts/test_worldbook_review_ui.cjs` 因此跑不了 |
+
+  另一条路子（另一会话独立踩到后采用）：通过模块缓存注入只读 store 替身。
+- **现状**：`scripts/test_role_worldbook_nav_ui.cjs:76-77` 已经把这条结论写在脚本注释里并据此改写
+  （改成断言 store 迁移 + 组件接线）。本节是把它提升为仓库级口径，避免下次再花一轮去踩。
+- **证据**：探针输出见 `event:66710`；另一会话独立复现见 `event:60798`；源码读于本机已安装的
+  `frontend/node_modules/zustand@4.5.7`。
+
 ## 数据布局
 
 ### 世界书内容与运行时书文件分层（2026-09-22，`feat/worldbook-data-layout`）
