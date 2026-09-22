@@ -5,12 +5,6 @@ import type { Session, SessionWorldbookEntryOverridesDTO, WorldBookDetail } from
 import AppIcon from "./AppIcon";
 import "../styles/worldbook-session-entries.css";
 
-const ENTRY_CATEGORY_SUFFIX = /[（(](?:世界观|世界|规则|属性|种族|职业|天气|地点|势力|物品|敌人|角色|剧情)设定[)）]\s*$/;
-
-export function compactEntryName(name: string): string {
-  return String(name || "").replace(ENTRY_CATEGORY_SUFFIX, "").trim() || "未命名条目";
-}
-
 export default function IndexManager({ book, onRefresh, onEditDefaults }: {
   book: WorldBookDetail; onRefresh: () => Promise<void>; onEditDefaults: () => void;
 }) {
@@ -141,13 +135,13 @@ export default function IndexManager({ book, onRefresh, onEditDefaults }: {
         <div className="wbse-count" role="status">{configLoading ? "正在加载会话设置…" : `显示 ${visibleCount} / ${book.entries.length} 个条目`}{notice && <span>{notice}</span>}</div>
         {!visibleCount && <div className="wbse-empty">{book.entries.length ? "没有匹配的条目，试试其他关键词或分类。" : "这本世界书还没有条目，请先在条目页添加内容。"}</div>}
         {visibleGroups.map((group) => <section className={`wbse-group${source === "global" ? " is-compact" : ""}`} key={group.id}><h4>{group.name}<span>{group.entries.length}</span></h4>{source === "global" ? <div className="wbse-entry-grid">
-          {group.entries.map((entry) => <span className={`wbse-entry-name${entry.enabled === false ? " is-disabled" : ""}`} key={entry.uid} title={entry.enabled === false ? `${compactEntryName(entry.name)}（默认停用）` : compactEntryName(entry.name)}>{compactEntryName(entry.name)}</span>)}
+          {group.entries.map((entry) => <span className={`wbse-entry-name${entry.enabled === false ? " is-disabled" : ""}`} key={entry.uid} title={entry.enabled === false ? `${entry.name || "未命名条目"}（默认停用）` : entry.name || "未命名条目"}>{entry.name || "未命名条目"}</span>)}
         </div> : group.entries.map((entry) => {
           const item = effectiveEntries.get(entry.uid);
           const defaultEnabled = item?.default_enabled ?? entry.enabled !== false;
           const value = config?.overrides[entry.uid];
-          return <article className="wbse-entry" key={entry.uid}><div className="wbse-entry-copy"><strong>{compactEntryName(entry.name)}</strong><p>{entry.content || "暂无正文"}</p><small>{entry.always_active ? "常驻条目" : "关键词触发"} · 默认{defaultEnabled ? "启用" : "停用"}</small></div>
-            <div className="wbse-entry-control"><select aria-label={`${compactEntryName(entry.name)}的会话开关`} disabled={loading || configLoading || !!saving || !config || !item} value={value === undefined ? "default" : value ? "enabled" : "disabled"} onChange={(event) => void updateEntry(entry.uid, event.target.value)}><option value="default">跟随默认（{defaultEnabled ? "启用" : "停用"}）</option><option value="enabled">仅此会话启用</option><option value="disabled">仅此会话停用</option></select><small>{saving === entry.uid ? "正在保存…" : item ? `当前${item.effective_enabled ? "启用" : "停用"}${value === undefined ? " · 跟随默认" : " · 已特调"}` : "等待加载配置"}</small></div>
+          return <article className="wbse-entry" key={entry.uid}><div className="wbse-entry-copy"><strong>{entry.name || "未命名条目"}</strong><p>{entry.content || "暂无正文"}</p><small>{entry.always_active ? "常驻条目" : "关键词触发"} · 默认{defaultEnabled ? "启用" : "停用"}</small></div>
+            <div className="wbse-entry-control"><select aria-label={`${entry.name || "未命名条目"}的会话开关`} disabled={loading || configLoading || !!saving || !config || !item} value={value === undefined ? "default" : value ? "enabled" : "disabled"} onChange={(event) => void updateEntry(entry.uid, event.target.value)}><option value="default">跟随默认（{defaultEnabled ? "启用" : "停用"}）</option><option value="enabled">仅此会话启用</option><option value="disabled">仅此会话停用</option></select><small>{saving === entry.uid ? "正在保存…" : item ? `当前${item.effective_enabled ? "启用" : "停用"}${value === undefined ? " · 跟随默认" : " · 已特调"}` : "等待加载配置"}</small></div>
           </article>;
         })}</section>)}
       </section>
