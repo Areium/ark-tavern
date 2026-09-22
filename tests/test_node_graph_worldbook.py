@@ -24,6 +24,8 @@ PLOT_BOOKS = {
     "combat-test": "combat-test",
     "fengxue_guojing": "fengxue-guojing",
     "near-light": "near-light",
+    # 6d967c6 新增剧情（frontmatter worldbook_id: beyond-twin）时漏登记，导致本用例 KeyError
+    "beyond_twin": "beyond-twin",
 }
 
 
