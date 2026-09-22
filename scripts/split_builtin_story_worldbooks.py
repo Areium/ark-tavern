@@ -64,11 +64,38 @@ STORY_SPECS = (
             "factions_罗德岛_index", "factions_整合运动_index",
         },
     },
+    {
+        "id": "beyond-twin", "name": "彼岸双生", "plot_uid": "plots_beyond_twin_index",
+        "description": "近未来都市 AI 悬疑世界书：程叙与妮可在日常生活中相遇，并从数字回声追索主体、陪伴与回家的意义。",
+        "character_uids": {
+            "characters_妮可_index", "characters_程叙_index",
+            "characters_林奈_index", "characters_杜可_index",
+        },
+        "content_uids": {
+            "plots_beyond_twin_index", "world_彼岸双生",
+            "factions_澜晶科技", "factions_量子智元之心",
+            "Location_深湾市", "Location_旧城200室", "Location_澜晶科技办公区",
+            "items_黑猫玩偶", "items_Agent终端",
+        },
+        "dynamic_uids": {
+            "factions_澜晶科技", "factions_量子智元之心",
+            "Location_深湾市", "Location_旧城200室", "Location_澜晶科技办公区",
+            "items_黑猫玩偶", "items_Agent终端",
+            "characters_妮可_index", "characters_程叙_index",
+            "characters_林奈_index", "characters_杜可_index",
+        },
+    },
 )
 
-_COMPACT_NAME_STORIES = {"near-light"}
 _ENTRY_SUFFIX_RE = re.compile(r"[（(]([^（()）]{1,16})[)）]\s*$")
 _SUFFIX_CATEGORIES = {
+    "世界观设定": {"id": "worldview", "name": "世界观设定", "scope_type": "worldview", "parent_id": None, "sort_order": 10},
+    "规则设定": {"id": "rules", "name": "规则设定", "scope_type": "worldview", "parent_id": "worldview", "sort_order": 11},
+    "属性设定": {"id": "attributes", "name": "属性设定", "scope_type": "worldview", "parent_id": "worldview", "sort_order": 12},
+    "种族设定": {"id": "races", "name": "种族设定", "scope_type": "worldview", "parent_id": "worldview", "sort_order": 13},
+    "职业设定": {"id": "classes", "name": "职业设定", "scope_type": "worldview", "parent_id": "worldview", "sort_order": 14},
+    "天气设定": {"id": "weather", "name": "天气设定", "scope_type": "worldview", "parent_id": "worldview", "sort_order": 15},
+    "地点设定": {"id": "locations", "name": "地点设定", "scope_type": "worldview", "parent_id": "worldview", "sort_order": 16},
     "角色设定": {"id": "characters", "name": "角色设定", "scope_type": "character", "parent_id": None, "sort_order": 20},
     "势力设定": {"id": "factions", "name": "势力设定", "scope_type": "other", "parent_id": None, "sort_order": 25},
     "物品设定": {"id": "items", "name": "物品设定", "scope_type": "other", "parent_id": None, "sort_order": 30},
@@ -79,9 +106,7 @@ _PLOT_GRAPH_CATEGORY = {"id": "plot_graph", "name": "节点图", "scope_type": "
 
 
 def compact_story_entry_names(book: dict) -> dict:
-    """把指定剧情书条目名末尾的类别后缀迁入显式分类字段。"""
-    if book.get("id") not in _COMPACT_NAME_STORIES:
-        return book
+    """把生成条目名末尾的类别后缀迁入显式分类字段。"""
     categories = {item.get("id"): copy.deepcopy(item) for item in book.get("categories", [])
                   if isinstance(item, dict) and item.get("id")}
     for entry in book.get("entries", []):
@@ -101,6 +126,15 @@ def compact_story_entry_names(book: dict) -> dict:
         if category["id"] == "characters" and uid.startswith("characters_") and uid.endswith("_index"):
             entry["character_id"] = uid[len("characters_"):-len("_index")]
         categories[category["id"]] = copy.deepcopy(category)
+    for category in list(categories.values()):
+        parent_id = category.get("parent_id")
+        if parent_id and parent_id not in categories:
+            parent = next(
+                (item for item in _SUFFIX_CATEGORIES.values() if item["id"] == parent_id),
+                None,
+            )
+            if parent is not None:
+                categories[parent_id] = copy.deepcopy(parent)
     book["categories"] = sorted(categories.values(), key=lambda item: item.get("sort_order", 0))
     return book
 
@@ -165,29 +199,47 @@ def _rewrite_plot_graph(entry: dict, book_id: str) -> None:
 
 
 def split_builtin_book(source: dict) -> tuple[dict, dict[str, dict]]:
-    """Return the reduced reference book and three standalone story books."""
+    """Return the reduced reference book and configured standalone story books."""
     if not isinstance(source, dict) or not isinstance(source.get("entries"), list):
         raise ValueError("source must be a worldbook object with entries")
     by_uid = {entry.get("uid"): entry for entry in source["entries"] if isinstance(entry, dict)}
-    missing = [spec["plot_uid"] for spec in STORY_SPECS if spec["plot_uid"] not in by_uid]
-    if missing:
-        raise ValueError(f"missing required plot entries: {', '.join(missing)}")
+    missing_by_story = {
+        spec["id"]: sorted(
+            (set(spec["character_uids"]) | set(spec["content_uids"])) - set(by_uid)
+        )
+        for spec in STORY_SPECS
+    }
+    missing_by_story = {
+        story_id: missing for story_id, missing in missing_by_story.items() if missing
+    }
+    if missing_by_story:
+        details = "; ".join(
+            f"{story_id}: {', '.join(missing)}"
+            for story_id, missing in missing_by_story.items()
+        )
+        raise ValueError(f"missing required story entries: {details}")
 
     moved_non_characters: set[str] = set()
     stories: dict[str, dict] = {}
     for spec in STORY_SPECS:
         selected = set(spec["character_uids"]) | set(spec["content_uids"])
+        dynamic_uids = set(spec.get("dynamic_uids", ()))
         entries = [copy.deepcopy(entry) for entry in source["entries"] if entry.get("uid") in selected]
         for entry in entries:
-            if entry.get("uid") != "plot_graph_near-light":
-                entry["always_active"] = True
-                entry["position"] = 0
+            uid = entry.get("uid")
+            if uid != "plot_graph_near-light":
+                is_dynamic = uid in dynamic_uids
+                entry["always_active"] = not is_dynamic
+                entry["position"] = 1 if is_dynamic else 0
             _rewrite_plot_graph(entry, spec["id"])
         known = {entry["uid"] for entry in entries}
         inject_uids = [entry["uid"] for entry in entries if entry.get("uid") != "plot_graph_near-light"]
         story = {
             "id": spec["id"], "name": spec["name"],
-            "description": f"从“明日方舟·内置设定集”拆分的《{spec['name']}》剧情与关联内容。",
+            "description": spec.get(
+                "description",
+                f"从“明日方舟·内置设定集”拆分的《{spec['name']}》剧情与关联内容。",
+            ),
             "source": "preinstalled", "enabled": True, "book_type": "story",
             "source_format": "builtin", "budget_tokens": 0,
             "schema_version": 3, "scope_mode": "selective", "entries": entries,
@@ -213,7 +265,13 @@ def split_builtin_book(source: dict) -> tuple[dict, dict[str, dict]]:
     _filter_base_metadata(base, known)
     base["name"] = "明日方舟·内置设定集"
     base["book_type"] = "reference"
-    base["description"] = "明日方舟通用设定资料书；三条内置剧情已拆分为独立世界书。"
+    base["description"] = "明日方舟通用设定资料书；内置剧情已拆分为独立世界书。"
+    compact_story_entry_names(base)
+    for category in base.get("categories", []):
+        if category.get("id") == "factions":
+            category["sort_order"] = 17
+    base["categories"] = sorted(
+        base.get("categories", []), key=lambda item: item.get("sort_order", 0))
     return base, stories
 
 
