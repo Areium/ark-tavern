@@ -905,8 +905,8 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       <header className="wber-shelf-head">
         <div><span className="wber-eyebrow">LORE LIBRARY</span><h2>世界书</h2></div>
         <div className="wber-head-actions">
-          <button ref={createButton} type="button" onClick={() => { setCreateError(""); setCreateOpen(true); }}>新建</button>
-          <button type="button" onClick={() => fileInput.current?.click()}>导入</button>
+          <button ref={createButton} type="button" className="is-primary" onClick={() => { setCreateError(""); setCreateOpen(true); }}><AppIcon name="book" size={14} />新建</button>
+          <button type="button" onClick={() => fileInput.current?.click()}><AppIcon name="upload" size={14} />导入</button>
         </div>
       </header>
       <input ref={fileInput} className="wber-hidden" type="file" accept=".json,.jsonl,.txt,.png"
@@ -940,7 +940,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
           <div className="wber-type-choice">{(["story", "reference"] as WorldBookType[]).map((value) => <button
             type="button" key={value} aria-pressed={newType === value} onClick={() => setNewType(value)}>{BOOK_TYPE_LABELS[value]}</button>)}</div>
           {createError && <div className="wber-alert" role="alert">{createError}</div>}
-          <div className="wber-dialog-actions"><button type="button" onClick={closeCreate}>取消</button>
+          <div className="wber-dialog-actions"><button type="button" className="is-ghost" onClick={closeCreate}>取消</button>
             <button type="button" className="is-primary" disabled={creating} onClick={() => void createBook()}>{creating ? "创建中…" : "创建"}</button></div>
         </div>
       </div>}
@@ -956,42 +956,44 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
               <textarea className="wber-description" rows={2} value={bookDescription} aria-label="世界书简介"
                 placeholder="写一段简短介绍…" onChange={(event) => changeMeta("description", event.target.value)} />
               <label className="wber-cover-field">封面<input value={bookCover} onChange={(event) => changeMeta("cover", event.target.value)} placeholder="图片地址" /></label>
-              <button type="button" onClick={() => setEditingMeta(false)}>完成</button>
+              <button type="button" className="is-sm is-primary" onClick={() => setEditingMeta(false)}>完成</button>
             </div> : <div className="wber-meta-reading">
               <h1 title={bookName}>{bookName}</h1>
               <p>{bookDescription || "还没有简介。"}</p>
-              <button type="button" onClick={() => setEditingMeta(true)}>编辑介绍</button>
+              <button type="button" className="is-sm is-ghost" onClick={() => setEditingMeta(true)}>编辑介绍</button>
             </div>}
             <div className="wber-stats"><span><b>{detail.entry_count}</b> 条目</span><span><b>约 {displayedTokens}</b> token</span>
               <span className={`wber-save is-${savePhase.state}`}>{savePhase.message || "已同步"}</span>
-              {savePhase.state === "error" && <button type="button" onClick={() => {
+              {savePhase.state === "error" && <button type="button" className="is-sm" onClick={() => {
                 for (const retry of retryTasks.current.values()) retry();
-              }}>重试</button>}</div>
+              }}><AppIcon name="refresh" size={13} />重试</button>}</div>
           </div>
-          <div className="wber-hero-actions"><button type="button" onClick={() => void exportBook()}><AppIcon name="download" size={15} />导出</button>
-            <details className="wber-more"><summary>更多</summary><div>
+          <div className="wber-hero-actions"><button type="button" onClick={() => void exportBook()}><AppIcon name="download" size={14} />导出</button>
+            <details className="wber-more"><summary>更多<AppIcon name="expand" size={14} /></summary><div>
               {!isReference(detail) && <button type="button" onClick={() => void updateBookOption({ enabled: !detail.enabled })}>{detail.enabled ? "停用整书" : "启用整书"}</button>}
               <button type="button" onClick={() => void updateBookOption({ book_type: isReference(detail) ? "story" : "reference" })}>
                 {isReference(detail) ? "改为剧情世界书" : "移入资料库"}</button>
               {detail.is_preinstalled && <button type="button" onClick={() => void reinstallBook()}>重装整合包</button>}
-              <button type="button" className="is-danger" onClick={() => void deleteBook()}><AppIcon name="trash" size={15} />删除</button>
+              <button type="button" className="is-danger" onClick={() => void deleteBook()}><AppIcon name="trash" size={14} />删除</button>
             </div></details></div>
         </section>
 
         <nav className="wber-tabs" aria-label="世界书工作台页签">{visibleTabs.map((tab) => <button type="button" key={tab.id}
           aria-pressed={effectiveTab === tab.id} title={tab.hint} onClick={() => setWorldbookTab(tab.id)}>{tab.label}</button>)}</nav>
         {effectiveTab === "nodes" && configDirty && <div className="wber-config-save">
-          <span>节点配置有未保存修改</span><button type="button" onClick={undoConfig}>撤销</button>
-          <button type="button" className="is-primary" disabled={configSaving} onClick={async () => {
+          <span>节点配置有未保存修改</span><button type="button" className="is-sm is-ghost" onClick={undoConfig}>撤销</button>
+          <button type="button" className="is-sm is-primary" disabled={configSaving} onClick={async () => {
             if (await saveConfig()) { await loadDetail(detail.id); showToast("节点配置已保存"); }
           }}>{configSaving ? "保存中…" : "保存节点配置"}</button>
         </div>}
         {effectiveTab === "nodes" && configError && <div className="wber-alert">{configError}</div>}
-        {error && <div className="wber-alert" role="alert">{error}<button type="button" onClick={() => setError("")}>×</button></div>}
+        {error && <div className="wber-alert" role="alert">{error}<button type="button" className="is-icon is-sm is-ghost" aria-label="关闭提示" onClick={() => setError("")}>×</button></div>}
         {toast && <div className="wber-toast" role="status">{toast}</div>}
 
         {effectiveTab === "entries" && <div className="wber-entries-page">
-          <div className="wber-entry-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、正文或触发词" />
+          <div className="wber-entry-toolbar">
+            <label className="wber-search"><AppIcon name="search" size={15} />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、正文或触发词" aria-label="搜索条目" /></label>
             <button type="button" className="is-primary" onClick={createEntry}>＋ 新增条目</button></div>
           {query && <p className="wber-order-note">搜索结果中暂不拖动排序；清空搜索可恢复完整插入顺序。</p>}
           <div className="wber-entry-list">{visibleEntries.map((entry, index) => {
@@ -1006,17 +1008,17 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
                   onChange={() => toggleEntry(entry)} />
                 <button type="button" className="wber-entry-toggle" aria-expanded={open}
                   onClick={() => setExpanded((current) => { const next = new Set(current); if (open) next.delete(entry.uid); else next.add(entry.uid); return next; })}>
-                  <span>{open ? "▾" : "▸"}</span><strong>{entry.name || "未命名条目"}</strong>
+                  <AppIcon name="forward" size={15} className="wber-chevron" /><strong>{entry.name || "未命名条目"}</strong>
                 </button>
                 <span className={`wber-layer ${stable ? "is-stable" : "is-dynamic"}`}>{stable ? "稳定层" : "动态层"}</span>
                 <span className="wber-token">约 {entryTokens(entry)} token</span><span className="wber-seq">#{index + 1}</span>
               </header>
               {open && <div className="wber-entry-body">
-                <div className="wber-entry-actions"><button type="button" onClick={() => {
+                <div className="wber-entry-actions"><button type="button" className={editing ? "is-sm" : "is-sm is-primary"} onClick={() => {
                   if (editing) { setEditingUid(null); setEntryDraft(null); return; }
                   setEditingUid(entry.uid); setEntryDraft(draftCache.current.get(`${detail.id}:${entry.uid}`) || entryToDraft(entry));
                 }}>{editing ? "返回阅读" : "编辑"}</button>
-                  <button type="button" className="is-danger" onClick={() => void deleteEntry(entry)}>删除</button></div>
+                  <button type="button" className="is-sm is-danger" onClick={() => void deleteEntry(entry)}><AppIcon name="trash" size={13} />删除</button></div>
                 {editing && entryDraft ? <EntryEditor draft={entryDraft} detail={detail} onChange={changeDraft} /> : <>
                   <div className="wber-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.content || "_（正文为空）_"}</ReactMarkdown></div>
                   <div className="wber-entry-meta"><span>触发词：{entry.trigger_keys?.join("、") || "无"}</span>
@@ -1038,11 +1040,11 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
               <button type="button" onClick={() => void searchLibrary()} disabled={libraryBusy}>{libraryBusy ? "检索中…" : "检索"}</button></div>
             {libraryResults.map((result) => <div className="wber-library-result" key={result.book.id}><strong>{result.book.name}</strong>
               {result.matches.map((entry: WorldBookEntryDTO) => <div key={entry.uid}><span>{entry.name || entry.content.slice(0, 30)}</span>
-                <button type="button" onClick={() => void excerpt(result.book.id, entry)}>加入剧情书</button></div>)}</div>)}
+                <button type="button" className="is-sm" onClick={() => void excerpt(result.book.id, entry)}>加入剧情书</button></div>)}</div>)}
           </details>
           <details className="wber-paste-import"><summary>从剪贴板 JSON 导入另一本世界书</summary>
             <textarea rows={5} value={pasteJson} onChange={(event) => setPasteJson(event.target.value)} placeholder="粘贴世界书 JSON" />
-            <button type="button" onClick={() => void importPastedJson()}>导入</button>
+            <button type="button" className="is-sm is-primary" onClick={() => void importPastedJson()}><AppIcon name="upload" size={13} />导入</button>
           </details>
         </div>}
 
@@ -1060,7 +1062,7 @@ function EntryEditor({ draft, detail, onChange }: { draft: EntryDraft; detail: W
   const currentKind = categories.find((item) => item.id === draft.categoryId)?.scope_type;
   return <div className="wber-editor">
     <label>名称<input value={draft.name} onChange={(event) => onChange({ name: event.target.value })} /></label>
-    <label className="is-wide">正文<textarea rows={10} value={draft.content} onChange={(event) => onChange({ content: event.target.value })} /></label>
+    <label className="is-wide">正文<textarea rows={10} value={draft.content} onChange={(event) => onChange({ content: event.target.value })} placeholder="支持 Markdown。写下这条设定的正文…" /></label>
     <label>触发词<input value={draft.triggerKeysText} onChange={(event) => onChange({ triggerKeysText: event.target.value })} placeholder="逗号分隔" /></label>
     <label>分组<input value={draft.group} onChange={(event) => onChange({ group: event.target.value })} /></label>
     <label>分类<select value={draft.categoryId} onChange={(event) => {
