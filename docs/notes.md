@@ -129,6 +129,58 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
 - **证据**：探针输出见 `event:66710`；另一会话独立复现见 `event:60798`；源码读于本机已安装的
   `frontend/node_modules/zustand@4.5.7`。
 
+## 世界书前端
+
+### 条目分层是三层，不是两层：系统层不计 token、不进 Prompt 预览（2026-09-22，`feat/worldbook-frontend-polish`）
+
+- **现象**：剧情节点图条目（`plot_graph_*`）在「条目」页签上被打成「动态层」，并被计入
+  「约 N token」；「Prompt 预览」的 `dropped[]` 里还会给它报一个 `keyword_miss`
+  （「关键词未命中」），读起来像是「去补个触发词就好了」。
+- **根因**：分层口径只有两种取值 —— `position == 0 && always_active ? 稳定层 : 动态层`。
+  节点图条目按设计是「空触发键 + 非常驻」，只服务画布与系统判定、永不注入，落进
+  「其余都是动态层」这个兜底分支纯属口径缺失；而展示 token 又是 `self.entries` 全量求和。
+- **现状口径**（唯一真源 `src/world_book.py`，前端镜像在 `frontend/src/utils/worldbookLayer.ts`）：
+  - 第三层叫**系统层**，判定 `is_system_entry()`：`raw.extensions.arknights_tavern.entry_type ∈
+    {plot_graph, lore_bindings}`，或正文命中围栏块（与 `plot_graphs.is_graph_entry` /
+    `node_lore_scope.is_lore_bindings_entry` 同构）。**判定顺序必须先系统层再位置分层** ——
+    系统层条目同样满足「非常驻」，先按位置分层就会退回成动态层。
+  - 战斗节点条目（`combat_node`）**不在**系统层：它有关键词、会随剧情提及注入。
+  - 统计口径 `book_entry_stats()`：`injectable` = **启用的非系统条目**，`tokens` 只累计这一批。
+    `WorldBook.estimated_tokens()`、接口摘要 / 详情的 `estimated_tokens` 与
+    `injectable_entry_count` / `disabled_entry_count` / `system_entry_count` 全部走它。
+    界面上勾掉一条，条目数与 token 立刻跟着掉（前端 `bookEntryStats(detail.entries)` 同步算，
+    书架列表在选中书上用同一份实时值，其余书用服务端摘要的同口径字段）。
+  - Prompt 预览：系统层条目既不进 `order`（本来就不注入），也**不进 `dropped`**；
+    `preview_all_entries` 自己按 `is_system_entry` 排除，调用方不必再挑 UID。
+  - 「显式全量兼容」`_full_scope_entries()` / `full_scope_uids()` 也排除系统层：
+    全量放宽的是候选，不是把永不注入的条目算进 `full_entry_count` / `full_estimated_tokens`。
+  - 「会话条目」页签（`IndexManager`）同样不列系统层条目 —— 给它一个会话开关拨了也不会有
+    任何变化，只会误导；改为一行说明「另有 N 条系统层条目永不注入」，分母也换成会注入的条目。
+- **别让两张表漂移**：`SYSTEM_ENTRY_TYPES` / `SYSTEM_ENTRY_FENCES` 在 Python 与 TS 各有一份。
+  `tests/test_worldbook_system_layer.py` 比对承载模块自己的 `_ENTRY_TYPE` / `WORLD_BOOK_FENCE`；
+  `scripts/test_worldbook_layer_ui.cjs` 直接读 `src/world_book.py` 比对两张表 —— 任一侧新增类型
+  而另一侧没跟上都会立刻失败。
+- **证据**：`tests/test_worldbook_system_layer.py`（判定 / 统计 / 单轮与全书预览 / 全量口径）、
+  `scripts/test_worldbook_layer_ui.cjs`。本机数据实测：`data/worldbooks/` 下
+  `combat-test` / `fengxue-guojing` / `near-light` 各含 1 条 `plot_graph_*`，`arknights` 含 2 条停用条目，
+  这些现在都不再计入展示 token。
+
+### 世界书封面是内嵌 data URL，不是图片地址（2026-09-22，`feat/worldbook-frontend-polish`）
+
+- **口径**：封面一律**从本地文件选**（`CoverPicker` → `<input type="file" accept="image/*">`），
+  压缩后以 `data:image/...;base64` 写入书的 `cover_image`。收图片地址的老写法已移除。
+- **为什么**：封面要跟着书走。外链在导出 JSON 里只留一个 URL，换机器 / 断网 / 图床挂掉封面就没了；
+  内嵌让 `cover_image` 成为书自身的一部分 —— 后端本来就把它写进
+  `export_st()` 的项目扩展命名空间（`extensions.arknights_tavern.cover_image`），
+  导入时按同名字段读回（`WorldBookManager.import_book`），因此「导出 → 导入」原样还原，
+  不需要额外资源目录约定。
+- **压缩参数**（`frontend/src/components/worldbook/CoverPicker.tsx`，导出为常量便于断言）：
+  长边 ≤ `COVER_MAX_EDGE = 512`，优先 WebP、回退 JPEG（白底铺平，JPEG 没有 alpha），
+  质量按 `[0.86, 0.74, 0.62, 0.5, 0.4]` 逐档下调直到 ≤ `COVER_MAX_BYTES = 160 KB`。
+  `createImageBitmap` 不可用时回落 `<img>` 解码；解码失败给的是人话文案，不是 `NotSupportedError`。
+- **证据**：`scripts/test_worldbook_layer_ui.cjs`（文件选择而非地址输入、压缩参数量级、
+  摘要文案）；`tests/test_worldbook_entry_refresh.py` 覆盖 `cover_image` 的导出回读。
+
 ## 数据布局
 
 ### 世界书内容与运行时书文件分层（2026-09-22，`feat/worldbook-data-layout`）

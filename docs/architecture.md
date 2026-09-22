@@ -50,6 +50,7 @@
 
 - `world_book.py` — 世界书（酒馆 Lorebook 兼容）：4 源解析（v1/v2/卡内嵌/jsonl）+ 关键词触发匹配 + 注入格式化 + 回灌导出 + `WorldBookManager`（`data/worldbooks/*.json`，gitignored）。
   **注入纪律：常驻 position-0 条目进稳定层，触发型条目一律进动态层（前缀缓存稳定）。**
+  **另有第三类「系统层」**：节点图 / 节点绑定这类编辑器与运行时元数据条目（`is_system_entry`）按设计永不注入，不与前两层并列计入 token，也不进 Prompt 预览的 order / dropped；判定必须先系统层再按位置分层。详见 `docs/notes.md`「条目分层是三层，不是两层」。
   `eligible_uids_for` 返回 `EligibleSet`（候选集 + `forced_uids`/`position_overrides` 元数据随集合传递，注入调用点零改动）。
   **书用途 `book_type`**：`story`（剧情世界书，可绑定会话/设为默认/参与解析）| `reference`（资料库，只供浏览、检索与摘录）。缺字段的旧数据按 `story` 读取；`resolve()` 与预装回退无条件排除 `reference`；`excerpt_entries()` 提供整批原子摘录（新 UID、来源不被修改、保留 `excerpt_source` 可追溯来源）。详见 `docs/design/worldbook/worldbook-library.md`。
 - `node_lore_scope.py` — 节点级世界书动态载入：书内一条永不注入的 `lore_bindings` 条目（围栏 JSON + extensions 标记）声明「目标 → 条目」绑定；`resolve_scope` 在剧情树节点落盘时把作用域冻结进 `story_tree.nodes[].state.lore_scope`（随回档走），注入时 `eligible_uids_for` 做「会话范围 ∩ 节点作用域」窄化白名单。书内无绑定条目 / 自由模式 / 老会话一律关闭，行为与旧版一致。详见 `docs/design/worldbook/node-scoped-worldbook-loading.md`。
