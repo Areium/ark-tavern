@@ -11,6 +11,7 @@ from split_builtin_story_worldbooks import (  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from blueprints.worldbook import _entry_from_payload  # noqa: E402
+from world_book import is_system_entry  # noqa: E402
 
 
 def _entry(uid, category="characters"):
@@ -42,16 +43,23 @@ def test_split_moves_story_content_but_keeps_characters_in_reference():
     assert "plots_near-light_index" not in base_uids
     assert "characters_临光_index" in base_uids
     assert "world_shared" in base_uids
-    assert set(stories) == {"near-light", "fengxue-guojing", "combat-test"}
+    assert set(stories) == {"near-light", "fengxue-guojing", "combat-test", "beyond-twin"}
 
 
 def test_story_entries_default_to_static_and_dynamic_requires_opt_in():
     _base, stories = split_builtin_book(_source())
-    for story in stories.values():
+    for story_id, story in stories.items():
         assert story["book_type"] == "story"
         injectables = [entry for entry in story["entries"] if not entry["uid"].startswith("plot_graph_")]
         assert injectables
-        assert all(entry["always_active"] is True and entry["position"] == 0 for entry in injectables)
+        spec = next(item for item in STORY_SPECS if item["id"] == story_id)
+        dynamic_uids = set(spec.get("dynamic_uids", ()))
+        assert all(
+            (entry["always_active"] is False and entry["position"] == 1)
+            if entry["uid"] in dynamic_uids
+            else (entry["always_active"] is True and entry["position"] == 0)
+            for entry in injectables
+        )
         assert {root["entry_uid"] for root in story["dependency_rules"]["roots"]} == {
             entry["uid"] for entry in injectables}
 
@@ -64,6 +72,22 @@ def test_split_does_not_mutate_source_and_filters_cross_book_edges():
     assert base["dependency_edges"] == []
     assert stories["near-light"]["dependency_edges"] == [
         {"from_uid": "plots_near-light_index", "to_uid": "characters_临光_index"}]
+
+
+def test_split_rejects_any_missing_configured_story_entry():
+    source = _source()
+    source["entries"] = [
+        entry for entry in source["entries"] if entry["uid"] != "items_黑猫玩偶"
+    ]
+
+    try:
+        split_builtin_book(source)
+    except ValueError as exc:
+        message = str(exc)
+        assert "beyond-twin" in message
+        assert "items_黑猫玩偶" in message
+    else:
+        raise AssertionError("missing configured story entry must fail generation")
 
 
 def test_api_entry_defaults_to_static_but_accepts_dynamic_opt_in():
@@ -99,7 +123,7 @@ def test_committed_packs_are_split_and_bindable():
         path.stem: json.loads(path.read_text(encoding="utf-8"))
         for path in pack_dir.glob("*.json")
     }
-    assert {"arknights", "near-light", "fengxue-guojing", "combat-test"} <= set(books)
+    assert {"arknights", "near-light", "fengxue-guojing", "combat-test", "beyond-twin"} <= set(books)
     reference_uids = {entry["uid"] for entry in books["arknights"]["entries"]}
     assert books["arknights"]["book_type"] == "reference"
     assert "characters_临光_index" in reference_uids
@@ -109,3 +133,22 @@ def test_committed_packs_are_split_and_bindable():
         assert story["book_type"] == "story"
         assert spec["plot_uid"] in story_uids and spec["plot_uid"] not in reference_uids
         assert not (set(spec["content_uids"]) - {"plot_graph_near-light"}) & reference_uids
+
+
+def test_beyond_twin_pack_has_no_plot_graph_and_exposes_all_core_characters():
+    pack_path = (Path(__file__).resolve().parents[1]
+                 / "data" / "worldbooks" / "packs" / "beyond-twin.json")
+    book = json.loads(pack_path.read_text(encoding="utf-8"))
+    uids = {entry["uid"] for entry in book["entries"]}
+    assert not any(is_system_entry(entry) for entry in book["entries"])
+    assert {
+        "characters_妮可_index", "characters_程叙_index",
+        "characters_林奈_index", "characters_杜可_index",
+    } <= uids
+    by_uid = {entry["uid"]: entry for entry in book["entries"]}
+    assert by_uid["world_彼岸双生"]["always_active"] is True
+    assert by_uid["plots_beyond_twin_index"]["always_active"] is True
+    assert all(
+        by_uid[uid]["always_active"] is False and by_uid[uid]["position"] == 1
+        for uid in uids - {"world_彼岸双生", "plots_beyond_twin_index"}
+    )
