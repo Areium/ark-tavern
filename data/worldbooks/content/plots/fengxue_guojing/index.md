@@ -76,7 +76,7 @@ trigger:
   - 圣山
   location:
   - 喀兰贸易会客厅
-worldbook_id: arknights
+worldbook_id: fengxue-guojing
 ---
 # 可检索条目
 

@@ -100,6 +100,7 @@ function draftToEntry(draft: EntryDraft, isNew = false): Partial<WorldBookEntryD
   if (changed.has("group")) output.group = full.group;
   if (changed.has("categoryId")) { output.category_id = full.category_id; output.character_id = full.character_id; }
   if (changed.has("alwaysActive")) output.always_active = full.always_active;
+  if (changed.has("position")) output.position = full.position;
   if (changed.has("enabled")) output.enabled = full.enabled;
   return output;
 }
@@ -758,7 +759,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     if (!detail) return;
     const entry: WorldBookEntryDTO = {
       uid: `entry-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`, name: "新条目", content: "", trigger_keys: [], secondary_keys: [],
-      always_active: false, selective: true, enabled: true, position: 0, depth: 4,
+      always_active: true, selective: true, enabled: true, position: 0, depth: 4,
       scan_depth: 4, probability: 100, group: "", group_weight: 100,
       case_sensitive: false, match_whole_words: false, category_id: "unclassified", raw: {},
     };
@@ -1074,8 +1075,10 @@ function EntryEditor({ draft, detail, onChange }: { draft: EntryDraft; detail: W
       disabled={category.scope_type === "character" && !draft.characterId}>{category.name}</option>)}</select>
       {currentKind === "character" && <small>沿用原有角色关联：{draft.characterId}</small>}
       {!draft.characterId && <small>角色分类需要已有角色关联。</small>}</label>
-    <label className="wber-check"><input type="checkbox" checked={draft.alwaysActive}
-      onChange={(event) => onChange({ alwaysActive: event.target.checked })} />常驻条目</label>
+    <label className="wber-check"><input type="checkbox"
+      checked={!draft.alwaysActive || draft.position !== 0}
+      onChange={(event) => onChange({ alwaysActive: !event.target.checked, position: event.target.checked ? 1 : 0 })} />动态插入</label>
+    <small>默认常驻静态层；勾选后改为按触发条件进入动态层。</small>
     <p className="wber-editor-note">修改会即时自动保存。</p>
   </div>;
 }

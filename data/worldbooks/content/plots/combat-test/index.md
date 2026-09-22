@@ -33,7 +33,7 @@ trigger:
   - 战斗测试
   - 测试
   - 快速测试
-worldbook_id: arknights
+worldbook_id: combat-test
 ---
 
 # 战斗功能测试 — 剧情叙述

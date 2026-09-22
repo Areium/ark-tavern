@@ -50,8 +50,8 @@
 
 ### 2.4 开箱即用：方舟整合包
 
-1. `scripts/generate_builtin_worldbook.py`：从 `data/worldbooks/content/characters/*/index.md`（角色名/别名/设定摘要）与 `data/worldbooks/content/plots/`（剧情概述）生成 `data/worldbooks/packs/arknights.json`（角色条目：触发词=角色名+别名；剧情条目：触发词=剧情名）。
-2. 首次启动自动安装到 `data/worldbooks/arknights.json`（source=preinstalled）。
+1. `scripts/generate_builtin_worldbook.py`：从 `data/worldbooks/content/` 生成通用资料库 `arknights.json`，并把长夜临光、风雪过境、战斗功能测试及其关联内容生成三本独立剧情书；角色会复制到剧情书，但仍保留在通用资料库。
+2. 首次启动自动安装 `data/worldbooks/packs/*.json` 中的全部预装书（source=preinstalled）。
 3. 解析回退链：**会话绑定 > 全局默认书 > 已启用的预装包（arknights）** —— 新用户零配置即有世界书生效。
 
 ### 2.5 统一检索

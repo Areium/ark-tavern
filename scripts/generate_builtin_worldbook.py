@@ -1,13 +1,14 @@
 """
-生成「世界书整合包」：data/worldbooks/packs/arknights.json
+生成内置世界书：通用资料库 + 三本独立剧情书。
 
 把 data/ 下的世界观文档语料（角色/剧情/势力/物品/地点/种族/职业/属性/规则/
-敌人/世界观）整理为**单一统一格式**的酒馆兼容世界书打包文件——每个文档
-对应一条条目，条目 content 承载完整 Markdown 正文（不只是摘要）。
+敌人/世界观）整理为统一格式的酒馆兼容世界书。长夜临光、风雪过境、
+战斗功能测试及其关联内容拆为独立剧情书；角色条目复制后仍保留在通用资料库。
+每个文档对应一条条目，条目 content 承载完整 Markdown 正文（不只是摘要）。
 
-整合包随程序分发（git 跟踪），程序首次启动自动安装到 data/worldbooks/
+这些包随程序分发（git 跟踪），程序首次启动自动安装到 data/worldbooks/
 （source=preinstalled），也可通过世界书导入功能手动导入同一份文件。
-「角色·剧情」文档管理界面移除后，本整合包即文档内容的迁移出口：
+「角色·剧情」文档管理界面移除后，这些包即文档内容的迁移出口：
 浏览与编辑经由世界书模块进行。
 
 条目触发词 = 文档名/frontmatter name（+剧情 id、角色称号等别名）。
@@ -20,6 +21,8 @@ import time
 from pathlib import Path
 
 import frontmatter
+
+from split_builtin_story_worldbooks import STORY_SPECS, split_builtin_book, write_books
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUT = REPO_ROOT / "data" / "worldbooks" / "packs" / "arknights.json"
@@ -143,11 +146,15 @@ def main():
         "updated_at": time.time(),
         "entries": entries,
     }
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    with open(OUT, "w", encoding="utf-8") as f:
-        json.dump(book, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-    print(f"已生成 {OUT}（共 {len(entries)} 条）")
+    generated_uids = {entry["uid"] for entry in entries}
+    if all(spec["plot_uid"] in generated_uids for spec in STORY_SPECS):
+        reference, stories = split_builtin_book(book)
+    else:
+        # Small fixture/custom content roots may intentionally omit the built-in plots.
+        reference, stories = book, {}
+    write_books(reference, stories, OUT.parent)
+    for payload in (reference, *stories.values()):
+        print(f"已生成 {OUT.parent / (payload['id'] + '.json')}（共 {len(payload['entries'])} 条）")
 
 
 if __name__ == "__main__":

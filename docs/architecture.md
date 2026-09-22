@@ -123,7 +123,7 @@
 
 ### 3.4 管理页
 
-- `components/ContentHub.tsx` — 内容中心（Tab：资产/卡牌/节点图；世界书图谱与索引已迁入世界书工作台页签；文档管理入口已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包 `data/worldbooks/packs/arknights.json`，浏览与编辑走世界书模块；后端 `document_manager.py` + `blueprints/documents.py` 仍在）
+- `components/ContentHub.tsx` — 内容中心（Tab：资产/卡牌/节点图；世界书图谱与索引已迁入世界书工作台页签；文档管理入口已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为通用资料库与独立剧情书，分发源位于 `data/worldbooks/packs/`，浏览与编辑走世界书模块；后端 `document_manager.py` + `blueprints/documents.py` 仍在）
 - `components/AssetManager.tsx` — 资产目录：图片上传/裁剪/默认图，实体显示上级目录与来源世界书（frontmatter `worldbook_id`），按书筛选与归类
 - `components/CardManager.tsx` — 卡牌管理：角色/职业卡牌编辑（CardEditor），条目显示所属世界书，按书筛选
 - `components/WorldBookManager.tsx` — 世界书工作台：顶层按用途分「剧情世界书 / 资料库」（带筛选与计数），详情是带页签的工作台——**条目 / 分类与载入 / Prompt 预览 / 节点视图 / 本家索引**（原「高级配置」双页签已并入 `分类与载入`；`本家索引` 页签副标题是「内置语料索引 · 依赖完整性 · 会话白名单」）；导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、条目编辑器、剧情书的会话绑定与默认书、酒馆格式导出；资料库以检索/浏览为主，可就地把条目「加入剧情世界书」（提交前可编辑标题/正文/触发词）。纯逻辑在 `utils/worldbookLibrary.ts`

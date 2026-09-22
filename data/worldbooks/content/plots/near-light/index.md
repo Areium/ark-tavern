@@ -69,7 +69,7 @@ trigger:
   - 商业联合会
   location:
   - 大骑士领卡瓦莱利亚基
-worldbook_id: arknights
+worldbook_id: near-light
 ---
 
 # 可检索条目

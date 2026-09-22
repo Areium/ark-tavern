@@ -1,0 +1,199 @@
+"""Split bundled plots out of the Arknights reference book.
+
+Characters are copied into each story book and deliberately remain in the
+reference book. Plot-specific non-character entries are moved.
+"""
+
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+
+
+STORY_SPECS = (
+    {
+        "id": "near-light", "name": "长夜临光", "plot_uid": "plots_near-light_index",
+        "character_uids": {
+            "characters_临光_index", "characters_瑕光_index", "characters_砾_index",
+            "characters_玛恩纳·临光_index", "characters_焰尾_index", "characters_托兰_index",
+            "characters_佐菲娅_index", "characters_闪灵_index", "characters_白金_index",
+            "characters_血骑士_index", "characters_薇薇安娜_index", "characters_逐魇骑士_index",
+            "characters_青金罗伊_index", "characters_青金莫妮克_index", "characters_玄铁大位_index",
+            "characters_罗素_index", "characters_阿米娅_index",
+        },
+        "content_uids": {
+            "plots_near-light_index", "plot_graph_near-light",
+            "enemies_无胄盟清洗小队", "enemies_锈铜骑士",
+            "items_临光的旧铠甲", "items_托兰的雇佣证明", "items_指挥官护甲",
+            "items_焰尾的感染者合同数据", "items_瑕光工坊外的监视照片",
+            "items_商业联合会内部会议纪要", "items_商业联合会内部清洗的证据",
+            "items_感染者合同数据",
+            "factions_商业联合会_index", "factions_监证会_index", "factions_无胄盟_index",
+            "factions_红松骑士团_index", "factions_临光家族_index", "factions_罗德岛_index",
+        },
+    },
+    {
+        "id": "fengxue-guojing", "name": "风雪过境", "plot_uid": "plots_fengxue_guojing_index",
+        "character_uids": {
+            "characters_银灰_index", "characters_灵知_index", "characters_初雪_index",
+            "characters_崖心_index", "characters_锏_index", "characters_大长老_index",
+            "characters_菈塔托丝·布朗陶_index", "characters_阿克托斯·佩尔罗契_index",
+            "characters_博士_index", "characters_耶拉_index",
+        },
+        "content_uids": {
+            "plots_fengxue_guojing_index", "enemies_山雪鬼", "enemies_山雪鬼队长",
+            "enemies_雪原爪兽", "items_喀兰铁路设计图", "items_耶拉冈德之石",
+            "Location_Kjerag_喀兰贸易会客厅_index", "Location_Kjerag_谢拉格小镇_index",
+            "Location_Kjerag_雪山大典广场_index", "Location_Kjerag_圣山山路_index",
+            "Location_Kjerag_圣山祭坛_index",
+            "factions_喀兰贸易_index", "factions_布朗陶家族_index",
+            "factions_佩尔罗契家族_index", "factions_罗德岛_index",
+            "factions_谢拉格_index", "weather_snow_index",
+        },
+    },
+    {
+        "id": "combat-test", "name": "战斗功能测试", "plot_uid": "plots_combat-test_index",
+        "character_uids": {
+            "characters_阿米娅_index", "characters_银灰_index", "characters_灵知_index",
+        },
+        "content_uids": {
+            "plots_combat-test_index", "enemies_整合运动士兵", "enemies_整合运动术师",
+            "Location_Rhode_Island_Training Room_index",
+            "factions_罗德岛_index", "factions_整合运动_index",
+        },
+    },
+)
+
+
+def _edge_inside(edge: dict, known: set[str]) -> bool:
+    return edge.get("from_uid") in known and edge.get("to_uid") in known
+
+
+def _categories_for(book: dict, entries: list[dict]) -> list[dict] | None:
+    categories = book.get("categories")
+    if not isinstance(categories, list):
+        return None
+    used = {entry.get("category_id", "unclassified") for entry in entries}
+    by_id = {item.get("id"): item for item in categories if isinstance(item, dict)}
+    pending = list(used)
+    while pending:
+        parent = by_id.get(pending.pop(), {}).get("parent_id")
+        if parent and parent not in used:
+            used.add(parent)
+            pending.append(parent)
+    return [copy.deepcopy(item) for item in categories if item.get("id") in used]
+
+
+def _rules_for(inject_uids: list[str]) -> dict:
+    return {
+        "roots": [{"entry_uid": uid, "activation": "always", "expansion": "none",
+                   "character_ids": [], "origin": "split"} for uid in inject_uids],
+        "root_rule": {"entry_uids": sorted(inject_uids)}, "rejected": [], "edge_meta": {},
+    }
+
+
+def _filter_base_metadata(book: dict, known: set[str]) -> None:
+    for field in ("dependency_edges", "related_edges"):
+        if isinstance(book.get(field), list):
+            book[field] = [edge for edge in book[field] if _edge_inside(edge, known)]
+    rules = book.get("dependency_rules")
+    if isinstance(rules, dict):
+        roots = [root for root in rules.get("roots", []) if root.get("entry_uid") in known]
+        book["dependency_rules"] = {
+            **rules, "roots": roots,
+            "root_rule": {"entry_uids": sorted(root["entry_uid"] for root in roots)},
+            "rejected": [edge for edge in rules.get("rejected", []) if _edge_inside(edge, known)],
+            "edge_meta": {},
+        }
+    config = book.get("import_config")
+    if isinstance(config, dict):
+        book["import_config"] = {
+            **config,
+            "fixed_entry_uids": [uid for uid in config.get("fixed_entry_uids", []) if uid in known],
+            "dependency_sources": [],
+        }
+    book["policy_revisions"] = []
+    if isinstance(book.get("entry_order"), list):
+        book["entry_order"] = [uid for uid in book["entry_order"] if uid in known]
+
+
+def _rewrite_plot_graph(entry: dict, book_id: str) -> None:
+    if entry.get("category_id") != "plot_graph" and not str(entry.get("uid", "")).startswith("plot_graph_"):
+        return
+    entry["content"] = str(entry.get("content", "")).replace(
+        '"worldbook_id":"arknights"', f'"worldbook_id":"{book_id}"')
+
+
+def split_builtin_book(source: dict) -> tuple[dict, dict[str, dict]]:
+    """Return the reduced reference book and three standalone story books."""
+    if not isinstance(source, dict) or not isinstance(source.get("entries"), list):
+        raise ValueError("source must be a worldbook object with entries")
+    by_uid = {entry.get("uid"): entry for entry in source["entries"] if isinstance(entry, dict)}
+    missing = [spec["plot_uid"] for spec in STORY_SPECS if spec["plot_uid"] not in by_uid]
+    if missing:
+        raise ValueError(f"missing required plot entries: {', '.join(missing)}")
+
+    moved_non_characters: set[str] = set()
+    stories: dict[str, dict] = {}
+    for spec in STORY_SPECS:
+        selected = set(spec["character_uids"]) | set(spec["content_uids"])
+        entries = [copy.deepcopy(entry) for entry in source["entries"] if entry.get("uid") in selected]
+        for entry in entries:
+            if entry.get("uid") != "plot_graph_near-light":
+                entry["always_active"] = True
+                entry["position"] = 0
+            _rewrite_plot_graph(entry, spec["id"])
+        known = {entry["uid"] for entry in entries}
+        inject_uids = [entry["uid"] for entry in entries if entry.get("uid") != "plot_graph_near-light"]
+        story = {
+            "id": spec["id"], "name": spec["name"],
+            "description": f"从“明日方舟·内置设定集”拆分的《{spec['name']}》剧情与关联内容。",
+            "source": "preinstalled", "enabled": True, "book_type": "story",
+            "source_format": "builtin", "budget_tokens": 0,
+            "schema_version": 3, "scope_mode": "selective", "entries": entries,
+            "entry_order": [entry["uid"] for entry in entries],
+            "dependency_edges": [copy.deepcopy(edge) for edge in source.get("dependency_edges", [])
+                                 if _edge_inside(edge, known)],
+            "related_edges": [copy.deepcopy(edge) for edge in source.get("related_edges", [])
+                               if _edge_inside(edge, known)],
+            "dependency_rules": _rules_for(inject_uids),
+            "import_config": {"fixed_entry_uids": [], "dependency_sources": [], "revision": 1},
+            "policy_revisions": [],
+        }
+        categories = _categories_for(source, entries)
+        if categories is not None:
+            story["categories"] = categories
+        stories[spec["id"]] = story
+        moved_non_characters.update(spec["content_uids"])
+
+    base = copy.deepcopy(source)
+    base["entries"] = [entry for entry in base["entries"] if entry.get("uid") not in moved_non_characters]
+    known = {entry["uid"] for entry in base["entries"]}
+    _filter_base_metadata(base, known)
+    base["name"] = "明日方舟·内置设定集"
+    base["book_type"] = "reference"
+    base["description"] = "明日方舟通用设定资料书；三条内置剧情已拆分为独立世界书。"
+    return base, stories
+
+
+def pack_revision(book: dict) -> str:
+    """Match ``world_book._pack_rev`` without importing the application."""
+    payload = json.dumps(
+        {"id": book.get("id", ""), "name": book.get("name", ""),
+         "entries": book.get("entries", [])},
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def write_books(reference: dict, stories: dict[str, dict], output_dir, *, stamp_from=None) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for payload in (reference, *stories.values()):
+        if stamp_from is not None:
+            pack_path = stamp_from / f"{payload['id']}.json"
+            if pack_path.is_file():
+                payload["pack_rev"] = pack_revision(
+                    json.loads(pack_path.read_text(encoding="utf-8")))
+        (output_dir / f"{payload['id']}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
