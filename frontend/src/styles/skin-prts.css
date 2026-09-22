@@ -147,7 +147,6 @@ html.skin-prts body {
   .hover\:bg-gray-800:hover { background-color: #0b1524; }
   .bg-gray-800 { background-color: #0b1524; }
   .bg-gray-800\/30 { background-color: rgba(11, 21, 36, 0.3); }
-  .bg-gray-800\/40 { background-color: rgba(11, 21, 36, 0.4); }
   .bg-gray-800\/50 { background-color: rgba(11, 21, 36, 0.5); }
   .hover\:bg-gray-800\/60:hover { background-color: rgba(11, 21, 36, 0.6); }
   .bg-gray-800\/60 { background-color: rgba(11, 21, 36, 0.6); }
@@ -206,14 +205,13 @@ html.skin-prts body {
   .bg-amber-500\/20 { background-color: rgba(198, 141, 38, 0.2); }
   .bg-amber-500\/70 { background-color: rgba(198, 141, 38, 0.7); }
   .hover\:bg-amber-500\/80:hover { background-color: rgba(198, 141, 38, 0.8); }
-  .bg-amber-600 { background-color: #a97419; }
   .hover\:bg-amber-600:hover { background-color: #a97419; }
+  .bg-amber-600 { background-color: #a97419; }
   .bg-amber-600\/15 { background-color: rgba(169, 116, 25, 0.15); }
   .bg-amber-600\/20 { background-color: rgba(169, 116, 25, 0.2); }
   .hover\:bg-amber-600\/20:hover { background-color: rgba(169, 116, 25, 0.2); }
   .bg-amber-600\/25 { background-color: rgba(169, 116, 25, 0.25); }
   .bg-amber-600\/30 { background-color: rgba(169, 116, 25, 0.3); }
-  .hover\:bg-amber-600\/30:hover { background-color: rgba(169, 116, 25, 0.3); }
   .hover\:bg-amber-600\/40:hover { background-color: rgba(169, 116, 25, 0.4); }
   .bg-amber-600\/40 { background-color: rgba(169, 116, 25, 0.4); }
   .bg-amber-600\/80 { background-color: rgba(169, 116, 25, 0.8); }
@@ -252,10 +250,8 @@ html.skin-prts body {
   .text-amber-400\/70 { color: rgba(223, 166, 58, 0.7); }
   .text-amber-400\/80 { color: rgba(223, 166, 58, 0.8); }
   .text-amber-500 { color: #c68d26; }
-  .text-amber-500\/60 { color: rgba(198, 141, 38, 0.6); }
   .text-amber-500\/70 { color: rgba(198, 141, 38, 0.7); }
   .text-amber-500\/80 { color: rgba(198, 141, 38, 0.8); }
-  .text-amber-600 { color: #a97419; }
 
   /* ── yellow ── */
   .text-yellow-400 { color: #dfa63a; }
@@ -273,7 +269,6 @@ html.skin-prts body {
   .bg-red-500\/10 { background-color: rgba(248, 113, 113, 0.1); }
   .bg-red-500\/20 { background-color: rgba(248, 113, 113, 0.2); }
   .hover\:bg-red-500\/20:hover { background-color: rgba(248, 113, 113, 0.2); }
-  .bg-red-600 { background-color: #ef4444; }
   .hover\:bg-red-600:hover { background-color: #ef4444; }
   .bg-red-600\/15 { background-color: rgba(239, 68, 68, 0.15); }
   .hover\:bg-red-700:hover { background-color: #dc2626; }
@@ -286,14 +281,11 @@ html.skin-prts body {
   .bg-red-800\/50 { background-color: rgba(185, 28, 28, 0.5); }
   .bg-red-800\/90 { background-color: rgba(185, 28, 28, 0.9); }
   .bg-red-900\/20 { background-color: rgba(127, 29, 29, 0.2); }
-  .bg-red-900\/30 { background-color: rgba(127, 29, 29, 0.3); }
   .bg-red-950\/40 { background-color: rgba(127, 29, 29, 0.4); }
   .border-red-500\/40 { border-color: rgba(248, 113, 113, 0.4); }
-  .border-red-700\/30 { border-color: rgba(220, 38, 38, 0.3); }
   .border-red-700\/40 { border-color: rgba(220, 38, 38, 0.4); }
   .border-red-800\/40 { border-color: rgba(185, 28, 28, 0.4); }
   .border-red-800\/60 { border-color: rgba(185, 28, 28, 0.6); }
-  .border-red-900\/40 { border-color: rgba(127, 29, 29, 0.4); }
   .text-red-100 { color: #fecaca; }
   .text-red-200 { color: #fecaca; }
   .hover\:text-red-300:hover { color: #fca5a5; }
@@ -315,17 +307,14 @@ html.skin-prts body {
   .hover\:bg-blue-600\/30:hover { background-color: rgba(2, 132, 199, 0.3); }
   .hover\:bg-blue-600\/40:hover { background-color: rgba(2, 132, 199, 0.4); }
   .hover\:bg-blue-600\/50:hover { background-color: rgba(2, 132, 199, 0.5); }
-  .hover\:bg-blue-700:hover { background-color: #0369a1; }
   .bg-blue-700\/30 { background-color: rgba(3, 105, 161, 0.3); }
   .bg-blue-700\/40 { background-color: rgba(3, 105, 161, 0.4); }
   .bg-blue-700\/50 { background-color: rgba(3, 105, 161, 0.5); }
   .hover\:bg-blue-700\/50:hover { background-color: rgba(3, 105, 161, 0.5); }
   .hover\:bg-blue-700\/60:hover { background-color: rgba(3, 105, 161, 0.6); }
   .border-blue-500\/30 { border-color: rgba(14, 165, 233, 0.3); }
-  .border-blue-500\/40 { border-color: rgba(14, 165, 233, 0.4); }
   .border-blue-600\/20 { border-color: rgba(2, 132, 199, 0.2); }
   .border-blue-600\/40 { border-color: rgba(2, 132, 199, 0.4); }
-  .border-blue-700\/30 { border-color: rgba(3, 105, 161, 0.3); }
   .text-blue-200 { color: #bae6fd; }
   .text-blue-300 { color: #7dd3fc; }
   .hover\:text-blue-300:hover { color: #7dd3fc; }
@@ -345,17 +334,14 @@ html.skin-prts body {
   /* ── green ── */
   .bg-green-400 { background-color: #3ddc97; }
   .bg-green-600\/20 { background-color: rgba(5, 150, 105, 0.2); }
-  .bg-green-700 { background-color: #047857; }
   .bg-green-700\/30 { background-color: rgba(4, 120, 87, 0.3); }
   .bg-green-700\/50 { background-color: rgba(4, 120, 87, 0.5); }
   .bg-green-700\/90 { background-color: rgba(4, 120, 87, 0.9); }
   .bg-green-800\/50 { background-color: rgba(4, 120, 87, 0.5); }
   .bg-green-800\/90 { background-color: rgba(4, 120, 87, 0.9); }
-  .hover\:border-green-700\/50:hover { border-color: rgba(4, 120, 87, 0.5); }
   .text-green-100 { color: #a7f3d0; }
   .text-green-200 { color: #a7f3d0; }
   .text-green-300 { color: #86efac; }
-  .hover\:text-green-400:hover { color: #3ddc97; }
   .text-green-400 { color: #3ddc97; }
 
   /* ── emerald ── */
@@ -400,7 +386,6 @@ html.skin-prts body {
   /* ── white / black ── */
   .bg-white { background-color: #eaf4fc; }
   .text-white { color: #eaf4fc; }
-  .hover\:text-white:hover { color: #eaf4fc; }
   .text-white\/90 { color: rgba(234, 244, 252, 0.9); }
 
   /* ── white / black ── */

@@ -501,6 +501,7 @@ def register(app, managers):
                 % (book.name, "；".join(reasons)))
 
     def _book_detail(book: "WorldBook", include_entries: bool = True) -> dict:
+        stats = book.entry_stats()
         detail = {
             "id": book.id,
             "name": book.name,
@@ -513,13 +514,16 @@ def register(app, managers):
             "is_preinstalled": wb_mgr.is_preinstalled(book.id),
             "enabled": book.enabled,
             "budget_tokens": book.budget_tokens,
-            "estimated_tokens": book.estimated_tokens(),
+            "estimated_tokens": stats.tokens,
+            "injectable_entry_count": stats.injectable,
+            "disabled_entry_count": stats.disabled,
+            "system_entry_count": stats.system,
             "edit_revision": book.edit_revision,
             "entry_order": book.effective_entry_order(),
             "has_explicit_entry_order": book.entry_order is not None,
             "created_at": book.created_at,
             "updated_at": book.updated_at,
-            "entry_count": len(book.entries),
+            "entry_count": stats.total,
             "is_default": wb_mgr.get_default_book_id() == book.id,
             "schema_version": book.schema_version,
             "scope_mode": book.scope_mode,
@@ -1125,13 +1129,11 @@ def register(app, managers):
                 seed = 0
 
             if bool(data.get("all_entries", False)):
-                metadata_uids = {
-                    entry.uid for entry in candidate.entries
-                    if node_lore_scope.is_lore_bindings_entry(entry)
-                }
+                # 系统层条目（节点图 / 节点绑定）由 preview_all_entries 自己按
+                # `world_book.is_system_entry` 排除，这里不再单独挑 lore_bindings：
+                # 同一份判定只能有一处，否则节点图条目会漏进全书预览。
                 return jsonify(candidate.preview_all_entries(
-                    mode=mode, identity=identity, active_char=active_char,
-                    excluded_entry_uids=metadata_uids))
+                    mode=mode, identity=identity, active_char=active_char))
 
             return jsonify(candidate.preview_prompt_injection(
                 mode=mode, input_text=input_text, recent_text=recent_text,

@@ -324,6 +324,15 @@ export function useApi() {
       request<any>(`/api/sessions/${sessionId}/index-config`, {
         method: "DELETE",
       }),
+    getSessionWorldbookEntryOverrides: (sessionId: string) =>
+      request<import("../types").SessionWorldbookEntryOverridesDTO>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-entry-overrides`),
+    patchSessionWorldbookEntryOverride: (sessionId: string, data: {
+      expected_scope_revision: number; entry_uid: string; enabled: boolean | null;
+    }) => request<import("../types").SessionWorldbookEntryOverridesDTO>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-entry-overrides`, {
+        method: "PATCH", body: JSON.stringify(data),
+      }),
     getSessionWorldbookDependencies: (sessionId: string) =>
       request<import("../types").SessionWorldbookDependenciesDTO>(
         `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies`),

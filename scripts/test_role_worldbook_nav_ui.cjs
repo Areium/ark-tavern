@@ -2,7 +2,8 @@
 //
 // 覆盖：内容中心与旧「节点视图」整页删除（含其纯逻辑 / 样式 / UI 测试，文件不允许回流）、
 // 一级导航只剩 角色 / 世界书、角色页四个模块页签（角色库 / 玩家身份 / 资产 / 卡牌）与模块切换、
-// 世界书工作台页签 = 条目 / Prompt 预览 / 节点图 / 本家索引（节点图挂载迁入的 PlotGraphPage）。
+// 世界书工作台页签 = 条目 / Prompt 预览 / 节点图 / 会话条目（节点图挂载迁入的 PlotGraphPage；
+// 「会话条目」即原「本家索引」页签，c85b639 改为会话条目特调后改名）。
 //
 // 业务口径：资产与卡牌原本挂在「内容中心」，现为「角色」页的模块页签；剧情节点图原本挂在
 // 「内容中心 → 节点图」，现为「世界书 → 节点图」页签，并以工作台选中的书为受控书。
@@ -113,9 +114,9 @@ assert.notEqual(cardsMarkup, assetsMarkup, "卡牌与资产仍是两个不同的
 // ── 4. 世界书工作台：页签换成迁入的节点图，旧节点视图不再出现 ──
 const managerModule = require(path.join(root, "frontend/src/components/WorldBookManager.tsx"));
 assert.deepEqual(managerModule.WORLDBOOK_PANEL_TABS.map((tab) => tab.id),
-  ["entries", "prompt", "graph", "index"], "工作台页签应为 条目 / Prompt 预览 / 节点图 / 本家索引");
+  ["entries", "prompt", "graph", "index"], "工作台页签应为 条目 / Prompt 预览 / 节点图 / 会话条目");
 assert.deepEqual(managerModule.WORLDBOOK_PANEL_TABS.map((tab) => tab.label),
-  ["条目", "Prompt 预览", "节点图", "本家索引"]);
+  ["条目", "Prompt 预览", "节点图", "会话条目"]);
 const managerSource = read("frontend/src/components/WorldBookManager.tsx");
 // 判据是「没有活的旧节点视图」：页签 id 与组件挂载都不允许回来（注释里提到历史名称是允许的）
 assert.ok(!/import\s+NodeViewTab/.test(managerSource) && !/id:\s*"nodes"/.test(managerSource),

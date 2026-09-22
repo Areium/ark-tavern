@@ -23,6 +23,7 @@ import {
   Landmark,
   LibraryBig,
   Link2,
+  Lock,
   MapPin,
   MapPinned,
   Pause,
@@ -54,10 +55,10 @@ import {
 export type AppIconName =
   | "back" | "book" | "cards" | "characters" | "check" | "class" | "close"
   | "collapseAll" | "combat" | "content" | "copy" | "crop" | "docs" | "download"
-  | "expandAll" | "file" | "folder" | "forward" | "globe" | "home" | "identity"
-  | "image" | "images" | "index" | "info" | "location" | "map" | "pause" | "play"
-  | "plus" | "refresh" | "save" | "search" | "sessions" | "settings" | "star"
-  | "time" | "trash" | "upload" | "user" | "users" | "expand"
+  | "expand" | "expandAll" | "file" | "folder" | "forward" | "globe" | "home"
+  | "identity" | "image" | "images" | "index" | "info" | "location" | "lock"
+  | "map" | "pause" | "play" | "plus" | "refresh" | "save" | "search" | "sessions"
+  | "settings" | "star" | "time" | "trash" | "upload" | "user" | "users"
   | "volume" | "volumeOff" | "warning" | "weather" | "worldbook" | "workflow";
 
 const ICONS: Record<AppIconName, LucideIcon> = {
@@ -88,6 +89,7 @@ const ICONS: Record<AppIconName, LucideIcon> = {
   index: Link2,
   info: Info,
   location: MapPin,
+  lock: Lock,
   map: MapPinned,
   pause: Pause,
   play: Play,

@@ -573,10 +573,12 @@ class EligibleSet(set):
     详见 docs/design/worldbook/node-scoped-worldbook-loading.md（v2.1）。
     """
 
-    def __init__(self, it=(), forced_uids=frozenset(), position_overrides=None):
+    def __init__(self, it=(), forced_uids=frozenset(), position_overrides=None,
+                 enabled_overrides=None):
         super().__init__(it)
         self.forced_uids = frozenset(forced_uids)
         self.position_overrides = dict(position_overrides or {})
+        self.enabled_overrides = dict(enabled_overrides or {})
 
 
 def content_revision(entries) -> str:
@@ -844,6 +846,99 @@ def _excluded_reason(entry: WorldBookEntry) -> str:
     return EXCLUDED_REASON_BOOK_DISABLED
 
 
+# ── 条目分层：稳定层 / 动态层 / **系统层** ──────────────────────────────
+#
+# 稳定层与动态层是**注入**分层（position=0 且常驻 → 稳定层，其余 → 动态层）。
+# 第三类是「系统层」：条目内容不是给人看的设定，而是**编辑器 / 运行时元数据**
+# —— 剧情节点图（`plot_graphs`）与节点绑定（`node_lore_scope`）。它们由各自模块
+# 整条替换、空触发键且非常驻，**按设计永不注入**，只服务画布渲染与系统判定。
+# 因此它们：
+#   * 不计入任何 token 估算（`WorldBook.estimated_tokens` / 接口摘要）；
+#   * 不出现在 Prompt 预览的 order 里（本来就不注入），也不出现在 dropped 里
+#     （报「关键词未命中」会把用户引向错误的修复入口）；
+#   * 在界面上作为与稳定层 / 动态层并列的独立分类展示。
+#
+# 判定与承载模块自己的 `is_graph_entry` / `is_lore_bindings_entry` 同构：
+# extensions 标记优先、围栏块兜底。常量必须与来源模块保持一致，
+# `tests/test_worldbook_system_layer.py` 直接比对它们的 `_ENTRY_TYPE` /
+# `WORLD_BOOK_FENCE`，两处漂移会立刻失败。
+SYSTEM_ENTRY_TYPES = ("plot_graph", "lore_bindings")
+SYSTEM_ENTRY_FENCES = ("plot-graph", "arknights_tavern_lore_bindings")
+_SYSTEM_EXT_NAMESPACE = "arknights_tavern"
+_SYSTEM_FENCE_RE = re.compile(
+    r"```json\s+(?:%s)\s*\n" % "|".join(re.escape(name) for name in SYSTEM_ENTRY_FENCES))
+
+
+def _entry_field(entry, name: str, default=None):
+    """按字段读条目：`WorldBookEntry` 与普通 dict 两种形态都要认。
+
+    预览 / 摘要路径上既可能拿到数据模型对象，也可能拿到 `to_dict()` 之后的
+    普通字典（接口层、测试夹具都用过），判定函数因此不能绑定其中一种。
+    """
+    if isinstance(entry, dict):
+        return entry.get(name, default)
+    return getattr(entry, name, default)
+
+
+def is_system_entry(entry) -> bool:
+    """系统层条目：只服务系统判定 / 编辑器，永不注入，也不计入 token 展示。"""
+    raw = _entry_field(entry, "raw", None) or {}
+    ext = ((raw.get("extensions") if isinstance(raw, dict) else None) or {}).get(
+        _SYSTEM_EXT_NAMESPACE) or {}
+    if ext.get("entry_type") in SYSTEM_ENTRY_TYPES:
+        return True
+    return bool(_SYSTEM_FENCE_RE.search(str(_entry_field(entry, "content", "") or "")))
+
+
+def entry_layer(entry) -> str:
+    """条目分层：`system` / `stable` / `dynamic`（与注入路径同一口径）。"""
+    if is_system_entry(entry):
+        return "system"
+    position = _entry_field(entry, "position", 0)
+    if position == 0 and _entry_field(entry, "always_active", False):
+        return "stable"
+    return "dynamic"
+
+
+def entry_tokens(entry) -> int:
+    """单条目展示估算：与前端 `entryTokens` / `estimated_tokens()` 同一口径。"""
+    content = str(_entry_field(entry, "content", "") or "")
+    name = str(_entry_field(entry, "name", "") or "")
+    return estimate_tokens(f"### {name}\n{content}" if name else content)
+
+
+@dataclass(frozen=True)
+class WorldBookEntryStats:
+    """条目统计口径：一处定义，接口摘要 / 详情 / 界面展示共用同一份规则。
+
+    injectable 是**启用的非系统条目**数 —— 真正会进候选、真正占 token 的那批。
+    停用条目与系统层条目都不计。
+    """
+
+    total: int
+    injectable: int
+    disabled: int
+    system: int
+    tokens: int
+
+
+def book_entry_stats(entries) -> WorldBookEntryStats:
+    """按条目列表算出统计口径（顺序无关，只做一次遍历）。"""
+    total = injectable = disabled = system = tokens = 0
+    for entry in entries or ():
+        total += 1
+        if is_system_entry(entry):
+            system += 1
+            continue
+        if not _entry_field(entry, "enabled", True):
+            disabled += 1
+            continue
+        injectable += 1
+        tokens += entry_tokens(entry)
+    return WorldBookEntryStats(total=total, injectable=injectable,
+                               disabled=disabled, system=system, tokens=tokens)
+
+
 class WorldBook:
     """一本世界书：id + 元信息 + 条目集合 + 触发/格式化逻辑。
 
@@ -972,14 +1067,17 @@ class WorldBook:
         return [entry.uid for entry in sorted(self.entries, key=self.legacy_entry_sort_key)]
 
     def estimated_tokens(self) -> int:
-        """Fixed display estimate for the complete book; never changes budget_tokens."""
-        total = 0
-        for entry in self.entries:
-            text = entry.content
-            if entry.name:
-                text = f"### {entry.name}\n{text}"
-            total += estimate_tokens(text)
-        return total
+        """Fixed display estimate for the complete book; never changes budget_tokens.
+
+        口径 = **启用的非系统条目**之和：停用条目不会注入，系统层条目（节点图 /
+        节点绑定）按设计永不注入，两者都不该出现在这个数里。界面上勾掉一条，
+        这个数就跟着掉 —— 与前端 `bookEntryStats` 完全同口径。
+        """
+        return book_entry_stats(self.entries).tokens
+
+    def entry_stats(self) -> WorldBookEntryStats:
+        """条目分层统计：总数 / 会注入的 / 停用的 / 系统层，以及展示 token。"""
+        return book_entry_stats(self.entries)
 
     def rules_snapshot(self, revision: int = None) -> dict:
         """返回可恢复的规则快照：优先取指定修订的不可变版本，否则用当前规则。"""
@@ -1218,10 +1316,15 @@ class WorldBook:
         不同答案（v2 书的 Prompt 预览曾经完全忽略这个开关，页签上的「全量兼容」点了
         没有任何反应）。
 
+        **系统层条目不在其中**：节点图 / 节点绑定永不注入，「全量」也只是把候选放宽
+        到会注入的条目，把系统层算进去会让 `full_entry_count` / `full_estimated_tokens`
+        凭空变大（它们既不会被匹配，也不该占 token 预算）。
+
         注意与 `legacy_full_scope` 的区别：legacy 书（`scope_mode == "legacy"`）的
         全量口径额外要求**书级** `enabled`，那是旧语义，不走这里。
         """
-        return [e for e in self.entries if e.enabled and (e.content or "").strip()]
+        return [e for e in self.entries
+                if e.enabled and (e.content or "").strip() and not is_system_entry(e)]
 
     def full_scope_uids(self) -> list[str]:
         """显式全量兼容的条目 UID（排序后的稳定列表）。"""
@@ -1455,7 +1558,8 @@ class WorldBook:
                 "related_edges": copy.deepcopy(snapshot.get("related_edges") or []),
                 "captured_at": scope["resolved_at"],
             },
-            "local_overrides": {"requires_edges": [], "related_edges": []},
+            "local_overrides": {"requires_edges": [], "related_edges": [],
+                                "entry_enabled": {}},
             "suppressed_edges": [], "inheritance_conflicts": [], "scope_revision": 1,
         })
         if not full_scope:
@@ -1541,6 +1645,24 @@ class WorldBook:
             "requires_edges": copy.deepcopy(bound.dependency_edges),
             "related_edges": copy.deepcopy(bound.related_edges),
         })
+        enabled_overrides = managed["local_overrides"].get("entry_enabled") or {}
+        if enabled_overrides:
+            resolved = set(refreshed.get("resolved_entry_uids") or [])
+            reasons = copy.deepcopy(refreshed.get("selection_reasons") or {})
+            by_uid = {entry.uid: entry for entry in self.entries}
+            for uid, enabled in enabled_overrides.items():
+                entry = by_uid.get(uid)
+                if not entry:
+                    continue
+                if enabled and self.enabled and (entry.content or "").strip():
+                    resolved.add(uid)
+                    reasons[uid] = ["session_override"]
+                else:
+                    resolved.discard(uid)
+                    reasons.pop(uid, None)
+            refreshed["resolved_entry_uids"] = [
+                entry.uid for entry in self.entries if entry.uid in resolved]
+            refreshed["selection_reasons"] = reasons
         return refreshed
 
     def eligible_uids_for(self, overlay, *, with_reasons: bool = False):
@@ -1562,6 +1684,7 @@ class WorldBook:
                      "legacy_full_scope": True, "resolved_at": time.time()}
             overlay.set_worldbook_scope(scope)
         base = set(scope.get("resolved_entry_uids", [])) if scope.get("book_id") == self.id else set()
+        enabled_overrides = ((scope.get("local_overrides") or {}).get("entry_enabled") or {})
 
         node_scope = None
         getter = getattr(overlay, "get_active_lore_scope", None)
@@ -1572,7 +1695,7 @@ class WorldBook:
                     and candidate.get("book_id") in (None, "", self.id)):
                 node_scope = candidate
         if node_scope is None:
-            result = EligibleSet(base)
+            result = EligibleSet(base, enabled_overrides=enabled_overrides)
             if not with_reasons:
                 return result
             return result, {"node_scope": None}
@@ -1581,7 +1704,8 @@ class WorldBook:
         pinned = set(node_scope.get("pinned") or []) & allowed
         overrides = {u: o for u, o in (node_scope.get("overrides") or {}).items()
                      if u in allowed}
-        result = EligibleSet(allowed, forced_uids=pinned, position_overrides=overrides)
+        result = EligibleSet(allowed, forced_uids=pinned, position_overrides=overrides,
+                             enabled_overrides=enabled_overrides)
         if not with_reasons:
             return result
         return result, {
@@ -1613,12 +1737,13 @@ class WorldBook:
 
         forced = frozenset(getattr(eligible_uids, "forced_uids", None) or ())
         overrides = getattr(eligible_uids, "position_overrides", None) or {}
+        enabled_overrides = getattr(eligible_uids, "enabled_overrides", None) or {}
 
         matched: list[WorldBookEntry] = []
         for entry in self.entries:
             if eligible_uids is not None and entry.uid not in eligible_uids:
                 continue
-            if not entry.enabled:
+            if not enabled_overrides.get(entry.uid, entry.enabled):
                 continue
             if entry.uid not in forced:
                 if not _entry_matches(entry, scan_text):
@@ -1735,6 +1860,10 @@ class WorldBook:
         它们不会出现在正文、order 或 dropped 中。
 
         方法始终在深拷贝上清零预算，绝不修改原书或原条目。
+
+        系统层条目（节点图 / 节点绑定）**无条件排除**：它们永不注入，也不是
+        「未启用所以不参与预览」——把它们列进 order 或 dropped 都会误导作者。
+        调用方仍可额外传入只承载编辑器元数据的条目 UID。
         """
         if mode not in ("narrative", "free"):
             raise ValueError("mode 必须是 narrative 或 free")
@@ -1742,6 +1871,7 @@ class WorldBook:
         candidate = copy.deepcopy(self)
         candidate.budget_tokens = 0
         excluded = {str(uid) for uid in (excluded_entry_uids or ())}
+        excluded |= {entry.uid for entry in candidate.entries if is_system_entry(entry)}
         enabled_uids = {
             entry.uid for entry in candidate.entries
             if entry.enabled and entry.uid not in excluded
@@ -1919,6 +2049,10 @@ class WorldBook:
         dropped = []
         for entry in self.entries:
             if entry.uid in included_uids:
+                continue
+            # 系统层条目永不注入：它们没进 order 是设计使然，不是「未插入」。
+            # 报 `keyword_miss` 会让作者去给节点图条目补触发词——完全错误的方向。
+            if is_system_entry(entry):
                 continue
             reason = _preview_drop_reason(entry, scan_text, scoped_uids, demoted_uids,
                                           stopped_uids)
@@ -2382,6 +2516,7 @@ class WorldBookManager:
         return books
 
     def _summary(self, book: "WorldBook", default_id: Optional[str]) -> dict:
+        stats = book.entry_stats()
         return {
             "id": book.id,
             "name": book.name,
@@ -2394,9 +2529,12 @@ class WorldBookManager:
             "is_preinstalled": self.is_preinstalled(book.id),
             "enabled": book.enabled,
             "budget_tokens": book.budget_tokens,
-            "estimated_tokens": book.estimated_tokens(),
+            "estimated_tokens": stats.tokens,
+            "injectable_entry_count": stats.injectable,
+            "disabled_entry_count": stats.disabled,
+            "system_entry_count": stats.system,
             "edit_revision": book.edit_revision,
-            "entry_count": len(book.entries),
+            "entry_count": stats.total,
             "created_at": book.created_at,
             "updated_at": book.updated_at,
             "is_default": book.id == default_id,

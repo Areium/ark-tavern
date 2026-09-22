@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from split_builtin_story_worldbooks import (  # noqa: E402
-    STORY_SPECS, pack_revision, split_builtin_book,
+    STORY_SPECS, compact_story_entry_names, pack_revision, split_builtin_book,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -78,6 +78,19 @@ def test_pack_revision_ignores_non_injection_metadata():
     book = {"id": "x", "name": "X", "entries": [_entry("a")]}
     changed = {**book, "updated_at": 123, "source": "preinstalled"}
     assert pack_revision(book) == pack_revision(changed)
+
+
+def test_near_light_moves_name_suffixes_into_explicit_categories():
+    book = {"id": "near-light", "entries": [
+        {"uid": "characters_临光_index", "name": "临光（角色设定）"},
+        {"uid": "factions_临光家族_index", "name": "临光家族（势力设定）"},
+        {"uid": "plot_graph_near-light", "name": "节点图：长夜临光"},
+    ]}
+    compact_story_entry_names(book)
+    assert [(entry["name"], entry["category_id"]) for entry in book["entries"]] == [
+        ("临光", "characters"), ("临光家族", "factions"), ("节点图：长夜临光", "plot_graph")]
+    assert book["entries"][0]["character_id"] == "临光"
+    assert {item["id"] for item in book["categories"]} == {"characters", "factions", "plot_graph"}
 
 
 def test_committed_packs_are_split_and_bindable():

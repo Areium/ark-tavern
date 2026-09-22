@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../../../hooks/useApi";
 import { buildSaveBody } from "../../../hooks/useWorldbookDraft";
 import type { WorldBookPromptLayer, WorldBookPromptPreviewDTO, WorldBookPromptPreviewRequest } from "../../../types";
+import { bookEntryStats } from "../../../utils/worldbookLayer";
 import type { WorldBookTabProps } from "./types";
 import "../../../styles/worldbook-prompt-preview.css";
 
 export const PROMPT_PREVIEW_SCOPE_NOTE = "预览本世界书全部启用条目的插入内容，未启用的条目不参与预览。";
+export const SYSTEM_LAYER_PREVIEW_NOTE = "系统层条目（节点图 / 节点绑定）不是注入内容：它们只服务画布与系统判定，永不进提示词，因此既不出现在这里，也不计入 token。";
 export const DYNAMIC_TRIGGER_NOTE = "动态层展示所有启用的动态条目，按已触发展开。实际对话中，条目会按载入范围、关键词匹配、主副关键词组合和触发概率等规则插入；设为常驻但位于动态位置的条目无需关键词触发。实际插入还受预算与节点规则影响。";
 
 function usePromptPreview(
@@ -60,6 +62,8 @@ export default function PromptPreviewTab({ ctx, onNotice }: WorldBookTabProps) {
     stable: preview?.order.filter((entry) => entry.layer === "stable").length ?? 0,
     dynamic: preview?.order.filter((entry) => entry.layer === "dynamic").length ?? 0,
   };
+  // 系统层条目不进预览、不计 token —— 在这里显式说清有哪些被排除，避免作者以为漏了。
+  const stats = useMemo(() => bookEntryStats(detail.entries), [detail.entries]);
   const copyText = async () => {
     try {
       await navigator.clipboard.writeText(text);
@@ -95,6 +99,12 @@ export default function PromptPreviewTab({ ctx, onNotice }: WorldBookTabProps) {
       </div>
       <button type="button" className="wbpp-button" disabled={!text || loading || !!error} onClick={copyText}>复制本层文本</button>
     </div>
+
+    <p className="wbpp-hint wbpp-system-note" role="note">
+      {SYSTEM_LAYER_PREVIEW_NOTE}
+      {!!stats.system && <> 本书有 <b>{stats.system}</b> 条系统层条目，已排除。</>}
+      {!!stats.disabled && <> 另有 <b>{stats.disabled}</b> 条已停用。</>}
+    </p>
 
     <section className="wbpp-reader-panel" aria-label="最终文本" aria-busy={loading}>
       <div className="wbpp-reader-caption">

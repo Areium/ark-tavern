@@ -18,6 +18,8 @@
   --wber-accent-soft: color-mix(in srgb, var(--wber-accent) 12%, transparent);
   --wber-accent-line: color-mix(in srgb, var(--wber-accent) 45%, transparent);
   --wber-dynamic: var(--ng-beat, #5fa3b5);
+  /* 系统层（节点图 / 节点绑定）：既非稳定层也非动态层的第三类，用冷色与两者区分 */
+  --wber-system: var(--ng-plot, #7f92bb);
   --wber-danger: var(--ng-combat, #bd7f6a);
   --wber-ok: var(--ng-beat, #5fa3b5);
   --wber-shadow: 0 18px 40px -22px rgba(0, 0, 0, .75);
@@ -74,7 +76,7 @@ html.light .wber-shell {
 .wber-shell button.is-icon.is-sm { width: 28px; }
 
 /* ── 表单控件 ── */
-.wber-title-input, .wber-description, .wber-cover-field input, .wber-editor input, .wber-editor textarea, .wber-editor select,
+.wber-title-input, .wber-description, .wber-editor input, .wber-editor textarea, .wber-editor select,
 .wber-search input, .wber-library-controls input, .wber-library-controls select, .wber-create input, .wber-create textarea, .wber-paste-import textarea {
   width: 100%; min-height: 34px; border: 1px solid var(--wber-border); border-radius: 8px; padding: 7px 11px; outline: none;
   color: var(--wber-text); background: color-mix(in srgb, var(--wber-panel) 70%, transparent);
@@ -196,8 +198,6 @@ html.light .wber-shell {
 .wber-title-input { margin-top: 6px; border-color: transparent; padding-left: 0; background: transparent; font-family: var(--wber-serif); font-size: clamp(20px, 2.6vw, 30px); font-weight: 700; }
 .wber-title-input:focus { border-color: var(--wber-accent-line); padding-left: 10px; }
 .wber-description { margin-top: 8px; resize: vertical; line-height: 1.7; }
-.wber-cover-field { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--wber-muted); font-size: 12px; }
-.wber-cover-field input { min-height: 30px; padding: 5px 9px; }
 .wber-stats { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; color: var(--wber-muted); font-size: 12px; }
 .wber-stats > span { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--wber-border); border-radius: 999px; background: var(--wber-soft); font-variant-numeric: tabular-nums; }
 .wber-stats b { color: var(--wber-text); font-weight: 600; }
@@ -271,6 +271,15 @@ html.light .wber-shell {
 .wber-entry-head { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 14px 10px 12px; }
 .wber-drag { color: var(--wber-muted); cursor: grab; font-size: 17px; line-height: 1; opacity: .45; transition: opacity .15s; }
 .wber-entry:hover .wber-drag { opacity: 1; }
+/* 系统层条目不参与排序：手柄位置换成锁标记，并保持常显（不随 hover 变亮）。 */
+.wber-drag.is-locked { display: inline-flex; align-items: center; justify-content: center; width: 17px; color: var(--wber-system); cursor: not-allowed; opacity: .55; }
+.wber-entry:hover .wber-drag.is-locked { opacity: .55; }
+/* 「附录」分界：系统层条目恒定沉底，这条线说明它们不是被排到后面的内容。 */
+.wber-entry-divider {
+  display: flex; align-items: center; gap: 7px; margin: 14px 0 -2px; padding-top: 14px;
+  border-top: 1px dashed color-mix(in srgb, var(--wber-system) 34%, transparent);
+  color: var(--wber-system); font-size: 10.5px; letter-spacing: .08em;
+}
 .wber-shell .wber-entry-toggle {
   flex: 1; justify-content: flex-start; gap: 8px; min-width: 0; min-height: 28px; padding: 0 6px 0 4px;
   border: none; border-radius: 6px; text-align: left; background: transparent; box-shadow: none; font-weight: 500;
@@ -370,6 +379,59 @@ html.light .wber-shell {
 .wber-type-choice button[aria-pressed="true"] { color: var(--wber-accent); border-color: var(--wber-accent-line); background: var(--wber-accent-soft); }
 .wber-dialog-actions { justify-content: flex-end; margin-top: 18px; }
 
+/* ── 系统层：节点图 / 节点绑定。不是注入条目，用独立的冷色与稳定 / 动态层区分 ── */
+.wber-layer.is-system { color: var(--wber-system); border-color: color-mix(in srgb, var(--wber-system) 45%, transparent); background: color-mix(in srgb, var(--wber-system) 12%, transparent); }
+.wber-token.is-system { color: var(--wber-system); font-style: italic; }
+.wber-entry:has(.wber-layer.is-system)::before { background: var(--wber-system); opacity: .5; }
+.wber-entry.is-system { background: color-mix(in srgb, var(--wber-system) 4%, var(--wber-card)); }
+.wber-entry.is-system .wber-entry-head > input[type="checkbox"] { opacity: .35; cursor: not-allowed; }
+.wber-system-note {
+  margin: 0 0 12px; padding: 9px 13px; border: 1px solid color-mix(in srgb, var(--wber-system) 34%, transparent);
+  border-left: 3px solid var(--wber-system); border-radius: 8px; color: var(--wber-muted);
+  background: color-mix(in srgb, var(--wber-system) 7%, transparent); font-size: 12px; line-height: 1.7;
+}
+.wber-system-note b { color: var(--wber-text); }
+/* 系统层条数不在书架 / hero 上单独出标识：条目行有分层标签、列表底部有分界行。
+   这两条规则曾是那两个标识的样式，随标识一起删除（.is-muted 留给「N 条已停用」）。 */
+.wber-stats > span.is-muted { opacity: .75; }
+.wber-stats small { color: var(--wber-muted); font-size: 10.5px; }
+.wbpp-system-note { display: block; margin-top: 8px; color: var(--wber-muted); }
+.wbpp-system-note b { color: var(--wber-text); }
+
+/* ── 分层筛选：全部 / 稳定层 / 动态层 / 系统层 ── */
+.wber-layer-filter { display: flex; flex-shrink: 0; gap: 2px; padding: 3px; border: 1px solid var(--wber-border); border-radius: 9px; background: var(--wber-soft); }
+.wber-shell .wber-layer-filter button {
+  min-height: 26px; padding: 0 10px; border: none; border-radius: 6px; background: transparent; box-shadow: none;
+  color: var(--wber-muted); font-size: 11.5px; font-weight: 500;
+}
+.wber-shell .wber-layer-filter button:hover:not(:disabled) { transform: none; box-shadow: none; color: var(--wber-text); background: var(--wber-soft-2); }
+.wber-shell .wber-layer-filter button[aria-pressed="true"] { color: var(--wber-text); background: var(--wber-card); box-shadow: inset 0 0 0 1px var(--wber-border-strong); }
+.wber-shell .wber-layer-filter button[aria-pressed="true"]:nth-child(2) { color: var(--wber-accent); }
+.wber-shell .wber-layer-filter button[aria-pressed="true"]:nth-child(3) { color: var(--wber-dynamic); }
+.wber-shell .wber-layer-filter button[aria-pressed="true"]:nth-child(4) { color: var(--wber-system); }
+.wber-layer-filter span { color: inherit; opacity: .75; font-variant-numeric: tabular-nums; }
+
+/* ── 封面选择器：从本地文件选图 + 自动压缩后内嵌进书 ── */
+.wber-cover-picker { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.wber-cover-picker-preview {
+  display: grid; flex-shrink: 0; place-items: center; width: 46px; height: 62px; overflow: hidden;
+  border: 1px solid var(--wber-border-strong); border-radius: 4px 7px 7px 4px; color: var(--wber-muted);
+  background: linear-gradient(150deg, color-mix(in srgb, var(--wber-accent) 18%, var(--wber-card)), var(--wber-card)); font-size: 9px;
+}
+.wber-cover-picker-preview img { width: 100%; height: 100%; object-fit: cover; }
+.wber-cover-picker-copy { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.wber-cover-picker-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wber-cover-picker-copy small { color: var(--wber-muted); font-size: 11px; font-weight: 400; line-height: 1.6; }
+.wber-create-cover { display: flex; flex-direction: column; gap: 6px; color: var(--wber-muted); font-size: 12px; font-weight: 500; }
+.wber-field-label { color: var(--wber-muted); font-size: 12px; font-weight: 500; }
+.wber-hero-cover .wber-cover-overlay-button {
+  position: absolute; z-index: 2; right: 6px; bottom: 6px; left: 6px; min-height: 26px; padding: 0 6px;
+  border-color: var(--wber-border-strong); background: var(--wber-float); color: var(--wber-text);
+  font-size: 10.5px; opacity: 0; transition: opacity .2s var(--wber-ease);
+}
+.wber-hero-cover:hover .wber-cover-overlay-button, .wber-hero-cover:focus-within .wber-cover-overlay-button { opacity: 1; }
+.wber-hero-cover .wber-cover-overlay-button:focus-visible { opacity: 1; }
+
 /* ── 动效 ── */
 @keyframes wber-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes wber-fade { from { opacity: 0; } to { opacity: 1; } }
@@ -387,6 +449,8 @@ html.light .wber-shell {
   .wber-hero { grid-template-columns: 86px minmax(0, 1fr); gap: 14px; padding: 16px; }
   .wber-hero-cover { width: 86px; font-size: 32px; }
   .wber-hero-actions { grid-column: 1 / -1; }
+  .wber-entry-toolbar { flex-wrap: wrap; }
+  .wber-layer-filter { order: 3; width: 100%; }
   .wber-entry-head { gap: 6px; }
   .wber-token { display: none; }
 }

@@ -665,7 +665,17 @@ export interface WorldBookSummary {
   /** 书级启用开关，停用不参与解析 */
   enabled: boolean;
   budget_tokens: number;
+  /**
+   * 展示用 token 估算：只统计**启用的非系统条目**（停用条目与系统层条目都不注入）。
+   * 界面上的 `bookEntryStats(detail.entries)` 给出同一口径的实时值。
+   */
   estimated_tokens?: number;
+  /** 会进候选的条目数 = 启用的非系统条目（`entry_count` 是含系统层的总数） */
+  injectable_entry_count?: number;
+  /** 已停用条目数 */
+  disabled_entry_count?: number;
+  /** 系统层条目数：节点图 / 节点绑定，永不注入也不计 token */
+  system_entry_count?: number;
   edit_revision?: number;
   entry_count: number;
   created_at: number;
@@ -770,6 +780,14 @@ export interface WorldBookCategoryDTO {
   sort_order: number;
 }
 export interface WorldBookDependencyEdgeDTO { from_uid: string; to_uid: string; }
+export interface SessionWorldbookEntryOverridesDTO {
+  session_id: string;
+  book_id: string;
+  book_name: string;
+  scope_revision: number;
+  overrides: Record<string, boolean>;
+  entries: Array<{ uid: string; name: string; category_id: string; default_enabled: boolean; effective_enabled: boolean }>;
+}
 export interface SessionWorldbookDependenciesDTO {
   session_id: string;
   book_id: string;

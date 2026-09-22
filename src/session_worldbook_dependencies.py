@@ -73,6 +73,9 @@ def normalize_scope(scope: dict | None) -> dict:
             "root_expansions": {str(uid): expansion for uid, expansion in
                 (overrides.get("root_expansions") or {}).items()
                 if expansion in ("none", "requires_closure", "legacy_depth")},
+            "entry_enabled": {str(uid): enabled for uid, enabled in
+                (overrides.get("entry_enabled") or {}).items()
+                if isinstance(uid, str) and uid and isinstance(enabled, bool)},
         },
         "suppressed_edges": _suppressed(value.get("suppressed_edges")),
         "scope_revision": max(1, int(value.get("scope_revision") or 1)),
@@ -195,6 +198,25 @@ def change_relation(scope: dict, from_uid: str, to_uid: str,
             e["from_uid"] == pair[0]
             for e in value["local_overrides"]["requires_edges"]):
         value["local_overrides"]["root_expansions"].pop(pair[0], None)
+    value["scope_revision"] += 1
+    return value
+
+
+def change_entry_override(scope: dict, entry_uid: str, enabled: bool | None,
+                          expected_revision: int) -> dict:
+    """设置会话级条目启用覆盖；``None`` 表示恢复跟随世界书默认值。"""
+    value = normalize_scope(scope)
+    if int(expected_revision) != value["scope_revision"]:
+        raise RuntimeError("会话条目配置已被其他操作更新，请刷新后重试")
+    if not isinstance(entry_uid, str) or not entry_uid:
+        raise ValueError("entry_uid 必须是非空字符串")
+    if enabled is not None and not isinstance(enabled, bool):
+        raise ValueError("enabled 必须是布尔值或 null")
+    overrides = value["local_overrides"]["entry_enabled"]
+    if enabled is None:
+        overrides.pop(entry_uid, None)
+    else:
+        overrides[entry_uid] = enabled
     value["scope_revision"] += 1
     return value
 

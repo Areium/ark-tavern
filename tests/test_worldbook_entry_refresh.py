@@ -107,3 +107,31 @@ def test_partial_entry_update_preserves_hidden_fields(api):
     assert entry.secondary_keys == ["Alpha, Beta"]
     assert entry.excerpt_source == {"book_id": "source", "entry_uid": "original"}
     assert entry.raw == {"extensions": {"kept": True}}
+
+
+def test_inline_data_url_cover_survives_export_and_import(api):
+    """封面内嵌进书（data URL）：导出 → 导入必须原样还回来。
+
+    界面上的封面只从本地文件选，压缩后写成的就是这种 data URL —— 它比外链长得多
+    （base64 约 +33%），因此这条用例专门走一遍真实往返，确认没有被截断 / 转义 /
+    在导出时丢掉。
+    """
+    client, _ = api
+    inline = "data:image/webp;base64," + "A" * 4096
+    created = client.post("/api/worldbook", json={
+        "name": "带内嵌封面的书", "cover_image": inline, "book_type": "story",
+    })
+    assert created.status_code == 201
+    book_id = created.json["book"]["id"]
+
+    exported = client.get(f"/api/worldbook/{book_id}/export").json
+    assert exported["data"]["extensions"]["arknights_tavern"]["cover_image"] == inline
+    # 摘要里也带着它 —— 书架列表据此渲染封面
+    summary = next(item for item in client.get("/api/worldbook").json["books"]
+                   if item["id"] == book_id)
+    assert summary["cover_image"] == inline
+
+    imported = client.post("/api/worldbook/import", json={"name": "回读", "data": exported["data"]})
+    assert imported.status_code == 201
+    restored = client.get(f"/api/worldbook/{imported.json['book']['id']}").json
+    assert restored["cover_image"] == inline

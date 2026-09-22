@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useApi } from "../hooks/useApi";
@@ -7,12 +7,20 @@ import type { WorldBookDetail, WorldBookEntryDTO, WorldBookSearchHit, WorldBookS
 import { useScopePreview, useWorldbookDraft } from "../hooks/useWorldbookDraft";
 import { BOOK_TYPE_LABELS, bookTypeOf, filterBooksByType, isReference,
   normalizeWorldbookTab, type BookTypeFilter } from "../utils/worldbookLibrary";
+import { LAYER_HINTS, LAYER_LABELS, bookEntryStats, entryLayer, entryTokens,
+  isSortableEntry, sortEntriesByLayer, summaryEntryStats,
+  type WorldBookEntryLayer } from "../utils/worldbookLayer";
 import type { WorldBookPanelProps } from "./worldbook/panel";
+import CoverPicker from "./worldbook/CoverPicker";
 import EntryDependencyTree from "./worldbook/EntryDependencyTree";
 import PromptPreviewTab from "./worldbook/tabs/PromptPreviewTab";
 import PlotGraphPage from "./combat/PlotGraphPage";
 import AppIcon from "./AppIcon";
 import "../styles/worldbook-entry-refresh.css";
+
+// 展示用 token 估算与分层口径都在 utils/worldbookLayer.ts 里（与后端同口径）。
+// 这里保留 re-export：scripts/test_worldbook_library_ui.cjs 直接从本模块取它断言。
+export { estimateDisplayTokens } from "../utils/worldbookLayer";
 
 const IndexManager = lazy(() => import("./IndexManager"));
 
@@ -20,9 +28,9 @@ export const WORLDBOOK_PANEL_TABS: ReadonlyArray<{ id: WorldBookTab; label: stri
   { id: "entries", label: "条目", hint: "阅读、编辑、排序与依赖展开" },
   { id: "prompt", label: "Prompt 预览", hint: "查看本世界书的静态与动态插入内容" },
   { id: "graph", label: "节点图", hint: "按剧情编辑节点图：整页画布增删节点与连线" },
-  { id: "index", label: "本家索引", hint: "内置语料索引与完整性" },
+  { id: "index", label: "会话条目", hint: "浏览世界书默认条目，单独调整会话开关" },
 ];
-export const WORLDBOOK_INDEX_SUBTITLE = "内置语料索引 · 依赖完整性 · 会话白名单";
+export const WORLDBOOK_INDEX_SUBTITLE = "世界书默认 · 单会话条目开关";
 
 export function visibleWorldbookTabs(book: Pick<WorldBookSummary, "book_type"> | null | undefined) {
   return WORLDBOOK_PANEL_TABS.filter((tab) => normalizeWorldbookTab(tab.id, book) === tab.id);
@@ -47,21 +55,6 @@ interface EntryDraft {
   matchWholeWords: boolean;
   categoryId: string;
   characterId: string;
-}
-
-export function estimateDisplayTokens(text: string): number {
-  let cjk = 0;
-  let other = 0;
-  for (const point of Array.from(text || "")) {
-    const code = point.codePointAt(0) || 0;
-    if (code >= 0x4e00 && code <= 0x9fff) cjk += 1;
-    else other += 1;
-  }
-  return cjk + Math.floor(other / 4);
-}
-
-function entryTokens(entry: Pick<WorldBookEntryDTO, "name" | "content">): number {
-  return estimateDisplayTokens(entry.name ? `### ${entry.name}\n${entry.content}` : entry.content);
 }
 
 function entryToDraft(entry: WorldBookEntryDTO): EntryDraft {
@@ -188,6 +181,9 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const worldbookGraphJumpId = useAppStore((state) => state.worldbookGraphJumpId);
   const setWorldbookGraphJumpId = useAppStore((state) => state.setWorldbookGraphJumpId);
   const activeSessionId = useAppStore((state) => state.activeSessionId);
+  const indexSessionId = useAppStore((state) => state.indexSessionId);
+  const setIndexSessionId = useAppStore((state) => state.setIndexSessionId);
+  const sessions = useAppStore((state) => state.sessions);
   const worldbookEntryJump = useAppStore((state) => state.worldbookEntryJump);
   const setWorldbookEntryJump = useAppStore((state) => state.setWorldbookEntryJump);
 
@@ -199,6 +195,8 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const [toast, setToast] = useState("");
   const [listFilter, setListFilter] = useState<BookTypeFilter>("all");
   const [query, setQuery] = useState("");
+  // 分层筛选：系统层条目（节点图 / 节点绑定）不是注入条目，单独成一档。
+  const [layerFilter, setLayerFilter] = useState<"all" | WorldBookEntryLayer>("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [editingUid, setEditingUid] = useState<string | null>(null);
   const [entryDraft, setEntryDraft] = useState<EntryDraft | null>(null);
@@ -345,6 +343,13 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   reloadDetailRef.current = (bookId) => { void loadDetail(bookId); };
 
   useEffect(() => { void loadBooks(); }, [loadBooks]);
+  useEffect(() => {
+    if (!indexSessionId) return;
+    const boundBookId = sessions.find((session) => session.id === indexSessionId)?.worldbook_id;
+    if (!boundBookId) { setIndexSessionId(null); return; }
+    setSelectedId(boundBookId);
+    setWorldbookTab("index");
+  }, [indexSessionId, sessions, setIndexSessionId, setWorldbookTab]);
   useEffect(() => { setDetail(null); void loadDetail(selectedId); setExpanded(new Set()); setEditingUid(null); setEntryDraft(null); }, [selectedId, loadDetail]);
 
   useEffect(() => {
@@ -419,20 +424,30 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     const byUid = new Map(detail.entries.map((entry) => [entry.uid, entry]));
     const order = detail.entry_order?.length ? detail.entry_order : detail.entries.map((entry) => entry.uid);
     const result = order.map((uid) => byUid.get(uid)).filter(Boolean) as WorldBookEntryDTO[];
-    if (detail.has_explicit_entry_order) result.sort((left, right) => {
-      const leftLayer = left.position === 0 && left.always_active ? 0 : 1;
-      const rightLayer = right.position === 0 && right.always_active ? 0 : 1;
-      return leftLayer - rightLayer || order.indexOf(left.uid) - order.indexOf(right.uid);
-    });
-    return result;
+    // 展示顺序恒定按层分组（稳定层 → 动态层 → 系统层），与这本书有没有显式顺序无关：
+    // 系统层条目（节点图 / 节点绑定）不参与注入，就不该插在叙事条目中间 —— 一律沉到最底端。
+    // 这是**展示层**排序，持久化的 entry_order（注入顺序）不受影响。
+    return sortEntriesByLayer(result);
   }, [detail]);
   const visibleEntries = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    if (!needle) return orderedEntries;
-    return orderedEntries.filter((entry) => [entry.name, entry.content, ...(entry.trigger_keys || [])]
+    const byLayer = layerFilter === "all"
+      ? orderedEntries
+      : orderedEntries.filter((entry) => entryLayer(entry) === layerFilter);
+    if (!needle) return byLayer;
+    return byLayer.filter((entry) => [entry.name, entry.content, ...(entry.trigger_keys || [])]
       .some((value) => String(value || "").toLocaleLowerCase().includes(needle)));
-  }, [orderedEntries, query]);
-  const displayedTokens = useMemo(() => orderedEntries.reduce((sum, entry) => sum + entryTokens(entry), 0), [orderedEntries]);
+  }, [orderedEntries, query, layerFilter]);
+  /**
+   * 实时统计：勾选 / 取消勾选、改正文都直接改 `detail.entries`，所以这里立刻跟着变。
+   * 口径与后端 `book_entry_stats` 一致 —— 停用条目与系统层条目都不计入「条目 / token」。
+   */
+  const liveStats = useMemo(() => bookEntryStats(detail?.entries), [detail]);
+  const layerCounts = useMemo(() => {
+    const counts: Record<WorldBookEntryLayer, number> = { stable: 0, dynamic: 0, system: 0 };
+    for (const entry of orderedEntries) counts[entryLayer(entry)] += 1;
+    return counts;
+  }, [orderedEntries]);
   const visibleBooks = useMemo(() => filterBooksByType(books, listFilter), [books, listFilter]);
   const storyBooks = useMemo(() => books.filter((book) => !isReference(book)), [books]);
 
@@ -917,14 +932,20 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   }, [api, persistOrder]);
 
   const reorder = (targetUid: string) => {
-    if (!detail || !dragUid || dragUid === targetUid || query.trim()) return;
+    if (!detail || !dragUid || dragUid === targetUid || query.trim() || layerFilter !== "all") return;
     const source = detail.entries.find((entry) => entry.uid === dragUid);
     const target = detail.entries.find((entry) => entry.uid === targetUid);
     if (!source || !target) return;
-    const layer = (entry: WorldBookEntryDTO) => entry.position === 0 && entry.always_active ? "stable" : "dynamic";
-    if (layer(source) !== layer(target)) {
-      showToast("稳定层与动态层属于不同插入位置，只能在同层内拖动排序。"); setDragUid(null); return;
+    // 系统层条目不参与排序：它们在列表里恒定沉底，拖它们没有可观察的结果。
+    if (!isSortableEntry(source) || !isSortableEntry(target)) {
+      showToast("系统层条目（节点图 / 节点绑定）不参与注入，也不参与排序：它们固定在列表最底端。");
+      setDragUid(null); return;
     }
+    if (entryLayer(source) !== entryLayer(target)) {
+      showToast("稳定层与动态层属于不同插入位置，只能在同层内拖动排序。");
+      setDragUid(null); return;
+    }
+    // 排列的是注入顺序；系统层条目保持在末尾（后端要求 entry_order 是完整排列）。
     const previous = [...(detail.entry_order || orderedEntries.map((entry) => entry.uid))];
     const next = previous.filter((uid) => uid !== dragUid);
     next.splice(next.indexOf(targetUid), 0, dragUid);
@@ -984,10 +1005,15 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       <div className="wber-book-list">
         {visibleBooks.map((book) => {
           const cover = safeCover(book.cover_image);
+          // 选中的书用实时统计（勾选后立刻变），其余书用服务端摘要里的同口径字段。
+          // 只显示「会注入的条目 / token」：系统层条目不注入，它的条数不进书架标题栏。
+          const stats = book.id === detail?.id ? liveStats : summaryEntryStats(book);
           return <button type="button" className="wber-book" data-active={selectedId === book.id}
             key={book.id} onClick={() => setSelectedId(book.id)} title={book.name}>
             <span className="wber-book-cover">{cover ? <img src={cover} alt="" /> : <span>{book.name.slice(0, 1) || "书"}</span>}</span>
-            <span className="wber-book-copy"><strong>{book.name}</strong><small>{book.entry_count} 条 · 约 {book.estimated_tokens ?? 0} token</small></span>
+            <span className="wber-book-copy"><strong>{book.name}</strong><small>
+              {stats.injectable} 条 · 约 {stats.tokens} token
+            </small></span>
           </button>;
         })}
         {!visibleBooks.length && <p className="wber-empty">书架还是空的。新建一本，或导入已有世界书。</p>}
@@ -1000,7 +1026,10 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
           <h3>新建世界书</h3><p>先建立书籍资料，创建后即可添加条目。</p>
           <label>名称<input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} /></label>
           <label>简介<textarea rows={3} value={newDescription} onChange={(event) => setNewDescription(event.target.value)} /></label>
-          <label>封面图片地址<input value={newCover} onChange={(event) => setNewCover(event.target.value)} placeholder="https://… 或 data:image/…" /></label>
+          <div className="wber-create-cover">
+            <span className="wber-field-label">封面</span>
+            <CoverPicker value={newCover} onChange={setNewCover} emptyLabel="选择本地图片" />
+          </div>
           <div className="wber-type-choice">{(["story", "reference"] as WorldBookType[]).map((value) => <button
             type="button" key={value} aria-pressed={newType === value} onClick={() => setNewType(value)}>{BOOK_TYPE_LABELS[value]}</button>)}</div>
           {createError && <div className="wber-alert" role="alert">{createError}</div>}
@@ -1012,21 +1041,35 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       {!detail && <div className="wber-blank">{loading ? "正在读取…" : "从左侧书架选一本世界书"}</div>}
       {detail && <>
         <section className="wber-hero">
-          <div className="wber-hero-cover">{safeCover(bookCover) ? <img src={safeCover(bookCover)} alt={`${bookName} 封面`} /> : <span>{bookName.slice(0, 1) || "书"}</span>}</div>
+          <div className="wber-hero-cover">
+            {safeCover(bookCover) ? <img src={safeCover(bookCover)} alt={`${bookName} 封面`} /> : <span>{bookName.slice(0, 1) || "书"}</span>}
+            {/* 封面直接可换：点封面上这颗按钮就是从本地选图，压缩后随书保存与导出。 */}
+            <CoverPicker variant="overlay" value={bookCover}
+              onChange={(next) => changeMeta("cover", next)} onNotice={showToast} />
+          </div>
           <div className="wber-hero-content">
             <span className="wber-eyebrow">{BOOK_TYPE_LABELS[bookTypeOf(detail)]}</span>
             {editingMeta ? <div className="wber-meta-editor">
               <input className="wber-title-input" value={bookName} aria-label="世界书名称" onChange={(event) => changeMeta("name", event.target.value)} />
               <textarea className="wber-description" rows={2} value={bookDescription} aria-label="世界书简介"
                 placeholder="写一段简短介绍…" onChange={(event) => changeMeta("description", event.target.value)} />
-              <label className="wber-cover-field">封面<input value={bookCover} onChange={(event) => changeMeta("cover", event.target.value)} placeholder="图片地址" /></label>
+              <CoverPicker value={bookCover} onChange={(next) => changeMeta("cover", next)}
+                onNotice={showToast} emptyLabel="选择本地封面图片" />
               <button type="button" className="is-sm is-primary" onClick={() => setEditingMeta(false)}>完成</button>
             </div> : <div className="wber-meta-reading">
               <h1 title={bookName}>{bookName}</h1>
               <p>{bookDescription || "还没有简介。"}</p>
               <button type="button" className="is-sm is-ghost" onClick={() => setEditingMeta(true)}>编辑介绍</button>
             </div>}
-            <div className="wber-stats"><span><b>{detail.entry_count}</b> 条目</span><span><b>约 {displayedTokens}</b> token</span>
+            {/* 统计口径：条目 / token 只算**启用的非系统条目**，勾选后立刻变。
+                系统层条数的标识不在这里展示 —— 它由条目行的分层标签、列表底部的分界行，
+                以及 Prompt 预览页的说明各自交代，hero 上再挂一个计数只是噪声。 */}
+            <div className="wber-stats">
+              <span title="会注入的条目：已启用且不属于系统层"><b>{liveStats.injectable}</b> 条目
+                {liveStats.total !== liveStats.injectable && <small> / 共 {liveStats.total}</small>}</span>
+              <span title="启用条目的展示估算，勾选 / 取消勾选会立刻变化"><b>约 {liveStats.tokens}</b> token</span>
+              {!!liveStats.disabled && <span className="is-muted" title="已停用：不注入，也不计入条目与 token">
+                {liveStats.disabled} 条已停用</span>}
               <span className={`wber-save is-${savePhase.state}`}>{savePhase.message || "已同步"}</span>
               {savePhase.state === "error" && <button type="button" className="is-sm" onClick={() => {
                 for (const retry of retryTasks.current.values()) retry();
@@ -1061,26 +1104,64 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
           <div className="wber-entry-toolbar">
             <label className="wber-search"><AppIcon name="search" size={15} />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、正文或触发词" aria-label="搜索条目" /></label>
+            {/* 分层筛选：系统层（节点图 / 节点绑定）不是注入条目，单独成一档。 */}
+            <div className="wber-layer-filter" role="group" aria-label="按分层筛选条目">
+              <button type="button" aria-pressed={layerFilter === "all"} onClick={() => setLayerFilter("all")}>
+                全部 <span>{orderedEntries.length}</span></button>
+              {(["stable", "dynamic", "system"] as WorldBookEntryLayer[]).map((value) => <button key={value}
+                type="button" aria-pressed={layerFilter === value} title={LAYER_HINTS[value]}
+                onClick={() => setLayerFilter(layerFilter === value ? "all" : value)}>
+                {LAYER_LABELS[value]} <span>{layerCounts[value]}</span></button>)}
+            </div>
             <button type="button" className="is-primary" onClick={createEntry}>＋ 新增条目</button></div>
-          {query && <p className="wber-order-note">搜索结果中暂不拖动排序；清空搜索可恢复完整插入顺序。</p>}
+          {(query || layerFilter !== "all") && <p className="wber-order-note">
+            {query ? "搜索结果" : `${LAYER_LABELS[layerFilter as WorldBookEntryLayer]}筛选中`}暂不拖动排序；
+            清空搜索并回到「全部」可恢复完整插入顺序。
+          </p>}
+          {/* 系统层条目恒定沉底：分母行给出「附录」分界，免得读者以为它们是被排到后面的内容。 */}
           <div className="wber-entry-list">{visibleEntries.map((entry, index) => {
             const open = expanded.has(entry.uid); const editing = editingUid === entry.uid;
-            const stable = entry.position === 0 && entry.always_active;
-            return <article key={entry.uid} className={`wber-entry${entry.enabled ? "" : " is-disabled"}`}
-              draggable={!query} onDragStart={() => setDragUid(entry.uid)}
+            const layer = entryLayer(entry);
+            const system = layer === "system";
+            const sortable = isSortableEntry(entry);
+            const divider = system && index > 0 && entryLayer(visibleEntries[index - 1]) !== "system";
+            return <Fragment key={entry.uid}>
+              {divider && <p className="wber-entry-divider" role="separator">
+                <AppIcon name="lock" size={12} />系统层 · 不参与注入与排序
+              </p>}
+              <article
+              className={`wber-entry${entry.enabled ? "" : " is-disabled"}${system ? " is-system" : ""}`}
+              draggable={!query && layerFilter === "all" && sortable}
+              onDragStart={() => setDragUid(entry.uid)}
               onDragOver={(event) => event.preventDefault()} onDrop={() => reorder(entry.uid)}>
               <header className="wber-entry-head">
-                <span className="wber-drag" title="拖动排序" aria-hidden="true">⠿</span>
-                <input type="checkbox" checked={entry.enabled} aria-label={`${entry.enabled ? "停用" : "启用"} ${entry.name || entry.uid}`}
+                {/* 系统层条目不参与排序：给它一个拖不动的手柄比给个假手柄诚实。 */}
+                {sortable
+                  ? <span className="wber-drag" title="拖动排序" aria-hidden="true">⠿</span>
+                  : <span className="wber-drag is-locked"
+                      title="系统层条目固定在列表最底端，不参与排序" aria-hidden="true">
+                      <AppIcon name="lock" size={13} /></span>}
+                {/* 系统层条目不参与注入，勾选对它没有意义 —— 不给一个按键却什么都不做的开关。 */}
+                <input type="checkbox" checked={entry.enabled} disabled={system}
+                  title={system ? "系统层条目由节点图 / 节点绑定维护，不参与注入开关" : undefined}
+                  aria-label={system ? `${entry.name || entry.uid} 是系统层条目，不参与注入`
+                    : `${entry.enabled ? "停用" : "启用"} ${entry.name || entry.uid}`}
                   onChange={() => toggleEntry(entry)} />
                 <button type="button" className="wber-entry-toggle" aria-expanded={open}
                   onClick={() => setExpanded((current) => { const next = new Set(current); if (open) next.delete(entry.uid); else next.add(entry.uid); return next; })}>
                   <AppIcon name="forward" size={15} className="wber-chevron" /><strong>{entry.name || "未命名条目"}</strong>
                 </button>
-                <span className={`wber-layer ${stable ? "is-stable" : "is-dynamic"}`}>{stable ? "稳定层" : "动态层"}</span>
-                <span className="wber-token">约 {entryTokens(entry)} token</span><span className="wber-seq">#{index + 1}</span>
+                <span className={`wber-layer is-${layer}`} title={LAYER_HINTS[layer]}>{LAYER_LABELS[layer]}</span>
+                {system
+                  ? <span className="wber-token is-system" title="系统层条目永不注入，不计入 token 统计与 Prompt 预览">不注入</span>
+                  : <span className="wber-token">约 {entryTokens(entry)} token</span>}
+                <span className="wber-seq">#{index + 1}</span>
               </header>
               {open && <div className="wber-entry-body">
+                {system && <p className="wber-system-note" role="note">
+                  系统层条目：由「节点图」画布 / 节点绑定维护，只服务系统判定，<b>永不注入</b>，
+                  也不计入条目数与 token。直接改正文可能让画布数据无法解析，建议回「节点图」页签修改。
+                </p>}
                 <div className="wber-entry-actions"><button type="button" className={editing ? "is-sm" : "is-sm is-primary"} onClick={() => {
                   if (editing) { setEditingUid(null); setEntryDraft(null); return; }
                   setEditingUid(entry.uid); setEntryDraft(draftCache.current.get(`${detail.id}:${entry.uid}`) || entryToDraft(entry));
@@ -1090,11 +1171,13 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
                   <div className="wber-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.content || "_（正文为空）_"}</ReactMarkdown></div>
                   <div className="wber-entry-meta"><span>触发词：{entry.trigger_keys?.join("、") || "无"}</span>
                     <span>分组：{entry.group || "无"}</span><span>分类：{detail.categories?.find((item) => item.id === entry.category_id)?.name || "未分类"}</span>
-                    <span>{entry.always_active ? "常驻" : "关键词触发"}</span></div>
+                    {system ? <span>{LAYER_LABELS.system}：由节点图 / 节点绑定维护，不注入</span>
+                      : <span>{entry.always_active ? "常驻" : "关键词触发"}</span>}</div>
                   {configDraft && persistedUids.current.has(`${detail.id}:${entry.uid}`) && <EntryDependencyTree detail={detail} rootUids={[entry.uid]} draft={configDraft} />}
                 </>}
               </div>}
-            </article>;
+              </article>
+            </Fragment>;
           })}</div>
           {!visibleEntries.length && <p className="wber-empty">没有匹配的条目。</p>}
 
@@ -1121,8 +1204,9 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         {effectiveTab === "graph" && <div className="wber-graph">
           <PlotGraphPage sessionId={activeSessionId} bookId={detail.id} />
         </div>}
-        {effectiveTab === "index" && <div className="wber-index"><p>{WORLDBOOK_INDEX_SUBTITLE}</p>
-          <Suspense fallback={<p>正在加载索引…</p>}><IndexManager /></Suspense></div>}
+        {effectiveTab === "index" && <div className="wber-index">
+          <Suspense fallback={<p>正在加载会话条目…</p>}><IndexManager key={detail.id} book={detail}
+            onRefresh={() => loadDetail(detail.id)} onEditDefaults={() => setWorldbookTab("entries")} /></Suspense></div>}
       </>}
     </section>
   </main>;
