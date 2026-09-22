@@ -156,12 +156,19 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
     全量放宽的是候选，不是把永不注入的条目算进 `full_entry_count` / `full_estimated_tokens`。
   - 「会话条目」页签（`IndexManager`）同样不列系统层条目 —— 给它一个会话开关拨了也不会有
     任何变化，只会误导；改为一行说明「另有 N 条系统层条目永不注入」，分母也换成会注入的条目。
+  - **展示顺序**：`sortEntriesByLayer()` 恒定按层分组（稳定 → 动态 → 系统），
+    **与这本书有没有显式 `entry_order` 无关**。系统层条目一律沉到最底端，并在第一条前插一行
+    「系统层 · 不参与注入与排序」分界。它们也**不参与拖动排序**：`isSortableEntry()` 为假时
+    不给 `draggable`，手柄位置换成锁标记（`.wber-drag.is-locked`），拖到它上面会被拒绝并提示。
+    这是**展示层**排序，持久化的 `entry_order`（注入顺序）不受影响 —— 拖拽仍按原有整排列语义
+    写回，系统层条目留在数组末尾即可（后端要求 `entry_order` 是完整排列）。
 - **别让两张表漂移**：`SYSTEM_ENTRY_TYPES` / `SYSTEM_ENTRY_FENCES` 在 Python 与 TS 各有一份。
   `tests/test_worldbook_system_layer.py` 比对承载模块自己的 `_ENTRY_TYPE` / `WORLD_BOOK_FENCE`；
   `scripts/test_worldbook_layer_ui.cjs` 直接读 `src/world_book.py` 比对两张表 —— 任一侧新增类型
   而另一侧没跟上都会立刻失败。
 - **证据**：`tests/test_worldbook_system_layer.py`（判定 / 统计 / 单轮与全书预览 / 全量口径）、
-  `scripts/test_worldbook_layer_ui.cjs`。本机数据实测：`data/worldbooks/` 下
+  `scripts/test_worldbook_layer_ui.cjs`（三层判定 / 展示顺序与不可拖 / 统计口径 / 两张常量表 /
+  封面 / 两处页面说明）。本机数据实测：`data/worldbooks/` 下
   `combat-test` / `fengxue-guojing` / `near-light` 各含 1 条 `plot_graph_*`，`arknights` 含 2 条停用条目，
   这些现在都不再计入展示 token。
 

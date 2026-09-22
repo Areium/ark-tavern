@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useApi } from "../hooks/useApi";
@@ -8,7 +8,8 @@ import { useScopePreview, useWorldbookDraft } from "../hooks/useWorldbookDraft";
 import { BOOK_TYPE_LABELS, bookTypeOf, filterBooksByType, isReference,
   normalizeWorldbookTab, type BookTypeFilter } from "../utils/worldbookLibrary";
 import { LAYER_HINTS, LAYER_LABELS, bookEntryStats, entryLayer, entryTokens,
-  summaryEntryStats, type WorldBookEntryLayer } from "../utils/worldbookLayer";
+  isSortableEntry, sortEntriesByLayer, summaryEntryStats,
+  type WorldBookEntryLayer } from "../utils/worldbookLayer";
 import type { WorldBookPanelProps } from "./worldbook/panel";
 import CoverPicker from "./worldbook/CoverPicker";
 import EntryDependencyTree from "./worldbook/EntryDependencyTree";
@@ -423,15 +424,10 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     const byUid = new Map(detail.entries.map((entry) => [entry.uid, entry]));
     const order = detail.entry_order?.length ? detail.entry_order : detail.entries.map((entry) => entry.uid);
     const result = order.map((uid) => byUid.get(uid)).filter(Boolean) as WorldBookEntryDTO[];
-    if (detail.has_explicit_entry_order) result.sort((left, right) => {
-      // 展示顺序按层分组：稳定层 → 动态层 → 系统层。系统层条目（节点图 / 节点绑定）
-      // 不是叙事内容，排在最后不干扰阅读；持久化的 entry_order 不受影响。
-      const rank: Record<WorldBookEntryLayer, number> = { stable: 0, dynamic: 1, system: 2 };
-      const leftLayer = rank[entryLayer(left)];
-      const rightLayer = rank[entryLayer(right)];
-      return leftLayer - rightLayer || order.indexOf(left.uid) - order.indexOf(right.uid);
-    });
-    return result;
+    // 展示顺序恒定按层分组（稳定层 → 动态层 → 系统层），与这本书有没有显式顺序无关：
+    // 系统层条目（节点图 / 节点绑定）不参与注入，就不该插在叙事条目中间 —— 一律沉到最底端。
+    // 这是**展示层**排序，持久化的 entry_order（注入顺序）不受影响。
+    return sortEntriesByLayer(result);
   }, [detail]);
   const visibleEntries = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -940,12 +936,16 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     const source = detail.entries.find((entry) => entry.uid === dragUid);
     const target = detail.entries.find((entry) => entry.uid === targetUid);
     if (!source || !target) return;
-    if (entryLayer(source) !== entryLayer(target)) {
-      showToast(source && entryLayer(source) === "system"
-        ? "系统层条目（节点图 / 节点绑定）不参与注入，只能在系统层内部排序。"
-        : "稳定层与动态层属于不同插入位置，只能在同层内拖动排序。");
+    // 系统层条目不参与排序：它们在列表里恒定沉底，拖它们没有可观察的结果。
+    if (!isSortableEntry(source) || !isSortableEntry(target)) {
+      showToast("系统层条目（节点图 / 节点绑定）不参与注入，也不参与排序：它们固定在列表最底端。");
       setDragUid(null); return;
     }
+    if (entryLayer(source) !== entryLayer(target)) {
+      showToast("稳定层与动态层属于不同插入位置，只能在同层内拖动排序。");
+      setDragUid(null); return;
+    }
+    // 排列的是注入顺序；系统层条目保持在末尾（后端要求 entry_order 是完整排列）。
     const previous = [...(detail.entry_order || orderedEntries.map((entry) => entry.uid))];
     const next = previous.filter((uid) => uid !== dragUid);
     next.splice(next.indexOf(targetUid), 0, dragUid);
@@ -1122,16 +1122,29 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
             {query ? "搜索结果" : `${LAYER_LABELS[layerFilter as WorldBookEntryLayer]}筛选中`}暂不拖动排序；
             清空搜索并回到「全部」可恢复完整插入顺序。
           </p>}
+          {/* 系统层条目恒定沉底：分母行给出「附录」分界，免得读者以为它们是被排到后面的内容。 */}
           <div className="wber-entry-list">{visibleEntries.map((entry, index) => {
             const open = expanded.has(entry.uid); const editing = editingUid === entry.uid;
             const layer = entryLayer(entry);
             const system = layer === "system";
-            return <article key={entry.uid}
+            const sortable = isSortableEntry(entry);
+            const divider = system && index > 0 && entryLayer(visibleEntries[index - 1]) !== "system";
+            return <Fragment key={entry.uid}>
+              {divider && <p className="wber-entry-divider" role="separator">
+                <AppIcon name="lock" size={12} />系统层 · 不参与注入与排序
+              </p>}
+              <article
               className={`wber-entry${entry.enabled ? "" : " is-disabled"}${system ? " is-system" : ""}`}
-              draggable={!query && layerFilter === "all"} onDragStart={() => setDragUid(entry.uid)}
+              draggable={!query && layerFilter === "all" && sortable}
+              onDragStart={() => setDragUid(entry.uid)}
               onDragOver={(event) => event.preventDefault()} onDrop={() => reorder(entry.uid)}>
               <header className="wber-entry-head">
-                <span className="wber-drag" title="拖动排序" aria-hidden="true">⠿</span>
+                {/* 系统层条目不参与排序：给它一个拖不动的手柄比给个假手柄诚实。 */}
+                {sortable
+                  ? <span className="wber-drag" title="拖动排序" aria-hidden="true">⠿</span>
+                  : <span className="wber-drag is-locked"
+                      title="系统层条目固定在列表最底端，不参与排序" aria-hidden="true">
+                      <AppIcon name="lock" size={13} /></span>}
                 {/* 系统层条目不参与注入，勾选对它没有意义 —— 不给一个按键却什么都不做的开关。 */}
                 <input type="checkbox" checked={entry.enabled} disabled={system}
                   title={system ? "系统层条目由节点图 / 节点绑定维护，不参与注入开关" : undefined}
@@ -1167,7 +1180,8 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
                   {configDraft && persistedUids.current.has(`${detail.id}:${entry.uid}`) && <EntryDependencyTree detail={detail} rootUids={[entry.uid]} draft={configDraft} />}
                 </>}
               </div>}
-            </article>;
+              </article>
+            </Fragment>;
           })}</div>
           {!visibleEntries.length && <p className="wber-empty">没有匹配的条目。</p>}
 

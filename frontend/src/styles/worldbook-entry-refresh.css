@@ -271,6 +271,15 @@ html.light .wber-shell {
 .wber-entry-head { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 14px 10px 12px; }
 .wber-drag { color: var(--wber-muted); cursor: grab; font-size: 17px; line-height: 1; opacity: .45; transition: opacity .15s; }
 .wber-entry:hover .wber-drag { opacity: 1; }
+/* 系统层条目不参与排序：手柄位置换成锁标记，并保持常显（不随 hover 变亮）。 */
+.wber-drag.is-locked { display: inline-flex; align-items: center; justify-content: center; width: 17px; color: var(--wber-system); cursor: not-allowed; opacity: .55; }
+.wber-entry:hover .wber-drag.is-locked { opacity: .55; }
+/* 「附录」分界：系统层条目恒定沉底，这条线说明它们不是被排到后面的内容。 */
+.wber-entry-divider {
+  display: flex; align-items: center; gap: 7px; margin: 14px 0 -2px; padding-top: 14px;
+  border-top: 1px dashed color-mix(in srgb, var(--wber-system) 34%, transparent);
+  color: var(--wber-system); font-size: 10.5px; letter-spacing: .08em;
+}
 .wber-shell .wber-entry-toggle {
   flex: 1; justify-content: flex-start; gap: 8px; min-width: 0; min-height: 28px; padding: 0 6px 0 4px;
   border: none; border-radius: 6px; text-align: left; background: transparent; box-shadow: none; font-weight: 500;

@@ -3,9 +3,11 @@
 // 覆盖：
 //   1. 三层判定（稳定 / 动态 / 系统）与「系统层优先于位置分层」的顺序；
 //   2. 条目数与 token 的统计口径 —— 勾选 / 取消勾选后必须立刻跟着变；
+//   2b. 展示顺序：系统层恒定沉底，且不参与拖动排序；
 //   3. 前后端两张系统层常量表不许漂移（直接读 src/world_book.py 比对）；
 //   4. 封面选择器只接受本地文件（不是图片地址输入框），并如实说明会压缩后内嵌；
-//   5. Prompt 预览页把「系统层已排除」说出来。
+//   5. Prompt 预览页把「系统层已排除」说出来；
+//   6. 会话条目页不给系统层条目一个「拨了没用」的会话开关。
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -28,7 +30,8 @@ const { renderToStaticMarkup } = fromFrontend("react-dom/server");
 const layer = require(path.join(root, "frontend/src/utils/worldbookLayer.ts"));
 const {
   LAYER_LABELS, SYSTEM_ENTRY_FENCES, SYSTEM_ENTRY_TYPES, bookEntryStats, entryLayer,
-  entryTokens, estimateDisplayTokens, formatBytes, isSystemEntry, summaryEntryStats,
+  entryTokens, estimateDisplayTokens, formatBytes, isSortableEntry, isSystemEntry,
+  sortEntriesByLayer, summaryEntryStats,
 } = layer;
 const CoverPickerModule = require(path.join(root, "frontend/src/components/worldbook/CoverPicker.tsx"));
 const CoverPicker = CoverPickerModule.default;
@@ -74,6 +77,29 @@ assert.equal(entryLayer({ ...graphEntry, position: 0, always_active: true }), "s
   "系统层优先于稳定 / 动态分层");
 assert.deepEqual([LAYER_LABELS.stable, LAYER_LABELS.dynamic, LAYER_LABELS.system],
   ["稳定层", "动态层", "系统层"]);
+
+// ── 2b. 展示顺序：系统层恒定沉底，且不参与拖动排序 ──
+// 传入顺序故意打乱：系统层夹在最前面、中间、最后面，都必须沉到末尾。
+const scrambled = [graphEntry, dynamic, bindingEntry, stable, disabled];
+assert.deepEqual(sortEntriesByLayer(scrambled).map((item) => item.uid),
+  ["s", "d", "x", "g", "b"], "稳定层 → 动态层 → 系统层；系统层条目沉底");
+// 分层序号必须单调不减 —— 这才是「按层分组」的可检验含义（同层内不重排）
+const ranks = { stable: 0, dynamic: 1, system: 2 };
+const rankSeq = sortEntriesByLayer(scrambled).map((item) => ranks[entryLayer(item)]);
+assert.deepEqual(rankSeq, [...rankSeq].sort((a, b) => a - b), "分层序号单调不减");
+assert.deepEqual(sortEntriesByLayer([graphEntry, bindingEntry]).map((item) => item.uid),
+  ["g", "b"], "全是系统层时保持原有顺序（稳定排序）");
+assert.deepEqual(sortEntriesByLayer([dynamic, stable, disabled]).map((item) => item.uid),
+  ["s", "d", "x"], "层内顺序不变：只按层分组，不做二次排序");
+assert.deepEqual(sortEntriesByLayer([]), []);
+assert.deepEqual(sortEntriesByLayer([stable]).map((item) => item.uid), ["s"], "单条目原样返回");
+assert.deepEqual(scrambled.map((item) => item.uid), ["g", "d", "b", "s", "x"], "排序是纯函数，不就地改入参");
+
+assert.equal(isSortableEntry(stable), true);
+assert.equal(isSortableEntry(dynamic), true);
+assert.equal(isSortableEntry(disabled), true, "停用与否不影响可否排序");
+assert.equal(isSortableEntry(graphEntry), false, "系统层条目不可拖动排序");
+assert.equal(isSortableEntry(bindingEntry), false);
 
 // ── 3. 统计口径：勾选后实时更新 ──
 const entries = [stable, dynamic, disabled, graphEntry, bindingEntry];
@@ -192,5 +218,6 @@ assert.ok(indexMarkup.includes("1 个条目"), "分母也换成会注入的条�
 assert.ok(indexMarkup.includes("1 / 1 个条目"), "计数口径一致");
 
 console.log("Worldbook layer UI: three-layer classification, live entry/token stats, "
-  + "front-back constant-table parity, local-file cover picker, prompt-preview and "
+  + "system-layer-sinks-to-bottom display order with drag locked, front-back "
+  + "constant-table parity, local-file cover picker, prompt-preview and "
   + "session-entry system-layer notices passed.");

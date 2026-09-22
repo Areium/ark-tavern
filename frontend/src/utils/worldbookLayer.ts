@@ -84,6 +84,41 @@ export function entryLayer(
   return entry.position === 0 && entry.always_active ? "stable" : "dynamic";
 }
 
+/** 分层在列表里的落位：稳定层 → 动态层 → 系统层。 */
+const LAYER_RANK: Record<WorldBookEntryLayer, number> = { stable: 0, dynamic: 1, system: 2 };
+
+type LayerOrderable = Pick<WorldBookEntryDTO, "uid" | "content" | "raw" | "position" | "always_active">;
+
+/**
+ * 展示顺序：**稳定层 → 动态层 → 系统层**，层内保持入参顺序（稳定排序）。
+ *
+ * 系统层条目（节点图 / 节点绑定）不参与注入、也就不参与注入排序 —— 它们不是
+ * 「排在后面的内容」，而是一份附录。所以一律沉到列表最底端，用户不会看到
+ * 一张节点图夹在角色设定和他正在编辑的条目中间。持久化的 `entry_order` 不受影响
+ * （它只管注入顺序，本来就不需要为系统层条目留位置）。
+ *
+ * 用下标做次级键而不是依赖 `Array.prototype.sort` 的稳定性：稳定排序是规范保证的，
+ * 但显式写出来读代码的人不必去回忆这条保证。
+ */
+export function sortEntriesByLayer<T extends LayerOrderable>(entries: readonly T[]): T[] {
+  return entries
+    .map((entry, index) => ({ entry, index, rank: LAYER_RANK[entryLayer(entry)] }))
+    .sort((left, right) => left.rank - right.rank || left.index - right.index)
+    .map((item) => item.entry);
+}
+
+/**
+ * 条目是否参与拖动排序。
+ *
+ * 系统层条目不参与：它们的顺序没有意义，而且后端 `entry_order` 必须是完整排列 ——
+ * 让用户拖它们只会制造「拖了但没人看得出变化」的假交互。
+ */
+export function isSortableEntry(
+  entry: Pick<WorldBookEntryDTO, "content" | "raw" | "position" | "always_active">,
+): boolean {
+  return entryLayer(entry) !== "system";
+}
+
 export interface WorldBookEntryStats {
   /** 全部条目（含停用与系统层） */
   total: number;

@@ -16,6 +16,7 @@ import {
   Landmark,
   LibraryBig,
   Link2,
+  Lock,
   MapPin,
   MapPinned,
   Pause,
@@ -41,7 +42,7 @@ import {
 export type AppIconName =
   | "back" | "book" | "cards" | "characters" | "combat" | "content"
   | "copy" | "docs" | "download" | "file" | "folder" | "forward" | "globe"
-  | "home" | "image" | "index" | "location" | "map" | "pause" | "play"
+  | "home" | "image" | "index" | "location" | "lock" | "map" | "pause" | "play"
   | "refresh" | "search" | "sessions" | "settings" | "star" | "time" | "trash"
   | "upload" | "expand"
   | "volume" | "volumeOff" | "warning" | "weather" | "worldbook" | "workflow";
@@ -65,6 +66,7 @@ const ICONS: Record<AppIconName, LucideIcon> = {
   image: Image,
   index: Link2,
   location: MapPin,
+  lock: Lock,
   map: MapPinned,
   pause: Pause,
   play: Play,
