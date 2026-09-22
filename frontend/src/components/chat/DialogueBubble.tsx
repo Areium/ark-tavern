@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { useAppStore } from "../../stores/appStore";
 import AvatarPlaceholder from "./AvatarPlaceholder";
 
 function hexToRgb(hex: string): [number, number, number] | null {
@@ -21,6 +22,10 @@ const FALLBACK_BORDER = "rgba(147, 51, 234, 0.3)";
 
 export default function DialogueBubble({ text, speaker, color, sessionId }: DialogueBubbleProps) {
   const isUnknown = !speaker;
+  // 点击台词 → 高亮说话人（场景角色列表 / 舞台立绘同步）；再点一次取消
+  const highlighted = useAppStore((s) => s.highlightedSpeaker);
+  const setHighlightedSpeaker = useAppStore((s) => s.setHighlightedSpeaker);
+  const isHighlighted = !!speaker && highlighted === speaker;
 
   const rgb = color ? hexToRgb(color) : null;
   // 姓名保留角色原色色相，由主题 CSS 根据背景明度自动提亮或压深。
@@ -50,11 +55,14 @@ export default function DialogueBubble({ text, speaker, color, sessionId }: Dial
         )}
 
         <div
-          className="dlg-bubble border rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed text-gray-100"
+          className={`dlg-bubble border rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed text-gray-100 ${isHighlighted ? "is-highlighted" : ""}`}
           style={{
+            ...nameStyle,
             backgroundColor: isUnknown ? "rgba(55, 65, 81, 0.4)" : bubbleBg,
             borderColor: isUnknown ? "rgba(75, 85, 99, 0.3)" : bubbleBorder,
           }}
+          onClick={() => { if (speaker) setHighlightedSpeaker(isHighlighted ? null : speaker); }}
+          title={speaker ? `点击高亮「${speaker}」` : undefined}
         >
           <div className="whitespace-pre-wrap">{text}</div>
         </div>

@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useApi } from "../hooks/useApi";
 import { useAppStore, type WorldBookTab } from "../stores/appStore";
-import type { WorldBookDetail, WorldBookEntryDTO, WorldBookSearchHit, WorldBookSummary, WorldBookType } from "../types";
+import type { StatFieldDTO, WorldBookDetail, WorldBookEntryDTO, WorldBookSearchHit, WorldBookSummary, WorldBookType } from "../types";
 import { useScopePreview, useWorldbookDraft } from "../hooks/useWorldbookDraft";
 import { BOOK_TYPE_LABELS, bookTypeOf, filterBooksByType, isReference,
   normalizeWorldbookTab, type BookTypeFilter } from "../utils/worldbookLibrary";
@@ -12,6 +12,7 @@ import { LAYER_HINTS, LAYER_LABELS, bookEntryStats, entryLayer, entryTokens,
   type WorldBookEntryLayer } from "../utils/worldbookLayer";
 import type { WorldBookPanelProps } from "./worldbook/panel";
 import CoverPicker from "./worldbook/CoverPicker";
+import StatFieldsEditor from "./worldbook/StatFieldsEditor";
 import EntryDependencyTree from "./worldbook/EntryDependencyTree";
 import PromptPreviewTab from "./worldbook/tabs/PromptPreviewTab";
 import PlotGraphPage from "./combat/PlotGraphPage";
@@ -203,6 +204,9 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const [dragUid, setDragUid] = useState<string | null>(null);
   const [savePhase, setSavePhase] = useState<SavePhase>({ state: "idle" });
   const [createOpen, setCreateOpen] = useState(false);
+  // 统一数值字段编辑器（角色数值的 schema，随书保存与导出）
+  const [statFieldsOpen, setStatFieldsOpen] = useState(false);
+  const [statFieldsSaving, setStatFieldsSaving] = useState(false);
   const [createError, setCreateError] = useState("");
   const [editingMeta, setEditingMeta] = useState(false);
   const [newName, setNewName] = useState("");
@@ -790,15 +794,26 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     catch (reason: any) { setError(reason?.message || "删除失败"); }
   };
 
-  const updateBookOption = async (changes: { enabled?: boolean; book_type?: WorldBookType }) => {
-    if (!detail) return;
+  const updateBookOption = async (changes: { enabled?: boolean; book_type?: WorldBookType; stat_fields?: StatFieldDTO[] }) => {
+    if (!detail) return false;
     try {
       await flushBook(detail.id);
       const result = await enqueue(detail.id, (revision) => api.updateWorldbook(detail.id,
         { ...changes, expected_revision: revision }));
       revisions.current.set(detail.id, result.book.edit_revision || 0);
       await loadBooks(); await loadDetail(detail.id);
-    } catch (reason: any) { setError(reason?.message || "更新世界书失败"); }
+      return true;
+    } catch (reason: any) { setError(reason?.message || "更新世界书失败"); return false; }
+  };
+
+  const saveStatFields = async (fields: StatFieldDTO[]) => {
+    setStatFieldsSaving(true);
+    try {
+      if (await updateBookOption({ stat_fields: fields })) {
+        setStatFieldsOpen(false);
+        showToast(`统一数值字段已保存（${fields.length} 个）`);
+      }
+    } finally { setStatFieldsSaving(false); }
   };
 
   const reinstallBook = async () => {
@@ -1038,6 +1053,8 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         </div>
       </div>}
 
+      {detail && statFieldsOpen && <StatFieldsEditor fields={detail.stat_fields || []} saving={statFieldsSaving}
+        onSave={saveStatFields} onClose={() => setStatFieldsOpen(false)} />}
       {!detail && <div className="wber-blank">{loading ? "正在读取…" : "从左侧书架选一本世界书"}</div>}
       {detail && <>
         <section className="wber-hero">
@@ -1076,6 +1093,9 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
               }}><AppIcon name="refresh" size={13} />重试</button>}</div>
           </div>
           <div className="wber-hero-actions"><button type="button" onClick={() => void exportBook()}><AppIcon name="download" size={14} />导出</button>
+            {!isReference(detail) && <button type="button" onClick={() => setStatFieldsOpen(true)}
+              title="定义这本书下角色共用的数值字段（角色页「数值」与对话页场景面板「数值」按它渲染）">
+              <AppIcon name="index" size={14} />数值字段{detail.stat_fields?.length ? ` · ${detail.stat_fields.length}` : ""}</button>}
             <details className="wber-more"><summary>更多<AppIcon name="expand" size={14} /></summary><div>
               {!isReference(detail) && <button type="button" onClick={() => void updateBookOption({ enabled: !detail.enabled })}>{detail.enabled ? "停用整书" : "启用整书"}</button>}
               <button type="button" onClick={() => void updateBookOption({ book_type: isReference(detail) ? "story" : "reference" })}>

@@ -13,6 +13,7 @@ interface CharacterInfo {
 
 export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) {
   const { activeSessionId, triggerCharacterRefresh } = useAppStore();
+  const highlightedSpeaker = useAppStore((s) => s.highlightedSpeaker);
   const api = useApi();
   const [characters, setCharacters] = useState<CharacterInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -190,7 +191,9 @@ export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) 
             key={c.id}
             onMouseEnter={(e) => handleMouseEnter(c.name, e.currentTarget)}
             onMouseLeave={handleMouseLeave}
-            className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm cursor-default ${
+            className={`scene-char-row flex items-center justify-between px-3 py-2 rounded-lg text-sm cursor-default ${
+              highlightedSpeaker === c.name ? "is-highlighted " : ""
+            }${
               c.active
                 ? "bg-amber-600/20 border border-amber-600/30"
                 : c.loaded

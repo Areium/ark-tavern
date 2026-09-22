@@ -46,6 +46,7 @@ from worldbook_scope import (
     v2_rules_from_import_config, equivalent_v3_roots,
 )
 from worldbook_classify import classify_entries, needs_classification
+from character_stats import normalize_stat_fields
 
 logger = logging.getLogger(__name__)
 
@@ -961,13 +962,16 @@ class WorldBook:
                  dependency_rules: dict = None, related_edges: list = None,
                  policy_revisions: list = None, book_type: str = DEFAULT_BOOK_TYPE,
                  description: str = "", cover_image: str = "",
-                 entry_order: list = None, edit_revision: int = 1):
+                 entry_order: list = None, edit_revision: int = 1,
+                 stat_fields: list = None):
         self.id = book_id
         self.name = name or book_id
         self.source_format = source_format
         self.budget_tokens = budget_tokens  # 0 = 不限制
         self.description = str(description or "")
         self.cover_image = str(cover_image or "")
+        # 统一数值字段（角色数值的 schema）：同一本书下的角色共用，见 character_stats.py
+        self.stat_fields: list[dict] = normalize_stat_fields(stat_fields)
         self.edit_revision = max(0, _to_int(edit_revision, 0))
         self.book_type = normalize_book_type(book_type)
         # source: "preinstalled"（随程序分发的整合包，安装副本）| "imported"（用户导入）
@@ -1216,6 +1220,9 @@ class WorldBook:
         # Missing means legacy ordering. Persist only after an explicit reorder.
         if self.entry_order is not None:
             data["entry_order"] = list(self.entry_order)
+        # 数值字段：没定义过就不写，既有书的序列化形态保持不变
+        if self.stat_fields:
+            data["stat_fields"] = copy.deepcopy(self.stat_fields)
         if self.dependency_rules is not None:
             data["dependency_rules"] = self.dependency_rules
         # related_edges 独立持久化：v3 书与「已配置关联补充但尚未启用 v3」的书都要能往返
@@ -1253,6 +1260,7 @@ class WorldBook:
             policy_revisions=data.get("policy_revisions"),
             # 缺字段 → story（既有世界书 / 会话快照 / 导出全部照旧）
             book_type=data.get("book_type"),
+            stat_fields=data.get("stat_fields"),
         )
         book.created_at = float(data.get("created_at", time.time()))
         book.updated_at = float(data.get("updated_at", time.time()))
@@ -2138,6 +2146,8 @@ class WorldBook:
             "dependency_edges": copy.deepcopy(self.dependency_edges),
             "import_config": copy.deepcopy(self.import_config),
         }}
+        if self.stat_fields:
+            extension[EXTENSION_KEY]["stat_fields"] = copy.deepcopy(self.stat_fields)
         if self.dependency_rules is not None:
             extension[EXTENSION_KEY]["dependency_rules"] = copy.deepcopy(self.dependency_rules)
             extension[EXTENSION_KEY]["related_edges"] = copy.deepcopy(self.related_edges)
@@ -2618,6 +2628,7 @@ class WorldBookManager:
         if extension:
             book.description = str(extension.get("description", "") or "")
             book.cover_image = str(extension.get("cover_image", "") or "")
+            book.stat_fields = normalize_stat_fields(extension.get("stat_fields"))
             requested_order = extension.get("entry_order")
             if isinstance(requested_order, list):
                 ordered = [str(uid) for uid in requested_order]
@@ -2676,6 +2687,7 @@ class WorldBookManager:
             description=book.description,
             cover_image=book.cover_image,
             entry_order=copy.deepcopy(book.entry_order),
+            stat_fields=copy.deepcopy(book.stat_fields),
         )
         new_book.created_at = time.time()
         new_book.updated_at = time.time()

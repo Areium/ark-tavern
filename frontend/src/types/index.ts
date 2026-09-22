@@ -775,6 +775,8 @@ export interface WorldBookDetail extends WorldBookSummary {
   policy_revisions?: WorldBookPolicyRevisionDTO[];
   /** AI 构建专属；字段保留停写不删，UI 不再展示 */
   evidence_issues?: WorldBookIssueDTO[];
+  /** 统一数值字段：同一本书下的角色共用（角色页「数值」/ 场景面板「数值」按它渲染） */
+  stat_fields?: StatFieldDTO[];
 }
 
 export type WorldBookScopeType = "worldview" | "character" | "other";
@@ -1383,4 +1385,91 @@ export interface EnemyCatalogEntryDTO {
   xp_reward: number;
   derived_from_attributes: boolean;
   combat_stats: Record<string, number>;
+}
+
+// ── 角色数值（世界书统一字段 × 角色全局值 × 会话值，见 docs/design/session-scene-plugins.md） ──
+
+export type StatFieldType = "number" | "text" | "bool" | "select";
+
+/** 世界书上定义的一个统一数值字段 */
+export interface StatFieldDTO {
+  key: string;
+  label: string;
+  type: StatFieldType;
+  min?: number;
+  max?: number;
+  step?: number;
+  default?: number | string | boolean;
+  /** select 类型的可选项 */
+  options?: string[];
+  group?: string;
+  description?: string;
+}
+
+export type StatValue = number | string | boolean;
+/** 某个键的当前值来自哪一层 */
+export type StatSource = "default" | "global" | "session";
+
+/** GET/PUT /api/characters/<name>/stats：角色全局数值 */
+export interface CharacterStatsDTO {
+  name: string;
+  worldbook_id: string;
+  worldbook_name: string;
+  fields: StatFieldDTO[];
+  values: Record<string, StatValue>;
+  sources: Record<string, StatSource>;
+  /** frontmatter `stats` 里实际存的值（不含字段默认） */
+  stored: Record<string, StatValue>;
+}
+
+/** 会话内某角色的合并数值（默认 → 全局 → 会话） */
+export interface SessionCharacterStatsDTO {
+  name: string;
+  is_player: boolean;
+  worldbook_id: string;
+  worldbook_name: string;
+  fields: StatFieldDTO[];
+  values: Record<string, StatValue>;
+  sources: Record<string, StatSource>;
+  /** 只在本会话写过的值 */
+  session_values: Record<string, StatValue>;
+}
+
+export interface SessionCharacterStatsListDTO {
+  session_id: string;
+  characters: SessionCharacterStatsDTO[];
+}
+
+/** 插件命名空间数据（GET/PUT /api/sessions/<id>/plugin-data/<ns>） */
+export interface PluginDataDTO {
+  session_id: string;
+  namespace: string;
+  data: Record<string, unknown>;
+  updated_at: number | null;
+}
+
+// ── 对话舞台（视觉小说视图，GET /api/sessions/<id>/stage） ──
+
+export interface StageCharacterDTO {
+  name: string;
+  /** 立绘地址（会话覆盖优先）；没有立绘时为 null，前端退回头像牌 */
+  skin_url: string | null;
+  avatar_url: string | null;
+  color: string | null;
+  active: boolean;
+}
+
+export interface StageDTO {
+  session_id: string;
+  location: string;
+  weather: string;
+  time: string;
+  atmosphere: string[];
+  background: {
+    url: string | null;
+    source: "session" | "location" | "default" | "none";
+    bg_id: string;
+  };
+  characters: StageCharacterDTO[];
+  player: { name: string; avatar_url: string | null; color: string | null };
 }

@@ -475,3 +475,19 @@ html.light .wber-shell {
   .wber-library-controls { flex-direction: column; }
   .wber-library-controls select { width: 100%; }
 }
+
+/* ── 统一数值字段编辑器（StatFieldsEditor）── */
+.wber-sf-card { width: min(860px, 94vw); max-height: 88vh; display: flex; flex-direction: column; }
+.wber-sf-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-top: 12px; padding-right: 4px; }
+.wber-sf-empty { padding: 18px 14px; border: 1px dashed var(--wber-border-strong); border-radius: 10px; color: var(--wber-muted); font-size: 12px; line-height: 1.7; }
+.wber-sf-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--wber-border); border-radius: 10px; background: var(--wber-soft); }
+.wber-sf-grid { flex: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 10px; }
+.wber-sf-grid label { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 11px; color: var(--wber-muted); }
+.wber-sf-grid label.is-wide { grid-column: span 2; }
+.wber-sf-input { min-height: 28px; padding: 0 8px; border: 1px solid var(--wber-border); border-radius: 7px; background: var(--wber-card); color: var(--wber-text); font-size: 12px; }
+.wber-sf-input.is-mono { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; }
+.wber-sf-input:focus { border-color: var(--wber-accent-line); outline: none; }
+.wber-sf-actions { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+.wber-sf-add { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.wber-sf-add small { color: var(--wber-muted); font-size: 11px; line-height: 1.5; }
+@media (max-width: 720px) { .wber-sf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

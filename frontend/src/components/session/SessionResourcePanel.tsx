@@ -250,14 +250,11 @@ export default function SessionResourcePanel() {
 
   if (!activeSessionId) {
     return (
-      <aside className="w-80 border-l border-gray-700 overflow-y-auto p-3 shrink-0 bg-gray-900/60">
-        <h2 className="panel-title mb-2">会话资源</h2>
-        <p className="text-gray-500 text-sm text-center py-6 leading-relaxed">
-          请先选择一个会话
-          <br />
-          再管理它的覆盖资源
-        </p>
-      </aside>
+      <p className="text-gray-500 text-sm text-center py-6 leading-relaxed">
+        请先选择一个会话
+        <br />
+        再管理它的覆盖资源
+      </p>
     );
   }
 
@@ -269,9 +266,9 @@ export default function SessionResourcePanel() {
   );
 
   return (
-    <aside className="w-80 border-l border-gray-700 overflow-y-auto p-3 shrink-0 bg-gray-900/60 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="panel-title mb-0">会话资源</h2>
+        <span className="text-[11px] text-gray-500">存档</span>
         <div className="flex gap-1">
           <button
             disabled={busy}
@@ -309,7 +306,7 @@ export default function SessionResourcePanel() {
       <section>
         <h3 className="text-xs font-semibold text-gray-400 mb-2">角色形象</h3>
         {!data || data.scene_characters.length === 0 ? (
-          <p className="text-gray-600 text-xs">请先在左侧面板加载场景角色</p>
+          <p className="text-gray-600 text-xs">场景尚未加载角色（阵容在会话大厅配置）</p>
         ) : (
           <div className="space-y-2">
             {data.scene_characters.map((name) => {
@@ -551,6 +548,6 @@ export default function SessionResourcePanel() {
           </div>
         );
       })()}
-    </aside>
+    </div>
   );
 }

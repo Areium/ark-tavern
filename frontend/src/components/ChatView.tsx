@@ -1,116 +1,92 @@
 /**
- * 对话页（沉浸式）— 全屏无 sidebar。
- * 顶栏提供：返回大厅 / 主菜单、对话模式切换、场景面板折叠。
- * 进入会话即沉浸体验故事；调整世界书/阵容等请退出到会话大厅。
+ * 对话页（沉浸式）—— 全屏无 sidebar。
+ *
+ * 顶栏：左侧「返回大厅 / 主菜单」+ 场景面板开合；中间会话名与模式；右侧布局切换（记录 / 舞台）。
+ * 主体：左侧场景面板（图标栏 + 当前页，页签由插件注册表提供）+ 右侧对话区。
+ * 原「会话资源」右侧面板已并入场景面板的「资源」页，原顶栏的「收起面板」改到左侧，
+ * 收起的正是它旁边那块面板。
  */
-import { useState } from "react";
 import { useAppStore } from "../stores/appStore";
-import CharacterPanel from "./CharacterPanel";
-import ItemPanel from "./ItemPanel";
-import EnvironmentPanel from "./EnvironmentPanel";
 import ChatPanel from "./ChatPanel";
-import MemoryPanel from "./MemoryPanel";
-import QuestPanel from "./QuestPanel";
-import StoryStatePanel from "./StoryStatePanel";
-import SessionResourcePanel from "./session/SessionResourcePanel";
+import ScenePanel from "./scene/ScenePanel";
 import AppIcon from "./AppIcon";
+import "../plugins";
+import "../styles/chat.css";
 
 export default function ChatView() {
-  const resourcePanelOpen = useAppStore((s) => s.resourcePanelOpen);
-  const { setCurrentView, chatMode, setChatMode, activeSessionId, sessions } = useAppStore();
-  const [panelsOpen, setPanelsOpen] = useState(true);
+  const {
+    setCurrentView, chatMode, setChatMode, activeSessionId, sessions,
+    scenePanelOpen, setScenePanelOpen, chatLayout, setChatLayout,
+  } = useAppStore();
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="chat-view flex flex-col h-full">
       {/* ═══ 沉浸式顶栏 ═══ */}
-      <div className="h-10 shrink-0 flex items-center gap-1.5 px-2 border-b border-gray-700/50 bg-gray-900/95 backdrop-blur-sm relative z-20">
+      <div className="chat-topbar">
         <button
+          type="button"
           onClick={() => setCurrentView("sessions")}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-amber-300/90 hover:text-amber-200 hover:bg-amber-500/10 transition-colors"
+          className="chat-topbar-btn is-back"
           title="退出会话，返回会话大厅（调节世界书 / 阵容 / 设置）"
         >
           <AppIcon name="back" size={15} />
           <span>返回大厅</span>
         </button>
         <button
+          type="button"
           onClick={() => setCurrentView("home")}
-          className="px-2 py-1 rounded-lg text-xs text-gray-500 hover:text-gray-300 hover:bg-gray-700/50 transition-colors"
+          className="chat-topbar-btn is-icon"
           title="返回主菜单"
+          aria-label="返回主菜单"
         >
-          <AppIcon name="home" size={16} />
+          <AppIcon name="home" size={15} />
         </button>
 
-        <div className="w-px h-4 bg-gray-700/70 mx-1" />
+        <span className="chat-topbar-sep" />
 
-        {/* 对话模式切换（迁移自旧 sidebar） */}
-        <div className="flex gap-1">
-          <button
-            onClick={() => setChatMode("story")}
-            className={"px-2.5 py-0.5 text-[11px] rounded-md transition-colors " + (
-              chatMode === "story"
-                ? "bg-amber-600/80 text-white"
-                : "bg-gray-800 text-gray-500 hover:text-gray-300"
-            )}
-          >
-            剧情
-          </button>
-          <button
-            onClick={() => setChatMode("free")}
-            className={"px-2.5 py-0.5 text-[11px] rounded-md transition-colors " + (
-              chatMode === "free"
-                ? "bg-purple-600/80 text-white"
-                : "bg-gray-800 text-gray-500 hover:text-gray-300"
-            )}
-          >
-            自由
-          </button>
+        {/* 场景面板开合：按钮在左，收起的正是左侧面板 */}
+        <button
+          type="button"
+          onClick={() => setScenePanelOpen(!scenePanelOpen)}
+          className={`chat-topbar-btn ${scenePanelOpen ? "" : "is-on"}`}
+          title={scenePanelOpen ? "收起场景面板，全屏沉浸" : "展开场景面板"}
+          aria-pressed={scenePanelOpen}
+        >
+          <AppIcon name={scenePanelOpen ? "collapseAll" : "expandAll"} size={14} className="rotate-90" />
+          <span>{scenePanelOpen ? "收起面板" : "场景面板"}</span>
+        </button>
+
+        <div className="flex-1 min-w-0 flex items-center justify-center gap-2 px-2">
+          {activeSession && (
+            <span className="chat-topbar-title" title={activeSession.name || "未命名会话"}>
+              {activeSession.name || "未命名会话"}
+            </span>
+          )}
+          <div className="chat-mode-switch" role="group" aria-label="对话模式">
+            <button type="button" aria-pressed={chatMode === "story"} className="is-story" onClick={() => setChatMode("story")}>剧情</button>
+            <button type="button" aria-pressed={chatMode === "free"} className="is-free" onClick={() => setChatMode("free")}>自由</button>
+          </div>
         </div>
 
-        {activeSession && (
-          <span className="ml-2 text-[11px] text-gray-500 truncate hidden md:inline">
-            {activeSession.name || "未命名会话"}
-          </span>
-        )}
-
-        <div className="flex-1" />
-
-        {/* 场景面板折叠：收起后聊天区全宽，完全沉浸 */}
-        <button
-          onClick={() => setPanelsOpen((v) => !v)}
-          className={"px-2.5 py-1 rounded-lg text-xs transition-colors " + (
-            panelsOpen
-              ? "text-gray-400 hover:text-gray-200 hover:bg-gray-700/50"
-              : "text-blue-300 bg-blue-600/20 hover:bg-blue-600/30"
-          )}
-          title={panelsOpen ? "收起场景面板，全屏沉浸" : "展开场景面板"}
-        >
-          {panelsOpen ? "◧ 收起面板" : "◨ 场景面板"}
-        </button>
+        {/* 布局：消息流 / 舞台 */}
+        <div className="chat-layout-switch" role="group" aria-label="对话布局">
+          <button type="button" aria-pressed={chatLayout === "log"} onClick={() => setChatLayout("log")} title="消息流：完整的对话记录">
+            <AppIcon name="docs" size={13} /><span>记录</span>
+          </button>
+          <button type="button" aria-pressed={chatLayout === "stage"} onClick={() => setChatLayout("stage")} title="舞台：背景 + 立绘 + 对话框，逐句推进">
+            <AppIcon name="characters" size={13} /><span>舞台</span>
+          </button>
+        </div>
       </div>
 
       {/* ═══ 主体 ═══ */}
       <div className="flex flex-1 min-h-0">
-        {/* Left: scene panels（可折叠） */}
-        {panelsOpen && (
-          <div className="w-72 border-r border-gray-700 overflow-y-auto p-3 space-y-3 shrink-0">
-            <CharacterPanel />
-            <ItemPanel />
-            <EnvironmentPanel />
-            <StoryStatePanel />
-            <MemoryPanel />
-            <QuestPanel />
-          </div>
-        )}
-
-        {/* Right: chat */}
+        <ScenePanel />
         <div className="flex-1 flex flex-col min-w-0">
           <ChatPanel />
         </div>
-
-        {/* Right panel: 会话资源（可折叠） */}
-        {resourcePanelOpen && <SessionResourcePanel />}
       </div>
     </div>
   );

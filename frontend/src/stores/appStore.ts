@@ -20,6 +20,24 @@ export interface CombatContext {
 
 type ViewName = "home" | "chat" | "sessions" | "settings" | "combat" | "worldbook" | "docs" | "characters";
 
+/** 对话页布局：消息流 / 视觉小说舞台 */
+export type ChatLayout = "log" | "stage";
+
+/** 读 localStorage 的小工具：SSR / 隐私模式下拿不到就用默认值 */
+function readLocal<T extends string>(key: string, fallback: T, allowed?: readonly T[]): T {
+  try {
+    const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(key);
+    if (raw == null) return fallback;
+    if (allowed && !allowed.includes(raw as T)) return fallback;
+    return raw as T;
+  } catch {
+    return fallback;
+  }
+}
+function writeLocal(key: string, value: string) {
+  try { localStorage.setItem(key, value); } catch { /* 忽略 */ }
+}
+
 /**
  * 角色页模块页签（原「内容中心」的资产 / 卡牌并入「角色」）。
  *
@@ -128,9 +146,20 @@ interface AppState {
   indexSessionId: string | null;
   setIndexSessionId: (id: string | null) => void;
 
-  // 会话资源面板（右侧可折叠）
-  resourcePanelOpen: boolean;
-  setResourcePanelOpen: (open: boolean) => void;
+  // 场景面板（对话页左侧，可折叠；页签由插件注册表提供，见 plugins/scenePanels.tsx）
+  scenePanelOpen: boolean;
+  setScenePanelOpen: (open: boolean) => void;
+  scenePanelTab: string;
+  setScenePanelTab: (tab: string) => void;
+  // 对话页布局：log = 消息流；stage = 视觉小说舞台（背景 + 立绘 + 对话框）
+  chatLayout: ChatLayout;
+  setChatLayout: (layout: ChatLayout) => void;
+  // 点击对话时高亮的说话人（舞台立绘 / 场景角色列表同步高亮）
+  highlightedSpeaker: string | null;
+  setHighlightedSpeaker: (name: string | null) => void;
+  // 角色数值刷新触发器（面板 / 插件写入数值后 +1）
+  statsRefreshKey: number;
+  triggerStatsRefresh: () => void;
   // 会话覆盖图缓存爆破（上传/删除覆盖后 +1，通知头像等刷新）
   resourceVersion: number;
   bumpResourceVersion: () => void;
@@ -267,9 +296,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   indexSessionId: null,
   setIndexSessionId: (id) => set({ indexSessionId: id }),
 
-  // 会话资源面板
-  resourcePanelOpen: false,
-  setResourcePanelOpen: (open) => set({ resourcePanelOpen: open }),
+  // 场景面板：开合与页签都记住（localStorage），下次进对话页保持上次的样子
+  scenePanelOpen: readLocal("ark_scene_panel_open", "1", ["1", "0"] as const) === "1",
+  setScenePanelOpen: (open) => { writeLocal("ark_scene_panel_open", open ? "1" : "0"); set({ scenePanelOpen: open }); },
+  scenePanelTab: readLocal("ark_scene_panel_tab", "characters"),
+  setScenePanelTab: (tab) => { writeLocal("ark_scene_panel_tab", tab); set({ scenePanelTab: tab }); },
+  // 对话页布局（默认消息流；舞台模式记住选择）
+  chatLayout: readLocal<ChatLayout>("ark_chat_layout", "log", ["log", "stage"] as const),
+  setChatLayout: (layout) => { writeLocal("ark_chat_layout", layout); set({ chatLayout: layout }); },
+  highlightedSpeaker: null,
+  setHighlightedSpeaker: (name) => set({ highlightedSpeaker: name }),
+  statsRefreshKey: 0,
+  triggerStatsRefresh: () => set((state) => ({ statsRefreshKey: state.statsRefreshKey + 1 })),
   resourceVersion: 0,
   bumpResourceVersion: () => set((state) => ({ resourceVersion: state.resourceVersion + 1 })),
 

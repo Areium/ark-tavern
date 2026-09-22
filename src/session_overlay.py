@@ -287,6 +287,93 @@ class SessionOverlay:
                 self._data.pop("lore_scope_active", None)
             self._save()
 
+    # ── 角色数值（会话运行时值；schema 在世界书 stat_fields，见 character_stats.py） ──
+
+    def get_all_character_stats(self) -> dict:
+        """{角色名: {key: value}}，只含本会话写过的值。"""
+        with self._lock:
+            stats = self._data.get("character_stats")
+            return copy.deepcopy(stats) if isinstance(stats, dict) else {}
+
+    def get_character_stats(self, name: str) -> dict:
+        with self._lock:
+            stats = self._data.get("character_stats", {})
+            value = stats.get(name) if isinstance(stats, dict) else None
+            return copy.deepcopy(value) if isinstance(value, dict) else {}
+
+    def set_character_stats(self, name: str, values: dict, replace: bool = False) -> dict:
+        """写会话数值：默认与已有值合并，`None` 表示删除该键；replace=True 整份替换。"""
+        with self._lock:
+            stats = self._data.get("character_stats")
+            if not isinstance(stats, dict):
+                stats = {}
+            current = {} if replace else dict(stats.get(name) or {})
+            for key, value in (values or {}).items():
+                if value is None:
+                    current.pop(key, None)
+                else:
+                    current[key] = value
+            if current:
+                stats[name] = current
+            else:
+                stats.pop(name, None)
+            self._data["character_stats"] = stats
+            self._save()
+            logger.info("会话 %s: 角色 %s 数值已更新（%d 项）", self.session_id, name, len(current))
+            return copy.deepcopy(current)
+
+    def delete_character_stats(self, name: str) -> bool:
+        with self._lock:
+            stats = self._data.get("character_stats")
+            if isinstance(stats, dict) and name in stats:
+                del stats[name]
+                self._save()
+                return True
+            return False
+
+    # ── 插件数据（第三方场景面板 / 数据接口的命名空间存储） ──
+
+    def list_plugin_data(self) -> dict:
+        """{namespace: {data, updated_at}}。"""
+        with self._lock:
+            store = self._data.get("plugin_data")
+            return copy.deepcopy(store) if isinstance(store, dict) else {}
+
+    def get_plugin_data(self, namespace: str) -> dict | None:
+        with self._lock:
+            store = self._data.get("plugin_data", {})
+            slot = store.get(namespace) if isinstance(store, dict) else None
+            return copy.deepcopy(slot) if isinstance(slot, dict) else None
+
+    def set_plugin_data(self, namespace: str, data: dict, replace: bool = False) -> dict:
+        """写插件数据：默认浅合并（顶层键覆盖，`None` 删键），replace=True 整份替换。"""
+        import time
+        with self._lock:
+            store = self._data.get("plugin_data")
+            if not isinstance(store, dict):
+                store = {}
+            slot = store.get(namespace) if isinstance(store.get(namespace), dict) else {}
+            current = {} if replace else dict(slot.get("data") or {})
+            for key, value in (data or {}).items():
+                if value is None:
+                    current.pop(key, None)
+                else:
+                    current[key] = copy.deepcopy(value)
+            slot = {"data": current, "updated_at": time.time()}
+            store[namespace] = slot
+            self._data["plugin_data"] = store
+            self._save()
+            return copy.deepcopy(slot)
+
+    def delete_plugin_data(self, namespace: str) -> bool:
+        with self._lock:
+            store = self._data.get("plugin_data")
+            if isinstance(store, dict) and namespace in store:
+                del store[namespace]
+                self._save()
+                return True
+            return False
+
     # ── 环境覆盖 ──
 
     def get_environment_overrides(self) -> dict:
@@ -1016,6 +1103,9 @@ class SessionOverlay:
             "character_states": copy.deepcopy(self._data.get("character_states", {})),
             "quest_states": copy.deepcopy(self._data.get("quest_states", {})),
             "beat_state": copy.deepcopy(self._data.get("beat_state", {})),
+            # 角色数值与插件数据随节点冻结：回档即复原「那一刻」的数值记录
+            "character_stats": copy.deepcopy(self._data.get("character_stats", {})),
+            "plugin_data": copy.deepcopy(self._data.get("plugin_data", {})),
             # 节点级世界书作用域：prev 原样带过，由 commit_tree_step 随后
             # 调 lore_resolver 复用/重算并覆盖（见 node-scoped-worldbook-loading.md §4.1）
             "lore_scope": copy.deepcopy((prev or {}).get("lore_scope")),
@@ -1235,6 +1325,11 @@ class SessionOverlay:
             self._data["environment"] = copy.deepcopy(st["environment"])
         if st.get("beat_state"):
             self._data["beat_state"] = copy.deepcopy(st["beat_state"])
+        # 老节点快照没有这两个键：保持现值，不清空（与 character_states 的口径一致）
+        if "character_stats" in st:
+            self._data["character_stats"] = copy.deepcopy(st["character_stats"] or {})
+        if "plugin_data" in st:
+            self._data["plugin_data"] = copy.deepcopy(st["plugin_data"] or {})
         self._data["narration_round"] = int(st.get("round_end") or 0)
 
         # 节点级世界书作用域：有冻结值 → 整体替换（窄化白名单，回档即复原）；
@@ -1366,6 +1461,8 @@ class SessionOverlay:
             "environment": copy.deepcopy(self._data.get("environment", {})),
             "character_states": copy.deepcopy(self._data.get("character_states", {})),
             "quest_states": copy.deepcopy(self._data.get("quest_states", {})),
+            "character_stats": copy.deepcopy(self._data.get("character_stats", {})),
+            "plugin_data": copy.deepcopy(self._data.get("plugin_data", {})),
             "completed_beats": list(completed),
             "created_at": __import__("time").time(),
         }
@@ -1434,6 +1531,10 @@ class SessionOverlay:
             self._data["quest_states"] = copy.deepcopy(snap["quest_states"])
         if "environment" in snap:
             self._data["environment"] = copy.deepcopy(snap["environment"])
+        if "character_stats" in snap:
+            self._data["character_stats"] = copy.deepcopy(snap["character_stats"] or {})
+        if "plugin_data" in snap:
+            self._data["plugin_data"] = copy.deepcopy(snap["plugin_data"] or {})
         self._data["narration_round"] = int(snap.get("round_end") or 0)
 
         self._save()
@@ -1807,6 +1908,8 @@ class SessionOverlay:
             "environment": self._data.get("environment", {}),
             "quest_states": self._data.get("quest_states", {}),
             "character_states": self._data.get("character_states", {}),
+            "character_stats": self._data.get("character_stats", {}),
+            "plugin_data": self._data.get("plugin_data", {}),
             "has_plot_context": self.has_plot_context(),
         }
         node_history = [

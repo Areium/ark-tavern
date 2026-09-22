@@ -9,8 +9,20 @@ import DialogueBubble from "./chat/DialogueBubble";
 import NarrationText from "./chat/NarrationText";
 import LoadingIndicator from "./chat/LoadingIndicator";
 import TokenUsage from "./chat/TokenUsage";
+import StageView from "./stage/StageView";
+import AppIcon from "./AppIcon";
 
 const EMPTY_MSGS: ChatMessage[] = [];
+
+/** 消息气泡的外观类（chat.css）：按角色 / 是否气泡模式 / 是否选项消息 */
+export function bubbleClass(msg: ChatMessage, bubbleMode: boolean): string {
+  if (msg.role === "user") return "is-user";
+  if (msg.role === "character") return bubbleMode ? "is-character is-plain" : "is-character";
+  if (msg.role === "narrator") return bubbleMode ? "is-narrator is-plain" : "is-narrator";
+  if (msg.role === "system" && (msg.choices || msg.branches?.length)) return "is-choices";
+  if (msg.role === "system") return "is-system";
+  return "is-other";
+}
 
 function filterSceneLog(log: string[]): string[] {
   return log.filter(
@@ -21,7 +33,11 @@ function filterSceneLog(log: string[]): string[] {
 }
 
 export default function ChatPanel() {
-  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, setCurrentView, setCombatContext, pendingAutoNarrate, setPendingAutoNarrate, pendingBriefing, setPendingBriefing, resourcePanelOpen, setResourcePanelOpen, chatFontSize, setChatFontSize } = useAppStore();
+  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, setCurrentView, setCombatContext, pendingAutoNarrate, setPendingAutoNarrate, pendingBriefing, setPendingBriefing, chatFontSize, setChatFontSize, chatLayout } = useAppStore();
+  const stageMode = chatLayout === "stage";
+  const [logOverlayOpen, setLogOverlayOpen] = useState(false);
+  // 切回消息流 / 换会话时收起记录抽屉
+  useEffect(() => { setLogOverlayOpen(false); }, [stageMode, activeSessionId]);
   const activeMode = sessions.find((s) => s.id === activeSessionId)?.mode || "free";
 
   const sceneCharacters: string[] = (() => {
@@ -613,10 +629,9 @@ export default function ChatPanel() {
     <div className="flex flex-col h-full">
       {/* Header bar — 会话信息 + token 统计 */}
       {activeSession && (
-        <div className="flex items-center justify-between px-4 py-1.5 border-b border-gray-700/50 bg-gray-850/30 shrink-0">
+        <div className="chat-head">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-xs text-gray-400 truncate">{activeSession.name}</span>
-            <span className="text-[10px] text-gray-600">第{activeSession.narration_count ?? narrationCount}轮</span>
+            <span className="chat-head-round">ROUND {Math.max(activeSession.narration_count ?? 0, narrationCount)}</span>
             {activeSession.in_combat && (
               <span className="text-[10px] text-orange-400 font-medium animate-pulse">⚔ 战斗中</span>
             )}
@@ -624,7 +639,7 @@ export default function ChatPanel() {
               <button
                 onClick={() => void resumeSession(activeSession.id!)}
                 disabled={resumeBusy}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800/60 hover:bg-gray-700 text-emerald-200 transition-colors disabled:opacity-40"
+                className="chat-head-tool is-on"
                 title="继续这场已挂起的战斗（角色状态 / 手牌 / 战场局势均已保存）"
               >
                 {resumeBusy ? "恢复中…" : "▶ 继续战斗"}
@@ -645,7 +660,7 @@ export default function ChatPanel() {
                     alert("启动战斗失败: " + (err.message || "未知错误"));
                   }
                 }}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-orange-700/30 text-orange-300 hover:bg-orange-700/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="chat-head-tool"
                 title={choiceLocked ? "请先完成战斗选项" : "手动触发战斗"}
                 disabled={choiceLocked}
               >
@@ -653,65 +668,61 @@ export default function ChatPanel() {
               </button>
             )}
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setCurrentView("sessions")}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-amber-700/30 text-amber-300 hover:bg-amber-700/50 transition-colors"
-              title="会话大厅（管理会话 / 世界书绑定 / 角色阵容）"
-            >
-              🏛
-            </button>
-            <button
-              onClick={() => setResourcePanelOpen(!resourcePanelOpen)}
-              className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
-                resourcePanelOpen
-                  ? "bg-blue-700/50 text-blue-200 hover:bg-blue-700/60"
-                  : "bg-blue-700/30 text-blue-300 hover:bg-blue-700/50"
-              }`}
-              title="会话资源管理（可折叠面板）"
-            >
-              🗂
-            </button>
-            <div className="flex items-center gap-1 text-[10px] text-gray-400 select-none">
-              <button
-                onClick={() => setChatFontSize(chatFontSize - 1)}
-                className="px-1.5 py-0.5 rounded bg-gray-700/50 hover:bg-gray-600/60 transition-colors"
-                title="减小字体"
-              >
-                A−
-              </button>
-              <span className="w-6 text-center text-gray-500">{chatFontSize}</span>
-              <button
-                onClick={() => setChatFontSize(chatFontSize + 1)}
-                className="px-1.5 py-0.5 rounded bg-gray-700/50 hover:bg-gray-600/60 transition-colors"
-                title="增大字体"
-              >
-                A+
-              </button>
+          {/* 会话大厅入口只保留顶栏的「返回大厅」；会话资源并入左侧场景面板的「资源」页 */}
+          <div className="flex items-center gap-2">
+            <div className="chat-font-size">
+              <button type="button" onClick={() => setChatFontSize(chatFontSize - 1)} className="chat-head-tool" title="减小字体">A−</button>
+              <span>{chatFontSize}</span>
+              <button type="button" onClick={() => setChatFontSize(chatFontSize + 1)} className="chat-head-tool" title="增大字体">A+</button>
             </div>
             <button
+              type="button"
               onClick={() => setCustomPromptOpen(true)}
-              className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
-                activeSession.custom_prompt
-                  ? "bg-violet-700/50 text-violet-200 hover:bg-violet-700/60"
-                  : "bg-violet-700/30 text-violet-300 hover:bg-violet-700/50"
-              }`}
+              className={`chat-head-tool ${activeSession.custom_prompt ? "is-on" : ""}`}
               title={activeSession.custom_prompt ? `自定义提示词: ${activeSession.custom_prompt}` : "自定义提示词"}
             >
-              T
+              <AppIcon name="file" size={12} />
+              <span>提示词</span>
             </button>
             {sessionTokens && sessionTokens.total_tokens > 0 && (
-              <div className="text-[10px] text-gray-500 select-none shrink-0">
-                {sessionTokens.total_tokens.toLocaleString()} tokens
-                <span className="text-gray-600">
-                  {" "}(入 {sessionTokens.prompt_tokens.toLocaleString()} + 出 {sessionTokens.completion_tokens.toLocaleString()})
-                </span>
+              <div className="chat-tokens" title={`输入 ${sessionTokens.prompt_tokens.toLocaleString()} + 输出 ${sessionTokens.completion_tokens.toLocaleString()}`}>
+                {sessionTokens.total_tokens.toLocaleString()} <small>tokens</small>
               </div>
             )}
           </div>
         </div>
       )}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3" style={{ fontSize: `${chatFontSize}px` }}>
+      {stageMode && activeSessionId && (
+        <StageView
+          sessionId={activeSessionId}
+          messages={messages}
+          sceneCharacters={sceneCharacters}
+          playerName={activeSession?.player_identity || "博士"}
+          characterColors={characterColors}
+          fontSize={chatFontSize}
+          waiting={isWaitingForLLM}
+          elapsedSeconds={elapsedSeconds}
+          choicesDisabled={sending || streaming || choiceLocked || !!activeSession?.in_combat}
+          onChoice={handleChoiceClick}
+          onOpenLog={() => setLogOverlayOpen(true)}
+          onStart={() => triggerNarrate(activeSessionId)}
+          chatMode={chatMode}
+        />
+      )}
+      {/* 消息流：舞台模式下变成覆盖在舞台上的「记录」抽屉（同一份 DOM，只换外观） */}
+      <div
+        className={stageMode
+          ? (logOverlayOpen ? "stage-log-overlay space-y-3" : "hidden")
+          : "chat-log flex-1 overflow-y-auto px-4 py-4 space-y-3"}
+        style={{ fontSize: `${chatFontSize}px` }}
+        onKeyDown={(e) => { if (e.key === "Escape") setLogOverlayOpen(false); }}
+      >
+        {stageMode && logOverlayOpen && (
+          <div className="stage-log-head">
+            <span>对话记录</span>
+            <button type="button" onClick={() => setLogOverlayOpen(false)}><AppIcon name="close" size={12} />关闭</button>
+          </div>
+        )}
         {initialLoading && messages.length === 0 && (
           <div className="flex items-center justify-center h-full text-gray-500">
             <span className="text-sm">加载会话中...</span>
@@ -757,47 +768,28 @@ export default function ChatPanel() {
             <div key={i}>
               {/* Rollback divider between rounds */}
               {isRoundStart && chatMode === "story" && (
-                <div className="flex items-center justify-center my-3">
-                  <div className="flex-1 border-t border-gray-700/50" />
+                <div className="chat-round-divider">
                   <button
+                    type="button"
                     onClick={() => {
                       const prevMsgs = messages.slice(0, i);
                       const prevRound = [...prevMsgs].reverse().find((m) => m.round != null)?.round;
                       if (prevRound != null) handleRollback(prevRound);
                     }}
-                    className="mx-3 text-xs text-gray-500 hover:text-red-400 transition-colors whitespace-nowrap"
+                    title="回退到上一轮"
                   >
-                    ↩ 回退
+                    ↩ 回退到此处
                   </button>
-                  <div className="flex-1 border-t border-gray-700/50" />
                 </div>
               )}
 
               <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[80%] rounded-xl px-4 py-2.5 leading-relaxed relative group ${
-                    msg.role === "user"
-                      ? "bg-blue-600 text-white"
-                      : msg.role === "character"
-                        ? dialogueBubbleMode
-                          ? "bg-transparent border-0 p-0 max-w-[95%]"
-                          : "bg-purple-800/50 border border-purple-700/30"
-                        : msg.role === "narrator"
-                          ? dialogueBubbleMode
-                            ? "bg-transparent border-0 p-0 max-w-[95%]"
-                            : "bg-amber-900/30 border border-amber-700/20 italic text-amber-100"
-                          : msg.role === "system" && (msg.choices || msg.branches?.length)
-                            ? "bg-transparent border-0 p-0"
-                            : msg.role === "system"
-                              ? "bg-gray-700/50 text-gray-400 text-xs font-mono whitespace-pre-wrap"
-                              : "bg-gray-800 border border-gray-700"
-                  }`}
-                >
+                <div className={`chat-msg group ${bubbleClass(msg, dialogueBubbleMode)}`}>
                   {msg.character && !dialogueBubbleMode && (
-                    <div className="text-sm font-bold text-purple-300 mb-1">{msg.character}</div>
+                    <div className="chat-msg-name">{msg.character}</div>
                   )}
                   {msg.role === "user" && !dialogueBubbleMode && (
-                    <div className="text-sm font-bold text-blue-200 mb-1">
+                    <div className="chat-msg-name">
                       {activeSession?.player_identity || "博士"}
                     </div>
                   )}
@@ -907,18 +899,12 @@ export default function ChatPanel() {
                                   onClick={() => handleChoiceClick(b.label, b)}
                                   disabled={choicesDisabled}
                                   title={b.target_beat_id ? `目标节点：${b.target_beat_id}` : undefined}
-                                  className="px-3 py-1.5 rounded-lg text-sm border border-amber-600/40
-                                    text-amber-300 hover:bg-amber-600/20 transition-colors disabled:opacity-50
-                                    flex items-center gap-1.5"
+                                  className="chat-choice"
                                 >
                                   <span>{b.label}</span>
-                                  {b.intent && (
-                                    <span className="text-[10px] px-1 rounded bg-amber-600/20 text-amber-400/80">
-                                      {b.intent}
-                                    </span>
-                                  )}
+                                  {b.intent && <em>{b.intent}</em>}
                                   {b.source === "author" && (
-                                    <span className="text-[10px] text-gray-500" title="作者预设分支">✎</span>
+                                    <span className="chat-choice-author" title="作者预设分支">✎</span>
                                   )}
                                 </button>
                               ))
@@ -927,8 +913,7 @@ export default function ChatPanel() {
                                   key={ci}
                                   onClick={() => handleChoiceClick(choice)}
                                   disabled={choicesDisabled}
-                                  className="px-3 py-1.5 rounded-lg text-sm border border-amber-600/40
-                                    text-amber-300 hover:bg-amber-600/20 transition-colors disabled:opacity-50"
+                                  className="chat-choice"
                                 >
                                   {msg.choices!.length > 1 ? `${ci + 1}. ` : ""}{choice}
                                 </button>
@@ -972,11 +957,7 @@ export default function ChatPanel() {
                         <TokenUsage usage={msg.usage} />
                       )}
                       {msg.round != null && (
-                        <div className={`text-[10px] mt-1 opacity-40 ${
-                          msg.role === "user" ? "text-right text-blue-200" : "text-gray-500"
-                        }`}>
-                          第{msg.round}轮
-                        </div>
+                        <div className="chat-msg-meta">第{msg.round}轮</div>
                       )}
                     </>
                   )}
@@ -992,15 +973,14 @@ export default function ChatPanel() {
       </div>
 
       {/* Input */}
-      <div className="px-4 py-3 border-t border-gray-700 bg-gray-850">
+      <div className="chat-input-bar">
         {choiceLocked && (
-          <p className="text-[11px] text-amber-300/80 mb-2">
+          <p className="chat-lock-note">
             ⚔ 待完成战斗选项：已暂停输入与剧情推进，请点击左下角「战斗选项（必选）」恢复并选择打法。
           </p>
         )}
         <div className="flex gap-2">
           <textarea
-            className={"input resize-none text-sm" + (choiceLocked ? " opacity-60 cursor-not-allowed" : "")}
             rows={2}
             placeholder={
               choiceLocked
@@ -1021,11 +1001,12 @@ export default function ChatPanel() {
             disabled={!activeSessionId || sending || !!activeSession?.in_combat || choiceLocked}
           />
           <button
+            type="button"
             onClick={handleSend}
             disabled={!input.trim() || !activeSessionId || sending || streaming || !!activeSession?.in_combat || choiceLocked}
-            className="btn-primary self-end shrink-0"
+            className="chat-send shrink-0"
           >
-            {choiceLocked ? "待选择" : activeSession?.in_combat ? "战斗中" : sending ? "发送中..." : "发送"}
+            {choiceLocked ? "待选择" : activeSession?.in_combat ? "战斗中" : sending ? "发送中…" : "发送"}
           </button>
         </div>
       </div>

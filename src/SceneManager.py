@@ -6,6 +6,8 @@ import threading
 import logging
 
 from CharacterAgent import CharacterAgent
+from character_stats import (format_stats_block, merge_character_stats,
+                             read_global_stats_from_meta)
 
 logger = logging.getLogger(__name__)
 
@@ -479,13 +481,13 @@ class SceneManager:
         agent = self._agents[self.active]
         identity = (player_info or {}).get("identity", "博士")
 
-        # 构建场景上下文注入
-        scene_context = self._build_scene_context()
-        custom_prompt = self._overlay.get_custom_prompt() if self._overlay else None
-
-        # 世界书：解析 + 扫描最近场景动态
+        # 世界书：解析 + 扫描最近场景动态（先解析，场景上下文里的角色数值要按它的字段渲染）
         worldbook = self._resolve_worldbook()
         recent_text = self._recent_scene_text()
+
+        # 构建场景上下文注入
+        scene_context = self._build_scene_context(worldbook, identity)
+        custom_prompt = self._overlay.get_custom_prompt() if self._overlay else None
 
         # 路由到角色代理
         response, env_updates, usage = agent.chat(
@@ -528,12 +530,11 @@ class SceneManager:
             return [{"character": "", "response": "场景中没有角色。", "env_updates": {}}]
 
         identity = (player_info or {}).get("identity", "博士")
-        scene_context = self._build_scene_context()
-        custom_prompt = self._overlay.get_custom_prompt() if self._overlay else None
-
-        # 世界书：解析 + 扫描最近场景动态
+        # 世界书：解析 + 扫描最近场景动态（先解析，场景上下文里的角色数值要按它的字段渲染）
         worldbook = self._resolve_worldbook()
         recent_text = self._recent_scene_text()
+        scene_context = self._build_scene_context(worldbook, identity)
+        custom_prompt = self._overlay.get_custom_prompt() if self._overlay else None
 
         results = []
         total_usage = None
@@ -1087,6 +1088,11 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             if brief_lines:
                 context_parts.append("<scene_state>\n" + " / ".join(brief_lines) + "\n</scene_state>")
 
+        # 角色数值（世界书统一字段 × 角色全局值 × 会话值；逐轮可变，放动态层）
+        stats_block = self._build_stats_block(worldbook, identity)
+        if stats_block:
+            context_parts.append(stats_block)
+
         # 对话历史
         if conversation_history:
             context_parts.append(f"<conversation_history>\n{conversation_history}\n</conversation_history>")
@@ -1427,11 +1433,60 @@ speaker 必须从场景角色列表选择，无法判断时用 null
 
         return segments, plain
 
-    def _build_scene_context(self) -> str:
-        """构建【同场角色】【场景物品】和【场景动态】上下文，注入角色 prompt。"""
+    def _stats_snapshot(self, worldbook, identity: str = "") -> tuple[list[dict], dict[str, dict]]:
+        """(字段定义, {角色名: 合并后的数值})——只列出有值的角色。
+
+        字段来自当前世界书 `stat_fields`；值按「字段默认 → 角色全局（frontmatter
+        `stats`）→ 会话覆盖层」合并。主控角色由玩家扮演、不在 `_agents` 里，
+        但它的数值同样要让模型看见，所以按身份名单独读一次 frontmatter。
+        """
+        fields = list(getattr(worldbook, "stat_fields", None) or []) if worldbook is not None else []
+        per_character: dict[str, dict] = {}
+        overlay = self._overlay
+
+        def collect(name: str, meta: dict | None) -> None:
+            session_values = overlay.get_character_stats(name) if overlay else {}
+            global_values = read_global_stats_from_meta(meta)
+            if not session_values and not global_values:
+                return
+            values, sources = merge_character_stats(fields, global_values, session_values)
+            # 只带「真的有值」的键：全是字段默认值的角色不值得占上下文
+            shown = {k: v for k, v in values.items() if sources.get(k) != "default"}
+            if shown:
+                per_character[name] = shown
+
+        if identity:
+            try:
+                from avatar_color import _read_index_meta
+                collect(identity, _read_index_meta(identity))
+            except Exception:
+                logger.debug("主控数值读取失败: %s", identity, exc_info=True)
+        for name, agent in self._agents.items():
+            if name == identity:
+                continue
+            collect(name, getattr(agent, "metadata", None) or {})
+        return fields, per_character
+
+    def _build_stats_block(self, worldbook, identity: str = "") -> str:
+        """叙述提示词用的 `<character_stats>` 块；没有任何数值时返回空串。"""
+        try:
+            fields, per_character = self._stats_snapshot(worldbook, identity)
+        except Exception:
+            logger.warning("角色数值块构建失败，本轮跳过", exc_info=True)
+            return ""
+        return format_stats_block(fields, per_character)
+
+    def _build_scene_context(self, worldbook=None, identity: str = "") -> str:
+        """构建【同场角色】【场景物品】【角色数值】和【场景动态】上下文，注入角色 prompt。"""
         lines = ["【同场角色】"]
         for name in self._agents:
             lines.append(f"- {name}")
+
+        stats_block = self._build_stats_block(worldbook, identity) if (worldbook is not None or self._overlay) else ""
+        if stats_block:
+            lines.append("\n【角色数值】（由系统维护，回复应与之相符，不要自行改写数字）")
+            for line in stats_block.split("\n")[2:-1]:
+                lines.append(f"- {line}")
 
         if self._scene_items:
             lines.append("\n【场景物品】")

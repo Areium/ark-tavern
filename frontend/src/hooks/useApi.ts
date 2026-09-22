@@ -383,6 +383,7 @@ export function useApi() {
       request<import("../types").WorldBookDetail>(`/api/worldbook/${encodeURIComponent(id)}`),
     updateWorldbook: (id: string, data: { name?: string; description?: string; cover_image?: string;
       budget_tokens?: number; enabled?: boolean; book_type?: import("../types").WorldBookType;
+      stat_fields?: import("../types").StatFieldDTO[];
       expected_revision?: number }) =>
       request<{ book: import("../types").WorldBookSummary }>(`/api/worldbook/${encodeURIComponent(id)}`, {
         method: "PUT",
@@ -595,6 +596,41 @@ export function useApi() {
       request<any>(`/api/cards/classes/${encodeURIComponent(className)}/cards/${encodeURIComponent(cardId)}`, {
         method: "DELETE",
       }),
+
+    // ── 对话舞台 / 角色数值 / 插件数据（场景面板插件的正式数据接口） ──
+    getStage: (sessionId: string) =>
+      request<import("../types").StageDTO>(`/api/sessions/${sessionId}/stage`),
+    getCharacterStats: (name: string) =>
+      request<import("../types").CharacterStatsDTO>(`/api/characters/${encodeURIComponent(name)}/stats`),
+    saveCharacterStats: (name: string, values: Record<string, import("../types").StatValue | null>, replace = false) =>
+      request<import("../types").CharacterStatsDTO>(`/api/characters/${encodeURIComponent(name)}/stats`, {
+        method: "PUT",
+        body: JSON.stringify({ values, replace }),
+      }),
+    getSessionCharacterStats: (sessionId: string) =>
+      request<import("../types").SessionCharacterStatsListDTO>(`/api/sessions/${sessionId}/character-stats`),
+    saveSessionCharacterStats: (sessionId: string, name: string,
+      values: Record<string, import("../types").StatValue | null>, replace = false) =>
+      request<import("../types").SessionCharacterStatsDTO>(
+        `/api/sessions/${sessionId}/character-stats/${encodeURIComponent(name)}`, {
+          method: "PUT",
+          body: JSON.stringify({ values, replace }),
+        }),
+    resetSessionCharacterStats: (sessionId: string, name: string) =>
+      request<import("../types").SessionCharacterStatsDTO>(
+        `/api/sessions/${sessionId}/character-stats/${encodeURIComponent(name)}`, { method: "DELETE" }),
+    listPluginData: (sessionId: string) =>
+      request<{ session_id: string; namespaces: Record<string, { data: Record<string, unknown>; updated_at: number }> }>(
+        `/api/sessions/${sessionId}/plugin-data`),
+    getPluginData: (sessionId: string, namespace: string) =>
+      request<import("../types").PluginDataDTO>(`/api/sessions/${sessionId}/plugin-data/${encodeURIComponent(namespace)}`),
+    savePluginData: (sessionId: string, namespace: string, data: Record<string, unknown>, replace = false) =>
+      request<import("../types").PluginDataDTO>(`/api/sessions/${sessionId}/plugin-data/${encodeURIComponent(namespace)}`, {
+        method: "PUT",
+        body: JSON.stringify({ data, replace }),
+      }),
+    deletePluginData: (sessionId: string, namespace: string) =>
+      request<{ removed: boolean }>(`/api/sessions/${sessionId}/plugin-data/${encodeURIComponent(namespace)}`, { method: "DELETE" }),
 
     // ── Combat ──
     combatStart: (sessionId: string, encounterId: string, characters: string[], approachId?: string) =>

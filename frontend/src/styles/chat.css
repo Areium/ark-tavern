@@ -1,0 +1,326 @@
+/* ══════════════════════════════════════════════════════════════════════
+   对话页（ChatView / ChatPanel / ScenePanel / StageView）
+   色值取 --ng-* 令牌（默认深色 / html.light / 皮肤都会覆盖），本文件不写死主题色；
+   字体语言与角色页 / 世界书工作台同源：衬线标题 + Orbitron 眉标。
+   ══════════════════════════════════════════════════════════════════════ */
+.chat-view {
+  --chat-serif: "Noto Serif SC", "Songti SC", Georgia, serif;
+  --chat-display: "Orbitron", "Noto Sans SC", sans-serif;
+  --chat-text: var(--ng-title, #f3f4f6);
+  --chat-body: var(--ng-body, #c3c8d1);
+  --chat-muted: var(--ng-muted, #8b93a1);
+  --chat-accent: var(--ng-edge-color-hl, #dfa945);
+  --chat-card: var(--ng-card-bg, rgba(17, 20, 26, .94));
+  --chat-line: color-mix(in srgb, var(--chat-muted) 22%, transparent);
+  --chat-line-strong: color-mix(in srgb, var(--chat-muted) 40%, transparent);
+  --chat-soft: color-mix(in srgb, var(--chat-muted) 9%, transparent);
+  --chat-user: #4f86d8;
+}
+
+/* ── 顶栏 ─────────────────────────────────────────────────────────── */
+.chat-topbar {
+  display: flex; align-items: center; gap: 4px; height: 42px; padding: 0 8px; flex-shrink: 0;
+  border-bottom: 1px solid var(--chat-line); background: var(--chat-card); position: relative; z-index: 20;
+  backdrop-filter: blur(6px);
+}
+.chat-topbar-btn {
+  display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border-radius: 8px;
+  border: 1px solid transparent; color: var(--chat-muted); font-size: 12px; white-space: nowrap;
+  transition: color .15s, background-color .15s, border-color .15s;
+}
+.chat-topbar-btn:hover { color: var(--chat-text); background: var(--chat-soft); }
+.chat-topbar-btn.is-back { color: var(--chat-accent); }
+.chat-topbar-btn.is-back:hover { background: color-mix(in srgb, var(--chat-accent) 12%, transparent); }
+.chat-topbar-btn.is-icon { width: 28px; padding: 0; justify-content: center; }
+.chat-topbar-btn.is-on { color: var(--chat-accent); border-color: color-mix(in srgb, var(--chat-accent) 40%, transparent); background: color-mix(in srgb, var(--chat-accent) 10%, transparent); }
+.chat-topbar-sep { width: 1px; height: 16px; margin: 0 4px; background: var(--chat-line-strong); }
+.chat-topbar-title {
+  font-family: var(--chat-serif); font-weight: 600; font-size: 13px; letter-spacing: .04em; color: var(--chat-text);
+  max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-mode-switch, .chat-layout-switch {
+  display: inline-flex; gap: 2px; padding: 2px; border-radius: 9px; border: 1px solid var(--chat-line); background: var(--chat-soft);
+}
+.chat-mode-switch button, .chat-layout-switch button {
+  display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 9px; border-radius: 7px;
+  font-size: 11px; color: var(--chat-muted); transition: color .15s, background-color .15s;
+}
+.chat-mode-switch button:hover, .chat-layout-switch button:hover { color: var(--chat-text); }
+.chat-mode-switch button[aria-pressed="true"].is-story { color: #fff; background: color-mix(in srgb, #d97706 80%, transparent); }
+.chat-mode-switch button[aria-pressed="true"].is-free { color: #fff; background: color-mix(in srgb, #7c3aed 80%, transparent); }
+.chat-layout-switch button[aria-pressed="true"] { color: var(--chat-text); background: var(--chat-card); box-shadow: inset 0 0 0 1px var(--chat-line-strong); }
+.chat-layout-switch button[aria-pressed="true"] svg { color: var(--chat-accent); }
+@media (max-width: 760px) {
+  .chat-topbar-btn span, .chat-layout-switch button span { display: none; }
+  .chat-topbar-title { display: none; }
+}
+
+/* ── 场景面板：图标栏 + 内容 ────────────────────────────────────────── */
+.scene-panel { display: flex; flex-shrink: 0; height: 100%; border-right: 1px solid var(--chat-line); background: var(--chat-card); }
+.scene-rail {
+  display: flex; flex-direction: column; gap: 2px; width: 46px; padding: 6px 4px; flex-shrink: 0;
+  border-right: 1px solid var(--chat-line); overflow-y: auto; overflow-x: hidden;
+}
+.scene-rail::-webkit-scrollbar { width: 0; }
+.scene-rail-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  width: 38px; height: 40px; border-radius: 9px; color: var(--chat-muted); position: relative;
+  transition: color .15s, background-color .15s;
+}
+.scene-rail-btn:hover { color: var(--chat-text); background: var(--chat-soft); }
+.scene-rail-btn.is-active { color: var(--chat-accent); background: color-mix(in srgb, var(--chat-accent) 12%, transparent); }
+.scene-rail-btn.is-active::before {
+  content: ""; position: absolute; left: -4px; top: 9px; bottom: 9px; width: 2px; border-radius: 2px; background: var(--chat-accent);
+}
+.scene-rail-label { font-size: 9px; line-height: 1; letter-spacing: .02em; }
+.scene-rail-btn.is-toggle { height: 32px; margin-top: 4px; }
+.scene-panel-body { display: flex; flex-direction: column; width: 288px; min-width: 0; }
+.scene-panel-head { padding: 10px 12px 8px; border-bottom: 1px solid var(--chat-line); }
+.scene-panel-eyebrow {
+  display: inline-flex; align-items: center; gap: 5px; font-family: var(--chat-display); font-size: 9px; font-weight: 600;
+  letter-spacing: .2em; text-transform: uppercase; color: var(--chat-accent); opacity: .9;
+}
+.scene-panel-title { font-family: var(--chat-serif); font-size: 16px; font-weight: 700; letter-spacing: .04em; color: var(--chat-text); line-height: 1.3; }
+.scene-panel-hint { margin-top: 2px; font-size: 10.5px; line-height: 1.5; color: var(--chat-muted); }
+.scene-panel-content { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 16px; }
+/* 老面板组件自带 .card 外壳：在场景面板里拍平成面板本体 */
+.scene-panel-content > .card, .scene-panel-content .card { background: transparent; border: 0; padding: 0; border-radius: 0; }
+.scene-panel-content .panel-title { font-size: 10.5px; letter-spacing: .12em; }
+@media (max-width: 900px) { .scene-panel-body { width: 240px; } }
+
+/* ── 数值面板 / 数值表单 ────────────────────────────────────────────── */
+.stat-form { display: flex; flex-direction: column; gap: 10px; }
+.stat-group { display: flex; flex-direction: column; gap: 8px; }
+.stat-group-title {
+  display: flex; align-items: center; gap: 8px; font-size: 10.5px; letter-spacing: .12em; color: var(--chat-muted); white-space: nowrap;
+}
+.stat-group-title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--chat-line), transparent); }
+.stat-row { display: flex; flex-direction: column; gap: 4px; }
+.stat-row-head { display: flex; align-items: center; gap: 6px; min-height: 16px; }
+.stat-label { font-size: 12px; color: var(--chat-body); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stat-desc { font-size: 10.5px; color: var(--chat-muted); line-height: 1.4; }
+.stat-source {
+  font-size: 9.5px; line-height: 1; padding: 3px 5px; border-radius: 4px; letter-spacing: .04em;
+  color: var(--chat-muted); border: 1px solid var(--chat-line);
+}
+.stat-source.is-session { color: var(--chat-accent); border-color: color-mix(in srgb, var(--chat-accent) 45%, transparent); background: color-mix(in srgb, var(--chat-accent) 10%, transparent); }
+.stat-source.is-global { color: #7cc4b8; border-color: color-mix(in srgb, #7cc4b8 40%, transparent); }
+.stat-clear {
+  display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px;
+  color: var(--chat-muted); transition: color .15s, background-color .15s;
+}
+.stat-clear:hover { color: #f87171; background: color-mix(in srgb, #f87171 12%, transparent); }
+.stat-meter { height: 6px; border-radius: 3px; background: var(--chat-soft); overflow: hidden; border: 1px solid var(--chat-line); }
+.stat-meter-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, color-mix(in srgb, var(--chat-accent) 70%, #fff 0%), var(--chat-accent)); transition: width .25s; }
+.stat-add { display: grid; grid-template-columns: 1fr 1fr 28px; gap: 6px; align-items: center; }
+.stat-add-btn {
+  display: inline-flex; align-items: center; justify-content: center; height: 28px; border-radius: 7px;
+  color: var(--chat-accent); border: 1px solid color-mix(in srgb, var(--chat-accent) 40%, transparent);
+}
+.stat-add-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--chat-accent) 12%, transparent); }
+.stat-add-btn:disabled { opacity: .4; }
+.stat-hint {
+  display: flex; gap: 6px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; font-size: 11px; line-height: 1.5;
+  color: var(--chat-muted); border: 1px solid var(--chat-line); background: var(--chat-soft);
+}
+.stat-char { border: 1px solid var(--chat-line); border-radius: 10px; overflow: hidden; background: var(--chat-soft); }
+.stat-char.is-open { border-color: var(--chat-line-strong); }
+.stat-char-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; text-align: left; color: var(--chat-text); }
+.stat-char-head:hover { background: color-mix(in srgb, var(--chat-muted) 8%, transparent); }
+.stat-char-body { padding: 4px 10px 12px; border-top: 1px solid var(--chat-line); }
+.stat-reset {
+  display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; font-size: 11px; color: var(--chat-muted);
+}
+.stat-reset:hover:not(:disabled) { color: #f87171; }
+
+/* ── 对话区：页头 ───────────────────────────────────────────────────── */
+.chat-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 14px; flex-shrink: 0;
+  border-bottom: 1px solid var(--chat-line); background: color-mix(in srgb, var(--chat-card) 60%, transparent);
+}
+.chat-head-round { font-family: var(--chat-display); font-size: 10px; letter-spacing: .14em; color: var(--chat-muted); }
+.chat-head-tool {
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px; height: 22px; min-width: 22px; padding: 0 6px;
+  border-radius: 6px; font-size: 10.5px; color: var(--chat-muted); border: 1px solid transparent; transition: color .15s, background-color .15s, border-color .15s;
+}
+.chat-head-tool:hover:not(:disabled) { color: var(--chat-text); background: var(--chat-soft); }
+.chat-head-tool.is-on { color: var(--chat-accent); border-color: color-mix(in srgb, var(--chat-accent) 40%, transparent); }
+.chat-head-tool:disabled { opacity: .4; cursor: not-allowed; }
+.chat-font-size { display: inline-flex; align-items: center; gap: 2px; font-size: 10px; color: var(--chat-muted); user-select: none; }
+.chat-font-size span { width: 20px; text-align: center; font-variant-numeric: tabular-nums; }
+.chat-tokens { font-size: 10px; color: var(--chat-muted); user-select: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chat-tokens small { opacity: .7; }
+
+/* ── 对话区：消息流 ─────────────────────────────────────────────────── */
+.chat-log { background: radial-gradient(120% 80% at 50% -10%, color-mix(in srgb, var(--chat-accent) 6%, transparent), transparent 60%); }
+.chat-msg {
+  max-width: min(80%, 62rem); padding: 10px 16px; border-radius: 14px; line-height: 1.75; position: relative;
+  border: 1px solid transparent; color: var(--chat-body);
+}
+.chat-msg.is-user {
+  color: #fff; background: linear-gradient(135deg, color-mix(in srgb, var(--chat-user) 92%, #fff), color-mix(in srgb, var(--chat-user) 80%, #000));
+  border-bottom-right-radius: 4px; box-shadow: 0 6px 18px -10px color-mix(in srgb, var(--chat-user) 60%, transparent);
+}
+.chat-msg.is-narrator {
+  font-family: var(--chat-serif); color: color-mix(in srgb, var(--chat-text) 88%, var(--chat-accent)); letter-spacing: .01em;
+  background: color-mix(in srgb, var(--chat-accent) 7%, var(--chat-card)); border-color: color-mix(in srgb, var(--chat-accent) 22%, transparent);
+  border-top-left-radius: 4px;
+}
+.chat-msg.is-character { background: color-mix(in srgb, #8b5cf6 12%, var(--chat-card)); border-color: color-mix(in srgb, #8b5cf6 28%, transparent); border-top-left-radius: 4px; }
+.chat-msg.is-narrator.is-plain, .chat-msg.is-character.is-plain { max-width: 95%; padding: 0; background: transparent; border-color: transparent; }
+.chat-msg.is-system { padding: 6px 12px; font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: 11px; color: var(--chat-muted); white-space: pre-wrap; background: var(--chat-soft); border-color: var(--chat-line); }
+.chat-msg.is-choices { padding: 0; background: transparent; border-color: transparent; max-width: 100%; }
+.chat-msg.is-other { background: var(--chat-soft); border-color: var(--chat-line); }
+.chat-msg-name { margin-bottom: 4px; font-family: var(--chat-serif); font-size: 12.5px; font-weight: 700; letter-spacing: .04em; }
+.chat-msg.is-user .chat-msg-name { color: rgba(255, 255, 255, .85); }
+.chat-msg.is-character .chat-msg-name { color: #c4b5fd; }
+.chat-round-divider { display: flex; align-items: center; justify-content: center; margin: 14px 0; }
+.chat-round-divider::before, .chat-round-divider::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--chat-line-strong), transparent); }
+.chat-round-divider button { margin: 0 12px; font-family: var(--chat-display); font-size: 9.5px; letter-spacing: .18em; color: var(--chat-muted); white-space: nowrap; }
+.chat-round-divider button:hover { color: #f87171; }
+.chat-choice {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 10px; font-size: 13px; text-align: left;
+  color: var(--chat-accent); border: 1px solid color-mix(in srgb, var(--chat-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--chat-accent) 6%, transparent); transition: background-color .15s, transform .15s, border-color .15s;
+}
+.chat-choice:hover:not(:disabled) { background: color-mix(in srgb, var(--chat-accent) 16%, transparent); border-color: color-mix(in srgb, var(--chat-accent) 65%, transparent); transform: translateY(-1px); }
+.chat-choice:disabled { opacity: .5; }
+.chat-choice em { font-style: normal; font-size: 10px; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--chat-accent) 18%, transparent); opacity: .85; }
+.chat-choice-author { font-size: 10px; color: var(--chat-muted); }
+.chat-msg-meta { margin-top: 4px; font-size: 10px; opacity: .45; }
+.chat-msg.is-user .chat-msg-meta { text-align: right; color: #dbeafe; }
+
+/* 说话人气泡：点击高亮说话角色 */
+.dlg-bubble { cursor: pointer; transition: box-shadow .15s, transform .15s; }
+.dlg-bubble:hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--role-color, var(--chat-accent)) 45%, transparent); }
+.dlg-bubble.is-highlighted { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--role-color, var(--chat-accent)) 70%, transparent), 0 6px 18px -8px color-mix(in srgb, var(--role-color, var(--chat-accent)) 50%, transparent); }
+
+/* 场景角色列表里的说话人高亮 */
+.scene-char-row.is-highlighted { outline: 1.5px solid color-mix(in srgb, var(--chat-accent) 70%, transparent); outline-offset: -1px; background: color-mix(in srgb, var(--chat-accent) 12%, transparent); }
+
+/* ── 对话区：输入 ───────────────────────────────────────────────────── */
+.chat-input-bar { padding: 10px 14px 12px; flex-shrink: 0; border-top: 1px solid var(--chat-line); background: var(--chat-card); }
+.chat-input-bar textarea {
+  width: 100%; min-height: 44px; padding: 9px 12px; border-radius: 12px; font-size: 13px; line-height: 1.6; resize: none;
+  color: var(--chat-text); background: var(--chat-soft); border: 1px solid var(--chat-line); transition: border-color .15s, box-shadow .15s;
+}
+.chat-input-bar textarea::placeholder { color: var(--chat-muted); }
+.chat-input-bar textarea:focus { border-color: color-mix(in srgb, var(--chat-accent) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--chat-accent) 12%, transparent); }
+.chat-input-bar textarea:disabled { opacity: .55; cursor: not-allowed; }
+.chat-send {
+  align-self: flex-end; display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 40px; padding: 0 18px; border-radius: 12px;
+  font-size: 13px; font-weight: 600; color: #1a1305; background: linear-gradient(135deg, #f5c86a, var(--chat-accent));
+  box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--chat-accent) 70%, transparent); transition: filter .15s, transform .15s;
+}
+.chat-send:hover:not(:disabled) { filter: brightness(1.06); transform: translateY(-1px); }
+.chat-send:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.chat-lock-note { margin-bottom: 8px; font-size: 11px; color: var(--chat-accent); opacity: .85; }
+
+/* ── 舞台（视觉小说视图） ─────────────────────────────────────────────── */
+.stage { position: relative; flex: 1; min-height: 0; overflow: hidden; outline: none; user-select: none; background: #0b0e14; }
+.stage-bg { position: absolute; inset: 0; background-size: cover; background-position: center; transition: background-image .4s; }
+.stage-vignette {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 50% 30%, rgba(8, 10, 16, 0) 0%, rgba(8, 10, 16, .35) 62%, rgba(5, 6, 10, .8) 100%),
+    linear-gradient(to bottom, rgba(6, 8, 13, .45) 0%, rgba(6, 8, 13, 0) 22%, rgba(6, 8, 13, 0) 55%, rgba(4, 5, 9, .88) 100%);
+}
+.stage-env {
+  position: absolute; top: 10px; left: 12px; z-index: 6; display: flex; gap: 10px; padding: 5px 10px; border-radius: 8px;
+  font-size: 11px; color: rgba(255, 255, 255, .85); background: rgba(6, 8, 13, .55); border: 1px solid rgba(255, 255, 255, .1); backdrop-filter: blur(6px);
+}
+.stage-env span { display: inline-flex; align-items: center; gap: 4px; }
+.stage-tools { position: absolute; top: 10px; right: 12px; z-index: 6; display: flex; gap: 6px; }
+.stage-tools button {
+  display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border-radius: 8px; font-size: 11px;
+  color: rgba(255, 255, 255, .85); background: rgba(6, 8, 13, .55); border: 1px solid rgba(255, 255, 255, .12); backdrop-filter: blur(6px);
+  transition: background-color .15s, color .15s;
+}
+.stage-tools button:hover:not(:disabled) { background: rgba(6, 8, 13, .8); color: #fff; }
+.stage-tools button:disabled { opacity: .4; }
+
+.stage-cast { position: absolute; left: 0; right: 0; bottom: 0; top: 0; pointer-events: none; }
+.stage-sprite {
+  position: absolute; bottom: 0; transform: translateX(-50%); height: var(--sprite-h, 88%); max-width: var(--sprite-w, 46%); display: flex; align-items: flex-end; justify-content: center;
+  pointer-events: auto; cursor: pointer; transition: filter .35s ease, transform .35s ease, opacity .35s ease;
+  filter: brightness(1) saturate(1); opacity: .96;
+}
+.stage-cast.has-focus .stage-sprite:not(.is-speaking), .stage-cast.player-speaking .stage-sprite { filter: brightness(.5) saturate(.7); opacity: .85; }
+.stage-sprite.is-speaking { transform: translateX(-50%) translateY(-6px) scale(1.03); filter: brightness(1.05) saturate(1.05) drop-shadow(0 0 22px rgba(255, 220, 150, .35)); opacity: 1; }
+.stage-sprite.is-pulse-a { animation: stage-pulse-a .45s ease-out; }
+.stage-sprite.is-pulse-b { animation: stage-pulse-b .45s ease-out; }
+@keyframes stage-pulse-a { 0% { filter: brightness(1.6) saturate(1.2) drop-shadow(0 0 30px rgba(255, 230, 170, .7)); } 100% { filter: brightness(1.05) saturate(1.05) drop-shadow(0 0 22px rgba(255, 220, 150, .35)); } }
+@keyframes stage-pulse-b { 0% { filter: brightness(1.6) saturate(1.2) drop-shadow(0 0 30px rgba(255, 230, 170, .7)); } 100% { filter: brightness(1.05) saturate(1.05) drop-shadow(0 0 22px rgba(255, 220, 150, .35)); } }
+.stage-sprite-img { height: 100%; width: auto; max-width: 100%; object-fit: contain; object-position: bottom; }
+.stage-sprite-card {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 34%; padding: 10px 14px 8px; border-radius: 14px;
+  color: rgba(255, 255, 255, .9); font-size: 12px; background: rgba(6, 8, 13, .6); border: 1px solid rgba(255, 255, 255, .18); backdrop-filter: blur(6px);
+}
+.stage-sprite-card .dlg-ava { width: 56px; height: 56px; }
+
+.stage-choices {
+  position: absolute; left: 50%; bottom: 34%; z-index: 8; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; width: min(520px, 86%);
+  animation: stage-rise .3s ease-out;
+}
+.stage-choices-title { text-align: center; font-family: var(--chat-display, "Orbitron", sans-serif); font-size: 10px; letter-spacing: .3em; color: rgba(255, 228, 170, .9); text-shadow: 0 1px 6px rgba(0, 0, 0, .8); }
+.stage-choice {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 18px; border-radius: 12px; text-align: left; font-size: 14px;
+  color: #fff6e0; background: rgba(10, 12, 18, .78); border: 1px solid rgba(245, 200, 106, .5); backdrop-filter: blur(8px);
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, .8); transition: background-color .15s, border-color .15s, transform .15s;
+}
+.stage-choice:hover:not(:disabled) { background: rgba(60, 45, 20, .85); border-color: #f5c86a; transform: translateX(3px); }
+.stage-choice:disabled { opacity: .5; }
+.stage-choice em { font-style: normal; font-size: 10px; padding: 2px 6px; border-radius: 4px; color: #f5c86a; background: rgba(245, 200, 106, .16); white-space: nowrap; }
+@keyframes stage-rise { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+.stage-dialog-wrap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 9; padding: 0 clamp(12px, 5vw, 64px) 16px; }
+.stage-dialog {
+  position: relative; max-width: 980px; margin: 0 auto; min-height: 118px; padding: 14px 22px 12px; border-radius: 16px; cursor: pointer;
+  color: #f4efe6; background: linear-gradient(180deg, rgba(10, 12, 18, .78), rgba(10, 12, 18, .9)); border: 1px solid rgba(245, 200, 106, .28);
+  backdrop-filter: blur(10px); box-shadow: 0 18px 50px -20px rgba(0, 0, 0, .9), inset 0 1px 0 rgba(255, 255, 255, .06);
+  transition: border-color .2s;
+}
+.stage-dialog:hover { border-color: rgba(245, 200, 106, .5); }
+.stage-dialog.is-player { border-color: rgba(96, 165, 250, .45); }
+.stage-dialog.is-system { border-color: rgba(255, 255, 255, .18); font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: .85em; }
+.stage-dialog.is-empty { cursor: default; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+.stage-name {
+  position: absolute; top: -15px; left: 16px; display: inline-flex; align-items: center; gap: 8px; padding: 4px 14px 4px 8px; border-radius: 999px;
+  font-family: var(--chat-serif, serif); font-size: 13px; font-weight: 700; letter-spacing: .06em;
+  color: color-mix(in srgb, var(--role-color, #f5c86a) 55%, #fff); background: rgba(10, 12, 18, .92); border: 1px solid color-mix(in srgb, var(--role-color, #f5c86a) 55%, transparent);
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--role-color, #f5c86a) 60%, transparent);
+}
+.stage-name .dlg-ava { width: 22px; height: 22px; }
+.stage-dialog-text { line-height: 1.85; letter-spacing: .01em; white-space: pre-wrap; min-height: 3.6em; padding-top: 6px; }
+.stage-dialog-text.is-narration { font-family: var(--chat-serif, serif); color: #efe6d2; font-style: normal; }
+.stage-caret { display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -.15em; background: #f5c86a; animation: stage-blink 1s steps(2) infinite; }
+@keyframes stage-blink { 50% { opacity: 0; } }
+.stage-dialog-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; font-size: 10px; color: rgba(255, 255, 255, .45); }
+.stage-progress { font-family: var(--chat-display, sans-serif); letter-spacing: .12em; font-variant-numeric: tabular-nums; }
+.stage-next { color: #f5c86a; animation: stage-bob 1.1s ease-in-out infinite; }
+.stage-next.is-end { animation: none; opacity: .8; }
+@keyframes stage-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
+.stage-waiting { display: inline-flex; align-items: center; gap: 8px; color: rgba(255, 255, 255, .7); }
+.stage-waiting i { width: 6px; height: 6px; border-radius: 50%; background: #f5c86a; opacity: .6; animation: stage-dot 1.2s infinite; }
+.stage-waiting i:nth-child(2) { animation-delay: .15s; } .stage-waiting i:nth-child(3) { animation-delay: .3s; }
+@keyframes stage-dot { 0%, 100% { opacity: .3; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+.stage-start {
+  padding: 8px 22px; border-radius: 999px; font-size: 13px; font-weight: 600; color: #1a1305;
+  background: linear-gradient(135deg, #f5c86a, #dfa945); box-shadow: 0 8px 22px -8px rgba(245, 200, 106, .7);
+}
+.stage-start:hover { filter: brightness(1.06); }
+
+/* 舞台模式下的完整记录：覆盖在舞台之上的抽屉 */
+.stage-log-overlay {
+  position: absolute; inset: 0; z-index: 30; overflow-y: auto; padding: 16px clamp(12px, 5vw, 64px) 24px;
+  background: color-mix(in srgb, var(--chat-card) 92%, transparent); backdrop-filter: blur(10px); animation: stage-fade .2s ease-out;
+}
+.stage-log-head { position: sticky; top: -16px; z-index: 2; display: flex; align-items: center; justify-content: space-between; margin: -16px -4px 12px; padding: 12px 4px 8px; background: var(--chat-card); border-bottom: 1px solid var(--chat-line); }
+.stage-log-head span { font-family: var(--chat-display); font-size: 10px; letter-spacing: .24em; color: var(--chat-accent); }
+.stage-log-head button { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border-radius: 8px; font-size: 11px; color: var(--chat-muted); border: 1px solid var(--chat-line); }
+.stage-log-head button:hover { color: var(--chat-text); background: var(--chat-soft); }
+@keyframes stage-fade { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-sprite, .stage-bg, .stage-choices, .stage-next, .stage-caret, .stage-waiting i, .stage-log-overlay { animation: none !important; transition: none !important; }
+}

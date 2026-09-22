@@ -443,6 +443,10 @@ class CombatDataLoader:
                 return f"/api/sessions/{session_id}/backgrounds/{f.name}"
         return None
 
+    def location_background_id(self, location_name: str) -> str:
+        """地点文档声明的背景 id（`combat_bg`）；对话舞台与战斗共用这一约定。"""
+        return self._location_combat_bg(location_name)
+
     def _location_combat_bg(self, location_name: str) -> str:
         """Find the `combat_bg` field of a location doc matching name/alias/dir."""
         loc_base = self._root.parent / "environment" / "Location"

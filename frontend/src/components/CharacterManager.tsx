@@ -21,6 +21,9 @@ import type { WorldBookSummary } from "../types";
 import MarkdownRenderer from "./MarkdownRenderer";
 import AssetManager from "./AssetManager";
 import CardManager from "./CardManager";
+import CardEditor from "./combat/CardEditor";
+import CharacterStatsEditor from "./roles/CharacterStatsEditor";
+import CharacterAssets from "./roles/CharacterAssets";
 import WorldbookGroupList from "./WorldbookGroupList";
 import AppIcon, { type AppIconName } from "./AppIcon";
 import EntityAvatar, { characterAvatarUrl } from "./roles/EntityAvatar";
@@ -68,6 +71,15 @@ const MODULE_TABS: { id: CharacterTab; label: string; icon: AppIconName; hint: s
 
 /** 左列表 + 右详情的双栏骨架只服务于角色库 / 玩家身份两个模块 */
 const ROLE_MODULE_TABS = new Set<CharacterTab>(["characters", "identities"]);
+
+/** 角色详情页签：资料（设定）/ 数值（全局默认值）/ 资产（本角色的图片）/ 卡牌（专属卡牌） */
+export type CharacterDetailTab = "profile" | "stats" | "assets" | "cards";
+export const CHARACTER_DETAIL_TABS: ReadonlyArray<{ id: CharacterDetailTab; label: string; icon: AppIconName; hint: string }> = [
+  { id: "profile", label: "资料", icon: "characters", hint: "属性、标签与背景设定" },
+  { id: "stats", label: "数值", icon: "index", hint: "按所属世界书的统一字段编辑全局默认值" },
+  { id: "assets", label: "资产", icon: "images", hint: "这个角色的头像 / 立绘 / 卡面" },
+  { id: "cards", label: "卡牌", icon: "cards", hint: "这个角色的专属战斗卡牌" },
+];
 
 const ATTR_LABELS: Record<string, string> = {
   strength: "力量",
@@ -145,6 +157,9 @@ export default function CharacterManager() {
   const [charDetail, setCharDetail] = useState<CharacterDetail | null>(null);
   const [charLoading, setCharLoading] = useState(false);
   const [charImporting, setCharImporting] = useState(false);
+  // 角色详情页签：资产与卡牌并入角色之下，切换角色回到「资料」
+  const [charDetailTab, setCharDetailTab] = useState<CharacterDetailTab>("profile");
+  useEffect(() => { setCharDetailTab("profile"); }, [selectedChar]);
 
   // ── 玩家身份 ──
   const [identities, setIdentities] = useState<IdentitySummary[]>([]);
@@ -338,8 +353,8 @@ export default function CharacterManager() {
   };
 
   const jumpToCards = () => {
-    // 卡牌页签就在本页（原「内容中心 → 卡牌」），切换模块即可，用户再在列表里选择
-    setCharacterTab("cards");
+    // 卡牌已并入角色详情：直接切到本角色的「卡牌」页签
+    setCharDetailTab("cards");
   };
 
   const filteredCharacters = useMemo(() => {
@@ -430,7 +445,7 @@ export default function CharacterManager() {
               >
                 编辑世界书设定
               </ActionButton>
-              <ActionButton icon="cards" variant="amber" onClick={jumpToCards}>
+              <ActionButton icon="cards" variant="amber" onClick={jumpToCards} title="切到本角色的「卡牌」页签">
                 编辑战斗卡牌
               </ActionButton>
             </>
@@ -451,32 +466,54 @@ export default function CharacterManager() {
           )}
         </PanelHeader>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-          {summary && <p className="text-[13px] text-gray-300 leading-relaxed">{summary}</p>}
+        {/* 详情页签：资料 / 数值 / 资产 / 卡牌 —— 资产与卡牌就在角色之下管理 */}
+        <nav className="roles-detail-tabs" aria-label="角色详情页签">
+          {CHARACTER_DETAIL_TABS.map((item) => (
+            <button key={item.id} type="button" aria-pressed={charDetailTab === item.id} title={item.hint}
+              onClick={() => setCharDetailTab(item.id)}>
+              <AppIcon name={item.icon} size={13} />{item.label}
+            </button>
+          ))}
+        </nav>
 
-          {Object.keys(attrs).length > 0 && (
-            <section>
-              <h3 className="roles-section">属性</h3>
-              <div className="grid grid-cols-4 gap-2">
-                {orderAttrs(attrs).map(([k, v]) => (
-                  <div key={k} className="stat-cell flex flex-col items-center px-2 py-1.5">
-                    <span className="text-[11px] text-gray-500">{ATTR_LABELS[k] || k}</span>
-                    <span className="text-gray-200 font-mono text-sm">{v}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+        {charDetailTab === "cards" ? (
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <CardEditor key={`char-cards-${selectedChar}`} embedded entityName={selectedChar} entityType="character" />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+            {charDetailTab === "stats" && <CharacterStatsEditor key={`stats-${selectedChar}`} characterId={selectedChar} />}
+            {charDetailTab === "assets" && <CharacterAssets key={`assets-${selectedChar}`} characterId={selectedChar} />}
+            {charDetailTab === "profile" && (
+              <>
+                {summary && <p className="text-[13px] text-gray-300 leading-relaxed">{summary}</p>}
 
-          {charDetail?.content && (
-            <section>
-              <h3 className="roles-section">背景</h3>
-              <div className="detail-section text-sm text-gray-300 leading-relaxed p-4">
-                <MarkdownRenderer content={charDetail.content} />
-              </div>
-            </section>
-          )}
-        </div>
+                {Object.keys(attrs).length > 0 && (
+                  <section>
+                    <h3 className="roles-section">属性</h3>
+                    <div className="grid grid-cols-4 gap-2">
+                      {orderAttrs(attrs).map(([k, v]) => (
+                        <div key={k} className="stat-cell flex flex-col items-center px-2 py-1.5">
+                          <span className="text-[11px] text-gray-500">{ATTR_LABELS[k] || k}</span>
+                          <span className="text-gray-200 font-mono text-sm">{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {charDetail?.content && (
+                  <section>
+                    <h3 className="roles-section">背景</h3>
+                    <div className="detail-section text-sm text-gray-300 leading-relaxed p-4">
+                      <MarkdownRenderer content={charDetail.content} />
+                    </div>
+                  </section>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
     );
   };

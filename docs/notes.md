@@ -79,6 +79,37 @@
   的读取回退，QA-07（`急救包.md` 可列出但详情 404）随数据布局迁移修复；本节列出的其余剧情缺陷
   未因该修复自动关闭，仍以各自验收用例为准。
 
+## 对话页
+
+### 角色数值的字段解析：会话绑定书优先，不是角色自己的书（2026-09-23，`feat/session-stage-panels`）
+
+- **口径**：会话里某角色用哪套统一字段，先看**会话绑定的世界书**（`overlay.worldbook_id` → `stat_fields`），
+  同一会话内所有角色因此口径一致；会话没绑书或该书没定义字段，才退回角色自己的来源书（frontmatter
+  `worldbook_id`）。角色页「数值」页签（全局值）只看角色自己的来源书。两处不一致时以会话为准——
+  `tests/test_character_stats_api.py::test_session_stats_merge_and_bound_book_fields` 钉住。
+- **值的三层**：字段默认 → frontmatter `stats` → `overrides.json.character_stats`。全是默认值的角色不进提示词，
+  `<character_stats>` 块只列有非默认值的键；主控角色不在 `_agents` 里，由 `SceneManager._stats_snapshot` 按身份名
+  单独读 frontmatter。
+- **快照兼容**：`character_stats` / `plugin_data` 随剧情树节点快照与 `node_history.json` 回档；**老快照没有这两个键
+  时保持现值、不清空**（与 `character_states` 同口径，见 `rollback_to_tree_node`）。
+
+### 舞台模式只演「最新一段」，完整记录靠同一份 DOM 换外观（2026-09-23）
+
+- 舞台（`StageView`）不复制消息流：`ChatPanel` 里那个消息列表在舞台模式下用 `hidden` / `stage-log-overlay` 两个类
+  切换外观，「记录」按钮打开的是同一份 DOM。`bottomRef.scrollIntoView` 在 `display:none` 下是空操作，打开抽屉时再滚到底。
+- 脚本键 `index:round:variantIndex:s|d` 一变就从第一步重来：切变体、回档、新一轮都会重置游标；流式中键带 `:s`，
+  只有实时文本一步，不做逐步推进。
+- 截图脚本（`scripts/shot_chat_ui.py`）靠**预置 localStorage `ark_chat_story_<sid>`** 让 `ChatPanel` 走缓存路径、
+  不触发首轮叙述，因此不会调用模型；后端会话的 `narration_count` 仍是 0，页头 ROUND 取本地与后端的较大值。
+
+### `plugins/index.ts` 的 `import.meta.glob` 不能被 CJS 断言脚本 require（2026-09-23）
+
+- **现象**：`node scripts/test_stage_ui.cjs` require 到 `components/ChatView.tsx` → `plugins/index.ts` 时报
+  `exports is not defined in ES module scope`。
+- **根因**：`ts.transpileModule` 转成 CJS 后 `import.meta` 仍在，Node 判定该文件是 ESM 再去当 ES 模块加载。
+- **现状口径**：断言脚本在转译钩子里对该文件路径直接 `module.exports = { CUSTOM_PANEL_MODULES: [] }` 顶替，
+  内置面板改为显式 `require("plugins/builtin.tsx")` 登记。新写脚本照抄；不要为迁就钩子把 glob 从 `index.ts` 挪走。
+
 ## 测试
 
 ### 无浏览器 SSR 脚本的转译钩子必须传 `fileName`（2026-09-22，`feat/roles-ui-polish`）

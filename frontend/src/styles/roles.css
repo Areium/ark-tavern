@@ -125,3 +125,14 @@
   color: var(--roles-muted);
   opacity: .8;
 }
+
+/* 角色详情页签（资料 / 数值 / 资产 / 卡牌）：资产与卡牌并入角色之下 */
+.roles-detail-tabs {
+  display: flex; gap: 2px; padding: 6px 16px 0; border-bottom: 1px solid var(--roles-line); flex-shrink: 0;
+}
+.roles-detail-tabs button {
+  display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 11px; margin-bottom: -1px;
+  border-bottom: 2px solid transparent; font-size: 12px; color: var(--roles-muted); transition: color .15s, border-color .15s;
+}
+.roles-detail-tabs button:hover { color: var(--roles-text); }
+.roles-detail-tabs button[aria-pressed="true"] { color: var(--roles-accent); border-bottom-color: var(--roles-accent); }

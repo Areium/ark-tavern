@@ -35,7 +35,8 @@
 | 模块 | 职责 |
 |---|---|
 | `session_manager.py` | 会话 CRUD、回滚、叙述变体；创建时通过 initializer 在发布前完成阵容与世界书范围初始化。**`combat_mode`（`"narrative"` \| `"tactical"`）创建时选定，不可更改**。**主控角色（`player_identity`）与场景角色是两个口径**：主控是玩家自己扮演的角色，属于阵容但**不是**场景 NPC（`SceneManager.get_roster()` = 主控 + 队友；`get_scene_characters()` = 队友），模型不会替玩家说话 |
-| `session_overlay.py` | 职责聚合：角色/物品属性覆盖 + 剧情日志（保留最近 15 条）+ 节拍状态 + 任务系统 + 世界书绑定（`worldbook_id`）与候选快照（`worldbook_scope`）；会话依赖读改写在 overlay 锁内原子保存 |
+| `session_overlay.py` | 职责聚合：角色/物品属性覆盖 + 剧情日志（保留最近 15 条）+ 节拍状态 + 任务系统 + 世界书绑定（`worldbook_id`）与候选快照（`worldbook_scope`）+ **角色会话数值 `character_stats` 与插件数据 `plugin_data`**（两者随剧情树节点快照回档）；会话依赖读改写在 overlay 锁内原子保存 |
+| `character_stats.py` | 角色数值三层口径：世界书统一字段（`WorldBook.stat_fields`）→ 角色全局值（frontmatter `stats`）→ 会话值；字段规范化 / 值校验 / 合并 / 提示词 `<character_stats>` 块。见 `docs/design/session-scene-plugins.md` |
 | `session_worldbook_dependencies.py` | 会话世界书继承基线、pair 屏蔽、本地边/起点展开覆盖、有效图、恢复继承与全局版本更新预览；不写全局书 |
 | `session_context.py` | 按会话缓存文档摘要 |
 | `session_resources.py` / `session_export.py` | 会话级资源（背景/形象覆盖）与会话存档导出 |
@@ -83,7 +84,7 @@
 
 ### 2.5 API 层（`src/blueprints/`，Flask Blueprint）
 
-`chat.py`（对话/叙述/SSE/战斗触发）、`combat.py`（战斗 SSE + 敌人/格子目录）、`combat_nodes.py`（战斗节点 CRUD/校验/按世界书过滤/节点图 graph/节拍进度）、`cards.py`（卡牌 JSON CRUD + 所属世界书标注树）、`documents.py`（文档读写，剧情节点图编辑 plots 用）、`sessions.py`、`scene.py`、`environment.py`、`index.py`、`wiki.py`、`llm.py`、`assets.py`（图片资产 + 实体来源世界书标注）、`memories.py`、`status.py`、`worldbook.py`（书 CRUD/导入/条目/默认书/会话绑定）。
+`chat.py`（对话/叙述/SSE/战斗触发）、`combat.py`（战斗 SSE + 敌人/格子目录）、`combat_nodes.py`（战斗节点 CRUD/校验/按世界书过滤/节点图 graph/节拍进度）、`cards.py`（卡牌 JSON CRUD + 所属世界书标注树）、`documents.py`（文档读写，剧情节点图编辑 plots 用）、`sessions.py`、`scene.py`、`environment.py`、`index.py`、`wiki.py`、`llm.py`、`assets.py`（图片资产 + 实体来源世界书标注）、`memories.py`、`status.py`、`worldbook.py`（书 CRUD/导入/条目/默认书/会话绑定；`PUT` 同时接受 `stat_fields`）、`stage.py`（**对话舞台 + 角色数值 + 插件数据**：`/stage`、`/characters/<name>/stats`、`/sessions/<id>/character-stats`、`/sessions/<id>/plugin-data/<ns>`，是场景面板插件与系统数据交互的正式边界）。
 
 ### 2.6 服务 / 共享 / Provider
 
@@ -107,8 +108,10 @@
 
 ### 3.2 聊天
 
-- `components/ChatView.tsx` — 对话页容器：会话列表 + 场景面板（角色/物品/环境/记忆/任务）+ `ChatPanel.tsx`（消息流/流式输出/选项/变体/回滚/对话气泡）
-- `components/chat/` — 气泡渲染子组件（DialogueBubble、NarrationText、AvatarPlaceholder 等）
+- `components/ChatView.tsx` — 对话页容器：顶栏（左：返回大厅 / 主菜单 / **场景面板开合**；中：会话名 + 剧情/自由；右：**布局切换「记录 / 舞台」**）+ 左侧 `scene/ScenePanel.tsx` + `ChatPanel.tsx`（消息流/流式输出/选项/变体/回滚/对话气泡；舞台模式下挂 `stage/StageView.tsx`，消息流变成覆盖在舞台上的「记录」抽屉）。原右侧独立「会话资源」面板已并入场景面板的「资源」页，顶栏原「会话大厅 🏛 / 会话资源 🗂」两个小按钮撤销
+- `components/scene/ScenePanel.tsx` — 场景面板：竖向图标栏 + 当前页。页签来自**插件注册表** `plugins/scenePanels.tsx`（`registerScenePanel`）：内置八个面板（角色 / 物品 / 环境 / 剧情 / 回忆 / 任务 / **数值** / 资源）在 `plugins/builtin.tsx` 登记，第三方面板放 `plugins/custom/*.tsx` 由 `plugins/index.ts` 的 `import.meta.glob` 自动加载（示例 `custom/sessionNotes.tsx`）。面板拿到 `ScenePanelContext`（`stats` 会话数值读写 / `data` 命名空间插件数据 / `refresh` 刷新键 / `api`），在 `ErrorBoundary` 内渲染；收起时只剩图标栏。`scene/CharacterStatsPanel.tsx` 是「数值」页，也是 `ctx.stats` 的参考实现。开发说明 `plugins/README.md`，设计见 `docs/design/session-scene-plugins.md`
+- `components/stage/StageView.tsx` + `utils/stageScript.ts` — **舞台（视觉小说）视图**：`GET /api/sessions/<id>/stage` 给背景（会话覆盖 > 地点 `combat_bg` > default，都没有时按时段/天气生成渐变）与场景角色立绘；`stageScript` 把最新一条叙述/回复折算成逐句步骤（后端 `dialogueSegments` 优先），点击对话框推进、说话人立绘高亮（写 `appStore.highlightedSpeaker`，场景角色列表与消息流气泡点击共用）、走到末尾亮出选项；流式中实时显示
+- `components/chat/` — 气泡渲染子组件（DialogueBubble（点击台词高亮说话人）、NarrationText、AvatarPlaceholder 等）；对话页样式集中在 `styles/chat.css`（`--ng-*` 令牌，随皮肤 / 明暗）
 - `components/MarkdownRenderer.tsx` — 统一 Markdown 渲染
 - `utils/dialogueParser.ts` — 解析 `「」` 对话为 `DialogueSegment[]`，前文叙述匹配场景角色名确定说话人
 - `utils/baseUrl.ts` — 后端地址解析（Electron/浏览器）
@@ -124,12 +127,12 @@
 
 ### 3.4 管理页
 
-- `components/CharacterManager.tsx` — 「角色」页（模块页签：**角色库 / 玩家身份 / 资产 / 卡牌**；页签状态 `characterTab` 在 store，角色卡详情「编辑卡牌」等跨组件跳转直接落到指定页签）：角色库浏览与角色卡导入、玩家身份维护；**资产（`AssetManager.tsx`）与卡牌（`CardManager.tsx`）由已删除的「内容中心」一级入口并入本页**，节点图并入世界书工作台的「节点图」页签（`components/combat/PlotGraphPage.tsx`，整页画布）；文档管理入口早已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为通用资料库与独立剧情书，分发源位于 `data/worldbooks/packs/`，浏览与编辑走世界书模块；后端 `document_manager.py` + `blueprints/documents.py` 仍在
+- `components/CharacterManager.tsx` — 「角色」页（模块页签：**角色库 / 玩家身份 / 资产 / 卡牌**；页签状态 `characterTab` 在 store）。**角色详情内再分四个页签：资料 / 数值 / 资产 / 卡牌**（`CHARACTER_DETAIL_TABS`）——「数值」是 `roles/CharacterStatsEditor.tsx`（按所属世界书的统一字段编辑角色全局值，写 frontmatter `stats`），「资产」是 `roles/CharacterAssets.tsx`（只看这个角色的头像 / 立绘 / 卡面，上传直接落到子目录因此可设默认），「卡牌」内嵌 `combat/CardEditor`；详情页头的「编辑战斗卡牌」切到本角色的卡牌页签。共用的数值表单是 `roles/StatValuesForm.tsx`（分组 / 来源标记 / 自定义键）：角色库浏览与角色卡导入、玩家身份维护；**资产（`AssetManager.tsx`）与卡牌（`CardManager.tsx`）由已删除的「内容中心」一级入口并入本页**，节点图并入世界书工作台的「节点图」页签（`components/combat/PlotGraphPage.tsx`，整页画布）；文档管理入口早已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为通用资料库与独立剧情书，分发源位于 `data/worldbooks/packs/`，浏览与编辑走世界书模块；后端 `document_manager.py` + `blueprints/documents.py` 仍在
 - `components/AssetManager.tsx` — 资产目录：图片上传/裁剪/默认图，实体显示上级目录与来源世界书（frontmatter `worldbook_id`）；分组维度「按类别（默认）/ 按世界书」并列，来源选择由两个维度的控件共用同一份 `bookFilter`（按类别维度下来源下拉只做筛选、仍按类别分组，不再切成按书分组——那与「按世界书」维度是同一件事）；工具栏只有一个「折叠 / 展开」，作用于当前可见的实体
 - `components/CardManager.tsx` — 卡牌管理：角色/职业卡牌编辑（CardEditor，embedded 模式下不再重复渲染实体标题），条目显示所属世界书；名称搜索；分组维度「按类型（默认）/ 按世界书」并列；工具栏只有一个「折叠 / 展开」，作用于当前维度的一级分组
 - **角色页共用控件与字体语言** — `components/roles/RoleWidgets.tsx`（面板页头 `PanelHeader` / 来源徽章 `SourceBookBadge` / 工具栏图标按钮 / 折叠按钮 / 搜索框 / 操作按钮 / 空状态 / 来源世界书下拉）+ `components/roles/EntityAvatar.tsx`（无头像时按名称取色的首字色块，取色规则与对话页 `chat/AvatarPlaceholder` 一致）+ `styles/roles.css`（衬线标题 + Orbitron 眉标，与世界书工作台同源；色值全部取 `--ng-*` 令牌，随明暗与皮肤切换，Tailwind 颜色工具类照旧由 `scripts/gen_skin_utils.py` 生成皮肤覆盖）
 - **来源世界书分组（角色库 / 资产 / 卡牌共用）** — `utils/worldbookGrouping.ts`（纯逻辑：`UNCLASSIFIED_KEY` = `"__none__"`、`worldbookKeyOf` 把缺字段/空白归一为未分类、`groupByWorldbook` 一级按书分组且未分类恒排最后、组间按书名字典序、组内保持传入顺序）+ `hooks/useWorldbookGroups.ts`（折叠状态与派生分组，来源选择 `activeKey` 由调用方持有）+ `components/WorldbookGroupList.tsx`（「全部」行 + 可折叠分组头，条目本体由调用方 `renderItems` 提供；同文件导出 `GroupDimensionToggle`，现只有资产 / 卡牌在用）。`CharacterManager.tsx` 的角色库**只按来源世界书分组**（原并列的「平铺」维度展示的是同一份列表、只差不分组，已撤销），来源来自 `/api/characters` 每个条目的 `worldbook_id`（`document_manager.DocumentInfo` 读实体 index.md frontmatter，空串 = 未分类）
-- `components/WorldBookManager.tsx` — 世界书工作台：顶层按用途分「剧情世界书 / 资料库」（带筛选与计数），详情是带页签的工作台——**条目 / Prompt 预览 / 节点图 / 会话条目**（旧「分类与载入」页签已撤销：其子视图当前未挂载，依赖配置暂无编辑 UI，`条目` 页上的保存条实际不可达，保留原路径待接线）；`会话条目` 由 `IndexManager.tsx` 承载，默认源按当前书的分类展示条目，且只列出 `worldbook_id` 与当前书匹配的会话，支持 `跟随默认 / 启用 / 停用` 三态覆盖。导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、条目编辑器、剧情书的会话绑定与默认书、酒馆格式导出；资料库以检索/浏览为主，可就地把条目「加入剧情世界书」（提交前可编辑标题/正文/触发词）。纯逻辑在 `utils/worldbookLibrary.ts`
+- `components/WorldBookManager.tsx` — 世界书工作台：顶层按用途分「剧情世界书 / 资料库」（带筛选与计数），详情是带页签的工作台——**条目 / Prompt 预览 / 节点图 / 会话条目**（旧「分类与载入」页签已撤销：其子视图当前未挂载，依赖配置暂无编辑 UI，`条目` 页上的保存条实际不可达，保留原路径待接线）；`会话条目` 由 `IndexManager.tsx` 承载，默认源按当前书的分类展示条目，且只列出 `worldbook_id` 与当前书匹配的会话，支持 `跟随默认 / 启用 / 停用` 三态覆盖。导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、条目编辑器、剧情书的会话绑定与默认书、酒馆格式导出、**hero 上的「数值字段」对话框（`worldbook/StatFieldsEditor.tsx`，定义这本书下角色共用的统一数值字段，随书保存 / 导出 / 导入 / 复制）**；资料库以检索/浏览为主，可就地把条目「加入剧情世界书」（提交前可编辑标题/正文/触发词）。纯逻辑在 `utils/worldbookLibrary.ts`
 - `components/session/CreateSessionWizard.tsx` — 新建会话向导（模式&战斗模式 → 剧情 → 世界书 → **主控与阵容** → 命名创建）。**「主控角色」与「角色入队」是同一次选择**：主控步骤（单选）与队友步骤（多选）共用 `components/session/CharacterPicker.tsx`（候选来自 `/api/characters`，自建与世界书角色混排并标注来源，可搜索 / 按来源筛选，头像缺失走 `EntityAvatar` 首字色块兜底）；主控经 `identity` 声明、队友经 `roster_character_ids` 入队，主控不再出现在队友候选里。候选目录与筛选/去重规则在 `utils/characterCatalog.ts`（纯逻辑：`buildCharacterCatalog` / `filterCharacterCatalog` / `buildLineup` / `mainControlError`）。没选主控不能创建（前端拦截 + 后端拒绝显式空 `identity`）
 - `components/session/SessionManagerView.tsx` — 会话大厅：会话列表与详情、世界书绑定、**角色阵容（`session.roster` = 主控 + 队友，主控标「🎭 主控（你）」且不可移出）**、换主控、「添加角色」与新建向导共用 `CharacterPicker`
 - `components/session/SessionWorldbookDependencies.tsx` — 会话大厅内的依赖微调：继承/本地/屏蔽关系、实际纳入原因、全局继承更新预览（面板只保留人工部分：增删 `requires` / `related`、屏蔽继承、恢复继承；会话侧 AI 微调入口已移除）
@@ -141,9 +144,9 @@
 ### 3.5 状态与数据获取
 
 - `stores/appStore.ts`（Zustand 4）
-  - **Key 刷新模式** — 多个自增整数 key（`envRefreshKey`、`memoryRefreshKey`、`chatRefreshKey`、`characterRefreshKey`、`sceneSwitchKey`），组件比较 key 检测数据过期
+  - **Key 刷新模式** — 多个自增整数 key（`envRefreshKey`、`memoryRefreshKey`、`chatRefreshKey`、`characterRefreshKey`、`sceneSwitchKey`、`statsRefreshKey`），组件比较 key 检测数据过期
   - **按会话存储** — 消息/流式/发送状态按 `sessionId` 隔离，切换会话不丢失
-  - 关键状态：`combatContext`（VIEWING/TARGETING + 选中卡牌/单位）、`pendingAutoNarrate`（战后自动叙述）、`dialogueBubbleMode`（气泡/纯文本切换）
+  - 关键状态：`combatContext`（VIEWING/TARGETING + 选中卡牌/单位）、`pendingAutoNarrate`（战后自动叙述）、`dialogueBubbleMode`（气泡/纯文本切换）、`chatLayout`（`log` / `stage`，localStorage 记住）、`scenePanelOpen` / `scenePanelTab`（场景面板开合与页签，localStorage 记住）、`highlightedSpeaker`（点击台词 / 舞台推进时的说话人高亮）
 - `hooks/useApi.ts` — REST + SSE 客户端（`connectSSE` 支持 GET/POST 事件流），自动检测 Electron/浏览器环境
 
 ### 3.6 UI 皮肤系统
@@ -176,7 +179,7 @@
 
 生成流程与硬性约束见 skill `combat-designer`，规格说明见 `docs/design/combat/battle-spec.md`。
 
-其他脚本：`scripts/generate_builtin_worldbook.py`（世界书整合包）、`scripts/gen_skin_utils.py`（皮肤颜色工具类生成）、`scripts/run_tests.sh`（统一测试入口）、`scripts/test_worldbook_scope_ui.cjs`（分类树工具 / 批量起点与依赖与归属 / 候选范围预览 / 分类结构 SSR / 工作台页签骨架，以及依赖展开树与 Prompt 预览的纯函数与 SSR 检查）、`scripts/test_worldbook_library_ui.cjs`（资料库体验：用途筛选/分组、摘录载荷折算、工作台页签归一（资料库恒为 `条目` 页签）、SSR 骨架）。
+其他脚本：`scripts/generate_builtin_worldbook.py`（世界书整合包）、`scripts/gen_skin_utils.py`（皮肤颜色工具类生成）、`scripts/run_tests.sh`（统一测试入口）、`scripts/test_worldbook_scope_ui.cjs`（分类树工具 / 批量起点与依赖与归属 / 候选范围预览 / 分类结构 SSR / 工作台页签骨架，以及依赖展开树与 Prompt 预览的纯函数与 SSR 检查）、`scripts/test_worldbook_library_ui.cjs`（资料库体验：用途筛选/分组、摘录载荷折算、工作台页签归一（资料库恒为 `条目` 页签）、SSR 骨架）、`scripts/test_stage_ui.cjs`（舞台脚本纯逻辑 / 场景面板注册表 / 数值字段编辑器折算 / ChatView·ScenePanel·StageView 的 SSR 骨架）、`scripts/shot_chat_ui.py`（对话页 + 角色页数值页签 + 世界书数值字段的真实页面截图，会建临时书与临时会话并预置 localStorage 对话记录，结束后删除）。
 
 ---
 
@@ -219,6 +222,7 @@ docs/
 | `design/narrative/two-phase-narration.md` | 两阶段叙述：创作与系统层解耦、结构化产物字段、三级 JSON 兜底与按调用类型思考档位 |
 | `design/narrative/prompt.md` | 本项目提示词书写约定（已采用 / 未采用 / 顺序约定） |
 | `design/content-hub-design.md` | 内容中心整合设计（内容中心一级入口已于 2026-09 拆解为「角色 + 世界书」两级，见文首「后续变更」） |
+| `design/session-scene-plugins.md` | 会话场景面板插件接口、角色数值三层口径（世界书统一字段 × 角色全局值 × 会话值）、插件数据与快照回档、舞台视图的数据来源与接口一览 |
 
 ### 5.2 `proposals/` —— 目标态提案
 

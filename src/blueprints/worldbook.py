@@ -42,6 +42,7 @@ from world_book import (
     estimate_tokens, normalize_book_type,
 )
 from worldbook_classify import classify_entries
+from character_stats import validate_stat_fields
 from worldbook_scope import (
     ACTIVATION_ALWAYS, ACTIVATION_MANUAL, ACTIVATION_ROSTER_ANY,
     EXPANSION_LEGACY_DEPTH, EXPANSION_NONE, EXPANSION_REQUIRES_CLOSURE,
@@ -521,6 +522,7 @@ def register(app, managers):
             "edit_revision": book.edit_revision,
             "entry_order": book.effective_entry_order(),
             "has_explicit_entry_order": book.entry_order is not None,
+            "stat_fields": copy.deepcopy(book.stat_fields),
             "created_at": book.created_at,
             "updated_at": book.updated_at,
             "entry_count": stats.total,
@@ -688,6 +690,12 @@ def register(app, managers):
                 book.description = str(data.get("description") or "")
             if "cover_image" in data:
                 book.cover_image = str(data.get("cover_image") or "")
+            if "stat_fields" in data:
+                # 统一数值字段：非法定义直接 400，不静默丢字段
+                try:
+                    book.stat_fields = validate_stat_fields(data.get("stat_fields"))
+                except ValueError as e:
+                    return json_error(str(e), 400)
             if "enabled" in data:
                 book.enabled = bool(data["enabled"])
             if "book_type" in data:
