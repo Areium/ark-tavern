@@ -5,18 +5,29 @@
  * 文档管理功能已迁移至世界书整合包）。
  *
  * 来源标注：每个实体显示上级目录与来源世界书（index.md frontmatter 的
- * worldbook_id），支持按世界书筛选，详情面板可修改归属。
+ * worldbook_id），详情面板可修改归属。
+ *
+ * 分组维度两个，并列存在：
+ *  - 按类别（默认，原有维度）：按 assets 类别分组，来源下拉筛选，渲染逻辑未改动；
+ *  - 按世界书：一级按来源世界书分组，组内保持原有的实体顺序与实体级折叠。
+ *    两个维度的来源选择共用同一个 `bookFilter` 状态。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
+import { useWorldbookGroups } from "../hooks/useWorldbookGroups";
+import { UNCLASSIFIED_KEY } from "../utils/worldbookGrouping";
 import type { AssetEntityGroupDTO, SkinCrop, WorldBookSummary } from "../types";
 import CropModal from "./assets/CropModal";
+import WorldbookGroupList, { GroupDimensionToggle } from "./WorldbookGroupList";
 import AppIcon from "./AppIcon";
 
 interface ToastState {
   message: string;
   type: "success" | "error";
 }
+
+/** 资产条目的两个来源分类维度 */
+type AssetDimension = "category" | "worldbook";
 
 function formatFileSize(bytes: number): string {
   if (!bytes || bytes < 0) return "";
@@ -35,8 +46,9 @@ export default function AssetManager() {
   const [imagesLoading, setImagesLoading] = useState(false);
   const [imageFilter, setImageFilter] = useState("");
   const [worldbooks, setWorldbooks] = useState<WorldBookSummary[]>([]);
-  /** 来源筛选："" = 全部，"__none__" = 未标注，否则为 book id */
+  /** 来源筛选："" = 全部，`UNCLASSIFIED_KEY` = 未分类，否则为 book id */
   const [bookFilter, setBookFilter] = useState("");
+  const [dimension, setDimension] = useState<AssetDimension>("category");
   const [collapsedImageKeys, setCollapsedImageKeys] = useState<Set<string>>(new Set());
   const [selectedImage, setSelectedImage] = useState<{
     url: string; name: string; size: number; subdir: string;
@@ -174,8 +186,8 @@ export default function AssetManager() {
   // ── 筛选：名称 + 来源世界书 ──
 
   const filtered = assetImages.filter((item) => {
-    if (bookFilter === "__none__" && item.worldbook_id) return false;
-    if (bookFilter && bookFilter !== "__none__" && item.worldbook_id !== bookFilter) return false;
+    if (bookFilter === UNCLASSIFIED_KEY && item.worldbook_id) return false;
+    if (bookFilter && bookFilter !== UNCLASSIFIED_KEY && item.worldbook_id !== bookFilter) return false;
     if (!imageFilter.trim()) return true;
     const q = imageFilter.toLowerCase();
     return item.entity_name.toLowerCase().includes(q) ||
@@ -188,17 +200,42 @@ export default function AssetManager() {
   if (bookFilter) {
     const groups: Record<string, AssetEntityGroupDTO[]> = {};
     for (const item of filtered) {
-      const key = item.worldbook_id || "__none__";
+      const key = item.worldbook_id || UNCLASSIFIED_KEY;
       (groups[key] = groups[key] || []).push(item);
     }
     for (const [key, items] of Object.entries(groups)) {
       groupedByBook.push({
         key,
-        label: key === "__none__" ? "未标注" : bookName(key),
+        label: key === UNCLASSIFIED_KEY ? "未分类" : bookName(key),
         items,
       });
     }
   }
+
+  // ── 来源世界书维度（与「按类别」并列）──
+  // 只按搜索词过滤、不先按 bookFilter 过滤：分组计数要覆盖全部来源，
+  // 未被选中的分组才不是 0 条，也才能直接点标题切换来源。
+  const searchFiltered = assetImages.filter((item) => {
+    if (!imageFilter.trim()) return true;
+    const q = imageFilter.toLowerCase();
+    return item.entity_name.toLowerCase().includes(q) ||
+      item.category.toLowerCase().includes(q) ||
+      item.images.some((img) => img.name.toLowerCase().includes(q));
+  });
+
+  const {
+    groups: worldbookGroups,
+    collapsedKeys: collapsedBookKeys,
+    toggleCollapsed: toggleBookCollapsed,
+    expandAll: expandAllBooks,
+    collapseAll: collapseAllBooks,
+    allCollapsed: allBooksCollapsed,
+    selectedItems: selectedByBook,
+  } = useWorldbookGroups(searchFiltered, (item) => item.worldbook_id, worldbooks, bookFilter);
+
+  /** 「折叠 / 展开」按钮的作用范围：当前维度下真正渲染出来的实体 */
+  const visibleEntities: readonly AssetEntityGroupDTO[] =
+    dimension === "worldbook" ? selectedByBook : filtered;
 
   // 按类别分组
   const grouped: Record<string, AssetEntityGroupDTO[]> = {};
@@ -236,7 +273,7 @@ export default function AssetManager() {
           <span className="truncate flex-1" title={`${item.entity_name}（上级目录 ${item.parent_dir}）`}>
             {item.entity_name}
           </span>
-          {item.worldbook_id ? (
+          {dimension === "category" && (item.worldbook_id ? (
             <span
               className="text-[9px] px-1 rounded bg-amber-600/15 text-amber-300 border border-amber-700/40 shrink-0"
               title={`来源世界书：${bookName(item.worldbook_id)}`}
@@ -244,8 +281,8 @@ export default function AssetManager() {
               <AppIcon name="worldbook" size={11} /> {bookName(item.worldbook_id)}
             </span>
           ) : (
-            <span className="text-[9px] text-gray-600 shrink-0" title="未标注来源世界书">未标注</span>
-          )}
+            <span className="text-[9px] text-gray-600 shrink-0" title="未关联来源世界书">未分类</span>
+          ))}
           <label className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer shrink-0" title="上传到该实体" onClick={(e) => e.stopPropagation()}>
             +
             <input
@@ -354,68 +391,119 @@ export default function AssetManager() {
               setCollapsedImageKeys(new Set());
             } else {
               const allKeys = new Set<string>();
-              for (const item of filtered) {
+              for (const item of visibleEntities) {
                 allKeys.add(`${item.category}/${item.entity}`);
               }
               setCollapsedImageKeys(allKeys);
             }
           }}
           className="text-[10px] text-gray-500 hover:text-gray-300 whitespace-nowrap px-1.5 py-1 rounded hover:bg-gray-700/50 transition-colors"
-          title={collapsedImageKeys.size > 0 ? "展开全部" : "折叠全部"}
+          title={collapsedImageKeys.size > 0 ? "展开全部实体" : "折叠全部实体"}
         >
           {collapsedImageKeys.size > 0 ? "展开" : "折叠"}
         </button>
       </div>
-      <select
-        className="w-full bg-gray-800/80 border border-gray-700 rounded px-2 py-1 text-[11px] text-gray-300 mb-2"
-        value={bookFilter}
-        onChange={(e) => setBookFilter(e.target.value)}
-        title="按来源世界书筛选"
-      >
-        <option value="">全部世界书</option>
-        <option value="__none__">未标注来源</option>
-        {worldbooks.map((b) => (
-          <option key={b.id} value={b.id}>{b.name}</option>
-        ))}
-      </select>
-      {filtered.length === 0 && (
-        <p className="text-xs text-gray-500 text-center py-4">
-          {imageFilter || bookFilter ? "无匹配结果" : "暂无图像资产"}
-        </p>
+
+      <GroupDimensionToggle
+        value={dimension}
+        onChange={setDimension}
+        options={[
+          { id: "category", label: "按类别", icon: "content", hint: "原有维度：按资产类别（characters / classes …）分组" },
+          { id: "worldbook", label: "按世界书", icon: "worldbook", hint: "按来源世界书分组" },
+        ]}
+        extra={
+          dimension === "worldbook" && worldbookGroups.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => (allBooksCollapsed ? expandAllBooks() : collapseAllBooks())}
+              className="text-[10px] text-gray-500 hover:text-gray-300 whitespace-nowrap px-1.5 py-1 rounded hover:bg-gray-700/50 transition-colors"
+              title={allBooksCollapsed ? "展开全部分组" : "折叠全部分组"}
+            >
+              {allBooksCollapsed ? "展开" : "折叠"}
+            </button>
+          ) : null
+        }
+      />
+
+      {dimension === "category" && (
+        <select
+          className="w-full bg-gray-800/80 border border-gray-700 rounded px-2 py-1 text-[11px] text-gray-300 mb-2"
+          value={bookFilter}
+          onChange={(e) => setBookFilter(e.target.value)}
+          title="按来源世界书筛选"
+        >
+          <option value="">全部世界书</option>
+          <option value={UNCLASSIFIED_KEY}>未分类</option>
+          {worldbooks.map((b) => (
+            <option key={b.id} value={b.id}>{b.name}</option>
+          ))}
+        </select>
       )}
-      {bookFilter ? (
-        // 按世界书归类展示
-        groupedByBook.map((group) => (
-          <div key={group.key} className="mb-3">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-300/80 py-1 mb-1">
-              <AppIcon name="worldbook" size={13} /> {group.label}
-              <span className="text-[10px] text-gray-600 font-normal ml-1">({group.items.length})</span>
-            </div>
-            {group.items.map(renderEntityGroup)}
-          </div>
-        ))
+
+      {dimension === "worldbook" ? (
+        // 按世界书维度：一级按来源世界书分组，组内沿用原有实体渲染与排序
+        <WorldbookGroupList
+          groups={worldbookGroups}
+          totalCount={searchFiltered.length}
+          activeKey={bookFilter}
+          collapsedKeys={collapsedBookKeys}
+          onSelect={setBookFilter}
+          onToggleCollapse={toggleBookCollapsed}
+          renderItems={(items) =>
+            items.length === 0 ? (
+              <p className="text-xs text-gray-600 italic pl-1">(空)</p>
+            ) : (
+              items.map(renderEntityGroup)
+            )
+          }
+          emptyHint={
+            <p className="text-xs text-gray-500 text-center py-4">
+              {imageFilter ? "无匹配结果" : "暂无图像资产"}
+            </p>
+          }
+        />
       ) : (
-        Object.entries(grouped).map(([cat, items]) => (
-          <div key={cat} className="mb-3">
-            <div className="flex items-center gap-1 text-xs font-semibold text-gray-500 uppercase tracking-wider py-1 mb-1">
-              <span>{cat}</span>
-              <div className="flex-1" />
-              <label className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer" title="上传到该分类">
-                + 上传
-                <input
-                  type="file"
-                  accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.bmp"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) { handleImageUpload(file, cat); e.target.value = ""; }
-                  }}
-                />
-              </label>
-            </div>
-            {items.map(renderEntityGroup)}
-          </div>
-        ))
+        <>
+          {filtered.length === 0 && (
+            <p className="text-xs text-gray-500 text-center py-4">
+              {imageFilter || bookFilter ? "无匹配结果" : "暂无图像资产"}
+            </p>
+          )}
+          {bookFilter ? (
+            // 按世界书归类展示
+            groupedByBook.map((group) => (
+              <div key={group.key} className="mb-3">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-300/80 py-1 mb-1">
+                  <AppIcon name="worldbook" size={13} /> {group.label}
+                  <span className="text-[10px] text-gray-600 font-normal ml-1">({group.items.length})</span>
+                </div>
+                {group.items.map(renderEntityGroup)}
+              </div>
+            ))
+          ) : (
+            Object.entries(grouped).map(([cat, items]) => (
+              <div key={cat} className="mb-3">
+                <div className="flex items-center gap-1 text-xs font-semibold text-gray-500 uppercase tracking-wider py-1 mb-1">
+                  <span>{cat}</span>
+                  <div className="flex-1" />
+                  <label className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer" title="上传到该分类">
+                    + 上传
+                    <input
+                      type="file"
+                      accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.bmp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) { handleImageUpload(file, cat); e.target.value = ""; }
+                      }}
+                    />
+                  </label>
+                </div>
+                {items.map(renderEntityGroup)}
+              </div>
+            ))
+          )}
+        </>
       )}
     </div>
   );

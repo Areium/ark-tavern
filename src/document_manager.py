@@ -56,10 +56,16 @@ class DocumentCategory:
 
 
 class DocumentInfo:
-    """单个文档的信息。"""
+    """单个文档的信息。
+
+    `worldbook_id` 为「来源世界书」标注（实体文件夹 index.md frontmatter 的
+    `worldbook_id`，与资产/卡牌界面同源）；传统 .md 文档与未标注实体一律为空串，
+    消费方必须把空串当作「未分类」处理，不得据此报错。
+    """
 
     def __init__(self, category_id: str, doc_id: str, title: str, path: str,
-                 hash_str: str, mtime: float, summary: str = ""):
+                 hash_str: str, mtime: float, summary: str = "",
+                 worldbook_id: str = ""):
         self.category_id = category_id
         self.id = doc_id
         self.title = title
@@ -67,6 +73,7 @@ class DocumentInfo:
         self.hash = hash_str
         self.mtime = mtime
         self.summary = summary
+        self.worldbook_id = worldbook_id
 
     def to_dict(self) -> dict:
         return {
@@ -77,6 +84,8 @@ class DocumentInfo:
             "hash": self.hash,
             "mtime": self.mtime,
             "summary": self.summary,
+            # 来源世界书标注（空串 = 未分类/未标注）；旧数据无此字段时前端按未分类处理
+            "worldbook_id": self.worldbook_id,
         }
 
 
@@ -188,17 +197,21 @@ class DocumentManager:
 
                     title = d
                     summary = ""
-                    if include_content:
-                        try:
-                            with open(index_md, "r", encoding="utf-8") as fh:
-                                data = frontmatter.load(fh)
+                    worldbook_id = ""
+                    # 实体文件夹总是解析 frontmatter：`worldbook_id`（来源世界书）
+                    # 与 include_content 无关，title/summary 仍只在需要时取用。
+                    try:
+                        with open(index_md, "r", encoding="utf-8") as fh:
+                            data = frontmatter.load(fh)
+                        worldbook_id = str(data.metadata.get("worldbook_id") or "")
+                        if include_content:
                             title = data.metadata.get("name", d)
                             summary = data.metadata.get("summary", "")
                             if not summary:
                                 first_line = data.content.strip().split("\n")[0]
                                 summary = first_line[:80] if first_line else ""
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
 
                     docs.append(DocumentInfo(
                         category_id=category_id,
@@ -208,6 +221,7 @@ class DocumentManager:
                         hash_str=file_hash,
                         mtime=stat.st_mtime,
                         summary=summary,
+                        worldbook_id=worldbook_id,
                     ).to_dict())
 
         for root, _dirs, files in os.walk(base):

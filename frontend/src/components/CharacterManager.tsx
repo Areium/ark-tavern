@@ -6,21 +6,44 @@
  *  - 玩家身份：创建、编辑、删除多个玩家身份角色，供创建/切换会话时使用。
  *  - 资产 / 卡牌：自原「内容中心」迁入的图片资产与卡牌管理，功能与入口完全等价。
  *
+ * 角色库的分组维度两个，并列存在：
+ *  - 平铺（默认，原有形态）：不分组，保持列表默认顺序；
+ *  - 按世界书：一级按来源世界书分组，来源取角色目录 index.md frontmatter 的
+ *    `worldbook_id`（导入角色卡时后端写入，随卡自带的内嵌世界书即由此标注），
+ *    缺字段的旧数据一律归入「未分类」。
+ *
  * 页签状态放在 store（`characterTab`）：角色卡详情「编辑卡牌」等跨组件跳转要落到指定页签。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { useAppStore, type CharacterTab } from "../stores/appStore";
+import { useWorldbookGroups } from "../hooks/useWorldbookGroups";
+import type { WorldBookSummary } from "../types";
 import MarkdownRenderer from "./MarkdownRenderer";
 import AssetManager from "./AssetManager";
 import CardManager from "./CardManager";
+import WorldbookGroupList, { GroupDimensionToggle } from "./WorldbookGroupList";
 import AppIcon, { type AppIconName } from "./AppIcon";
 
 interface CharacterSummary {
   id: string;
   name: string;
   title?: string;
+  /** 来源世界书 id；空串 / 缺字段 = 未分类 */
+  worldbook_id?: string;
 }
+
+/** 角色库的分组维度 */
+type CharacterDimension = "flat" | "worldbook";
+
+/** /api/characters 的响应 → 列表项（缺 worldbook_id 的旧数据按未分类处理） */
+const toCharacterSummaries = (data: unknown): CharacterSummary[] =>
+  ((data as any[]) || []).map((c: any) => ({
+    id: c.id || c.name || "",
+    name: c.name || c.title || c.id || "",
+    title: c.title,
+    worldbook_id: c.worldbook_id || "",
+  }));
 
 interface IdentitySummary {
   id: string;
@@ -69,6 +92,10 @@ export default function CharacterManager() {
   // ── 角色库 ──
   const [characters, setCharacters] = useState<CharacterSummary[]>([]);
   const [charSearch, setCharSearch] = useState("");
+  const [worldbooks, setWorldbooks] = useState<WorldBookSummary[]>([]);
+  const [charDimension, setCharDimension] = useState<CharacterDimension>("flat");
+  /** 角色库的来源选择："" = 全部，"__none__" = 未分类，否则为 book id（仅「按世界书」维度生效） */
+  const [charBookFilter, setCharBookFilter] = useState("");
   const [selectedChar, setSelectedChar] = useState<string | null>(null);
   const [charDetail, setCharDetail] = useState<CharacterDetail | null>(null);
   const [charLoading, setCharLoading] = useState(false);
@@ -104,15 +131,17 @@ export default function CharacterManager() {
     let cancelled = false;
     api.getCharacters()
       .then((data) => {
-        if (!cancelled) {
-          const list: CharacterSummary[] = (data || []).map((c: any) => ({
-            id: c.id || c.name || "",
-            name: c.name || c.title || c.id || "",
-            title: c.title,
-          }));
-          setCharacters(list);
-        }
+        if (!cancelled) setCharacters(toCharacterSummaries(data));
       })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [api]);
+
+  // ── 加载世界书列表（把来源 id 解析为书名；后端不可用时不阻塞角色库）──
+  useEffect(() => {
+    let cancelled = false;
+    api.listWorldbooks()
+      .then((res) => { if (!cancelled) setWorldbooks(res.books || []); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [api]);
@@ -185,11 +214,7 @@ export default function CharacterManager() {
       const res = await api.importCharacterCard(file);
       showToast(`角色「${res.character?.name || file.name}」已导入`);
       const data = await api.getCharacters();
-      setCharacters((data || []).map((c: any) => ({
-        id: c.id || c.name || "",
-        name: c.name || c.title || c.id || "",
-        title: c.title,
-      })));
+      setCharacters(toCharacterSummaries(data));
       if (res.character?.name) {
         setCharacterTab("characters");
         setSelectedChar(res.character.name);
@@ -281,6 +306,45 @@ export default function CharacterManager() {
     );
   }, [identities, identitySearch]);
 
+  // ── 角色库的来源世界书维度（与「平铺」并列）──
+  // 在搜索命中的角色上再分组，因此搜索与来源选择可以叠加。
+  const {
+    groups: charWorldbookGroups,
+    collapsedKeys: collapsedCharBookKeys,
+    toggleCollapsed: toggleCharBookCollapsed,
+    expandAll: expandAllCharBooks,
+    collapseAll: collapseAllCharBooks,
+    allCollapsed: allCharBooksCollapsed,
+  } = useWorldbookGroups(
+    filteredCharacters,
+    (c) => c.worldbook_id,
+    worldbooks,
+    charBookFilter,
+  );
+
+  const renderCharRow = (c: CharacterSummary) => (
+    <button
+      key={c.id}
+      onClick={() => setSelectedChar(c.id)}
+      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${
+        selectedChar === c.id
+          ? "bg-blue-600/20 text-blue-300 border border-blue-600/30"
+          : "text-gray-300 hover:bg-gray-800"
+      }`}
+    >
+      <img
+        src={AVATAR_URL(c.id)}
+        alt={c.name}
+        className="w-8 h-8 rounded object-cover border border-gray-700 bg-gray-800 shrink-0"
+        onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+      />
+      <div className="min-w-0">
+        <div className="text-xs font-medium truncate">{c.name || c.id}</div>
+        {c.title && <div className="text-[10px] text-gray-500 truncate">{c.title}</div>}
+      </div>
+    </button>
+  );
+
   const renderCharDetail = () => {
     if (!selectedChar) {
       return (
@@ -295,6 +359,11 @@ export default function CharacterManager() {
     const meta = charDetail?.metadata || {};
     const attrs: Record<string, number> = meta.attributes || {};
     const tags: string[] = meta.tags || [];
+    // 来源世界书：角色目录 index.md frontmatter 的 worldbook_id；缺字段 = 未分类
+    const sourceBookId = String((meta as any).worldbook_id || "");
+    const sourceBookName = sourceBookId
+      ? worldbooks.find((b) => b.id === sourceBookId)?.name || sourceBookId
+      : "";
     return (
       <div className="h-full overflow-y-auto p-5 space-y-4">
         <div className="flex items-start gap-4">
@@ -316,6 +385,23 @@ export default function CharacterManager() {
                 {tags.map((t) => <span key={t} className="px-1.5 py-0.5 rounded bg-gray-700/50 text-gray-300 text-xs">{t}</span>)}
               </div>
             )}
+            <div className="flex flex-wrap gap-1 mt-2">
+              {sourceBookName ? (
+                <span
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-600/15 text-amber-300 border border-amber-700/40 text-[10px]"
+                  title={`来源世界书：${sourceBookName}`}
+                >
+                  <AppIcon name="worldbook" size={11} /> {sourceBookName}
+                </span>
+              ) : (
+                <span
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-gray-700/40 text-gray-500 text-[10px]"
+                  title="未关联来源世界书：手动创建，或角色卡未自带世界书"
+                >
+                  <AppIcon name="folder" size={11} /> 未分类
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -543,6 +629,28 @@ export default function CharacterManager() {
                       if (f) { void handleImportCharacterCard(f); e.target.value = ""; }
                     }}
                   />
+                  <div className="pt-1">
+                    <GroupDimensionToggle
+                      value={charDimension}
+                      onChange={setCharDimension}
+                      options={[
+                        { id: "flat", label: "平铺", icon: "characters", hint: "原有形态：不分组，保持列表默认顺序" },
+                        { id: "worldbook", label: "按世界书", icon: "worldbook", hint: "按来源世界书分组" },
+                      ]}
+                      extra={
+                        charDimension === "worldbook" && charWorldbookGroups.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => (allCharBooksCollapsed ? expandAllCharBooks() : collapseAllCharBooks())}
+                            className="text-[10px] text-gray-500 hover:text-gray-300 whitespace-nowrap px-1.5 py-1 rounded hover:bg-gray-700/50 transition-colors"
+                            title={allCharBooksCollapsed ? "展开全部分组" : "折叠全部分组"}
+                          >
+                            {allCharBooksCollapsed ? "展开" : "折叠"}
+                          </button>
+                        ) : null
+                      }
+                    />
+                  </div>
                 </>
               ) : (
                 <button
@@ -557,33 +665,33 @@ export default function CharacterManager() {
             {/* List */}
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
               {tab === "characters" ? (
-                filteredCharacters.length === 0 ? (
+                charDimension === "worldbook" ? (
+                  <WorldbookGroupList
+                    groups={charWorldbookGroups}
+                    totalCount={filteredCharacters.length}
+                    activeKey={charBookFilter}
+                    collapsedKeys={collapsedCharBookKeys}
+                    onSelect={setCharBookFilter}
+                    onToggleCollapse={toggleCharBookCollapsed}
+                    renderItems={(items) =>
+                      items.length === 0 ? (
+                        <p className="text-xs text-gray-600 italic pl-1">(空)</p>
+                      ) : (
+                        items.map(renderCharRow)
+                      )
+                    }
+                    emptyHint={
+                      <p className="text-xs text-gray-600 text-center py-4">
+                        {charSearch ? "未找到匹配角色" : "暂无可用角色"}
+                      </p>
+                    }
+                  />
+                ) : filteredCharacters.length === 0 ? (
                   <p className="text-xs text-gray-600 text-center py-4">
                     {charSearch ? "未找到匹配角色" : "暂无可用角色"}
                   </p>
                 ) : (
-                  filteredCharacters.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => setSelectedChar(c.id)}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${
-                        selectedChar === c.id
-                          ? "bg-blue-600/20 text-blue-300 border border-blue-600/30"
-                          : "text-gray-300 hover:bg-gray-800"
-                      }`}
-                    >
-                      <img
-                        src={AVATAR_URL(c.id)}
-                        alt={c.name}
-                        className="w-8 h-8 rounded object-cover border border-gray-700 bg-gray-800 shrink-0"
-                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
-                      />
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium truncate">{c.name || c.id}</div>
-                        {c.title && <div className="text-[10px] text-gray-500 truncate">{c.title}</div>}
-                      </div>
-                    </button>
-                  ))
+                  filteredCharacters.map(renderCharRow)
                 )
               ) : (
                 filteredIdentities.length === 0 && !isCreating ? (

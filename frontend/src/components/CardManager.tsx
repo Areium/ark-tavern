@@ -4,18 +4,35 @@
  * 由「角色 → 卡牌」页签挂载（原 DocumentManager 卡牌 Tab 独立成组件）。
  *
  * 来源标注：每个角色/职业条目显示所属世界书（index.md frontmatter 的
- * worldbook_id），支持按世界书筛选，详情面板可修改归属。
+ * worldbook_id），详情面板可修改归属。
+ *
+ * 分组维度两个，并列存在：
+ *  - 按类型（默认，原有维度）：角色卡牌 / 职业卡牌两组，渲染逻辑未改动；
+ *  - 按世界书：一级按来源世界书分组，组内保持「角色在前、职业在后」的原有顺序，
+ *    行内图标仍区分角色/职业。两个维度的来源选择共用同一个 `bookFilter` 状态。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
+import { useWorldbookGroups } from "../hooks/useWorldbookGroups";
+import { UNCLASSIFIED_KEY } from "../utils/worldbookGrouping";
 import type { CardsTreeDTO, WorldBookSummary } from "../types";
 import CardEditor from "./combat/CardEditor";
 import { WorldbookSelect } from "./AssetManager";
+import WorldbookGroupList, { GroupDimensionToggle } from "./WorldbookGroupList";
 import AppIcon from "./AppIcon";
 
 interface ToastState {
   message: string;
   type: "success" | "error";
+}
+
+/** 卡牌条目的两个来源分类维度 */
+type CardDimension = "type" | "worldbook";
+
+/** 卡牌条目（角色卡牌 / 职业卡牌），按世界书分组时用 */
+interface CardEntry {
+  type: "character" | "class";
+  name: string;
 }
 
 export default function CardManager() {
@@ -26,8 +43,9 @@ export default function CardManager() {
   // ── 数据 ──
   const [cardsTree, setCardsTree] = useState<CardsTreeDTO | null>(null);
   const [worldbooks, setWorldbooks] = useState<WorldBookSummary[]>([]);
-  /** 来源筛选："" = 全部，"__none__" = 未标注，否则为 book id */
+  /** 来源筛选："" = 全部，`UNCLASSIFIED_KEY` = 未分类，否则为 book id */
   const [bookFilter, setBookFilter] = useState("");
+  const [dimension, setDimension] = useState<CardDimension>("type");
   const [collapsed, setCollapsed] = useState<{ characters: boolean; classes: boolean }>({ characters: false, classes: false });
   const [selectedCardEntity, setSelectedCardEntity] = useState<string | null>(null);
   const [selectedCardEntityType, setSelectedCardEntityType] = useState<"character" | "class" | null>(null);
@@ -92,11 +110,27 @@ export default function CardManager() {
   const matchBook = (type: "character" | "class", name: string) => {
     if (!bookFilter) return true;
     const id = bookOf(type, name);
-    return bookFilter === "__none__" ? !id : id === bookFilter;
+    return bookFilter === UNCLASSIFIED_KEY ? !id : id === bookFilter;
   };
 
   const characters = (cardsTree?.characters || []).filter((n) => matchBook("character", n));
   const classes = (cardsTree?.classes || []).filter((n) => matchBook("class", n));
+
+  // ── 来源世界书维度（与「按类型」并列）──
+  // 条目顺序保持原有的「角色在前、职业在后」；刻意不先按 bookFilter 过滤，
+  // 否则未被选中的分组会全部显示为 0 条，没法直接切换来源。
+  const allCardEntries: CardEntry[] = [
+    ...(cardsTree?.characters || []).map((name): CardEntry => ({ type: "character", name })),
+    ...(cardsTree?.classes || []).map((name): CardEntry => ({ type: "class", name })),
+  ];
+  const {
+    groups: worldbookGroups,
+    collapsedKeys: collapsedBookKeys,
+    toggleCollapsed: toggleBookCollapsed,
+    expandAll: expandAllBooks,
+    collapseAll: collapseAllBooks,
+    allCollapsed: allBooksCollapsed,
+  } = useWorldbookGroups(allCardEntries, (e) => bookOf(e.type, e.name), worldbooks, bookFilter);
 
   const renderEntityRow = (type: "character" | "class", name: string) => {
     const selected = selectedCardEntity === name && selectedCardEntityType === type;
@@ -120,7 +154,8 @@ export default function CardManager() {
         {type === "character" && cardsTree?.character_class_map[name] && (
           <span className="text-[10px] text-gray-600 ml-1">{cardsTree.character_class_map[name]}</span>
         )}
-        {bookId ? (
+        {/* 来源徽章只在「按类型」维度显示；「按世界书」维度下分组标题已经标明来源 */}
+        {dimension === "type" && (bookId ? (
           <span
             className="text-[9px] px-1 rounded bg-amber-600/15 text-amber-300 border border-amber-700/40 shrink-0 ml-1 max-w-[8rem] truncate"
             title={`所属世界书：${bookName(bookId)}`}
@@ -128,10 +163,10 @@ export default function CardManager() {
             <AppIcon name="worldbook" size={11} /> {bookName(bookId)}
           </span>
         ) : (
-          <span className="text-[9px] text-gray-600 shrink-0 ml-1 opacity-0 group-hover:opacity-100" title="未标注所属世界书">
-            未标注
+          <span className="text-[9px] text-gray-600 shrink-0 ml-1 opacity-0 group-hover:opacity-100" title="未关联来源世界书">
+            未分类
           </span>
-        )}
+        ))}
       </div>
     );
   };
@@ -152,21 +187,61 @@ export default function CardManager() {
           </button>
         </div>
 
-        <select
-          className="w-full bg-gray-800/80 border border-gray-700 rounded px-2 py-1 text-[11px] text-gray-300 mb-2"
-          value={bookFilter}
-          onChange={(e) => setBookFilter(e.target.value)}
-          title="按所属世界书筛选"
-        >
-          <option value="">全部世界书</option>
-          <option value="__none__">未标注来源</option>
-          {worldbooks.map((b) => (
-            <option key={b.id} value={b.id}>{b.name}</option>
-          ))}
-        </select>
+        <GroupDimensionToggle
+          value={dimension}
+          onChange={setDimension}
+          options={[
+            { id: "type", label: "按类型", icon: "cards", hint: "原有维度：角色卡牌 / 职业卡牌" },
+            { id: "worldbook", label: "按世界书", icon: "worldbook", hint: "按来源世界书分组" },
+          ]}
+          extra={
+            dimension === "worldbook" && worldbookGroups.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => (allBooksCollapsed ? expandAllBooks() : collapseAllBooks())}
+                className="text-[10px] text-gray-500 hover:text-gray-300 whitespace-nowrap px-1.5 py-1 rounded hover:bg-gray-700/50 transition-colors"
+                title={allBooksCollapsed ? "展开全部分组" : "折叠全部分组"}
+              >
+                {allBooksCollapsed ? "展开" : "折叠"}
+              </button>
+            ) : null
+          }
+        />
+
+        {dimension === "type" && (
+          <select
+            className="w-full bg-gray-800/80 border border-gray-700 rounded px-2 py-1 text-[11px] text-gray-300 mb-2"
+            value={bookFilter}
+            onChange={(e) => setBookFilter(e.target.value)}
+            title="按所属世界书筛选"
+          >
+            <option value="">全部世界书</option>
+            <option value={UNCLASSIFIED_KEY}>未分类</option>
+            {worldbooks.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+        )}
 
         {!cardsTree ? (
           <p className="text-gray-500 text-sm text-center py-4">加载中...</p>
+        ) : dimension === "worldbook" ? (
+          <WorldbookGroupList
+            groups={worldbookGroups}
+            totalCount={allCardEntries.length}
+            activeKey={bookFilter}
+            collapsedKeys={collapsedBookKeys}
+            onSelect={setBookFilter}
+            onToggleCollapse={toggleBookCollapsed}
+            renderItems={(items) =>
+              items.length === 0 ? (
+                <p className="text-xs text-gray-600 italic pl-1">(空)</p>
+              ) : (
+                items.map((e) => renderEntityRow(e.type, e.name))
+              )
+            }
+            emptyHint={<p className="text-gray-500 text-sm text-center py-4">暂无卡牌条目</p>}
+          />
         ) : (
           <div className="space-y-2">
             {/* Characters group */}

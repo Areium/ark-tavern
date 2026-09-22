@@ -110,3 +110,22 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
   冲突需人工确认后再重跑。
 - **证据**：`tests/test_data_layout.py` 覆盖 Document/Wiki 与内容 API、素材 URL、临时候选剧情、
   战斗节点提示刷新、背景引用和生成器临时输出；迁移行为由 `tests/test_data_layout_migration.py` 覆盖。
+
+### 「来源世界书」只有一个字段：实体 index.md 的 `worldbook_id`（2026-09-22）
+
+- **口径**：角色 / 职业 / 其它实体目录的**唯一**来源标注是 `index.md` frontmatter 的
+  `worldbook_id`。写入端只有两处：导入角色卡时 `character_card._stamp_worldbook_id`（把随卡
+  自带的内嵌世界书记到角色目录上），以及资产/卡牌界面里的「标注来源世界书」
+  （`PUT /api/assets/<category>/<entity>/worldbook`）。没有单独的 `source` / `worldBookName` 字段——
+  展示名一律由前端拿 `listWorldbooks()` 现查，查不到（书被删/停用/还没加载）回落显示 id 本身。
+- **未分类的判定**：`worldbook_id` 缺失、`null`、空白串都算「未分类」。后端原样透传（`null` → 空串），
+  归一化只在前端 `utils/worldbookGrouping.ts` 的 `worldbookKeyOf` 做一次；该函数产出的
+  `UNCLASSIFIED_KEY = "__none__"` 是资产/卡牌来源下拉与分组选择共用的哨兵值，三个界面都引用这个
+  常量（不要再用 `"__none__"` 字面量），改哨兵只需改这一处。
+- **两种数据都要能读**：`list_documents` 的实体文件夹分支现在**无条件**解析 frontmatter（此前只在
+  `include_content=True` 时解析），因此 `DocumentInfo.worldbook_id` 与 `include_content` 无关；
+  传统 `.md` 文档与实体子文档两个分支仍受 `include_content` 门控，其 `worldbook_id` 恒为空串。
+  这是纯追加字段，`_docs_to_tree` 与 `blueprints/documents.py` 的全文检索**按固定键重建**结果，
+  会静默丢掉它——那两条链路目前没有前端消费者，将来接线时要一并补上。
+- **证据**：`tests/test_document_worldbook_source.py` 覆盖有标注 / 缺字段 / `null` / 空白四种取值，
+  以及「不请求内容摘要时也能拿到来源」「原有键值不变」，外加 `/api/characters` 端点层的字段断言。
