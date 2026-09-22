@@ -76,7 +76,7 @@ html.light .wber-shell {
 .wber-shell button.is-icon.is-sm { width: 28px; }
 
 /* ── 表单控件 ── */
-.wber-title-input, .wber-description, .wber-cover-field input, .wber-editor input, .wber-editor textarea, .wber-editor select,
+.wber-title-input, .wber-description, .wber-editor input, .wber-editor textarea, .wber-editor select,
 .wber-search input, .wber-library-controls input, .wber-library-controls select, .wber-create input, .wber-create textarea, .wber-paste-import textarea {
   width: 100%; min-height: 34px; border: 1px solid var(--wber-border); border-radius: 8px; padding: 7px 11px; outline: none;
   color: var(--wber-text); background: color-mix(in srgb, var(--wber-panel) 70%, transparent);
@@ -198,8 +198,6 @@ html.light .wber-shell {
 .wber-title-input { margin-top: 6px; border-color: transparent; padding-left: 0; background: transparent; font-family: var(--wber-serif); font-size: clamp(20px, 2.6vw, 30px); font-weight: 700; }
 .wber-title-input:focus { border-color: var(--wber-accent-line); padding-left: 10px; }
 .wber-description { margin-top: 8px; resize: vertical; line-height: 1.7; }
-.wber-cover-field { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--wber-muted); font-size: 12px; }
-.wber-cover-field input { min-height: 30px; padding: 5px 9px; }
 .wber-stats { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; color: var(--wber-muted); font-size: 12px; }
 .wber-stats > span { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--wber-border); border-radius: 999px; background: var(--wber-soft); font-variant-numeric: tabular-nums; }
 .wber-stats b { color: var(--wber-text); font-weight: 600; }
