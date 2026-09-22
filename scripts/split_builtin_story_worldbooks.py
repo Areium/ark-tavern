@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 
 
 STORY_SPECS = (
@@ -64,6 +65,44 @@ STORY_SPECS = (
         },
     },
 )
+
+_COMPACT_NAME_STORIES = {"near-light"}
+_ENTRY_SUFFIX_RE = re.compile(r"[（(]([^（()）]{1,16})[)）]\s*$")
+_SUFFIX_CATEGORIES = {
+    "角色设定": {"id": "characters", "name": "角色设定", "scope_type": "character", "parent_id": None, "sort_order": 20},
+    "势力设定": {"id": "factions", "name": "势力设定", "scope_type": "other", "parent_id": None, "sort_order": 25},
+    "物品设定": {"id": "items", "name": "物品设定", "scope_type": "other", "parent_id": None, "sort_order": 30},
+    "敌人设定": {"id": "enemies", "name": "敌人设定", "scope_type": "other", "parent_id": None, "sort_order": 31},
+    "剧情设定": {"id": "plots", "name": "剧情设定", "scope_type": "other", "parent_id": None, "sort_order": 32},
+}
+_PLOT_GRAPH_CATEGORY = {"id": "plot_graph", "name": "节点图", "scope_type": "other", "parent_id": None, "sort_order": 33}
+
+
+def compact_story_entry_names(book: dict) -> dict:
+    """把指定剧情书条目名末尾的类别后缀迁入显式分类字段。"""
+    if book.get("id") not in _COMPACT_NAME_STORIES:
+        return book
+    categories = {item.get("id"): copy.deepcopy(item) for item in book.get("categories", [])
+                  if isinstance(item, dict) and item.get("id")}
+    for entry in book.get("entries", []):
+        if not isinstance(entry, dict):
+            continue
+        uid = str(entry.get("uid") or "")
+        if uid.startswith("plot_graph_"):
+            entry["category_id"] = _PLOT_GRAPH_CATEGORY["id"]
+            categories[_PLOT_GRAPH_CATEGORY["id"]] = copy.deepcopy(_PLOT_GRAPH_CATEGORY)
+            continue
+        match = _ENTRY_SUFFIX_RE.search(str(entry.get("name") or ""))
+        category = _SUFFIX_CATEGORIES.get(match.group(1)) if match else None
+        if category is None:
+            continue
+        entry["name"] = str(entry.get("name") or "")[:match.start()].strip()
+        entry["category_id"] = category["id"]
+        if category["id"] == "characters" and uid.startswith("characters_") and uid.endswith("_index"):
+            entry["character_id"] = uid[len("characters_"):-len("_index")]
+        categories[category["id"]] = copy.deepcopy(category)
+    book["categories"] = sorted(categories.values(), key=lambda item: item.get("sort_order", 0))
+    return book
 
 
 def _edge_inside(edge: dict, known: set[str]) -> bool:
@@ -164,6 +203,7 @@ def split_builtin_book(source: dict) -> tuple[dict, dict[str, dict]]:
         categories = _categories_for(source, entries)
         if categories is not None:
             story["categories"] = categories
+        compact_story_entry_names(story)
         stories[spec["id"]] = story
         moved_non_characters.update(spec["content_uids"])
 

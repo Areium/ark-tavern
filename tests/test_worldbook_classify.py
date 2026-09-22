@@ -34,6 +34,7 @@ def pack_entries():
         entry("rules_buff-pool_index", name="buff-pool（规则设定）", group="规则"),
         entry("races_乌萨斯_index", name="乌萨斯（种族设定）", group="种族"),
         entry("Location_01-罗德岛_index", name="罗德岛（地点设定）", group="地点"),
+        entry("factions_罗德岛_index", name="罗德岛（势力设定）", group="势力"),
         entry("items_01-源石_index", name="源石（物品设定）", group="物品"),
         entry("enemies_01-整合运动_index", name="整合运动（敌人设定）", group="敌人"),
         entry("plots_01-序章_index", name="序章（剧情设定）", group="剧情"),
@@ -51,6 +52,7 @@ def pack_entries():
     ("classes_先锋_index", "classes"),
     ("weather_雷暴_index", "weather"),
     ("Location_01-罗德岛_index", "locations"),
+    ("factions_罗德岛_index", "factions"),
     ("items_01-源石_index", "items"),
     ("enemies_01-整合运动_index", "enemies"),
     ("plots_01-序章_index", "plots"),
@@ -70,6 +72,7 @@ def test_group_and_name_suffix_are_fallbacks():
     assert classify_entry("100", group="敌人")[0] == "enemies"
     assert classify_entry("101", name="某种族（种族设定）")[0] == "races"
     assert classify_entry("102", name="Some Race", group="Races")[0] == "races"
+    assert classify_entry("103", name="罗德岛（势力设定）")[0] == "factions"
 
 
 def test_unknown_shapes_are_left_unclassified_instead_of_guessed():
@@ -148,10 +151,11 @@ def test_empty_categories_are_treated_as_unclassified_and_classified(tmp_path):
     book = WorldBook.from_dict(raw_pack(categories=[]))
     assert book.scope_mode == "legacy", "旧书仅补分类，不隐式进入按需载入"
     assert [e.category_id for e in book.entries][:3] == ["worldview", "rules", "races"]
-    assert book.entries[8].character_id == "阿米娅"
+    by_uid = {entry.uid: entry for entry in book.entries}
+    assert by_uid["characters_阿米娅_index"].character_id == "阿米娅"
     names = {c["name"] for c in book.categories}
     assert {"世界观设定", "规则设定", "种族设定", "角色设定", "物品设定", "节点图", "未分类"} <= names
-    assert book.entries[9].category_id == "unclassified"
+    assert by_uid["100"].category_id == "unclassified"
     assert book.category_scope_type("rules") == "worldview"
 
 
@@ -216,7 +220,7 @@ def test_api_auto_classify_preview_is_read_only(api):
     response = client.post("/api/worldbook/arknights/auto-classify", json={})
     assert response.status_code == 200
     payload = response.json
-    assert payload["apply"] is False and payload["matched"] == 9 and payload["unmatched_count"] == 1
+    assert payload["apply"] is False and payload["matched"] == 10 and payload["unmatched_count"] == 1
     assert payload["character_links"] == 1
     counts = {c["id"]: c["count"] for c in payload["categories"]}
     assert counts["worldview"] == 1 and counts["items"] == 1 and counts["plot_graph"] == 1

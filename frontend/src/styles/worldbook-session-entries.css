@@ -23,6 +23,11 @@
 .wbse-count span { color: var(--wber-accent); }
 .wbse-group { margin-top: 10px; }
 .wbse-group h4 { color: var(--wber-text); font-size: 12px; padding: 10px 0; border-bottom: 1px solid var(--wber-border); overflow-wrap: anywhere; }
+.wbse-group.is-compact { margin-top: 14px; padding: 14px; border: 1px solid var(--wber-border); border-radius: 10px; background: var(--wber-soft); }
+.wbse-group.is-compact h4 { padding: 0 0 10px; }
+.wbse-entry-grid { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; }
+.wbse-entry-name { min-width: 0; max-width: 100%; padding: 6px 10px; border: 1px solid var(--wber-border); border-radius: 6px; background: var(--wber-panel); color: var(--wber-text); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.wbse-entry-name.is-disabled { opacity: .5; text-decoration: line-through; }
 .wbse-entry { display: flex; align-items: center; gap: 16px; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--wber-border); }
 .wbse-entry-copy { min-width: 0; flex: 1; }
 .wbse-entry strong { font-size: 13px; color: var(--wber-text); overflow-wrap: anywhere; }
