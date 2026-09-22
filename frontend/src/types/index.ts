@@ -871,10 +871,11 @@ export interface WorldBookDisplayNodeDTO {
    * `display_tree` 每个 uid 只有一行，所以这里**不是**「在 display_tree 里是否非首次出现」——
    * 那个字面读法恒为 false。
    *
-   * ⚠ 它与节点视图的「灰出现」是**单向**关系：`repeated === true` ⟹ 会有第二次到达；
-   * 但反向不成立——**轨道上的 uid**，它任何一次展开出现都必然是灰节点（提案 §3.4.3.1
-   * 「轨道优先」），即使它的 `repeated === false`。因此灰集合是 `repeated` 的**超集**，
-   * 主/灰归属仍以「轨道优先 → `first_parent_uid`」与 `resolved_edges[].status === "cross"` 为准。
+   * ⚠ 不要把它当成「是否会出现重复行」的唯一依据：前端 `utils/worldbookDependencyTree.ts`
+   * 另按「本次出现是否是该 uid 在当前树里的首个出现」标记重复行，两者只是**单向**关系——
+   * `repeated === true` ⟹ 一定有第二次到达，但反向不成立（`repeated === false` 的 uid
+   * 仍可能沿另一条路径再次出现）。主/次归属以 `first_parent_uid` 与
+   * `resolved_edges[].status === "cross"` 为准。
    */
   repeated: boolean;
   /** 该 uid 的**主路径父**（即上方的 `parent_uid`；根为 `null`）。前端用它判断「哪一次到达是主到达」。 */
@@ -1132,7 +1133,7 @@ export interface WorldBookDependencyTreeDTO {
   /**
    * 依赖环清单（契约 R-26）：每个元素是**一条环**，环上节点按环序排列且**首尾同一 uid**，
    * 例如 `[["a","b","c","a"]]`；自环为 `["x","x"]`；无环为 `[]`。
-   * 前端按相邻对推出环内边（供节点视图标红）。同一强连通分量只产出一条环。
+   * 前端按相邻对推出环内边（供依赖展开树标红）。同一强连通分量只产出一条环。
    */
   cycles: string[][];
   issues: WorldBookIssueDTO[];

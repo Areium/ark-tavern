@@ -126,9 +126,10 @@ assert.equal(normalizeWorldbookTab("entries", { book_type: "reference" }), "entr
 assert.equal(normalizeWorldbookTab("index", { book_type: "reference" }), "index");
 assert.equal(normalizeWorldbookTab("load", { book_type: "reference" }), "entries");
 assert.equal(normalizeWorldbookTab("prompt", { book_type: "reference" }), "entries");
-assert.equal(normalizeWorldbookTab("nodes", { book_type: "reference" }), "entries");
+assert.equal(normalizeWorldbookTab("graph", { book_type: "reference" }), "entries");
+assert.equal(normalizeWorldbookTab("nodes", { book_type: "reference" }), "entries", "旧「节点视图」页签值已不存在");
 assert.equal(normalizeWorldbookTab("load", { book_type: "story" }), "entries");
-for (const tab of ["entries", "prompt", "nodes", "index"]) {
+for (const tab of ["entries", "prompt", "graph", "index"]) {
   assert.equal(normalizeWorldbookTab(tab, { book_type: "story" }), tab);
   // 缺字段（旧数据）按 story 处理；没有选中书时也不做收窄
   assert.equal(normalizeWorldbookTab(tab, {}), tab);
@@ -156,7 +157,7 @@ assert.ok(markup.includes(">新建</button>") && markup.includes(">导入</butto
 assert.ok(markup.includes(">剧情</button>") && markup.includes(">资料</button>"), "两种用途都可筛选");
 assert.ok(markup.includes("从左侧书架选一本世界书"), "没选书时详情区给出明确指引，不留白");
 assert.deepEqual(managerModule.WORLDBOOK_PANEL_TABS.map((tab) => tab.id),
-  ["entries", "prompt", "nodes", "index"], "工作台只保留四个页签");
+  ["entries", "prompt", "graph", "index"], "工作台只保留四个页签（节点图迁入，节点视图已删除）");
 assert.equal(managerModule.estimateDisplayTokens("中文"), 2, "CJK 基本区逐字计数");
 assert.equal(managerModule.estimateDisplayTokens("abcd"), 1, "非中文 code point 每四个估算一 token");
 assert.equal(managerModule.estimateDisplayTokens("😀😀😀😀"), 1, "emoji 按 code point 而非 UTF-16 单元计数");

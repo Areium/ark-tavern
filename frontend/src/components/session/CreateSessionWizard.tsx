@@ -54,7 +54,7 @@ const STEP_LABELS: Record<string, string> = {
 
 export default function CreateSessionWizard({ open, onClose, onCreated }: CreateSessionWizardProps) {
   const chatMode = useAppStore((s) => s.chatMode);
-  const { setCurrentView } = useAppStore();
+  const { setCurrentView, setCharacterTab } = useAppStore();
   const api = useApi();
 
   // ── 向导状态 ──
@@ -333,7 +333,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   选择你的玩家身份 — 你将以该角色身份参与对话（默认：博士）
                 </p>
                 <button
-                  onClick={() => { setCurrentView("characters"); onClose(); }}
+                  onClick={() => { setCharacterTab("identities"); setCurrentView("characters"); onClose(); }}
                   className="text-[11px] px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
                 >
                   管理玩家身份

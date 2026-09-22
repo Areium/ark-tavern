@@ -38,7 +38,7 @@ export default function CombatView() {
     setCombatContext,
     setCurrentView,
     setPendingAutoNarrate,
-    setContentHubTab,
+    setWorldbookGraphJumpId,
     setCombatNodeJumpId,
   } = useAppStore();
   const {
@@ -1269,8 +1269,9 @@ export default function CombatView() {
                 className="mt-1 text-[10px] text-amber-400/90 hover:text-amber-300 underline"
                 onClick={() => {
                   setCombatNodeJumpId(selectedNode.node_id);
-                  setContentHubTab("combat");
-                  setCurrentView("content");
+                  // 节点图归世界书：定位该节点归属的世界书并直接打开「节点图」页签
+                  setWorldbookGraphJumpId(selectedNode.worldbook_id || null);
+                  setCurrentView("worldbook");
                 }}
               >⚙ 编辑此节点（地图 / 敌人 / 血量）</button>
             </div>

@@ -846,8 +846,8 @@ html.light .bg-black { background-color: rgb(229 231 235); }
 html.light .bg-black\/70 { background-color: rgba(229,231,235,0.7); }
 html.light .bg-black\/50 { background-color: rgba(229,231,235,0.5); }
 
-/* ── 内容中心 / 节点图页（ContentHub、PlotGraphPage）补充 ──
-   这些工具类此前没有浅色映射，浅色主题下「内容中心」顶栏与节点图画布底色仍是深色：
+/* ── 节点图页（PlotGraphPage，现挂「世界书 → 节点图」页签）与角色页模块栏补充 ──
+   这些工具类此前没有浅色映射，浅色主题下节点图顶栏与画布底色仍是深色：
    实测顶栏 bg=#111318（Tab 文字对比度 1.04）、画布 bg=#0a0c12（顶栏按钮 1.9）。
    注意只补「常驻」底色与状态色，hover: 变体与战斗页浮层（bg-gray-950/70）未动。 */
 html.light .bg-gray-950 { background-color: rgb(248 250 252); }

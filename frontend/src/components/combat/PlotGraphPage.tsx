@@ -39,7 +39,15 @@ import {
 } from "./graphModel";
 import { createNodes } from "./nodeFactory";
 
-interface Props { sessionId?: string | null }
+interface Props {
+  sessionId?: string | null;
+  /**
+   * 受控的世界书（设定集）。世界书工作台把「节点图」挂成页签时传入当前选中的书：
+   * 此时以 prop 为唯一真相、顶栏不再给下拉（切书走左侧书架），切书语义与下拉一致
+   * （当前剧情、画布与抽屉复位；已编辑剧情的会话内缓存仍保留）。
+   */
+  bookId?: string | null;
+}
 
 /** 节点生成失败/操作反馈文案（NodeGenError 自带可读 message） */
 const errText = (e: unknown, fallback: string) =>
@@ -62,12 +70,16 @@ interface PlotCache {
   hist: GraphHistory;
 }
 
-export default function PlotGraphPage({ sessionId }: Props) {
+export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: Props) {
   const api = useApi();
   const { combatNodeJumpId, setCombatNodeJumpId } = useAppStore();
+  /** 受控模式：世界书工作台页签内使用（切书由外部书架驱动） */
+  const controlled = controlledBookId !== undefined && controlledBookId !== null;
 
   const [books, setBooks] = useState<WorldBookSummary[]>([]);
-  const [bookId, setBookId] = useState("");
+  const [internalBookId, setInternalBookId] = useState("");
+  const bookId = controlled ? (controlledBookId as string) : internalBookId;
+  const setBookId = setInternalBookId;
   const [overview, setOverview] = useState<CombatNodeGraphDTO | null>(null);
   const [savedGraphs, setSavedGraphs] = useState<Set<string>>(new Set());
   const [plotId, setPlotId] = useState("");
@@ -222,8 +234,19 @@ export default function PlotGraphPage({ sessionId }: Props) {
 
   useEffect(() => { loadOverview(bookId); }, [bookId, loadOverview]);
   useEffect(() => {
-    try { if (bookId) localStorage.setItem(LAST_BOOK_KEY, bookId); } catch { /* ignore */ }
-  }, [bookId]);
+    // 受控模式下「上次选中的书」由工作台书架决定，不再写本地记忆
+    try { if (bookId && !controlled) localStorage.setItem(LAST_BOOK_KEY, bookId); } catch { /* ignore */ }
+  }, [bookId, controlled]);
+
+  // 受控换书（工作台书架切换）：与顶栏下拉同语义——当前剧情 / 画布 / 抽屉复位
+  const controlledBookRef = useRef(bookId);
+  useEffect(() => {
+    if (!controlled || controlledBookRef.current === bookId) return;
+    controlledBookRef.current = bookId;
+    setPlotId("");
+    setDoc(null);
+    closeDrawerNow();
+  }, [controlled, bookId, closeDrawerNow]);
 
   // 总览就绪后恢复上次选中剧情（记住上次选中的剧情），否则选第一个
   useEffect(() => {
@@ -571,17 +594,22 @@ export default function PlotGraphPage({ sessionId }: Props) {
       {/* ── 顶栏：设定集（世界书）+ 编辑工具 + 保存 ── */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-800 shrink-0 flex-wrap">
         <span className="text-sm shrink-0" title="设定集：节点图数据归属的世界书">📖</span>
-        <select
-          className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs outline-none focus:border-amber-500/50 max-w-[16rem]"
-          value={bookId}
-          onChange={(e) => { setBookId(e.target.value); setPlotId(""); setDoc(null); closeDrawerNow(); }}
-          title="选择设定集（世界书）——图文档保存到该书"
-        >
-          {books.length === 0 && <option value="">（无世界书）</option>}
-          {books.map((b) => (
-            <option key={b.id} value={b.id}>{b.name}</option>
-          ))}
-        </select>
+        {controlled ? (
+          <span className="text-xs text-gray-300 shrink-0 max-w-[18rem] truncate"
+            title="当前世界书（在世界书书架里切换）">{bookName(bookId) || "（未选世界书）"}</span>
+        ) : (
+          <select
+            className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs outline-none focus:border-amber-500/50 max-w-[16rem]"
+            value={bookId}
+            onChange={(e) => { setBookId(e.target.value); setPlotId(""); setDoc(null); closeDrawerNow(); }}
+            title="选择设定集（世界书）——图文档保存到该书"
+          >
+            {books.length === 0 && <option value="">（无世界书）</option>}
+            {books.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+        )}
         {doc && (
           <span className="text-[10px] text-gray-500 shrink-0">
             {doc.nodes.length} 节点 · {doc.edges.length} 连线

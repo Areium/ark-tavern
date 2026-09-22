@@ -18,7 +18,7 @@
    `html.skin-x body`(0,2,1) 且放在 @scope 之外（见 _promote 说明 / CSS 内注释）。
 2. 扫描范围必须包含 frontend/index.html，否则 bg-surface-* 全漏。
    combat 目录默认排除（战斗页不换肤），但 PlotGraphPage / GraphCanvas 渲染在
-   ContentHub 的「剧情图」Tab 下、不在 .bg-combat-bg 子树内，必须纳入扫描，
+   「世界书 → 节点图」页签下、不在 .bg-combat-bg 子树内，必须纳入扫描，
    否则该页的页面 chrome 在皮肤下留默认深色。
 
 用法
@@ -168,7 +168,7 @@ BEGIN = "  /* ═══ 工具类覆盖（由 scripts/gen_skin_utils.py 生成�
 END = "  /* ═══ 工具类覆盖结束 ═══ */"
 
 # combat 目录默认排除（战斗页不换肤，根在 .bg-combat-bg 子树内，@scope 已隔离）；
-# 例外：剧情图页（PlotGraphPage）被 ContentHub「剧情图」Tab 引用，渲染在换肤
+# 例外：剧情图页（PlotGraphPage）被「世界书 → 节点图」页签引用，渲染在换肤
 # DOM 内，GraphCanvas 仅被它使用 —— 这两个文件必须参与扫描。
 COMBAT_INCLUDE_FILES = {"PlotGraphPage.tsx", "GraphCanvas.tsx"}
 
@@ -233,7 +233,7 @@ def scan_used():
     for dirpath, dirnames, filenames in os.walk(SRC):
         dirnames[:] = [d for d in dirnames if d not in ("node_modules", "dist")]
         if os.path.join("components", "combat") in dirpath:
-            # 战斗页不换肤；但剧情图两文件挂在 ContentHub 下、渲染在换肤 DOM 内
+            # 战斗页不换肤；但剧情图两文件挂在世界书节点图页签下、渲染在换肤 DOM 内
             targets += [os.path.join(dirpath, f) for f in filenames
                         if f in COMBAT_INCLUDE_FILES]
             continue

@@ -6,7 +6,7 @@ import AppIcon from "./AppIcon";
 
 interface Props {
   children: ReactNode;
-  /** 错误发生后尝试恢复（例如重置内容中心 Tab） */
+  /** 错误发生后尝试恢复（例如重置世界书工作台 / 角色页的页签） */
   onReset?: () => void;
 }
 

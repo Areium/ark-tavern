@@ -49,7 +49,7 @@ function resumeHint(r?: CombatResumeSummaryDTO | null): string {
 }
 
 export default function SessionManagerView() {
-  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession, setCurrentView, setIndexSessionId, setChatMode, setCombatContext, setWorldbookTab, setWorldbookScopeJumpId } =
+  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession, setCurrentView, setIndexSessionId, setChatMode, setCombatContext, setWorldbookTab, setWorldbookScopeJumpId, setCharacterTab } =
     useAppStore();
   const api = useApi();
 
@@ -1020,7 +1020,7 @@ export default function SessionManagerView() {
             </div>
             <div className="px-5 py-3 border-t border-gray-700 flex justify-end">
               <button
-                onClick={() => { setCurrentView("characters"); setIdentityPickerOpen(false); }}
+                onClick={() => { setCharacterTab("identities"); setCurrentView("characters"); setIdentityPickerOpen(false); }}
                 className="text-xs px-3 py-1.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
               >
                 管理玩家身份

@@ -7,13 +7,12 @@ import { useAppStore } from "../stores/appStore";
 import { audioManager } from "../audio/audioManager";
 import AppIcon, { type AppIconName } from "./AppIcon";
 
-type ManageView = "sessions" | "characters" | "worldbook" | "content" | "docs" | "settings";
+type ManageView = "sessions" | "characters" | "worldbook" | "docs" | "settings";
 
 const NAV_ITEMS: { id: ManageView; label: string; icon: AppIconName }[] = [
   { id: "sessions", label: "会话大厅", icon: "sessions" },
   { id: "characters", label: "角色", icon: "characters" },
   { id: "worldbook", label: "世界书", icon: "worldbook" },
-  { id: "content", label: "内容中心", icon: "content" },
   { id: "docs", label: "文档", icon: "docs" },
   { id: "settings", label: "设置", icon: "settings" },
 ];

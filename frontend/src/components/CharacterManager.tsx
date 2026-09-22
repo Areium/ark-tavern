@@ -1,15 +1,20 @@
 /**
- * 角色管理 — 主页直达入口。
+ * 角色 — 主页一级入口（原「内容中心」的角色内容 / 资产 / 卡牌三模块并入此处）。
  *
- * 内设两个 Tab：
- *  - 角色库：浏览全部可用角色，导入角色卡，查看详情，跳转编辑资料/卡牌。
+ * 内设四个模块页签：
+ *  - 角色库（= 角色内容）：浏览全部可用角色，导入角色卡，查看详情，跳转编辑资料/卡牌。
  *  - 玩家身份：创建、编辑、删除多个玩家身份角色，供创建/切换会话时使用。
+ *  - 资产 / 卡牌：自原「内容中心」迁入的图片资产与卡牌管理，功能与入口完全等价。
+ *
+ * 页签状态放在 store（`characterTab`）：角色卡详情「编辑卡牌」等跨组件跳转要落到指定页签。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
-import { useAppStore } from "../stores/appStore";
+import { useAppStore, type CharacterTab } from "../stores/appStore";
 import MarkdownRenderer from "./MarkdownRenderer";
-import AppIcon from "./AppIcon";
+import AssetManager from "./AssetManager";
+import CardManager from "./CardManager";
+import AppIcon, { type AppIconName } from "./AppIcon";
 
 interface CharacterSummary {
   id: string;
@@ -29,7 +34,16 @@ interface CharacterDetail {
   content: string;
 }
 
-type ManagerTab = "characters" | "identities";
+/** 角色页模块页签（角色库 / 玩家身份是角色自身内容；资产 / 卡牌自内容中心迁入） */
+const MODULE_TABS: { id: CharacterTab; label: string; icon: AppIconName; hint: string }[] = [
+  { id: "characters", label: "角色库", icon: "characters", hint: "角色内容：浏览角色库、导入角色卡、查看详情" },
+  { id: "identities", label: "玩家身份", icon: "home", hint: "创建与管理玩家身份（你自己的角色卡）" },
+  { id: "images", label: "资产", icon: "image", hint: "图片资产上传 / 裁剪 / 默认图 / 来源世界书" },
+  { id: "cards", label: "卡牌", icon: "cards", hint: "角色与职业卡牌编辑 / 所属世界书" },
+];
+
+/** 左列表 + 右详情的双栏骨架只服务于角色库 / 玩家身份两个模块 */
+const ROLE_MODULE_TABS = new Set<CharacterTab>(["characters", "identities"]);
 
 const AVATAR_URL = (name: string) => `/api/characters/${encodeURIComponent(name)}/avatar`;
 
@@ -46,9 +60,11 @@ const ATTR_LABELS: Record<string, string> = {
 
 export default function CharacterManager() {
   const api = useApi();
-  const { setCurrentView, setContentHubTab, setWorldbookJumpId } = useAppStore();
+  const { setCurrentView, setCharacterTab, setWorldbookJumpId } = useAppStore();
 
-  const [tab, setTab] = useState<ManagerTab>("characters");
+  // 模块页签来自 store（跨组件跳转可指定落点）
+  const tab = useAppStore((state) => state.characterTab);
+  const isRoleModule = ROLE_MODULE_TABS.has(tab);
 
   // ── 角色库 ──
   const [characters, setCharacters] = useState<CharacterSummary[]>([]);
@@ -175,7 +191,7 @@ export default function CharacterManager() {
         title: c.title,
       })));
       if (res.character?.name) {
-        setTab("characters");
+        setCharacterTab("characters");
         setSelectedChar(res.character.name);
       }
     } catch (err: any) {
@@ -242,10 +258,8 @@ export default function CharacterManager() {
   };
 
   const jumpToCards = () => {
-    // 通过 content hub 的 cards tab 选中该角色，需要扩展 store 支持
-    // 这里先简单跳转到 content/cards，用户再手动选择
-    setContentHubTab("cards");
-    setCurrentView("content");
+    // 卡牌页签就在本页（原「内容中心 → 卡牌」），切换模块即可，用户再在列表里选择
+    setCharacterTab("cards");
   };
 
   const filteredCharacters = useMemo(() => {
@@ -468,144 +482,159 @@ export default function CharacterManager() {
 
         <p className="text-[11px] text-gray-600 leading-relaxed">
           提示：玩家身份就是一份特殊的角色卡，保存后可在创建会话或会话大厅中选择使用。
-          头像请前往「内容中心 → 资产」为该身份上传 avatar 图片。
+          头像请前往「角色 → 资产」为该身份上传 avatar 图片。
         </p>
       </div>
     );
   };
 
   return (
-    <div className="flex h-full">
-      {/* ── 左侧列表 ── */}
-      <div className="w-72 border-r border-gray-700 flex flex-col shrink-0">
-        {/* Tabs */}
-        <div className="flex items-center gap-1 p-2 border-b border-gray-700">
-          <button
-            onClick={() => setTab("characters")}
-            className={`flex-1 text-xs px-2 py-1.5 rounded transition-colors ${tab === "characters" ? "bg-blue-600/30 text-blue-300" : "text-gray-500 hover:text-gray-300"}`}
-          >
-            角色库
-          </button>
-          <button
-            onClick={() => setTab("identities")}
-            className={`flex-1 text-xs px-2 py-1.5 rounded transition-colors ${tab === "identities" ? "bg-amber-600/30 text-amber-300" : "text-gray-500 hover:text-gray-300"}`}
-          >
-            玩家身份
-          </button>
-        </div>
-
-        {/* Toolbar */}
-        <div className="p-2 border-b border-gray-700 space-y-2">
-          <input
-            className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 placeholder:text-gray-600"
-            placeholder={tab === "characters" ? "搜索角色…" : "搜索身份…"}
-            value={tab === "characters" ? charSearch : identitySearch}
-            onChange={(e) => tab === "characters" ? setCharSearch(e.target.value) : setIdentitySearch(e.target.value)}
-          />
-          {tab === "characters" ? (
-            <>
-              <button
-                onClick={() => charFileRef.current?.click()}
-                disabled={charImporting}
-                className="w-full text-xs px-2 py-1.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 disabled:opacity-50 transition-colors"
-              >
-                {charImporting ? "导入中…" : <><AppIcon name="upload" size={14} /> 导入角色卡</>}
-              </button>
-              <input
-                ref={charFileRef}
-                type="file"
-                accept=".png,.json,.webp,.jpg,.jpeg"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) { void handleImportCharacterCard(f); e.target.value = ""; }
-                }}
-              />
-            </>
-          ) : (
+    <div className="flex flex-col h-full">
+      {/* ── 模块页签：角色库（角色内容）/ 玩家身份 / 资产 / 卡牌 ── */}
+      <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-700/70 bg-gray-900/60 shrink-0">
+        <nav className="flex items-center gap-1 overflow-x-auto" aria-label="角色页模块">
+          {MODULE_TABS.map((item) => (
             <button
-              onClick={() => { resetIdentityForm(); setSelectedIdentity(null); setIsCreating(true); }}
-              className="w-full text-xs px-2 py-1.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 transition-colors"
+              key={item.id}
+              onClick={() => setCharacterTab(item.id)}
+              title={item.hint}
+              className={
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap transition-colors " +
+                (tab === item.id
+                  ? "bg-amber-600/20 text-amber-300 font-medium border border-amber-500/30"
+                  : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 border border-transparent")
+              }
             >
-              ＋ 新建身份
+              <AppIcon name={item.icon} size={15} />
+              <span>{item.label}</span>
             </button>
-          )}
-        </div>
-
-        {/* List */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {tab === "characters" ? (
-            filteredCharacters.length === 0 ? (
-              <p className="text-xs text-gray-600 text-center py-4">
-                {charSearch ? "未找到匹配角色" : "暂无可用角色"}
-              </p>
-            ) : (
-              filteredCharacters.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => setSelectedChar(c.id)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${
-                    selectedChar === c.id
-                      ? "bg-blue-600/20 text-blue-300 border border-blue-600/30"
-                      : "text-gray-300 hover:bg-gray-800"
-                  }`}
-                >
-                  <img
-                    src={AVATAR_URL(c.id)}
-                    alt={c.name}
-                    className="w-8 h-8 rounded object-cover border border-gray-700 bg-gray-800 shrink-0"
-                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
-                  />
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium truncate">{c.name || c.id}</div>
-                    {c.title && <div className="text-[10px] text-gray-500 truncate">{c.title}</div>}
-                  </div>
-                </button>
-              ))
-            )
-          ) : (
-            filteredIdentities.length === 0 && !isCreating ? (
-              <div className="text-center py-4">
-                <p className="text-xs text-gray-600 mb-2">还没有玩家身份</p>
-                <button
-                  onClick={() => { resetIdentityForm(); setIsCreating(true); }}
-                  className="text-xs px-2 py-1 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 transition-colors"
-                >
-                  新建身份
-                </button>
-              </div>
-            ) : (
-              filteredIdentities.map((i) => (
-                <button
-                  key={i.id}
-                  onClick={() => { setIsCreating(false); setSelectedIdentity(i.id); }}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${
-                    selectedIdentity === i.id && !isCreating
-                      ? "bg-amber-600/20 text-amber-300 border border-amber-600/30"
-                      : "text-gray-300 hover:bg-gray-800"
-                  }`}
-                >
-                  <img
-                    src={AVATAR_URL(i.id)}
-                    alt={i.name}
-                    className="w-8 h-8 rounded object-cover border border-gray-700 bg-gray-800 shrink-0"
-                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
-                  />
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium truncate">{i.name || i.id}</div>
-                    {i.summary && <div className="text-[10px] text-gray-500 truncate">{i.summary}</div>}
-                  </div>
-                </button>
-              ))
-            )
-          )}
-        </div>
+          ))}
+        </nav>
       </div>
 
-      {/* ── 右侧详情 ── */}
-      <div className="flex-1 min-w-0 bg-gray-900/30">
-        {tab === "characters" ? renderCharDetail() : renderIdentityDetail()}
-      </div>
+      {isRoleModule ? (
+        <div className="flex flex-1 min-h-0">
+          {/* ── 左侧列表 ── */}
+          <div className="w-72 border-r border-gray-700 flex flex-col shrink-0">
+            {/* Toolbar */}
+            <div className="p-2 border-b border-gray-700 space-y-2">
+              <input
+                className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 placeholder:text-gray-600"
+                placeholder={tab === "characters" ? "搜索角色…" : "搜索身份…"}
+                value={tab === "characters" ? charSearch : identitySearch}
+                onChange={(e) => tab === "characters" ? setCharSearch(e.target.value) : setIdentitySearch(e.target.value)}
+              />
+              {tab === "characters" ? (
+                <>
+                  <button
+                    onClick={() => charFileRef.current?.click()}
+                    disabled={charImporting}
+                    className="w-full text-xs px-2 py-1.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 disabled:opacity-50 transition-colors"
+                  >
+                    {charImporting ? "导入中…" : <><AppIcon name="upload" size={14} /> 导入角色卡</>}
+                  </button>
+                  <input
+                    ref={charFileRef}
+                    type="file"
+                    accept=".png,.json,.webp,.jpg,.jpeg"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) { void handleImportCharacterCard(f); e.target.value = ""; }
+                    }}
+                  />
+                </>
+              ) : (
+                <button
+                  onClick={() => { resetIdentityForm(); setSelectedIdentity(null); setIsCreating(true); }}
+                  className="w-full text-xs px-2 py-1.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 transition-colors"
+                >
+                  ＋ 新建身份
+                </button>
+              )}
+            </div>
+
+            {/* List */}
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {tab === "characters" ? (
+                filteredCharacters.length === 0 ? (
+                  <p className="text-xs text-gray-600 text-center py-4">
+                    {charSearch ? "未找到匹配角色" : "暂无可用角色"}
+                  </p>
+                ) : (
+                  filteredCharacters.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => setSelectedChar(c.id)}
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${
+                        selectedChar === c.id
+                          ? "bg-blue-600/20 text-blue-300 border border-blue-600/30"
+                          : "text-gray-300 hover:bg-gray-800"
+                      }`}
+                    >
+                      <img
+                        src={AVATAR_URL(c.id)}
+                        alt={c.name}
+                        className="w-8 h-8 rounded object-cover border border-gray-700 bg-gray-800 shrink-0"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium truncate">{c.name || c.id}</div>
+                        {c.title && <div className="text-[10px] text-gray-500 truncate">{c.title}</div>}
+                      </div>
+                    </button>
+                  ))
+                )
+              ) : (
+                filteredIdentities.length === 0 && !isCreating ? (
+                  <div className="text-center py-4">
+                    <p className="text-xs text-gray-600 mb-2">还没有玩家身份</p>
+                    <button
+                      onClick={() => { resetIdentityForm(); setIsCreating(true); }}
+                      className="text-xs px-2 py-1 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 transition-colors"
+                    >
+                      新建身份
+                    </button>
+                  </div>
+                ) : (
+                  filteredIdentities.map((i) => (
+                    <button
+                      key={i.id}
+                      onClick={() => { setIsCreating(false); setSelectedIdentity(i.id); }}
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${
+                        selectedIdentity === i.id && !isCreating
+                          ? "bg-amber-600/20 text-amber-300 border border-amber-600/30"
+                          : "text-gray-300 hover:bg-gray-800"
+                      }`}
+                    >
+                      <img
+                        src={AVATAR_URL(i.id)}
+                        alt={i.name}
+                        className="w-8 h-8 rounded object-cover border border-gray-700 bg-gray-800 shrink-0"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium truncate">{i.name || i.id}</div>
+                        {i.summary && <div className="text-[10px] text-gray-500 truncate">{i.summary}</div>}
+                      </div>
+                    </button>
+                  ))
+                )
+              )}
+            </div>
+          </div>
+
+          {/* ── 右侧详情 ── */}
+          <div className="flex-1 min-w-0 bg-gray-900/30">
+            {tab === "characters" ? renderCharDetail() : renderIdentityDetail()}
+          </div>
+        </div>
+      ) : (
+        /* 资产 / 卡牌：自原「内容中心」迁入，本体不变，只换挂载点 */
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {tab === "images" ? <AssetManager key="am" /> : <CardManager key="cm" />}
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (

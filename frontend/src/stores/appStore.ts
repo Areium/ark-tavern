@@ -18,13 +18,18 @@ export interface CombatContext {
   selectedUnitId: string | null;
 }
 
-type ViewName = "home" | "chat" | "sessions" | "settings" | "combat" | "worldbook" | "content" | "docs" | "characters";
+type ViewName = "home" | "chat" | "sessions" | "settings" | "combat" | "worldbook" | "docs" | "characters";
 
-/** 内容中心 Tab：只剩三项（D-2）。世界书相关能力全部收敛到「世界书」工作台页签。 */
-export type ContentHubTab = "images" | "cards" | "combat";
+/**
+ * 角色页模块页签（原「内容中心」的资产 / 卡牌并入「角色」）。
+ *
+ * `characters` / `identities` 是角色自身的两个模块（角色库即角色资料内容），
+ * `images` / `cards` 是迁入的资产与卡牌。内容中心一级入口已删除。
+ */
+export type CharacterTab = "characters" | "identities" | "images" | "cards";
 
-/** 世界书工作台页签：分类与载入已收敛回条目页。 */
-export type WorldBookTab = "entries" | "prompt" | "nodes" | "index";
+/** 世界书工作台页签：`graph` = 迁入的剧情节点图（旧「节点视图」已整页删除）。 */
+export type WorldBookTab = "entries" | "prompt" | "graph" | "index";
 
 /** 最小化对话框的恢复入口信息（key = 对话框 id） */
 export interface MinimizedDialogEntry {
@@ -37,9 +42,9 @@ interface AppState {
   currentView: ViewName;
   setCurrentView: (view: ViewName) => void;
 
-  // 内容中心 Tab（跨组件跳转；D-2 后只剩资产 / 卡牌 / 节点图）
-  contentHubTab: ContentHubTab;
-  setContentHubTab: (tab: ContentHubTab) => void;
+  // 角色页模块页签（跨组件跳转：角色卡编辑 → 卡牌；会话向导 → 玩家身份）
+  characterTab: CharacterTab;
+  setCharacterTab: (tab: CharacterTab) => void;
 
   // 世界书工作台页签（A-1）：所有跨组件跳转的唯一入口（R-4 会与资料库口径一起归一）
   worldbookTab: WorldBookTab;
@@ -52,20 +57,11 @@ interface AppState {
   /** 旧依赖入口：统一跳到工作台 `entries` 页签。 */
   worldbookScopeJumpId: string | null;
   setWorldbookScopeJumpId: (id: string | null) => void;
+  /** 节点图专用入口（战斗页「编辑此节点」）：选中该书 + 直接打开 `graph` 页签 */
+  worldbookGraphJumpId: string | null;
+  setWorldbookGraphJumpId: (id: string | null) => void;
   worldbookEntryJump: { bookId: string; entryUid: string } | null;
   setWorldbookEntryJump: (target: { bookId: string; entryUid: string } | null) => void;
-
-  // Prompt 预览结果（单轮注入顺序）→ 节点视图叠加显示（R-6，只读联动）
-  promptPreviewOrder: {
-    bookId: string;
-    mode: "narrative" | "free";
-    order: Array<{ uid: string; seq: number; layer: "stable" | "dynamic"; position: number; group_weight: number; depth: number }>;
-  } | null;
-  setPromptPreviewOrder: (value: {
-    bookId: string;
-    mode: "narrative" | "free";
-    order: Array<{ uid: string; seq: number; layer: "stable" | "dynamic"; position: number; group_weight: number; depth: number }>;
-  } | null) => void;
 
   // 战斗节点编辑器跳转：战前卡片等入口指定要打开的节点
   combatNodeJumpId: string | null;
@@ -175,9 +171,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentView: "home",
   setCurrentView: (view) => set({ currentView: view }),
 
-  // 内容中心 Tab（D-2 后只剩资产 / 卡牌 / 节点图，默认资产）
-  contentHubTab: "images",
-  setContentHubTab: (tab) => set({ contentHubTab: tab }),
+  // 角色页模块页签（默认角色库）
+  characterTab: "characters",
+  setCharacterTab: (tab) => set({ characterTab: tab }),
 
   // 世界书工作台页签（默认条目页）
   worldbookTab: "entries",
@@ -188,12 +184,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   setWorldbookJumpId: (id) => set({ worldbookJumpId: id }),
   worldbookScopeJumpId: null,
   setWorldbookScopeJumpId: (id) => set({ worldbookScopeJumpId: id }),
+  worldbookGraphJumpId: null,
+  setWorldbookGraphJumpId: (id) => set({ worldbookGraphJumpId: id }),
   worldbookEntryJump: null,
   setWorldbookEntryJump: (target) => set({ worldbookEntryJump: target }),
-
-  // Prompt 预览结果 → 节点视图（只读联动）
-  promptPreviewOrder: null,
-  setPromptPreviewOrder: (value) => set({ promptPreviewOrder: value }),
 
   // 战斗节点编辑器跳转
   combatNodeJumpId: null,

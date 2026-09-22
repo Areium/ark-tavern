@@ -164,13 +164,12 @@ assert.ok(!managerMarkup.includes("高级配置"), "「高级配置」这个说�
 assert.ok(!managerMarkup.includes("世界书图谱"), "R-22：旧说法不出现在任何 UI 文案里");
 assert.equal(managerModule.WORLDBOOK_INDEX_SUBTITLE, "内置语料索引 · 依赖完整性 · 会话白名单");
 assert.deepEqual(managerModule.WORLDBOOK_PANEL_TABS.map((tab) => tab.id),
-  ["entries", "prompt", "nodes", "index"], "分类与载入页签已移除");
+  ["entries", "prompt", "graph", "index"], "分类与载入页签已移除；节点视图换为迁入的节点图");
 assert.deepEqual(managerModule.visibleWorldbookTabs({ book_type: "reference" }).map((tab) => tab.id),
   ["entries", "index"], "R-4：资料库只显示 条目 / 本家索引");
 assert.deepEqual(managerModule.visibleWorldbookTabs({ book_type: "story" }).map((tab) => tab.id),
-  ["entries", "prompt", "nodes", "index"], "剧情书的四个页签都可达");
+  ["entries", "prompt", "graph", "index"], "剧情书的四个页签都可达");
 
-// 节点视图断言见 `scripts/test_worldbook_node_view_ui.cjs`（R-23：独立脚本，避免与本文件争用）。
 // ── WU-E · Prompt 预览纯函数（A-2）──────────────────────────────────────────
 const promptModule = require(path.join(root, "frontend/src/utils/worldbookPromptPreview.ts"));
 const {
@@ -548,5 +547,4 @@ assert.ok(!renderToStaticMarkup(React.createElement(entryTreeModule.DependencyTr
 })).includes("世界书图谱"), "R-22：旧说法不出现在依赖展开里");
 
 console.log("Worldbook UI: 分类树工具、批量起点/依赖/归属、候选范围预览、分类结构 SSR、工作台页签骨架、"
-  + "Prompt 预览与依赖展开树的纯函数与 SSR 断言全部通过；"
-  + "节点视图断言见 scripts/test_worldbook_node_view_ui.cjs（R-23）。");
+  + "Prompt 预览与依赖展开树的纯函数与 SSR 断言全部通过。");

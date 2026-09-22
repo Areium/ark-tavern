@@ -113,6 +113,24 @@ html.light .wber-shell {
 .wber-filters button:hover:not(:disabled) { transform: none; box-shadow: none; color: var(--wber-text); background: var(--wber-soft-2); }
 .wber-filters button[aria-pressed="true"] { color: var(--wber-text); background: var(--wber-card); box-shadow: 0 1px 3px rgba(0, 0, 0, .35), inset 0 0 0 1px var(--wber-border); }
 .wber-book-list { flex: 1; min-height: 0; overflow: auto; padding: 2px 10px 16px; scrollbar-width: thin; }
+
+/* ── 书架统一检索（迁自原「内容中心」顶栏搜索：跨全部世界书查条目 → 选中该书） ── */
+.wber-shelf-search { position: relative; margin: 0 14px 12px; }
+.wber-shelf-search .wber-search { width: 100%; }
+.wber-shelf-search-state { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--wber-muted); font-size: 12px; }
+.wber-shelf-hits {
+  position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 6px); max-height: 320px; overflow: auto;
+  padding: 6px; border: 1px solid var(--wber-border-strong); border-radius: 10px; background: var(--wber-float);
+  box-shadow: var(--wber-shadow); animation: wber-pop .18s var(--wber-ease) both;
+}
+.wber-shell .wber-shelf-hits button {
+  width: 100%; display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px;
+  border-color: transparent; background: transparent; box-shadow: none; text-align: left; font-weight: 400;
+}
+.wber-shell .wber-shelf-hits button:hover:not(:disabled) { background: var(--wber-soft-2); transform: none; box-shadow: none; }
+.wber-shelf-hit-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wber-text); font-size: 12px; }
+.wber-shelf-hit-count { flex-shrink: 0; color: var(--wber-accent); font-size: 11px; font-variant-numeric: tabular-nums; }
+.wber-shelf-hit-empty { padding: 8px; color: var(--wber-muted); font-size: 12px; text-align: center; }
 .wber-shell .wber-book {
   width: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 11px; align-items: center; margin: 0 0 4px;
   min-height: 0; padding: 8px 10px 8px 8px; border-color: transparent; border-radius: 10px;
@@ -148,6 +166,10 @@ html.light .wber-shell {
     var(--wber-panel);
 }
 .wber-blank { display: grid; place-items: center; height: 100%; color: var(--wber-muted); font-family: var(--wber-serif); font-size: 15px; letter-spacing: .06em; }
+
+/* ── 节点图页签（迁自「内容中心 → 节点图」）：整页画布，主区不再滚动，画布左右满幅 ── */
+.wber-main.is-graph { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+.wber-graph { flex: 1; min-height: 0; margin: 0 calc(-1 * clamp(16px, 3vw, 36px)); border-top: 1px solid var(--wber-border); }
 
 /* 封面信息横幅 */
 .wber-hero {
@@ -375,6 +397,10 @@ html.light .wber-shell {
   .wber-book-list { display: flex; min-height: 78px; overflow-x: auto; padding: 0 10px 10px; }
   .wber-book { flex: 0 0 190px; min-height: 76px; }
   .wber-main { overflow: visible; padding: 14px; }
+  /* 节点图是定高画布：窄屏下不跟随书架流式折叠，保住可用高度 */
+  .wber-shell.is-graph { overflow: hidden; }
+  .wber-main.is-graph { overflow: hidden; padding: 14px 14px 0; }
+  .wber-graph { flex: 1 0 auto; min-height: 520px; margin: 0 -14px; }
   .wber-hero { grid-template-columns: 66px minmax(0, 1fr); padding: 12px; }
   .wber-hero-cover { width: 66px; font-size: 26px; }
   .wber-tabs { overflow-x: auto; }

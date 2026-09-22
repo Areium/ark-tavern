@@ -1,7 +1,7 @@
 /**
  * 卡牌管理 — 角色卡牌与职业卡牌编辑。
  *
- * 由内容中心「卡牌」Tab 挂载（原 DocumentManager 卡牌 Tab 独立成组件）。
+ * 由「角色 → 卡牌」页签挂载（原 DocumentManager 卡牌 Tab 独立成组件）。
  *
  * 来源标注：每个角色/职业条目显示所属世界书（index.md frontmatter 的
  * worldbook_id），支持按世界书筛选，详情面板可修改归属。

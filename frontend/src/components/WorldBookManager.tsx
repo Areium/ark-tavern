@@ -3,14 +3,14 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useApi } from "../hooks/useApi";
 import { useAppStore, type WorldBookTab } from "../stores/appStore";
-import type { WorldBookDetail, WorldBookEntryDTO, WorldBookSummary, WorldBookType } from "../types";
+import type { WorldBookDetail, WorldBookEntryDTO, WorldBookSearchHit, WorldBookSummary, WorldBookType } from "../types";
 import { useScopePreview, useWorldbookDraft } from "../hooks/useWorldbookDraft";
 import { BOOK_TYPE_LABELS, bookTypeOf, filterBooksByType, isReference,
   normalizeWorldbookTab, type BookTypeFilter } from "../utils/worldbookLibrary";
 import type { WorldBookPanelProps } from "./worldbook/panel";
 import EntryDependencyTree from "./worldbook/EntryDependencyTree";
-import NodeViewTab from "./worldbook/tabs/NodeViewTab";
 import PromptPreviewTab from "./worldbook/tabs/PromptPreviewTab";
+import PlotGraphPage from "./combat/PlotGraphPage";
 import AppIcon from "./AppIcon";
 import "../styles/worldbook-entry-refresh.css";
 
@@ -19,7 +19,7 @@ const IndexManager = lazy(() => import("./IndexManager"));
 export const WORLDBOOK_PANEL_TABS: ReadonlyArray<{ id: WorldBookTab; label: string; hint: string }> = [
   { id: "entries", label: "条目", hint: "阅读、编辑、排序与依赖展开" },
   { id: "prompt", label: "Prompt 预览", hint: "查看本世界书的静态与动态插入内容" },
-  { id: "nodes", label: "节点视图", hint: "查看注入顺序与依赖结构" },
+  { id: "graph", label: "节点图", hint: "按剧情编辑节点图：整页画布增删节点与连线" },
   { id: "index", label: "本家索引", hint: "内置语料索引与完整性" },
 ];
 export const WORLDBOOK_INDEX_SUBTITLE = "内置语料索引 · 依赖完整性 · 会话白名单";
@@ -185,6 +185,9 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const setWorldbookJumpId = useAppStore((state) => state.setWorldbookJumpId);
   const worldbookScopeJumpId = useAppStore((state) => state.worldbookScopeJumpId);
   const setWorldbookScopeJumpId = useAppStore((state) => state.setWorldbookScopeJumpId);
+  const worldbookGraphJumpId = useAppStore((state) => state.worldbookGraphJumpId);
+  const setWorldbookGraphJumpId = useAppStore((state) => state.setWorldbookGraphJumpId);
+  const activeSessionId = useAppStore((state) => state.activeSessionId);
   const worldbookEntryJump = useAppStore((state) => state.worldbookEntryJump);
   const setWorldbookEntryJump = useAppStore((state) => state.setWorldbookEntryJump);
 
@@ -217,6 +220,12 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const [libraryBusy, setLibraryBusy] = useState(false);
   const [targetBookId, setTargetBookId] = useState("");
   const [pasteJson, setPasteJson] = useState("");
+  // 统一检索（迁自原「内容中心」顶栏）：跨世界书条目检索 → 命中选中该书并预填条目筛选
+  const [shelfQuery, setShelfQuery] = useState("");
+  const [shelfHits, setShelfHits] = useState<WorldBookSearchHit[]>([]);
+  const [shelfSearching, setShelfSearching] = useState(false);
+  const [shelfOpen, setShelfOpen] = useState(false);
+  const shelfSeq = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
   const createButton = useRef<HTMLButtonElement>(null);
 
@@ -344,6 +353,44 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   useEffect(() => {
     if (worldbookScopeJumpId) { setSelectedId(worldbookScopeJumpId); setWorldbookTab("entries"); setWorldbookScopeJumpId(null); }
   }, [worldbookScopeJumpId, setWorldbookScopeJumpId, setWorldbookTab]);
+  // 节点图入口（战斗页「编辑此节点」）：定位该书并直接落到「节点图」页签
+  useEffect(() => {
+    if (!worldbookGraphJumpId) return;
+    setSelectedId(worldbookGraphJumpId);
+    setWorldbookTab("graph");
+    setWorldbookGraphJumpId(null);
+  }, [worldbookGraphJumpId, setWorldbookGraphJumpId, setWorldbookTab]);
+
+  // 统一检索（迁自原「内容中心」顶栏）：250ms 防抖跨全部世界书查条目，序号过时响应丢弃
+  useEffect(() => {
+    const term = shelfQuery.trim();
+    if (!term) { setShelfHits([]); setShelfOpen(false); setShelfSearching(false); return; }
+    const seq = ++shelfSeq.current;
+    setShelfSearching(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await api.searchWorldbooks(term, 8);
+        if (seq !== shelfSeq.current) return;
+        setShelfHits(result.results || []);
+        setShelfOpen(true);
+      } catch {
+        if (seq === shelfSeq.current) setShelfHits([]);
+      } finally {
+        if (seq === shelfSeq.current) setShelfSearching(false);
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [shelfQuery, api]);
+
+  /** 命中 → 选中该书 + 条目页签 + 把检索词预填进条目筛选（原内容中心同款联动） */
+  const jumpToHit = (bookId: string) => {
+    setSelectedId(bookId);
+    setWorldbookTab("entries");
+    setQuery(shelfQuery.trim());
+    setShelfQuery("");
+    setShelfHits([]);
+    setShelfOpen(false);
+  };
   useEffect(() => {
     if (!worldbookEntryJump || detail?.id !== worldbookEntryJump.bookId) return;
     const entry = detail.entries.find((item) => item.uid === worldbookEntryJump.entryUid);
@@ -901,7 +948,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     } catch (reason: any) { setError(reason?.message || "摘录失败"); }
   };
 
-  return <main className="wber-shell">
+  return <main className={"wber-shell" + (effectiveTab === "graph" ? " is-graph" : "")}>
     <aside className="wber-shelf" aria-label="世界书书架">
       <header className="wber-shelf-head">
         <div><span className="wber-eyebrow">LORE LIBRARY</span><h2>世界书</h2></div>
@@ -918,6 +965,22 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
           {value === "all" ? "全部" : value === "story" ? "剧情" : "资料"}
         </button>)}
       </nav>
+      {/* 统一检索：跨全部世界书查条目，命中直接选中该书（原「内容中心」顶栏搜索的迁入位置） */}
+      <div className="wber-shelf-search">
+        <label className="wber-search"><AppIcon name="search" size={14} />
+          <input value={shelfQuery} placeholder="搜索全部世界书条目" aria-label="跨世界书检索"
+            onChange={(event) => setShelfQuery(event.target.value)}
+            onFocus={() => { if (shelfQuery.trim()) setShelfOpen(true); }}
+            onBlur={() => window.setTimeout(() => setShelfOpen(false), 180)} /></label>
+        {shelfSearching && <span className="wber-shelf-search-state" role="status">…</span>}
+        {shelfOpen && shelfQuery.trim() && <div className="wber-shelf-hits">
+          {shelfHits.length > 0 ? shelfHits.map((hit) => <button type="button" key={hit.book.id}
+            onClick={() => jumpToHit(hit.book.id)} title={`${hit.book.name} · ${hit.match_count} 条命中`}>
+            <span className="wber-shelf-hit-name">{hit.book.name}</span>
+            <span className="wber-shelf-hit-count">{hit.match_count} 条命中</span>
+          </button>) : !shelfSearching && <p className="wber-shelf-hit-empty">无匹配结果</p>}
+        </div>}
+      </div>
       <div className="wber-book-list">
         {visibleBooks.map((book) => {
           const cover = safeCover(book.cover_image);
@@ -931,7 +994,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       </div>
     </aside>
 
-    <section className="wber-main">
+    <section className={"wber-main" + (effectiveTab === "graph" ? " is-graph" : "")}>
       {createOpen && <div className="wber-create" role="dialog" aria-label="新建世界书">
         <div className="wber-create-card">
           <h3>新建世界书</h3><p>先建立书籍资料，创建后即可添加条目。</p>
@@ -981,13 +1044,16 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
 
         <nav className="wber-tabs" aria-label="世界书工作台页签">{visibleTabs.map((tab) => <button type="button" key={tab.id}
           aria-pressed={effectiveTab === tab.id} title={tab.hint} onClick={() => setWorldbookTab(tab.id)}>{tab.label}</button>)}</nav>
-        {effectiveTab === "nodes" && configDirty && <div className="wber-config-save">
+        {/* 依赖配置保存条：配置草稿的编辑 UI 是旧「分类与载入」子视图（LoadTab /
+            WorldBookConfigOverview），当前未挂载 —— 本保存条实际不可达，保留原路径待接线。
+            页签收敛后挂在条目页，不再依附已删除的「节点视图」页签。 */}
+        {effectiveTab === "entries" && configDirty && <div className="wber-config-save">
           <span>节点配置有未保存修改</span><button type="button" className="is-sm is-ghost" onClick={undoConfig}>撤销</button>
           <button type="button" className="is-sm is-primary" disabled={configSaving} onClick={async () => {
             if (await saveConfig()) { await loadDetail(detail.id); showToast("节点配置已保存"); }
           }}>{configSaving ? "保存中…" : "保存节点配置"}</button>
         </div>}
-        {effectiveTab === "nodes" && configError && <div className="wber-alert">{configError}</div>}
+        {effectiveTab === "entries" && configError && <div className="wber-alert">{configError}</div>}
         {error && <div className="wber-alert" role="alert">{error}<button type="button" className="is-icon is-sm is-ghost" aria-label="关闭提示" onClick={() => setError("")}>×</button></div>}
         {toast && <div className="wber-toast" role="status">{toast}</div>}
 
@@ -1050,7 +1116,11 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         </div>}
 
         {effectiveTab === "prompt" && panelProps && <PromptPreviewTab ctx={panelProps} onNotice={showToast} onReload={() => loadDetail(detail.id)} />}
-        {effectiveTab === "nodes" && panelProps && <NodeViewTab ctx={panelProps} onNotice={showToast} onReload={() => loadDetail(detail.id)} />}
+        {/* 节点图（迁自「内容中心 → 节点图」）：按当前选中的世界书编辑，整页画布。
+            不常驻挂载：画布自带全局 Ctrl+S / Ctrl+Z 快捷键，常驻会在其它页签抢键。 */}
+        {effectiveTab === "graph" && <div className="wber-graph">
+          <PlotGraphPage sessionId={activeSessionId} bookId={detail.id} />
+        </div>}
         {effectiveTab === "index" && <div className="wber-index"><p>{WORLDBOOK_INDEX_SUBTITLE}</p>
           <Suspense fallback={<p>正在加载索引…</p>}><IndexManager /></Suspense></div>}
       </>}
