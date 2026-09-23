@@ -1,5 +1,3 @@
-import { useState } from "react";
-import { useAppStore } from "../../stores/appStore";
 import type { ScenePanelProps } from "../../plugins/scenePanels";
 import CharacterPanel from "../CharacterPanel";
 import ItemPanel from "../ItemPanel";
@@ -8,28 +6,16 @@ import StoryStatePanel from "../StoryStatePanel";
 import MemoryPanel from "../MemoryPanel";
 
 export function SceneOverviewPanel({ ctx }: ScenePanelProps) {
-  const [tab, setTab] = useState(() => {
-    const saved = useAppStore.getState().scenePanelTab;
-    return saved === "items" || saved === "environment" ? saved : "characters";
-  });
-  return <>
-    <nav className="scene-subnav" aria-label="场景分类">
-      {[["characters", "角色"], ["items", "物品"], ["environment", "环境"]].map(([id, label]) =>
-        <button key={id} type="button" aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}
-    </nav>
-    {tab === "characters" && <CharacterPanel refreshKey={ctx.refresh.character} />}
-    {tab === "items" && <ItemPanel refreshKey={ctx.refresh.env} />}
-    {tab === "environment" && <EnvironmentPanel />}
-  </>;
+  return <div className="scene-overview">
+    <section className="scene-overview-section" aria-label="角色"><CharacterPanel refreshKey={ctx.refresh.character} /></section>
+    <section className="scene-overview-section" aria-label="物品"><ItemPanel refreshKey={ctx.refresh.env} /></section>
+    <section className="scene-overview-section" aria-label="环境"><EnvironmentPanel /></section>
+  </div>;
 }
 
 export function StoryOverviewPanel() {
-  const [tab, setTab] = useState(() => useAppStore.getState().scenePanelTab === "memory" ? "memory" : "story");
-  return <>
-    <nav className="scene-subnav" aria-label="剧情分类">
-      <button type="button" aria-pressed={tab === "story"} onClick={() => setTab("story")}>剧情进度</button>
-      <button type="button" aria-pressed={tab === "memory"} onClick={() => setTab("memory")}>回忆</button>
-    </nav>
-    {tab === "story" ? <StoryStatePanel /> : <MemoryPanel />}
-  </>;
+  return <div className="scene-overview">
+    <section className="scene-overview-section" aria-label="剧情进度"><StoryStatePanel /></section>
+    <section className="scene-overview-section" aria-label="回忆"><MemoryPanel /></section>
+  </div>;
 }

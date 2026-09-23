@@ -126,7 +126,7 @@ export default function MemoryPanel() {
         </p>
       ) : (
         <>
-          <div className="space-y-2 max-h-80 overflow-y-auto">
+          <div className="space-y-2">
             {memories.map((m, i) => {
               const isOpen = expanded.has(m.id);
               return (

@@ -162,7 +162,7 @@ export default function ItemPanel({ refreshKey }: { refreshKey?: number }) {
         <p className="text-red-400 text-xs mb-2">加载失败: {error}</p>
       )}
 
-      <div className="space-y-1.5 max-h-40 overflow-y-auto">
+      <div className="space-y-1.5">
         {!loading && items.length === 0 && (
           <p className="text-gray-500 text-sm text-center py-4">
             场景暂无物品

@@ -34,6 +34,53 @@ interface Props {
 /** 打字机速度（字 / 秒）；流式生成时不用打字机（文本本来就在长） */
 const TYPE_CPS = 45;
 
+type PortraitAdjustment = { x: number; y: number; scale: number };
+type PortraitBounds = { width: number; height: number; left: number; top: number; right: number; bottom: number };
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const layoutKey = (sessionId: string) => `ark_stage_portraits_${sessionId}`;
+
+function readPortraitLayout(sessionId: string): Record<string, PortraitAdjustment> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(layoutKey(sessionId)) || "{}");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const result: Record<string, PortraitAdjustment> = {};
+    for (const [name, value] of Object.entries(raw)) {
+      const entry = value as Partial<PortraitAdjustment>;
+      if (Number.isFinite(entry.x) && Number.isFinite(entry.y) && Number.isFinite(entry.scale)) {
+        result[name] = { x: clamp(entry.x!, 5, 95), y: clamp(entry.y!, -25, 45), scale: clamp(entry.scale!, .4, 2.2) };
+      }
+    }
+    return result;
+  } catch { return {}; }
+}
+
+/** Measure the visible pixels so transparent padding does not change apparent height or alignment. */
+function portraitBounds(img: HTMLImageElement): PortraitBounds {
+  const width = img.naturalWidth, height = img.naturalHeight;
+  const fallback = { width, height, left: 0, top: 0, right: width, bottom: height };
+  if (!width || !height) return fallback;
+  try {
+    const factor = Math.min(1, 256 / Math.max(width, height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * factor));
+    canvas.height = Math.max(1, Math.round(height * factor));
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return fallback;
+    context.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let left = canvas.width, top = canvas.height, right = -1, bottom = -1;
+    for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+      if (pixels[(y * canvas.width + x) * 4 + 3] < 16) continue;
+      left = Math.min(left, x); top = Math.min(top, y);
+      right = Math.max(right, x); bottom = Math.max(bottom, y);
+    }
+    if (right < left || bottom < top) return fallback;
+    return { width, height,
+      left: left / canvas.width * width, top: top / canvas.height * height,
+      right: (right + 1) / canvas.width * width, bottom: (bottom + 1) / canvas.height * height };
+  } catch { return fallback; } // Cross-origin images still get dimension-based sizing.
+}
+
 export default function StageView({
   sessionId, messages, sceneCharacters, playerName, characterColors, fontSize, waiting,
   elapsedSeconds, choicesDisabled, onChoice, onOpenLog, onStart, chatMode,
@@ -43,8 +90,24 @@ export default function StageView({
   const [stage, setStage] = useState<StageDTO | null>(null);
   const [bgFailed, setBgFailed] = useState(false);
   const [failedSprites, setFailedSprites] = useState<string[]>([]);
+  const [editingPortraits, setEditingPortraits] = useState(false);
+  const [selectedPortrait, setSelectedPortrait] = useState<string | null>(null);
+  const [portraitLayout, setPortraitLayout] = useState(() => readPortraitLayout(sessionId));
+  const [imageBounds, setImageBounds] = useState<Record<string, PortraitBounds>>({});
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+  const dragRef = useRef<{ name: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   useEffect(() => { setStage(null); }, [sessionId]);
   useEffect(() => { setFailedSprites([]); }, [sessionId, resourceVersion]);
+  useEffect(() => {
+    setPortraitLayout(readPortraitLayout(sessionId));
+    setEditingPortraits(false);
+    setSelectedPortrait(null);
+  }, [sessionId]);
+
+  const savePortraitLayout = useCallback((next: Record<string, PortraitAdjustment>) => {
+    setPortraitLayout(next);
+    try { localStorage.setItem(layoutKey(sessionId), JSON.stringify(next)); } catch { /* Storage can be disabled. */ }
+  }, [sessionId]);
 
   // ── 舞台数据：背景 / 立绘 / 环境（环境、阵容、资源覆盖变化时重拉） ──
   useEffect(() => {
@@ -105,7 +168,21 @@ export default function StageView({
   }, [step, script.key]);
 
   const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const observer = new ResizeObserver(() => {
+      const rect = root.getBoundingClientRect();
+      setStageSize({ width: rect.width, height: rect.height });
+    });
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
   const onKey = (e: React.KeyboardEvent) => {
+    if (editingPortraits) {
+      if (e.key === "Escape") { e.preventDefault(); setEditingPortraits(false); }
+      return;
+    }
     if ((e.target as HTMLElement).closest("button, input, textarea, select, a")) return;
     if (e.key === " " || e.key === "Enter" || e.key === "ArrowRight") { e.preventDefault(); advance(); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); back(); }
@@ -119,9 +196,10 @@ export default function StageView({
   // Only unfinished streaming keeps the roster; completed narration and empty scripts have no speakers.
   const player = stage?.player;
   const cast = npcSprites.filter((sprite) => sprite.name !== player?.name);
-  if (player?.name && segmentSpeakers.has(player.name)) cast.push({ ...player, active: false });
-  const sprites = [...new Map(cast.map((sprite) => [sprite.name, sprite])).values()]
-    .filter((sprite) => script.streaming || segmentSpeakers.has(sprite.name));
+  if (player?.name) cast.push({ ...player, active: false });
+  const roster = [...new Map(cast.map((sprite) => [sprite.name, sprite])).values()];
+  const sprites = roster.filter((sprite) => script.streaming || segmentSpeakers.has(sprite.name)
+    || (editingPortraits && sprite.name === selectedPortrait));
   const positions = stagePositions(sprites.length);
   const focus = highlightedSpeaker ?? speaker ?? null;
   const someoneSpeaking = !!focus && sprites.some((s) => s.name === focus);
@@ -133,6 +211,18 @@ export default function StageView({
   const nameColor = speaker ? characterColors[speaker] || sprites.find((s) => s.name === speaker)?.color || undefined : undefined;
 
   const empty = messages.length === 0;
+  const selectedIndex = sprites.findIndex((sprite) => sprite.name === selectedPortrait);
+  const selectedDefaultX = positions[Math.max(0, selectedIndex)] ?? 50;
+  const selectedAdjustment = selectedPortrait
+    ? portraitLayout[selectedPortrait] ?? { x: selectedDefaultX, y: 0, scale: 1 }
+    : null;
+  const changePortrait = (name: string, defaults: PortraitAdjustment, patch: Partial<PortraitAdjustment>) => {
+    savePortraitLayout({ ...portraitLayout, [name]: { ...defaults, ...portraitLayout[name], ...patch } });
+  };
+  const onSpriteLoad = (url: string, img: HTMLImageElement) => {
+    const bounds = portraitBounds(img);
+    setImageBounds((previous) => ({ ...previous, [url]: bounds }));
+  };
 
   return (
     <div ref={rootRef} className="stage" tabIndex={0} onKeyDown={onKey} aria-label="对话舞台">
@@ -153,28 +243,94 @@ export default function StageView({
       <div className="stage-tools">
         <button type="button" onClick={back} disabled={step === 0} title="上一句（←）"><AppIcon name="back" size={13} />上一句</button>
         <button type="button" onClick={onOpenLog} title="查看完整对话记录"><AppIcon name="docs" size={13} />记录</button>
+        <button type="button" aria-pressed={editingPortraits} onClick={() => {
+          setEditingPortraits((value) => !value);
+          setSelectedPortrait(sprites[0]?.name ?? roster[0]?.name ?? null);
+        }} title="调整立绘大小和位置"><AppIcon name="settings" size={13} />{editingPortraits ? "完成调整" : "调整立绘"}</button>
       </div>
 
-      {/* 立绘：人越多越小，避免三四张全身像叠成一团；点击高亮时用两套动画名交替，重复点击也会再闪一次 */}
+      {editingPortraits && (
+        <div className="stage-edit-panel" role="group" aria-label="立绘调整">
+          <label className="stage-edit-select">角色
+            <select value={selectedPortrait ?? ""} onChange={(event) => setSelectedPortrait(event.target.value)}>
+              {roster.map((sprite) => <option key={sprite.name} value={sprite.name}>{sprite.name}</option>)}
+            </select>
+          </label>
+          {selectedPortrait && selectedAdjustment ? <>
+            <p className="stage-edit-hint">拖动立绘调整位置，也可使用下方滑块微调。设置会保存在当前浏览器的本会话中。</p>
+            <label className="stage-edit-range">大小 <output>{Math.round(selectedAdjustment.scale * 100)}%</output>
+              <input type="range" min="40" max="220" step="5" value={Math.round(selectedAdjustment.scale * 100)}
+                onChange={(event) => changePortrait(selectedPortrait, selectedAdjustment, { scale: Number(event.target.value) / 100 })} />
+            </label>
+            <label className="stage-edit-range">左右 <output>{Math.round(selectedAdjustment.x)}%</output>
+              <input type="range" min="5" max="95" step="1" value={selectedAdjustment.x}
+                onChange={(event) => changePortrait(selectedPortrait, selectedAdjustment, { x: Number(event.target.value) })} />
+            </label>
+            <label className="stage-edit-range">高低 <output>{Math.round(selectedAdjustment.y)}%</output>
+              <input type="range" min="-25" max="45" step="1" value={selectedAdjustment.y}
+                onChange={(event) => changePortrait(selectedPortrait, selectedAdjustment, { y: Number(event.target.value) })} />
+            </label>
+            <button type="button" className="stage-edit-reset" onClick={() => {
+              const next = { ...portraitLayout }; delete next[selectedPortrait]; savePortraitLayout(next);
+            }}>恢复该角色默认位置与大小</button>
+          </> : <p className="stage-edit-hint">当前没有可调整的角色立绘。</p>}
+        </div>
+      )}
+
+      {/* 立绘按非透明像素统一可见高度和底线；编辑时可额外预览所选角色。 */}
       <div
-        className={`stage-cast ${someoneSpeaking ? "has-focus" : ""}`}
-        style={{
-          "--sprite-h": sprites.length >= 4 ? "70%" : sprites.length === 3 ? "78%" : sprites.length === 2 ? "84%" : "88%",
-          "--sprite-w": sprites.length >= 4 ? "28%" : sprites.length === 3 ? "36%" : "46%",
-        } as React.CSSProperties}
+        className={`stage-cast ${someoneSpeaking && !editingPortraits ? "has-focus" : ""} ${editingPortraits ? "is-editing" : ""}`}
       >
         {sprites.map((sprite, i) => {
           const speaking = focus === sprite.name;
+          const x = portraitLayout[sprite.name]?.x ?? positions[i];
+          const y = portraitLayout[sprite.name]?.y ?? 0;
+          const scale = portraitLayout[sprite.name]?.scale ?? 1;
+          const bounds = sprite.skin_url ? imageBounds[sprite.skin_url] : undefined;
+          const visibleWidth = bounds ? bounds.right - bounds.left : 0;
+          const visibleHeight = bounds ? bounds.bottom - bounds.top : 0;
+          const targetHeight = stageSize.height * (sprites.length >= 4 ? .68 : sprites.length === 3 ? .73 : .78);
+          const maxWidth = stageSize.width * (sprites.length >= 4 ? .26 : sprites.length === 3 ? .34 : sprites.length === 2 ? .48 : .56);
+          const imageScale = bounds && visibleWidth && visibleHeight
+            ? Math.min(targetHeight / visibleHeight, maxWidth / visibleWidth) * scale : 0;
+          const imageStyle: React.CSSProperties | undefined = bounds ? {
+            width: bounds.width * imageScale,
+            height: bounds.height * imageScale,
+            left: -(bounds.left + visibleWidth / 2) * imageScale,
+            bottom: -(bounds.height - bounds.bottom) * imageScale,
+          } : undefined;
           return (
             <div
               key={sprite.name}
-              className={`stage-sprite ${!sprite.skin_url || failedSprites.includes(sprite.skin_url) ? "is-avatar" : ""} ${speaking ? "is-speaking" : ""} ${speaking && pulse ? (pulse % 2 ? "is-pulse-a" : "is-pulse-b") : ""}`}
-              style={{ left: `${positions[i]}%`, zIndex: speaking ? 5 : 1 }}
-              onClick={() => { setHighlightedSpeaker(sprite.name); setPulse((p) => p + 1); }}
+              className={`stage-sprite ${!sprite.skin_url || failedSprites.includes(sprite.skin_url) ? "is-avatar" : ""} ${speaking && !editingPortraits ? "is-speaking" : ""} ${speaking && pulse && !editingPortraits ? (pulse % 2 ? "is-pulse-a" : "is-pulse-b") : ""} ${selectedPortrait === sprite.name && editingPortraits ? "is-selected" : ""}`}
+              style={{ left: `${x}%`, bottom: `${y}%`, zIndex: editingPortraits && selectedPortrait === sprite.name ? 7 : speaking ? 5 : 1 }}
+              onClick={() => {
+                if (editingPortraits) { setSelectedPortrait(sprite.name); return; }
+                setHighlightedSpeaker(sprite.name); setPulse((p) => p + 1);
+              }}
+              onPointerDown={(event) => {
+                if (!editingPortraits) return;
+                event.preventDefault(); event.stopPropagation();
+                setSelectedPortrait(sprite.name);
+                dragRef.current = { name: sprite.name, pointerX: event.clientX, pointerY: event.clientY, x, y };
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerMove={(event) => {
+                const drag = dragRef.current;
+                if (!editingPortraits || drag?.name !== sprite.name || !stageSize.width || !stageSize.height) return;
+                changePortrait(sprite.name, { x: positions[i], y: 0, scale: 1 }, {
+                  x: clamp(drag.x + (event.clientX - drag.pointerX) / stageSize.width * 100, 5, 95),
+                  y: clamp(drag.y - (event.clientY - drag.pointerY) / stageSize.height * 100, -25, 45),
+                });
+              }}
+              onPointerUp={() => { dragRef.current = null; }}
+              onPointerCancel={() => { dragRef.current = null; }}
               title={sprite.name}
             >
               {sprite.skin_url && !failedSprites.includes(sprite.skin_url) ? (
-                <img src={sprite.skin_url} alt={sprite.name} className="stage-sprite-img" draggable={false} onError={() => setFailedSprites((prev) => [...prev, sprite.skin_url!])} />
+                <img src={sprite.skin_url} alt={sprite.name} className="stage-sprite-img" style={imageStyle} draggable={false}
+                  onLoad={(event) => onSpriteLoad(sprite.skin_url!, event.currentTarget)}
+                  onError={() => setFailedSprites((prev) => [...prev, sprite.skin_url!])} />
               ) : (
                 <div className="stage-sprite-card" style={{ borderColor: sprite.color || undefined }}>
                   <AvatarPlaceholder name={sprite.name} size="md" sessionId={sessionId} />

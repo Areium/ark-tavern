@@ -230,7 +230,7 @@
   font-size: 11px; color: rgba(255, 255, 255, .85); background: rgba(6, 8, 13, .55); border: 1px solid rgba(255, 255, 255, .1); backdrop-filter: blur(6px);
 }
 .stage-env span { display: inline-flex; align-items: center; gap: 4px; }
-.stage-tools { position: absolute; top: 10px; right: 12px; z-index: 6; display: flex; gap: 6px; }
+.stage-tools { position: absolute; top: 10px; right: 12px; z-index: 13; display: flex; gap: 6px; }
 .stage-tools button {
   display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border-radius: 8px; font-size: 11px;
   color: rgba(255, 255, 255, .85); background: rgba(6, 8, 13, .55); border: 1px solid rgba(255, 255, 255, .12); backdrop-filter: blur(6px);
@@ -238,22 +238,40 @@
 }
 .stage-tools button:hover:not(:disabled) { background: rgba(6, 8, 13, .8); color: #fff; }
 .stage-tools button:disabled { opacity: .4; }
+.stage-tools button[aria-pressed="true"] { color: #f5c86a; border-color: rgba(245, 200, 106, .55); background: rgba(25, 19, 9, .85); }
+.stage-edit-panel {
+  position: absolute; top: 46px; right: 12px; z-index: 12; width: min(264px, calc(100% - 24px));
+  max-height: calc(100% - 58px); overflow-y: auto; padding: 14px; border-radius: 12px;
+  color: #f4efe6; background: rgba(10, 12, 18, .94); border: 1px solid rgba(245, 200, 106, .38);
+  box-shadow: 0 18px 38px -16px rgba(0, 0, 0, .85);
+}
+.stage-edit-select { display: grid; gap: 6px; font-size: 12px; font-weight: 600; }
+.stage-edit-select select { width: 100%; padding: 7px 8px; border-radius: 7px; color: #f4efe6; background: #242832; border: 1px solid rgba(255, 255, 255, .24); }
+.stage-edit-hint { margin: 10px 0 12px; color: #d0c9bb; font-size: 11px; line-height: 1.5; }
+.stage-edit-range { display: grid; grid-template-columns: 1fr auto; gap: 5px 8px; margin-top: 11px; font-size: 12px; }
+.stage-edit-range output { color: #f5c86a; font-variant-numeric: tabular-nums; }
+.stage-edit-range input { grid-column: 1 / -1; width: 100%; accent-color: #dfa945; cursor: pointer; }
+.stage-edit-reset { width: 100%; margin-top: 14px; padding: 7px 8px; border-radius: 7px; border: 1px solid rgba(255, 255, 255, .25); color: #f4efe6; font-size: 11px; }
+.stage-edit-reset:hover { background: rgba(255, 255, 255, .1); }
 
 .stage-cast { position: absolute; left: 0; right: 0; bottom: 0; top: 0; pointer-events: none; }
 .stage-sprite {
-  position: absolute; bottom: 0; transform: translateX(-50%); height: var(--sprite-h, 88%); max-width: var(--sprite-w, 46%); display: flex; align-items: flex-end; justify-content: center;
+  position: absolute; width: 0; height: 0;
   pointer-events: auto; cursor: pointer; transition: filter .35s ease, transform .35s ease, opacity .35s ease;
   filter: brightness(1) saturate(1); opacity: .96;
 }
 .stage-cast.has-focus .stage-sprite:not(.is-speaking), .stage-cast.player-speaking .stage-sprite { filter: brightness(.5) saturate(.7); opacity: .85; }
-.stage-sprite.is-speaking { transform: translateX(-50%) translateY(-6px) scale(1.03); filter: brightness(1.05) saturate(1.05) drop-shadow(0 0 22px rgba(255, 220, 150, .35)); opacity: 1; }
+.stage-sprite.is-speaking { transform: translateY(-6px) scale(1.03); filter: brightness(1.05) saturate(1.05) drop-shadow(0 0 22px rgba(255, 220, 150, .35)); opacity: 1; }
+.stage-cast.is-editing .stage-sprite { touch-action: none; cursor: grab; }
+.stage-cast.is-editing .stage-sprite:active { cursor: grabbing; }
+.stage-cast.is-editing .stage-sprite.is-selected { filter: drop-shadow(0 0 12px rgba(245, 200, 106, .8)); opacity: 1; }
 .stage-sprite.is-pulse-a { animation: stage-pulse-a .45s ease-out; }
 .stage-sprite.is-pulse-b { animation: stage-pulse-b .45s ease-out; }
 @keyframes stage-pulse-a { 0% { filter: brightness(1.6) saturate(1.2) drop-shadow(0 0 30px rgba(255, 230, 170, .7)); } 100% { filter: brightness(1.05) saturate(1.05) drop-shadow(0 0 22px rgba(255, 220, 150, .35)); } }
 @keyframes stage-pulse-b { 0% { filter: brightness(1.6) saturate(1.2) drop-shadow(0 0 30px rgba(255, 230, 170, .7)); } 100% { filter: brightness(1.05) saturate(1.05) drop-shadow(0 0 22px rgba(255, 220, 150, .35)); } }
-.stage-sprite-img { height: 100%; width: auto; max-width: 100%; object-fit: contain; object-position: bottom; }
+.stage-sprite-img { position: absolute; display: block; max-width: none; max-height: none; }
 .stage-sprite-card {
-  display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 34%; padding: 10px 14px 8px; border-radius: 14px;
+  position: absolute; left: 50%; bottom: 170px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 14px 8px; border-radius: 14px;
   color: rgba(255, 255, 255, .9); font-size: 12px; background: rgba(6, 8, 13, .6); border: 1px solid rgba(255, 255, 255, .18); backdrop-filter: blur(6px);
 }
 .stage-sprite-card .dlg-ava { width: 56px; height: 56px; }
@@ -325,11 +343,7 @@
   .stage-sprite, .stage-bg, .stage-choices, .stage-next, .stage-caret, .stage-waiting i, .stage-log-overlay { animation: none !important; transition: none !important; }
 }
 
-/* Combined sidebar categories retain the chat theme and make the active subview explicit. */
-.scene-subnav { display: flex; gap: 4px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--chat-line); }
-.scene-subnav button { flex: 1; min-height: 36px; padding: 6px 8px; border-radius: 7px; color: var(--chat-body); font-size: 12px; }
-.scene-subnav button:hover { background: var(--chat-soft); }
-.scene-subnav button[aria-pressed="true"] { color: var(--chat-accent); background: color-mix(in srgb, var(--chat-accent) 12%, transparent); }
+.scene-overview-section + .scene-overview-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--chat-line); }
 .scene-panel button:focus-visible, .character-session-stats button:focus-visible, .stage button:focus-visible { outline: 2px solid var(--chat-accent, #dfa945); outline-offset: 2px; }
 .character-session-stats { padding-top: 14px; border-top: 1px solid var(--ng-muted, #8b93a1); }
 .character-session-stats button:disabled { opacity: .5; cursor: not-allowed; }
@@ -341,6 +355,3 @@
   .stage-env { top: 46px; max-width: calc(100% - 24px); flex-wrap: wrap; }
   .stage-dialog-wrap { padding: 0 10px 12px; }
 }
-
-.stage-sprite.is-avatar { bottom: 190px; height: auto; }
-.stage-sprite.is-avatar .stage-sprite-card { margin-bottom: 0; }
