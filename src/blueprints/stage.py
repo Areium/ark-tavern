@@ -125,8 +125,11 @@ def register(app, managers):
             return f"/api/characters/{quote(name)}/{kind}?session_id={session_id}"
 
         from session_resources import find_session_media_path
+        player = session.player_identity or "博士"
         characters = []
         for name in session.scene_manager.get_scene_characters():
+            if name == player:
+                continue
             has_skin = bool(find_session_media_path(session_dir, name, "skin")) or _skin_exists(name)
             has_avatar = bool(find_session_media_path(session_dir, name, "avatar")) or _avatar_exists(name)
             characters.append({
@@ -136,7 +139,8 @@ def register(app, managers):
                 "color": get_theme_color(name),
                 "active": session.scene_manager.active == name,
             })
-        player = session.player_identity or "博士"
+        player_has_skin = (bool(find_session_media_path(session_dir, player, "skin"))
+                           or _skin_exists(player))
         player_has_avatar = (bool(find_session_media_path(session_dir, player, "avatar"))
                              or _avatar_exists(player))
         return jsonify({
@@ -149,6 +153,7 @@ def register(app, managers):
             "characters": characters,
             "player": {
                 "name": player,
+                "skin_url": media(player, "skin") if player_has_skin else None,
                 "avatar_url": media(player, "avatar") if player_has_avatar else None,
                 "color": get_theme_color(player),
             },

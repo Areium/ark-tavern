@@ -87,7 +87,7 @@ def set_image_field(bg_dir: Path, filename: str):
 # ── --scaffold：为被引用但缺失的背景建草稿 ──
 
 def _referenced_bg_ids() -> dict[str, str]:
-    """收集被引用的背景 ID → 来源描述（node JSON 或 location index.md 路径）。"""
+    """收集被引用的背景 ID → 来源描述（节点或地点文档路径）。"""
     refs: dict[str, str] = {}
     for enc in sorted(_NODE_ROOT.glob("*.json")):
         try:
@@ -97,7 +97,8 @@ def _referenced_bg_ids() -> dict[str, str]:
         if bg:
             refs.setdefault(bg, f"node:{enc.stem}")
     if _LOC_ROOT.is_dir():
-        for index in sorted(_LOC_ROOT.rglob("index.md")):
+        location_docs = sorted([*_LOC_ROOT.rglob("index.md"), *_LOC_ROOT.glob("*.md")])
+        for index in location_docs:
             try:
                 meta = frontmatter.load(index).metadata
             except Exception:

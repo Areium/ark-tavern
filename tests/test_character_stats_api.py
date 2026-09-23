@@ -296,17 +296,28 @@ def test_plugin_data_crud_and_limits(stage_api):
     assert session.overlay.list_plugin_data() == {}
 
 
-def test_stage_payload(stage_api):
-    client, _session, _docs = stage_api
+def test_stage_payload(stage_api, monkeypatch):
+    client, session, _docs = stage_api
     stage = client.get("/api/sessions/s1/stage").json
     assert stage["location"] == "龙门" and stage["time"] == "夜晚"
     assert [c["name"] for c in stage["characters"]] == ["临光", "瑕光"]
     assert stage["characters"][0]["active"] is True
     assert stage["player"]["name"] == "博士"
+    assert "skin_url" in stage["player"]
     assert stage["background"]["source"] in ("default", "none", "location", "session")
     for character in stage["characters"]:
         for key in ("skin_url", "avatar_url", "color"):
             assert key in character
+
+    import session_resources
+    monkeypatch.setattr(
+        session_resources, "find_session_media_path",
+        lambda _directory, name, kind: "player-skin.png" if (name, kind) == ("博士", "skin") else None,
+    )
+    session.scene_manager.npcs.append("博士")
+    stage_with_player_skin = client.get("/api/sessions/s1/stage").json
+    assert stage_with_player_skin["player"]["skin_url"] == "/api/characters/%E5%8D%9A%E5%A3%AB/skin?session_id=s1"
+    assert [c["name"] for c in stage_with_player_skin["characters"]] == ["临光", "瑕光"]
     assert client.get("/api/sessions/nope/stage").status_code == 404
 
 

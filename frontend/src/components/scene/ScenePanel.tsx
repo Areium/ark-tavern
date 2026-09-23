@@ -15,7 +15,7 @@ import {
 import AppIcon, { type AppIconName } from "../AppIcon";
 import ErrorBoundary from "../ErrorBoundary";
 
-function PanelIcon({ panel, size = 16 }: { panel: ScenePanelDefinition; size?: number }) {
+function PanelIcon({ panel, size = 19 }: { panel: ScenePanelDefinition; size?: number }) {
   if (typeof panel.icon === "string") return <AppIcon name={panel.icon as AppIconName} size={size} />;
   const Custom = panel.icon;
   return <Custom size={size} />;
@@ -31,7 +31,7 @@ export default function ScenePanel() {
   } = useAppStore();
 
   const visible = useMemo(() => visibleScenePanels(panels, chatMode), [panels, chatMode]);
-  const activeTab = resolveScenePanelTab(visible, scenePanelTab);
+  const activeTab = resolveScenePanelTab(visible, ({ items: "characters", environment: "characters", stats: "characters", memory: "story" } as Record<string, string>)[scenePanelTab] || scenePanelTab);
   const active = visible.find((p) => p.id === activeTab) || null;
   const session = sessions.find((s) => s.id === activeSessionId) || null;
 
@@ -115,7 +115,6 @@ export default function ScenePanel() {
         <div className="scene-panel-body">
           {active && (
             <header className="scene-panel-head">
-              <span className="scene-panel-eyebrow"><PanelIcon panel={active} size={11} />场景面板</span>
               <h2 className="scene-panel-title">{active.title}</h2>
               {active.hint && <p className="scene-panel-hint">{active.hint}</p>}
             </header>

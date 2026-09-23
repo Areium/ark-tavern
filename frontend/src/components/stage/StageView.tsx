@@ -42,6 +42,9 @@ export default function StageView({
   const { envRefreshKey, characterRefreshKey, resourceVersion, highlightedSpeaker, setHighlightedSpeaker } = useAppStore();
   const [stage, setStage] = useState<StageDTO | null>(null);
   const [bgFailed, setBgFailed] = useState(false);
+  const [failedSprites, setFailedSprites] = useState<string[]>([]);
+  useEffect(() => { setStage(null); }, [sessionId]);
+  useEffect(() => { setFailedSprites([]); }, [sessionId, resourceVersion]);
 
   // ── 舞台数据：背景 / 立绘 / 环境（环境、阵容、资源覆盖变化时重拉） ──
   useEffect(() => {
@@ -52,7 +55,7 @@ export default function StageView({
 
   // ── 脚本与游标 ──
   const script = useMemo(
-    () => buildStageScript(messages, sceneCharacters, playerName),
+    () => buildStageScript(messages, [...new Set([...sceneCharacters, playerName].filter(Boolean))], playerName),
     [messages, sceneCharacters, playerName],
   );
   const [cursor, setCursor] = useState({ key: "", step: 0 });
@@ -85,7 +88,9 @@ export default function StageView({
   const typing = !script.streaming && typed < text.length;
 
   // ── 说话人高亮：步进时同步到全局（场景角色列表也会亮） ──
-  const speaker = speakerOfStep(current);
+  const sourceMessage = messages[script.messageIndex];
+  const fallbackSpeaker = sourceMessage?.role === "character" && sourceMessage.content?.trim() && !script.steps.some((entry) => entry.kind === "dialogue") ? sourceMessage.character : undefined;
+  const speaker = speakerOfStep(current) || fallbackSpeaker;
   const [pulse, setPulse] = useState(0);
   useEffect(() => { setHighlightedSpeaker(speaker ?? null); }, [speaker, setHighlightedSpeaker]);
   useEffect(() => () => setHighlightedSpeaker(null), [setHighlightedSpeaker]);
@@ -101,17 +106,25 @@ export default function StageView({
 
   const rootRef = useRef<HTMLDivElement>(null);
   const onKey = (e: React.KeyboardEvent) => {
-    if ((e.target as HTMLElement).tagName === "TEXTAREA" || (e.target as HTMLElement).tagName === "INPUT") return;
+    if ((e.target as HTMLElement).closest("button, input, textarea, select, a")) return;
     if (e.key === " " || e.key === "Enter" || e.key === "ArrowRight") { e.preventDefault(); advance(); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); back(); }
   };
 
   // ── 立绘落位 ──
-  const sprites = stage?.characters ?? sceneCharacters.map((name) => ({ name, skin_url: null, avatar_url: null, color: characterColors[name] ?? null, active: false }));
+  const npcSprites = stage?.characters ?? sceneCharacters.map((name) => ({ name, skin_url: null, avatar_url: null, color: characterColors[name] ?? null, active: false }));
+  const segmentSpeakers = new Set(script.steps.map(speakerOfStep).filter((name): name is string => !!name));
+  if (!segmentSpeakers.size && fallbackSpeaker) segmentSpeakers.add(fallbackSpeaker);
+  // Filter against the whole completed segment, never the current typewriter sentence.
+  // Only unfinished streaming keeps the roster; completed narration and empty scripts have no speakers.
+  const player = stage?.player;
+  const cast = npcSprites.filter((sprite) => sprite.name !== player?.name);
+  if (player?.name && segmentSpeakers.has(player.name)) cast.push({ ...player, active: false });
+  const sprites = [...new Map(cast.map((sprite) => [sprite.name, sprite])).values()]
+    .filter((sprite) => script.streaming || segmentSpeakers.has(sprite.name));
   const positions = stagePositions(sprites.length);
   const focus = highlightedSpeaker ?? speaker ?? null;
   const someoneSpeaking = !!focus && sprites.some((s) => s.name === focus);
-  const playerSpeaking = current?.kind === "player";
 
   const bgUrl = !bgFailed ? stage?.background.url ?? null : null;
   const bgStyle = bgUrl
@@ -144,7 +157,7 @@ export default function StageView({
 
       {/* 立绘：人越多越小，避免三四张全身像叠成一团；点击高亮时用两套动画名交替，重复点击也会再闪一次 */}
       <div
-        className={`stage-cast ${someoneSpeaking ? "has-focus" : ""} ${playerSpeaking ? "player-speaking" : ""}`}
+        className={`stage-cast ${someoneSpeaking ? "has-focus" : ""}`}
         style={{
           "--sprite-h": sprites.length >= 4 ? "70%" : sprites.length === 3 ? "78%" : sprites.length === 2 ? "84%" : "88%",
           "--sprite-w": sprites.length >= 4 ? "28%" : sprites.length === 3 ? "36%" : "46%",
@@ -155,13 +168,13 @@ export default function StageView({
           return (
             <div
               key={sprite.name}
-              className={`stage-sprite ${speaking ? "is-speaking" : ""} ${speaking && pulse ? (pulse % 2 ? "is-pulse-a" : "is-pulse-b") : ""}`}
+              className={`stage-sprite ${!sprite.skin_url || failedSprites.includes(sprite.skin_url) ? "is-avatar" : ""} ${speaking ? "is-speaking" : ""} ${speaking && pulse ? (pulse % 2 ? "is-pulse-a" : "is-pulse-b") : ""}`}
               style={{ left: `${positions[i]}%`, zIndex: speaking ? 5 : 1 }}
               onClick={() => { setHighlightedSpeaker(sprite.name); setPulse((p) => p + 1); }}
               title={sprite.name}
             >
-              {sprite.skin_url ? (
-                <img src={sprite.skin_url} alt={sprite.name} className="stage-sprite-img" draggable={false} />
+              {sprite.skin_url && !failedSprites.includes(sprite.skin_url) ? (
+                <img src={sprite.skin_url} alt={sprite.name} className="stage-sprite-img" draggable={false} onError={() => setFailedSprites((prev) => [...prev, sprite.skin_url!])} />
               ) : (
                 <div className="stage-sprite-card" style={{ borderColor: sprite.color || undefined }}>
                   <AvatarPlaceholder name={sprite.name} size="md" sessionId={sessionId} />
@@ -216,7 +229,7 @@ export default function StageView({
           >
             {(speaker || (current?.kind === "player")) && (
               <div className="stage-name" style={nameColor ? { "--role-color": nameColor } as React.CSSProperties : undefined}>
-                {current?.kind === "player" && <AvatarPlaceholder name={playerName} size="sm" sessionId={sessionId} />}
+                <AvatarPlaceholder name={speaker || playerName} size="sm" sessionId={sessionId} />
                 <span>{speaker}</span>
               </div>
             )}

@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import AppIcon from "./AppIcon";
+import CharacterSessionStats from "./scene/CharacterSessionStats";
 import { createPortal } from "react-dom";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
@@ -42,20 +44,20 @@ export default function CharacterDetailCard({
   onMouseEnter,
   onMouseLeave,
 }: Props) {
-  const { activeSessionId } = useAppStore();
+  const { activeSessionId, statsRefreshKey } = useAppStore();
   const api = useApi();
   const [data, setData] = useState<CharacterDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // 会话统一管理角色设定与数值：详情卡仅只读展示（等级/XP + 派生战斗数值
-  // 为会话合并后的结果），不提供对话内编辑入口
+  // 保存会话数值后重新加载成长与派生战斗数值。
   const [growth, setGrowth] = useState<{ level: number; xp: number } | null>(null);
   const [combatStats, setCombatStats] = useState<Record<string, number> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setData(null);
     setError("");
     api
       .getCharacter(characterId)
@@ -92,10 +94,16 @@ export default function CharacterDetailCard({
         if (!cancelled) { setGrowth(null); setCombatStats(null); }
       });
     return () => { cancelled = true; };
-  }, [activeSessionId, characterId, api]);
+  }, [activeSessionId, characterId, api, statsRefreshKey]);
 
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
+  useEffect(() => {
+    const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+  const vw = viewport.width;
+  const vh = viewport.height;
   let left = anchorRect.right + GAP;
   if (left + CARD_W > vw - GAP) {
     left = anchorRect.left - CARD_W - GAP;
@@ -116,7 +124,11 @@ export default function CharacterDetailCard({
   return createPortal(
     <div
       className="fixed z-[60] bg-gray-850 border border-gray-600 rounded-xl shadow-2xl flex flex-col"
-      style={{ left, top, width: CARD_W, maxHeight: cardH }}
+      style={{ left, top, width: Math.min(CARD_W, vw - GAP * 2), maxHeight: cardH }}
+      onFocusCapture={(event) => { if (!pinned && (event.target as HTMLElement).matches("input, textarea, select")) onTogglePin(); }}
+      role="dialog"
+      aria-label={`${characterId}详情`}
+      onKeyDown={(event) => { if (event.key === "Escape") onClose(); }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
@@ -137,13 +149,14 @@ export default function CharacterDetailCard({
             }`}
             title={pinned ? "取消固定" : "固定弹窗"}
           >
-            📌
+            <AppIcon name="identity" size={16} />
           </button>
           <button
             onClick={onClose}
+            aria-label="关闭角色详情"
             className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
           >
-            ✕
+            <AppIcon name="close" size={16} />
           </button>
         </div>
       </div>
@@ -250,6 +263,7 @@ export default function CharacterDetailCard({
               </div>
             )}
 
+
             {Object.keys(rels).length > 0 && (
               <div>
                 <h4 className="text-xs text-gray-500 mb-1.5 font-medium">关系</h4>
@@ -274,6 +288,7 @@ export default function CharacterDetailCard({
             )}
           </>
         )}
+        {activeSessionId && <CharacterSessionStats key={`${activeSessionId}:${characterId}`} sessionId={activeSessionId} name={characterId} />}
       </div>
     </div>,
     document.body

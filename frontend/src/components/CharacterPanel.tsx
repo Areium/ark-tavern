@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
+import AppIcon from "./AppIcon";
+import AvatarPlaceholder from "./chat/AvatarPlaceholder";
 import CharacterDetailCard from "./CharacterDetailCard";
 
 interface CharacterInfo {
@@ -9,14 +11,18 @@ interface CharacterInfo {
   title: string;
   loaded: boolean;
   active: boolean;
+  isPlayer: boolean;
 }
 
 export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) {
-  const { activeSessionId, triggerCharacterRefresh } = useAppStore();
+  const { activeSessionId, sessions, statsRefreshKey, triggerCharacterRefresh } = useAppStore();
   const highlightedSpeaker = useAppStore((s) => s.highlightedSpeaker);
   const api = useApi();
   const [characters, setCharacters] = useState<CharacterInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [departed, setDeparted] = useState<string[]>([]);
+  const [rosterSession, setRosterSession] = useState<string | null>(null);
+  const [statsError, setStatsError] = useState("");
   const [error, setError] = useState("");
 
   // Hover/pin preview
@@ -25,6 +31,8 @@ export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) 
   const [pinnedChar, setPinnedChar] = useState<string | null>(null);
   const [pinnedAnchor, setPinnedAnchor] = useState<DOMRect | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (closeTimerRef.current) clearTimeout(closeTimerRef.current); }, []);
 
   const previewChar = hoveredChar || pinnedChar;
   const previewAnchor = hoveredChar ? hoverAnchor : pinnedAnchor;
@@ -99,24 +107,28 @@ export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) 
       return;
     }
     setLoading(true);
+    setRosterSession(null);
     setError("");
     try {
       const data = await api.getSceneCharacters(activeSessionId);
-      const rawList: string[] = data.characters || data;
-      const list: CharacterInfo[] = rawList.map((name) => ({
+      const rawList: string[] = data.roster || data.characters || data;
+      const player = sessions.find((session) => session.id === activeSessionId)?.player_identity || data.roster?.[0] || "";
+      const list: CharacterInfo[] = [...new Set(rawList)].map((name) => ({
         id: name,
         name,
         title: "",
         loaded: true,
-        active: data.active === name,
+        active: data.active === name && name !== player,
+        isPlayer: name === player,
       }));
       setCharacters(list);
+      setRosterSession(activeSessionId);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [activeSessionId, api]);
+  }, [activeSessionId, api, sessions]);
 
   useEffect(() => {
     loadCharacters();
@@ -128,8 +140,21 @@ export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId, refreshKey]);
 
+  useEffect(() => {
+    if (!activeSessionId || rosterSession !== activeSessionId || loading) { setDeparted([]); return; }
+    let cancelled = false;
+    setStatsError("");
+    api.getSessionCharacterStats(activeSessionId).then((data) => {
+      if (!cancelled) {
+        const present = new Set(characters.map((character) => character.name));
+        setDeparted(data.characters.filter((row) => !present.has(row.name) && Object.keys(row.session_values).length > 0).map((row) => row.name));
+      }
+    }).catch((err: Error) => { if (!cancelled) setStatsError(err.message || "加载失败"); });
+    return () => { cancelled = true; };
+  }, [activeSessionId, rosterSession, loading, characters, statsRefreshKey, api]);
+
   const handleSwitch = async (name: string) => {
-    if (!activeSessionId) return;
+    if (!activeSessionId || characters.some((c) => c.name === name && c.isPlayer)) return;
     try {
       await api.switchCharacter(activeSessionId, name);
       await loadCharacters();
@@ -174,11 +199,12 @@ export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) 
         </div>
       </div>
 
+      {loading && characters.length === 0 && <p role="status" className="text-gray-400 text-sm py-4">正在加载角色…</p>}
       {error && (
         <p className="text-red-400 text-xs mb-2">加载失败: {error}</p>
       )}
 
-      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+      <div className="space-y-1.5">
         {!loading && characters.length === 0 && (
           <p className="text-gray-500 text-sm text-center py-4">
             场景尚未加载角色
@@ -201,8 +227,10 @@ export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) 
                   : "bg-gray-800/50"
             }`}
           >
-            <div className="min-w-0 flex-1">
+            <AvatarPlaceholder name={c.name} sessionId={activeSessionId} />
+            <div className="min-w-0 flex-1 ml-2">
               <span className="font-medium truncate block">{c.name}</span>
+              {c.isPlayer && <span className="text-xs text-amber-400">主控</span>}
               {c.title && (
                 <span className="text-xs text-gray-500">{c.title}</span>
               )}
@@ -224,9 +252,9 @@ export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) 
                 }`}
                 title={pinnedChar === c.name ? "取消固定" : "固定查看详情"}
               >
-                📌
+                <AppIcon name="identity" size={15} />
               </button>
-              {!c.active && (
+              {!c.active && !c.isPlayer && (
                 <button
                   onClick={() => handleSwitch(c.name)}
                   className="text-xs px-2 py-1 rounded bg-blue-600/30 text-blue-300 hover:bg-blue-600/50"
@@ -238,6 +266,16 @@ export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) 
           </div>
         ))}
       </div>
+
+      {statsError && <p role="alert" className="text-xs text-red-400 mt-3">离场角色数值加载失败：{statsError}，可刷新重试。</p>}
+      {departed.length > 0 && !loading && <section className="mt-5 pt-3 border-t border-gray-700" aria-label="离场角色数值">
+        <h3 className="text-xs font-medium text-gray-300 mb-1">离场角色数值</h3>
+        <p className="text-xs text-gray-400 mb-2">这些角色已离场，保留的会话数值仍可查看与清除。</p>
+        {departed.map((name) => <button key={name} type="button" className="flex items-center justify-between w-full px-2 py-2 text-sm text-gray-300 hover:bg-gray-700/50 rounded-lg"
+          onClick={(event) => handlePinFromList(name, event.currentTarget)}>
+          <span className="truncate">{name}</span><AppIcon name="identity" size={15} />
+        </button>)}
+      </section>}
 
       {/* Character detail popup */}
       {previewChar && previewAnchor && (

@@ -1490,5 +1490,5 @@ export interface StageDTO {
     bg_id: string;
   };
   characters: StageCharacterDTO[];
-  player: { name: string; avatar_url: string | null; color: string | null };
+  player: { name: string; skin_url: string | null; avatar_url: string | null; color: string | null };
 }

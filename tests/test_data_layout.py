@@ -223,13 +223,34 @@ def test_background_tool_reads_json_node_references(tmp_path, monkeypatch):
     (location / "index.md").write_text(
         "---\nname: Test\ncombat_bg: location_bg\n---\n", encoding="utf-8",
     )
+    (locations / "flat.md").write_text(
+        "---\nname: Flat\ncombat_bg: flat_bg\n---\n", encoding="utf-8",
+    )
     monkeypatch.setattr(backgrounds, "_NODE_ROOT", nodes)
     monkeypatch.setattr(backgrounds, "_LOC_ROOT", locations)
 
     assert backgrounds._referenced_bg_ids() == {
         "json_bg": "node:enc_json",
         "location_bg": f"location:{location / 'index.md'}",
+        "flat_bg": f"location:{locations / 'flat.md'}",
     }
+
+
+def test_location_background_accepts_flat_and_directory_documents(tmp_path):
+    from combat_data_loader import CombatDataLoader
+
+    combat_root = tmp_path / "combat"
+    locations = tmp_path / "environment" / "Location"
+    flat = locations / "旧城200室.md"
+    nested = locations / "旧城小区" / "index.md"
+    nested.parent.mkdir(parents=True)
+    flat.write_text("---\nname: 旧城200室\ncombat_bg: room200\n---\n", encoding="utf-8")
+    nested.write_text("---\nname: 旧城小区\ncombat_bg: old_block\n---\n", encoding="utf-8")
+
+    loader = CombatDataLoader(str(combat_root))
+    assert loader.location_background_id("旧城200室") == "room200"
+    assert loader.location_background_id("旧城小区") == "old_block"
+    assert loader.location_background_id("不存在") == ""
 
 
 def test_builtin_generator_reads_weather_and_factions_into_temp_pack(tmp_path, monkeypatch):

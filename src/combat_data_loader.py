@@ -448,18 +448,20 @@ class CombatDataLoader:
         return self._location_combat_bg(location_name)
 
     def _location_combat_bg(self, location_name: str) -> str:
-        """Find the `combat_bg` field of a location doc matching name/alias/dir."""
+        """Find `combat_bg` in a directory-style or flat location document."""
         loc_base = self._root.parent / "environment" / "Location"
         if not loc_base.is_dir():
             return ""
-        for index_md in sorted(loc_base.rglob("index.md")):
+        location_docs = sorted([*loc_base.rglob("index.md"), *loc_base.glob("*.md")])
+        for location_md in location_docs:
             try:
-                with open(index_md, "r", encoding="utf-8") as f:
+                with open(location_md, "r", encoding="utf-8") as f:
                     meta = frontmatter.load(f).metadata
             except (OSError, ValueError):
                 continue
+            fallback_name = location_md.parent.name if location_md.name == "index.md" else location_md.stem
             if location_name in (meta.get("name"), meta.get("alias"),
-                                 index_md.parent.name):
+                                 fallback_name):
                 return str(meta.get("combat_bg") or "")
         return ""
 

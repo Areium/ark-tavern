@@ -58,13 +58,13 @@
 /* ── 场景面板：图标栏 + 内容 ────────────────────────────────────────── */
 .scene-panel { display: flex; flex-shrink: 0; height: 100%; border-right: 1px solid var(--chat-line); background: var(--chat-card); }
 .scene-rail {
-  display: flex; flex-direction: column; gap: 2px; width: 46px; padding: 6px 4px; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 2px; width: 56px; padding: 6px 4px; flex-shrink: 0;
   border-right: 1px solid var(--chat-line); overflow-y: auto; overflow-x: hidden;
 }
 .scene-rail::-webkit-scrollbar { width: 0; }
 .scene-rail-btn {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  width: 38px; height: 40px; border-radius: 9px; color: var(--chat-muted); position: relative;
+  width: 46px; height: 48px; border-radius: 9px; color: var(--chat-muted); position: relative;
   transition: color .15s, background-color .15s;
 }
 .scene-rail-btn:hover { color: var(--chat-text); background: var(--chat-soft); }
@@ -72,7 +72,7 @@
 .scene-rail-btn.is-active::before {
   content: ""; position: absolute; left: -4px; top: 9px; bottom: 9px; width: 2px; border-radius: 2px; background: var(--chat-accent);
 }
-.scene-rail-label { font-size: 9px; line-height: 1; letter-spacing: .02em; }
+.scene-rail-label { font-size: 11px; line-height: 1; letter-spacing: .02em; }
 .scene-rail-btn.is-toggle { height: 32px; margin-top: 4px; }
 .scene-panel-body { display: flex; flex-direction: column; width: 288px; min-width: 0; }
 .scene-panel-head { padding: 10px 12px 8px; border-bottom: 1px solid var(--chat-line); }
@@ -324,3 +324,23 @@
 @media (prefers-reduced-motion: reduce) {
   .stage-sprite, .stage-bg, .stage-choices, .stage-next, .stage-caret, .stage-waiting i, .stage-log-overlay { animation: none !important; transition: none !important; }
 }
+
+/* Combined sidebar categories retain the chat theme and make the active subview explicit. */
+.scene-subnav { display: flex; gap: 4px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--chat-line); }
+.scene-subnav button { flex: 1; min-height: 36px; padding: 6px 8px; border-radius: 7px; color: var(--chat-body); font-size: 12px; }
+.scene-subnav button:hover { background: var(--chat-soft); }
+.scene-subnav button[aria-pressed="true"] { color: var(--chat-accent); background: color-mix(in srgb, var(--chat-accent) 12%, transparent); }
+.scene-panel button:focus-visible, .character-session-stats button:focus-visible, .stage button:focus-visible { outline: 2px solid var(--chat-accent, #dfa945); outline-offset: 2px; }
+.character-session-stats { padding-top: 14px; border-top: 1px solid var(--ng-muted, #8b93a1); }
+.character-session-stats button:disabled { opacity: .5; cursor: not-allowed; }
+.stage-name { max-width: calc(100% - 32px); }
+.stage-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) {
+  .scene-panel.is-open { position: absolute; inset: 0 auto 0 0; z-index: 25; max-width: calc(100vw - 32px); }
+  .scene-panel-body { width: min(288px, calc(100vw - 89px)); }
+  .stage-env { top: 46px; max-width: calc(100% - 24px); flex-wrap: wrap; }
+  .stage-dialog-wrap { padding: 0 10px 12px; }
+}
+
+.stage-sprite.is-avatar { bottom: 190px; height: auto; }
+.stage-sprite.is-avatar .stage-sprite-card { margin-bottom: 0; }
