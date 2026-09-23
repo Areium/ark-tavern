@@ -34,7 +34,7 @@
 - **已知边界**：战斗编成（`shared/helpers.build_character_metas`）仍只按**场景角色**组队，
   主控不进战斗队伍；本次改动没动战斗侧。
 
-### `tests/legacy/player_identity_opening.py` 会删掉示例玩家身份「龙门侦探」（2026-09-23）
+### `tests/legacy/player_identity_opening.py` 曾误删示例玩家身份「龙门侦探」（2026-09-23）
 
 - **现象**：跑一次该 legacy 用例后，`data/worldbooks/content/characters/龙门侦探/` 消失
   （它是未跟踪文件，`git status` 里直接不见）。
@@ -42,7 +42,8 @@
   并在 `finally` 里 `shutil.rmtree(CHAR_DIR, ignore_errors=True)`。
 - **恢复**：走 UI 同一条路径重建（`PUT /api/player-identities/龙门侦探`），内容见
   `scripts/shot_roles_ui.py` 的 `IDENTITY`（属性 / 简介 / 标签 / 正文三段）。
-  要长期保留示例身份时，先跑截图脚本、后跑 legacy 用例，或给 legacy 用例换一个夹具目录名。
+- **修复（2026-09-23）**：用例现在为每次运行生成唯一剧情 ID 与身份目录，并只删除本次成功创建的目录；
+  不再写入或删除示例身份「龙门侦探」。
 
 ### 新建向导的「入队角色」不是只由玩家点击决定（2026-09-19，`d91f22a`）
 
