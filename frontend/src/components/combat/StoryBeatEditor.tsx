@@ -184,7 +184,9 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
           <h3 className="text-xs text-gray-400 tracking-wider">章节与节拍</h3>
           {chapters.length === 0 && (
             <p className="text-[11px] text-gray-500">
-              该剧情没有标准章节结构（如 combat-test），战斗引用直接挂在剧情节点上。
+              该剧情正文没有「## 章节 N」+「#### beat_id」骨架：节点图上的章节 / 节拍来自参考大纲
+              （「LLM 分析剧情结构」的结果，或按「第N幕」标题切出），这里不能逐节拍编辑；
+              要改正文请到「文档」页编辑该剧情，或用「+ 章节」为它建立标准骨架。
             </p>
           )}
           {chapters.map((ch) => (
@@ -262,7 +264,7 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
             </div>
           </section>
         ) : (
-          <p className="text-[11px] text-gray-500">点击上方节拍标签编辑其正文。</p>
+          chapters.length > 0 && <p className="text-[11px] text-gray-500">点击上方节拍标签编辑其正文。</p>
         )}
       </div>
     </div>

@@ -67,6 +67,10 @@ interface Props {
   availableBeats: AvailableBeat[];
   availableCombats: AvailableCombat[];
   onImportLayout: () => void;
+  /** 用 LLM 分析剧情文本生成章节/节拍（参考大纲），完成后空图自动生成布局；未传则空态不显示该入口 */
+  onAnalyzePlot?: () => void;
+  /** LLM 分析进行中（空态按钮禁用并显示进度文案） */
+  analyzing?: boolean;
   /** 重置所有节点位置到默认布局（页面负责入撤销栈与视图回归） */
   onResetPositions: () => void;
   /** 单击画布空白区域（左键点空白 / 空白处右键出菜单）——页面据此收起编辑抽屉 */
@@ -670,10 +674,18 @@ export default function GraphCanvas(props: Props) {
         <div className="ng-empty">
           <div className="ng-empty-card">
             <p className="ng-empty-title">这张图还是空的</p>
-            <p className="ng-empty-sub">从剧情文档生成初始布局，或右键空白处新建自由节点。</p>
+            <p className="ng-empty-sub">
+              从剧情文档的章节结构生成初始布局；没有章节骨架的剧情可先让 LLM 分析文本切出章节与节拍。
+              也可右键空白处新建自由节点。
+            </p>
             <div className="ng-empty-actions">
-              <button className="ng-empty-btn primary" onClick={props.onImportLayout}>从剧情结构生成布局</button>
-              <button className="ng-empty-btn" onClick={() => createNoteAt(0, 0)}>新建自由节点</button>
+              <button className="ng-empty-btn primary" disabled={props.analyzing} onClick={props.onImportLayout}>从剧情结构生成布局</button>
+              {props.onAnalyzePlot && (
+                <button className="ng-empty-btn" disabled={props.analyzing} onClick={props.onAnalyzePlot}>
+                  {props.analyzing ? "LLM 分析中…" : "LLM 分析剧情结构"}
+                </button>
+              )}
+              <button className="ng-empty-btn" disabled={props.analyzing} onClick={() => createNoteAt(0, 0)}>新建自由节点</button>
             </div>
           </div>
         </div>

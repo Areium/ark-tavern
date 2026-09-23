@@ -1295,9 +1295,11 @@ export interface BattleNodeOverviewDTO {
   missing?: boolean;
 }
 
-/** 节点图剧情节拍（来自 data/worldbooks/content/plots/<id>/index.md 的叙述区） */
+/** 节点图剧情节拍（来自 data/worldbooks/content/plots/<id>/index.md 的叙述区，或参考大纲） */
 export interface PlotFlowBeatDTO {
   id: string;
+  /** 大纲节拍的标题；正文 `#### beat_id` 骨架没有标题时为空串 */
+  title: string;
   keep_on_deviate: boolean;
   summary: string;
   combat_nodes: string[];
@@ -1306,9 +1308,27 @@ export interface PlotFlowBeatDTO {
 /** 节点图剧情章节 */
 export interface PlotFlowChapterDTO {
   idx: number;
+  /** 章节 id：正文骨架 `ch_N`；大纲章节用大纲里的 id（act_1 / route_a / dev_1） */
+  id: string;
   title: string;
+  /** 展示标题：`章节 1：…` / `第一幕：…` / `路线 A：…` */
+  label: string;
+  /** main = 主线；branch = 续写路线 / 偏离分支（只有大纲章节会出现） */
+  kind: "main" | "branch";
   combat_nodes: string[];
   beats: PlotFlowBeatDTO[];
+}
+
+/** 参考大纲生成结果（POST /api/worldbooks/<book>/story-outline）：节点图「LLM 分析剧情结构」用 */
+export interface StoryOutlineGenerateDTO {
+  book_id: string;
+  plot_id: string;
+  /** 已存书的大纲；`source` 为 llm 或 heuristic（LLM 解析失败回落时） */
+  outline: { source: "llm" | "heuristic"; chapters: { id: string; kind?: string; beats: { id: string }[] }[] } & Record<string, unknown>;
+  /** 生成过程：ok=false 时 error 说明 LLM 为何失败（结果已回落启发式，不是伪装成功） */
+  generation: { ok: boolean; error: string | null } | null;
+  /** 大纲里标了需要战斗的节拍现场生成的战斗节点 */
+  combat_nodes: { beat_id: string; node_id: string | null; error?: string | null }[];
 }
 
 /** 节点图剧情流程（一个 plot = 一条横向分支） */
@@ -1317,6 +1337,8 @@ export interface PlotFlowDTO {
   name: string;
   summary: string;
   worldbook_id: string;
+  /** narrative = 正文 `## 章节 N` 骨架；outline = 护栏式剧情，章节来自参考大纲 */
+  source: "narrative" | "outline";
   combat_nodes: string[];
   chapters: PlotFlowChapterDTO[];
 }

@@ -44,6 +44,7 @@ def _enemy_names() -> set[str]:
 
 def register(app, managers):
     session_mgr = managers["session"]
+    worldbook_mgr = managers.get("worldbook")
     bp = Blueprint("combat_nodes", __name__)
 
     def _session(session_id: str):
@@ -66,10 +67,13 @@ def register(app, managers):
 
     @bp.route("/api/combat/nodes/graph", methods=["GET"])
     def graph():
-        """节点图数据：剧情流程（章节/节拍/引用）+ 战斗节点，按世界书过滤。"""
+        """节点图数据：剧情流程（章节/节拍/引用）+ 战斗节点，按世界书过滤。
+
+        护栏式剧情（无 `## 章节 N` 骨架）的章节来自参考大纲：书里已生成的 LLM 大纲优先。
+        """
         book_id = request.args.get("book_id", "")
         session = _session(request.args.get("session_id", ""))
-        return jsonify(node_graph(book_id, session))
+        return jsonify(node_graph(book_id, session, worldbook_mgr))
 
     @bp.route("/api/combat/nodes/<path:node_id>", methods=["GET"])
     def get_node(node_id: str):

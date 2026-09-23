@@ -352,3 +352,31 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
 - **顺手修的旧 bug**：`session_manager.rollback_to_node` 的 `_lore_resolver_factory` 读 `self._worldbook_manager`
   （`Session` 没有这个属性，`SessionManager` 才有）→ 每次树上回档都 warning 并按「作用域关闭」处理；
   改读 `scene_manager._worldbook_manager`。
+
+### 节点图「从剧情结构生成布局」对护栏式剧情只画一个入口节点（2026-09-23，`fix/node-graph-outline-fallback`）
+
+- **现象**：世界书工作台 → 节点图 → 选「彼岸双生」→ 「从剧情结构生成布局」只得到一个剧情入口卡。
+- **原因**：布局函数 `importLayoutFromFlow` 只按 `GET /api/combat/nodes/graph` 返回的 `plots[].chapters` 铺节点，
+  而后端 `combat_nodes.plot_flows` 只认正文的 `## 章节 N：` + `#### beat_id` 骨架；彼岸双生是 `## 第N幕：` 护栏式
+  剧情、正文没有 `[COMBAT:]`，解析结果 `chapters=[]` 且 `combat_nodes=[]`，于是走「无章节」分支只建 plot 节点。
+  会话创建那条链早已改用参考大纲代替骨架（上一条），节点图这条链没有同步。
+- **口径**：`plot_flows(book_mgr=None)` 对没有骨架的剧情按会话同一优先级回落——书内 `story_outline_<plot_id>`
+  系统层条目（LLM 大纲，`book_mgr` 给定时）> `story_outline.heuristic_outline` 启发式切幕；两者都切不出章节
+  （combat-test 这类）保持 `chapters=[]`。返回值加 `source`（`narrative` / `outline`），章节加 `id` / `label` /
+  `kind`（`main` / `branch`），节拍加 `title`；大纲节拍的战斗引用取 `combat.node_id` ∪ 节点文件 `bind` 到该节拍的
+  节点（现场生成的战斗节点回填在 `bind`，正文里不会出现 `[COMBAT:]`）。blueprint 把 `managers["worldbook"]`
+  传进 `node_graph`。
+- **前端**：章节卡标题用 `label`（`第一幕：门前的猫` / `路线 A：回应`），节拍卡标题优先大纲 `title`，退回 beat id；
+  `kind=branch` 的章节从主线末节点分岔、各占一排叠在主线下方（大纲的作者分支正是末幕指向各路线）。护栏式剧情
+  （`source=outline`）双击节拍卡只打开剧情文档、不预选节拍——`StoryBeatEditor` 按 `#### beat_id` 定位，大纲节拍在
+  正文里没有这一段。`nodeIdentity` 仍按 `chapter_idx` / `beat_id` 对齐，「重置位置」对大纲布局照常生效。
+- **LLM 分析入口**：节点图剧情行右侧「🧠 LLM 分析剧情结构」（空图态也有）调用既有
+  `POST /api/worldbooks/<book>/story-outline`（mode=llm、generate_combat=true：含战斗节点物化与试跑，
+  前端这一条请求超时放宽到 5 分钟，`useApi.request` 第三参），完成后刷新总览；图为空就自动铺布局，非空图不动
+  （提示用重置 / 重建）。LLM 解析失败接口仍 200 但 `outline.source=heuristic`，前端按 `generation.error` 提示
+  回落，不当成功。真实 LLM 路径本轮未在浏览器里点过（会往当前书写大纲条目、生成战斗节点文件），
+  只验证了接口契约与 tsc；后端逻辑由 `tests/test_story_outline.py` 覆盖。
+- **注意**：大纲章节的 `idx` 是大纲顺序号（主线幕在前、分支在后，1 起），不是幕号；LLM 大纲重新生成后章节
+  id / 顺序可能变化，已存图上的章节 / 节拍卡会显示为「缺失」，需重新生成布局。
+- **验证**：`tests/test_node_graph_worldbook.py`（启发式回落、保存的 LLM 大纲优先、`bind` 节点挂上、combat-test
+  不误切、正文骨架剧情形状不变）。

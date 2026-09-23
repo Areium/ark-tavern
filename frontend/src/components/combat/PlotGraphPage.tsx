@@ -98,6 +98,10 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<{ status: "idle" | "saving" | "saved" | "error"; text: string }>({ status: "idle", text: "" });
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  /** 正在用 LLM 分析的剧情 id（空串 = 没有进行中的分析） */
+  const [analyzingPlot, setAnalyzingPlot] = useState("");
+  /** 分析完成后待铺布局的剧情：总览刷新到位且该剧情图仍为空时自动生成 */
+  const pendingLayout = useRef<string | null>(null);
   const [version, setVersion] = useState(0); // 缓存可变对象 → 用版本号驱动重渲染
 
   const caches = useRef(new Map<string, PlotCache>());
@@ -403,20 +407,20 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
           progress: row?.progress && row.progress.state !== "locked" ? row.progress.state : undefined,
         });
       } else if (node.type === "beat" && ref?.beat_id) {
-        const beat = currentPlot?.chapters
-          .find((c) => c.idx === (ref.chapter_idx ?? -1))?.beats
-          .find((b) => b.id === ref.beat_id);
+        const ch = currentPlot?.chapters.find((c) => c.idx === (ref.chapter_idx ?? -1));
+        const beat = ch?.beats.find((b) => b.id === ref.beat_id);
         m.set(node.id, {
-          title: ref.beat_id,
-          subtitle: ref.chapter_idx ? `章节 ${ref.chapter_idx}` : undefined,
+          title: beat?.title || node.title || ref.beat_id,
+          subtitle: ch ? (beat?.title ? `${ref.beat_id} · ${ch.label}` : ch.label)
+            : ref.chapter_idx ? `章节 ${ref.chapter_idx}` : undefined,
           body: beat?.summary || node.content || "",
           missing: !beat,
         });
       } else if (node.type === "chapter" && ref?.chapter_idx != null) {
         const ch = currentPlot?.chapters.find((c) => c.idx === ref.chapter_idx);
         m.set(node.id, {
-          title: node.title || `章节 ${ref.chapter_idx}`,
-          subtitle: ch ? `${ch.beats.length} 节拍` : undefined,
+          title: ch?.label || node.title || `章节 ${ref.chapter_idx}`,
+          subtitle: ch ? `${ch.kind === "branch" ? "分支 · " : ""}${ch.beats.length} 节拍` : undefined,
           body: node.content || "",
           missing: !ch,
         });
@@ -440,7 +444,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
     const out: AvailableBeat[] = [];
     for (const ch of currentPlot.chapters) {
       for (const b of ch.beats) {
-        if (!onGraph.has(b.id)) out.push({ chapterIdx: ch.idx, beatId: b.id, label: `${b.id}（章节 ${ch.idx}）` });
+        if (!onGraph.has(b.id)) out.push({ chapterIdx: ch.idx, beatId: b.id, label: `${b.title || b.id}（${ch.label}）` });
       }
     }
     return out;
@@ -527,10 +531,61 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
 
   const importLayout = useCallback(() => {
     if (!doc || !currentPlot) return;
+    if (currentPlot.chapters.length === 0 && currentPlot.combat_nodes.length === 0) {
+      showNotice("err", "这个剧情没有章节结构，只能生成剧情入口；可先用「LLM 分析剧情结构」切出章节与节拍");
+    }
     const names = new Map(overview?.nodes.map((n) => [n.node_id, { name: n.name, missing: n.missing }]));
     commit(importLayoutFromFlow(currentPlot, names));
     window.setTimeout(() => canvasApi.current?.fit(), 60);
-  }, [doc, currentPlot, overview, commit]);
+  }, [doc, currentPlot, overview, commit, showNotice]);
+
+  /**
+   * 用 LLM 分析剧情文本：生成参考大纲（章节 → 节拍 → 战斗需求）并存进书（系统层条目），
+   * 顺带把标了需要战斗的节拍物化成战斗节点。完成后刷新总览；当前图还是空的就直接铺默认布局，
+   * 已有节点的图不动（避免覆盖手工编辑），提示用「重置节点位置」或重新生成。
+   */
+  const analyzePlot = useCallback(async () => {
+    if (!bookId || !plotId || analyzingPlot) return;
+    setAnalyzingPlot(plotId);
+    showNotice("ok", "LLM 正在分析剧情文本（含战斗节点生成与试跑，可能需要 1–3 分钟）…");
+    try {
+      const res = await api.generateStoryOutline(bookId, plotId);
+      const chapters = res.outline?.chapters?.length ?? 0;
+      const beats = res.outline?.chapters?.reduce((n, c) => n + (c.beats?.length ?? 0), 0) ?? 0;
+      const made = res.combat_nodes.filter((c) => c.node_id).length;
+      const failed = res.combat_nodes.length - made;
+      const parts = [`${chapters} 章 ${beats} 节拍`];
+      if (made > 0) parts.push(`生成 ${made} 个战斗节点`);
+      if (failed > 0) parts.push(`${failed} 个战斗节点生成失败`);
+      if (res.outline?.source === "heuristic") {
+        const why = res.generation?.error ? `：${res.generation.error}` : "";
+        showNotice("err", `LLM 解析失败，已回落为按标题启发式切幕（${parts.join("，")}）${why}`);
+      } else {
+        showNotice("ok", `LLM 分析完成：${parts.join("，")}，已存入世界书`);
+      }
+      pendingLayout.current = plotId;
+      await loadOverview(bookId);
+    } catch (e) {
+      pendingLayout.current = null;
+      showNotice("err", errText(e, "LLM 分析剧情失败"));
+    } finally {
+      setAnalyzingPlot("");
+    }
+  }, [bookId, plotId, analyzingPlot, api, loadOverview, showNotice]);
+
+  // 分析完成、总览刷新到位后：空图自动铺布局；非空图只提示
+  useEffect(() => {
+    const target = pendingLayout.current;
+    if (!target || !doc || !currentPlot || currentPlot.plot_id !== target || plotId !== target) return;
+    pendingLayout.current = null;
+    if (doc.nodes.length === 0) {
+      const names = new Map(overview?.nodes.map((n) => [n.node_id, { name: n.name, missing: n.missing }]));
+      commit(importLayoutFromFlow(currentPlot, names));
+      window.setTimeout(() => canvasApi.current?.fit(), 60);
+    } else {
+      showNotice("ok", "剧情结构已更新；图上已有节点未改动，可「重置节点位置」或右键「从剧情结构生成布局」重建");
+    }
+  }, [overview, doc, currentPlot, plotId, commit, showNotice]);
 
   /**
    * 重置节点位置：基准 = 剧情结构算出的默认布局（与「从剧情结构生成布局」同一函数）。
@@ -559,11 +614,18 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
     window.setTimeout(() => canvasApi.current?.fit(), 60);
   }, [doc, currentPlot, overview, commit, showNotice]);
 
-  /** 双击节点 / 右键「打开编辑器」的落点：按节点类型选编辑器 */
+  /**
+   * 双击节点 / 右键「打开编辑器」的落点：按节点类型选编辑器。
+   * 大纲章节的节拍（护栏式剧情）在正文里没有 `#### beat_id` 段，节拍编辑器定位不到，
+   * 只打开剧情文档本身而不预选节拍。
+   */
   const openNode = useCallback((node: PlotGraphNodeDTO) => {
     if (node.type === "combat" && node.ref?.node_id) openDrawer({ kind: "battle", nodeId: node.ref.node_id });
-    else if (plotId) openDrawer({ kind: "story", plotId, beatId: node.ref?.beat_id ?? null });
-  }, [plotId, openDrawer]);
+    else if (plotId) {
+      const beatId = currentPlot?.source === "outline" ? null : (node.ref?.beat_id ?? null);
+      openDrawer({ kind: "story", plotId, beatId });
+    }
+  }, [plotId, currentPlot, openDrawer]);
 
   const deleteConfirmed = useCallback(() => {
     if (!confirmDelete || !doc) return;
@@ -699,6 +761,20 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
           <span className="text-xs text-gray-500 px-2">这本书暂无关联剧情</span>
         )}
         <div className="flex-1" />
+        {currentPlot && (
+          <span className="text-[10px] text-gray-500 shrink-0 mr-1"
+            title={currentPlot.source === "outline"
+              ? "章节来自参考大纲（书内 LLM 分析结果，未分析时为按标题启发式切幕）"
+              : "章节来自剧情正文的「## 章节 N」骨架"}>
+            {currentPlot.source === "outline" ? "大纲章节" : "正文章节"} · {currentPlot.chapters.length} 章
+          </span>
+        )}
+        <button
+          className="text-xs px-2 py-1 rounded border border-sky-700/60 text-sky-200 hover:border-sky-400/70 hover:bg-sky-900/30 disabled:opacity-40 shrink-0"
+          disabled={!plotId || !!analyzingPlot}
+          onClick={analyzePlot}
+          title="用 LLM 分析当前剧情文本，切出章节 / 节拍 / 战斗需求并存入世界书；空图会自动生成布局"
+        >{analyzingPlot ? "🧠 分析中…" : "🧠 LLM 分析剧情结构"}</button>
         <button
           className="text-xs px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 shrink-0"
           onClick={() => loadOverview(bookId)}
@@ -745,6 +821,8 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
             availableBeats={availableBeats}
             availableCombats={availableCombats}
             onImportLayout={importLayout}
+            onAnalyzePlot={analyzePlot}
+            analyzing={!!analyzingPlot}
             onResetPositions={resetPositions}
             onBlankClick={closeDrawer}
             canvasApiRef={canvasApi}

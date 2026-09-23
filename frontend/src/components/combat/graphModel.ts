@@ -6,7 +6,7 @@
  * 平移/缩放全部作用在 world 容器的 CSS transform 上（GPU 合成，60fps）。
  */
 import type {
-  PlotFlowDTO, PlotGraphDocDTO, PlotGraphEdgeDTO, PlotGraphNodeDTO,
+  PlotFlowChapterDTO, PlotFlowDTO, PlotGraphDocDTO, PlotGraphEdgeDTO, PlotGraphNodeDTO,
   PlotGraphNodeType,
 } from "../../types";
 
@@ -237,6 +237,51 @@ export function importLayoutFromFlow(
     return node;
   };
 
+  /**
+   * 铺一条「章节 → 节拍链」横排；返回该排的末节点与本排占用的最大高度（含下垂战斗引用）。
+   * 章节标题优先用后端算好的 label（`章节 1：…` / `第一幕：…` / `路线 A：…`）；
+   * 节拍卡标题优先用大纲节拍的 title，正文骨架没有标题时退回 beat id。
+   */
+  const layChapter = (chapter: PlotFlowChapterDTO, from: PlotGraphNodeDTO, rowY: number) => {
+    let maxBottom = rowY;
+    const chNode = add({
+      type: "chapter", title: chapter.label || `章节 ${chapter.idx}：${chapter.title}`,
+      content: "", x: cursorX, y: rowY, ref: { chapter_idx: chapter.idx },
+    });
+    link(from, chNode);
+    // 章节直属战斗引用下垂
+    let y = rowY + 96 + V_GAP;
+    for (const nid of chapter.combat_nodes) {
+      const c = addCombat(nid, cursorX, y);
+      link(chNode, c);
+      y += estimateNodeH(c) + V_GAP;
+    }
+    maxBottom = Math.max(maxBottom, y);
+    let end: PlotGraphNodeDTO = chNode;
+    // 章内节拍链
+    let beatPrev: PlotGraphNodeDTO | null = null;
+    for (const beat of chapter.beats) {
+      cursorX += NODE_W + H_GAP;
+      const bNode = add({
+        type: "beat", title: beat.title || beat.id, content: beat.summary || "",
+        x: cursorX, y: rowY, ref: { chapter_idx: chapter.idx, beat_id: beat.id },
+      });
+      link(beatPrev ?? chNode, bNode);
+      // 节拍引用的战斗节点下垂
+      let by = rowY + estimateNodeH(bNode) + V_GAP;
+      for (const nid of beat.combat_nodes) {
+        const c = addCombat(nid, cursorX, by);
+        link(bNode, c);
+        by += estimateNodeH(c) + V_GAP;
+      }
+      maxBottom = Math.max(maxBottom, by, rowY + estimateNodeH(bNode) + V_GAP);
+      beatPrev = bNode;
+      end = bNode;
+    }
+    cursorX += NODE_W + H_GAP;
+    return { end, bottom: maxBottom };
+  };
+
   let prevEnd: PlotGraphNodeDTO = plotNode;
   if (plot.chapters.length === 0) {
     // 无章节结构（如 combat-test）：战斗引用直接挂剧情入口
@@ -247,40 +292,23 @@ export function importLayoutFromFlow(
       y += estimateNodeH(c) + V_GAP;
     }
   } else {
-    for (const chapter of plot.chapters) {
-      const chNode = add({
-        type: "chapter", title: `章节 ${chapter.idx}：${chapter.title}`,
-        content: "", x: cursorX, y: 200, ref: { chapter_idx: chapter.idx },
-      });
-      link(prevEnd, chNode);
-      // 章节直属战斗引用下垂
-      let y = 200 + 96 + V_GAP;
-      for (const nid of chapter.combat_nodes) {
-        const c = addCombat(nid, cursorX, y);
-        link(chNode, c);
-        y += estimateNodeH(c) + V_GAP;
-      }
-      prevEnd = chNode;
-      // 章内节拍链
-      let beatPrev: PlotGraphNodeDTO | null = null;
-      for (const beat of chapter.beats) {
-        cursorX += NODE_W + H_GAP;
-        const bNode = add({
-          type: "beat", title: beat.id, content: beat.summary || "",
-          x: cursorX, y: 200, ref: { chapter_idx: chapter.idx, beat_id: beat.id },
-        });
-        link(beatPrev ?? chNode, bNode);
-        // 节拍引用的战斗节点下垂
-        let by = 200 + 96 + V_GAP;
-        for (const nid of beat.combat_nodes) {
-          const c = addCombat(nid, cursorX, by);
-          link(bNode, c);
-          by += estimateNodeH(c) + V_GAP;
-        }
-        beatPrev = bNode;
-        prevEnd = bNode;
-      }
-      cursorX += NODE_W + H_GAP;
+    // 主线章节横向串成一条；分支章节（续写路线 / 偏离分支）从主线末端分岔，
+    // 每条分支各占一排叠在主线下方（参考大纲的作者分支正是从末幕节拍指向各路线）
+    const mains = plot.chapters.filter((c) => c.kind !== "branch");
+    const branches = plot.chapters.filter((c) => c.kind === "branch");
+    let mainBottom = 200;
+    for (const chapter of mains) {
+      const r = layChapter(chapter, prevEnd, 200);
+      prevEnd = r.end;
+      mainBottom = Math.max(mainBottom, r.bottom);
+    }
+    const forkFrom = prevEnd;
+    const forkX = cursorX;
+    let rowY = mainBottom + V_GAP * 2;
+    for (const chapter of branches) {
+      cursorX = forkX;
+      const r = layChapter(chapter, forkFrom, rowY);
+      rowY = r.bottom + V_GAP * 2;
     }
   }
 

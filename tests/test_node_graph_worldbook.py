@@ -71,6 +71,69 @@ def test_plot_flows_worldbook_stamp():
         assert f["worldbook_id"] == PLOT_BOOKS[f["plot_id"]]
 
 
+def test_plot_flows_narrative_chapters_carry_label_and_kind():
+    flows = {f["plot_id"]: f for f in plot_flows()}
+    feng = flows["fengxue_guojing"]
+    assert feng["source"] == "narrative"
+    first = feng["chapters"][0]
+    assert first["id"] == "ch_1" and first["kind"] == "main"
+    assert first["label"] == f"章节 1：{first['title']}"
+    # 正文 `#### beat_id` 骨架没有标题：title 为空串，前端退回 beat id
+    assert first["beats"][0]["title"] == ""
+
+
+def test_plot_flows_guardrail_plot_falls_back_to_outline():
+    """彼岸双生没有 `## 章节 N` 骨架：章节来自参考大纲（启发式切幕），
+    否则「从剧情结构生成布局」只会画出一个剧情入口节点。"""
+    flows = {f["plot_id"]: f for f in plot_flows()}
+    bt = flows["beyond_twin"]
+    assert bt["source"] == "outline"
+    mains = [c for c in bt["chapters"] if c["kind"] == "main"]
+    routes = [c for c in bt["chapters"] if c["kind"] == "branch"]
+    assert [c["label"] for c in mains][:2] == ["第一幕：门前的猫", "第二幕：被浪费的下午"]
+    assert [c["label"] for c in routes] == ["路线 A：回应", "路线 B：追查澜晶", "路线 C：寻找林奈", "路线 D：让她回家"]
+    assert [c["idx"] for c in bt["chapters"]] == list(range(1, 12))
+    beat = mains[0]["beats"][0]
+    assert beat["id"] == "beat_act_1_1" and beat["title"] == "门前的猫" and beat["summary"]
+    assert beat["keep_on_deviate"] is True
+    # combat-test 既无章节骨架也无「第N幕」：保持无章节，不被误切
+    assert flows["combat-test"]["chapters"] == [] and flows["combat-test"]["source"] == "narrative"
+
+
+def test_plot_flows_prefers_saved_outline_and_bound_nodes(monkeypatch):
+    """书里已生成的 LLM 大纲优先于启发式切幕；节点文件 bind 到大纲节拍的战斗节点作为引用挂上。"""
+    import story_outline as so
+
+    saved = {
+        "schema_version": 1, "plot_id": "beyond_twin", "title": "彼岸双生", "source": "llm",
+        "chapters": [
+            {"id": "act_1", "title": "门前的猫", "beats": [
+                {"id": "beat_act1_meet", "title": "门口的女孩", "summary": "程叙被绊倒",
+                 "combat": {"required": True, "node_id": "enc_llm_made"}}]},
+            {"id": "dev_1", "title": "妮可离家出走", "kind": "branch",
+             "origin": {"type": "deviation", "round": 9},
+             "beats": [{"id": "beat_dev_1_1", "title": "空房间", "summary": "妮可不见了"}]},
+        ],
+    }
+
+    class _Mgr:
+        pass
+
+    monkeypatch.setattr(so, "load_outline",
+                        lambda mgr, book_id, plot_id: saved if plot_id == "beyond_twin" else None)
+    monkeypatch.setattr(combat_nodes, "list_node_files", lambda: [Path("enc_bound.json")])
+    monkeypatch.setattr(combat_nodes, "load_node_file", lambda stem: {
+        "node_id": "enc_bound", "bind": {"plot_id": "beyond_twin", "beat_id": "beat_dev_1_1"}})
+    flows = {f["plot_id"]: f for f in plot_flows(_Mgr())}
+    bt = flows["beyond_twin"]
+    assert bt["source"] == "outline"
+    assert [c["label"] for c in bt["chapters"]] == ["第一幕：门前的猫", "偏离分支 A：妮可离家出走"]
+    assert bt["chapters"][0]["beats"][0]["combat_nodes"] == ["enc_llm_made"]
+    assert bt["chapters"][1]["beats"][0]["combat_nodes"] == ["enc_bound"]
+    # 传入 book_mgr 不影响正文骨架剧情
+    assert flows["fengxue_guojing"]["source"] == "narrative"
+
+
 # ── node_overview / node_graph：按世界书过滤 ──
 
 def test_node_overview_books_own_their_current_nodes():

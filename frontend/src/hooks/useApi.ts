@@ -7,7 +7,7 @@
 import { useMemo } from "react";
 import { getBaseUrl } from "../utils/baseUrl";
 import type {
-  BattleNodeDTO, BattleNodeOverviewDTO, CombatNodeGraphDTO, CombatSettlementDTO, ValidationReportDTO,
+  BattleNodeDTO, BattleNodeOverviewDTO, CombatNodeGraphDTO, CombatSettlementDTO, StoryOutlineGenerateDTO, ValidationReportDTO,
   StoryStateDTO, BranchChoice, CombatResumeSummaryDTO, CombatResumesDTO,
 } from "../types";
 
@@ -30,13 +30,14 @@ const REQUEST_TIMEOUT = 60000; // 60s — needs headroom for dual LLM calls (nar
 
 async function request<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  timeoutMs: number = REQUEST_TIMEOUT,
 ): Promise<T> {
   const base = await getBaseUrl();
   const url = `${base}${path}`;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(url, {
@@ -655,6 +656,24 @@ export function useApi() {
         "/api/combat/nodes" + (qs ? `?${qs}` : ""),
       );
     },
+
+    /**
+     * 用 LLM 分析剧情文本生成参考大纲（章节 → 节拍 → 战斗需求），存为书内系统层条目；
+     * 节点图的章节结构随之更新（护栏式剧情优先读这份大纲）。LLM 解析失败回落启发式切幕，
+     * 结果里 `outline.source` / `generation.error` 如实标明。含战斗节点现场生成与试跑，最长等 5 分钟。
+     */
+    generateStoryOutline: (bookId: string, plotId: string, opts: { mode?: "llm" | "heuristic"; generateCombat?: boolean } = {}) =>
+      request<StoryOutlineGenerateDTO>(
+        `/api/worldbooks/${encodeURIComponent(bookId)}/story-outline`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            plot_id: plotId, mode: opts.mode ?? "llm",
+            generate_combat: opts.generateCombat ?? true,
+          }),
+        },
+        5 * 60 * 1000,
+      ),
 
     /** 节点图数据：某本世界书的剧情流程（章节/节拍）+ 战斗节点 */
     getCombatNodeGraph: (bookId: string, sessionId?: string) =>

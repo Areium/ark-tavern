@@ -13,7 +13,9 @@
 
 剧情流程（`plot_flows`）：解析 `data/plots/<plot_id>/index.md` 的章节/节拍结构与
 `[COMBAT:<node_id>]` 引用，作为节点图里"剧情节点"的数据源；剧情文件 frontmatter
-可选 `worldbook_id` 标注归属。
+可选 `worldbook_id` 标注归属。没有 `## 章节 N` 骨架的护栏式剧情（`## 第N幕：`，
+如彼岸双生）改用参考大纲（`story_outline`：书内已生成的 LLM 大纲 > 启发式切幕），
+与会话创建时的节拍骨架口径一致。
 
 写盘走 `compute_json_hash` 冲突检测（409），与卡牌编辑一致。
 """
@@ -501,17 +503,24 @@ _BEAT_RE = re.compile(r"^####\s+(beat_\w+)(（.*）)?\s*$")
 _COMBAT_REF_RE = re.compile(r"\[COMBAT:([\w-]+)\]")
 
 
-def plot_flows() -> list[dict]:
+def plot_flows(book_mgr=None) -> list[dict]:
     """解析 data/plots/*/index.md，返回剧情流程（章节 → 节拍 → 战斗引用）。
 
-    每个 plot：`{plot_id, name, summary, worldbook_id, combat_nodes, chapters}`；
-    chapter：`{idx, title, combat_nodes, beats}`；beat：`{id, keep_on_deviate,
-    summary, combat_nodes}`。不在任何 beat 下的 `[COMBAT:]` 引用向上挂到
+    每个 plot：`{plot_id, name, summary, worldbook_id, source, combat_nodes, chapters}`；
+    chapter：`{idx, id, title, label, kind, combat_nodes, beats}`；beat：`{id, title,
+    keep_on_deviate, summary, combat_nodes}`。不在任何 beat 下的 `[COMBAT:]` 引用向上挂到
     chapter / plot 级（如 combat-test 这类没有标准节拍结构的测试剧情）。
 
     `plot_id` 用目录名（与 `node_bindings`、会话剧情一致）；只收集**剧情叙述区**
     的章节——遇到第一个非章节的 h2 标题（如「关键对话参考」「开场设置」）即停，
     忽略其后的配置区里可能重复出现的章节标题（如 near-light 的场景流程图）。
+
+    `source`：`narrative` = 正文里的 `## 章节 N` 骨架；`outline` = 正文没有骨架，
+    章节/节拍来自参考大纲（`book_mgr` 给定且书里存有 LLM 大纲时优先，否则
+    `story_outline.heuristic_outline` 确定性切幕；两者都没有则保持无章节）。
+    大纲章节的 `kind` 可为 `branch`（续写路线 / 偏离分支），`label` 是展示用标题
+    （`第三幕：您已欠费` / `路线 A：回应`），战斗引用取大纲里已物化的
+    `combat.node_id` 与节点文件 `bind` 到该节拍的节点。
     """
     import frontmatter
 
@@ -531,6 +540,7 @@ def plot_flows() -> list[dict]:
             "name": str(meta.get("name") or meta.get("id") or plot_id),
             "summary": str(meta.get("summary") or "")[:120],
             "worldbook_id": str(meta.get("worldbook_id") or ""),
+            "source": "narrative",
             "combat_nodes": [],
             "chapters": [],
         }
@@ -563,7 +573,10 @@ def plot_flows() -> list[dict]:
                 continue
             ch = _CHAPTER_RE.match(line)
             if ch:
-                chapter = {"idx": int(ch.group(1)), "title": ch.group(2).strip(),
+                idx = int(ch.group(1))
+                title = ch.group(2).strip()
+                chapter = {"idx": idx, "id": f"ch_{idx}", "title": title,
+                           "label": f"章节 {idx}：{title}", "kind": "main",
                            "combat_nodes": [], "beats": []}
                 plot["chapters"].append(chapter)
                 beat = None
@@ -579,7 +592,7 @@ def plot_flows() -> list[dict]:
                 break
             bt = _BEAT_RE.match(line)
             if bt and chapter is not None:
-                beat = {"id": bt.group(1),
+                beat = {"id": bt.group(1), "title": "",
                         "keep_on_deviate": not (bt.group(2) and "false" in bt.group(2)),
                         "summary": "", "combat_nodes": []}
                 chapter["beats"].append(beat)
@@ -593,18 +606,114 @@ def plot_flows() -> list[dict]:
                 if text:
                     beat["summary"] = text[:80]
 
+        if not plot["chapters"]:
+            outline_chapters = _outline_flow_chapters(plot_id, meta, md.content or "",
+                                                      plot["worldbook_id"], book_mgr)
+            if outline_chapters:
+                plot["chapters"] = outline_chapters
+                plot["source"] = "outline"
+
         flows.append(plot)
     return flows
 
 
-def node_graph(book_id: str, session=None) -> dict:
+_CN_ORDINAL = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
+
+
+def _cn_ordinal(n: int) -> str:
+    if 0 <= n <= 10:
+        return _CN_ORDINAL[n]
+    if n < 20:
+        return "十" + _CN_ORDINAL[n - 10]
+    return str(n)
+
+
+def _outline_chapter_label(chapter: dict, main_idx: int, branch_idx: int) -> str:
+    """大纲章节的展示标题：主线按幕计数、分支按路线计数（与护栏式剧情原标题同款）。"""
+    title = str(chapter.get("title") or chapter.get("id") or "")
+    if chapter.get("kind") == "branch":
+        origin = (chapter.get("origin") or {}).get("type")
+        prefix = "偏离分支" if origin == "deviation" else "路线"
+        mark = chr(ord("A") + branch_idx - 1) if 1 <= branch_idx <= 26 else str(branch_idx)
+        return f"{prefix} {mark}：{title}"
+    return f"第{_cn_ordinal(main_idx)}幕：{title}"
+
+
+def _outline_flow_chapters(plot_id: str, meta: dict, body: str, worldbook_id: str,
+                           book_mgr) -> list[dict]:
+    """无节拍骨架的剧情：把参考大纲折算成节点图章节。失败（无法切幕 / 大纲损坏）返回 []。"""
+    from story_outline import OutlineError, heuristic_outline, load_outline
+
+    outline: dict | None = None
+    if book_mgr is not None and worldbook_id:
+        try:
+            outline = load_outline(book_mgr, worldbook_id, plot_id)
+        except Exception:
+            logger.warning("读取剧情 %s 的世界书参考大纲失败，改用启发式切幕", plot_id, exc_info=True)
+            outline = None
+    if not outline or not outline.get("chapters"):
+        try:
+            outline = heuristic_outline({**dict(meta or {}), "id": plot_id}, body,
+                                        worldbook_id=worldbook_id)
+        except OutlineError:
+            return []  # 正文既无章节骨架也无「第N幕」：保持无章节（如 combat-test）
+        except Exception:
+            logger.warning("剧情 %s 启发式切幕失败", plot_id, exc_info=True)
+            return []
+
+    # 节点文件 bind 到该剧情节拍的战斗节点（现场生成的节点回填在 bind 里，不在正文）
+    bound: dict[str, list[str]] = {}
+    for path in list_node_files():
+        node = load_node_file(path.stem) or {}
+        bind = node.get("bind") or {}
+        if str(bind.get("plot_id") or "") == plot_id and bind.get("beat_id"):
+            bound.setdefault(str(bind["beat_id"]), []).append(str(node.get("node_id") or path.stem))
+
+    chapters: list[dict] = []
+    main_idx = branch_idx = 0
+    for ch in outline.get("chapters", []):
+        if ch.get("kind") == "branch":
+            branch_idx += 1
+        else:
+            main_idx += 1
+        beats: list[dict] = []
+        for b in ch.get("beats", []):
+            combat = b.get("combat") or {}
+            refs: list[str] = []
+            node_id = str(combat.get("node_id") or "")
+            if node_id:
+                refs.append(node_id)
+            for nid in bound.get(str(b.get("id") or ""), []):
+                if nid not in refs:
+                    refs.append(nid)
+            beats.append({
+                "id": str(b.get("id") or ""),
+                "title": str(b.get("title") or ""),
+                "keep_on_deviate": bool(b.get("must_keep")),
+                "summary": str(b.get("summary") or "")[:80],
+                "combat_nodes": refs,
+            })
+        chapters.append({
+            "idx": len(chapters) + 1,
+            "id": str(ch.get("id") or ""),
+            "title": str(ch.get("title") or ""),
+            "label": _outline_chapter_label(ch, main_idx, branch_idx),
+            "kind": "branch" if ch.get("kind") == "branch" else "main",
+            "combat_nodes": [],
+            "beats": beats,
+        })
+    return chapters
+
+
+def node_graph(book_id: str, session=None, book_mgr=None) -> dict:
     """节点图数据：某本世界书的剧情流程 + 战斗节点总览。
 
     收录的剧情 = frontmatter 归属该书的剧情 ∪ 被该书节点引用的剧情
-    （跨书引用也画出连线，保证图完整）。
+    （跨书引用也画出连线，保证图完整）。`book_mgr` 用于读取书内已生成的参考大纲
+    （护栏式剧情的章节来源，见 `plot_flows`）。
     """
     rows, meta = node_overview(session, book_id=book_id)
-    flows = plot_flows()
+    flows = plot_flows(book_mgr)
     referenced_plots = {m.get("plot_id", "") for r in rows for m in r.get("markers", [])}
     referenced_plots |= {str((r.get("bind") or {}).get("plot_id") or "") for r in rows}
     referenced_plots.discard("")
