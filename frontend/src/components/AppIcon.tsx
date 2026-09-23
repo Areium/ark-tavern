@@ -26,6 +26,8 @@ import {
   Lock,
   MapPin,
   MapPinned,
+  Maximize2,
+  Minimize2,
   Pause,
   Play,
   Plus,
@@ -58,6 +60,7 @@ export type AppIconName =
   | "expand" | "expandAll" | "file" | "folder" | "forward" | "globe" | "home"
   | "identity" | "image" | "images" | "index" | "info" | "location" | "lock"
   | "map" | "pause" | "play" | "plus" | "refresh" | "save" | "search" | "sessions"
+  | "maximize" | "minimize"
   | "settings" | "star" | "time" | "trash" | "upload" | "user" | "users"
   | "volume" | "volumeOff" | "warning" | "weather" | "worldbook" | "workflow";
 
@@ -91,6 +94,8 @@ const ICONS: Record<AppIconName, LucideIcon> = {
   location: MapPin,
   lock: Lock,
   map: MapPinned,
+  maximize: Maximize2,
+  minimize: Minimize2,
   pause: Pause,
   play: Play,
   plus: Plus,

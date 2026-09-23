@@ -32,7 +32,14 @@ function filterSceneLog(log: string[]): string[] {
   );
 }
 
-export default function ChatPanel() {
+interface ChatPanelProps {
+  stageOnly: boolean;
+  onExitStageOnly: () => void;
+  musicMuted: boolean;
+  onToggleMusic: () => void;
+}
+
+export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onToggleMusic }: ChatPanelProps) {
   const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, setCurrentView, setCombatContext, pendingAutoNarrate, setPendingAutoNarrate, pendingBriefing, setPendingBriefing, chatFontSize, setChatFontSize, chatLayout } = useAppStore();
   const stageMode = chatLayout === "stage";
   const [logOverlayOpen, setLogOverlayOpen] = useState(false);
@@ -700,11 +707,15 @@ export default function ChatPanel() {
           playerName={activeSession?.player_identity || "博士"}
           characterColors={characterColors}
           fontSize={chatFontSize}
-          waiting={isWaitingForLLM}
+          waiting={sending || streaming}
           elapsedSeconds={elapsedSeconds}
           choicesDisabled={sending || streaming || choiceLocked || !!activeSession?.in_combat}
           onChoice={handleChoiceClick}
           onOpenLog={() => setLogOverlayOpen(true)}
+          stageOnly={stageOnly}
+          onExitStageOnly={onExitStageOnly}
+          musicMuted={musicMuted}
+          onToggleMusic={onToggleMusic}
           onStart={() => triggerNarrate(activeSessionId)}
           chatMode={chatMode}
         />

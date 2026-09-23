@@ -16,8 +16,8 @@ import MinimizedDialogDock from "./components/common/MinimizedDialogDock";
 
 /** 沉浸式视图：全屏无顶栏（对话 = 故事沉浸，战斗 = 战场沉浸） */
 const IMMERSIVE_VIEWS = new Set(["chat", "combat"]);
-/** 菜单氛围视图：播放主菜单 BGM（战斗 BGM 由 CombatView 自管，对话页静默沉浸） */
-const MENU_BGM_VIEWS = new Set(["home", "sessions", "docs", "settings"]);
+/** 菜单氛围视图：播放主菜单 BGM（战斗 BGM 由 CombatView 自管） */
+const MENU_BGM_VIEWS = new Set(["home", "sessions", "characters", "worldbook", "docs", "settings"]);
 
 export default function App() {
   const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, skin, setSkin, setEditBeforeSend, setDialogueBubbleMode } =
@@ -56,12 +56,12 @@ export default function App() {
     root.classList.toggle("light", skin === "default" && theme === "light");
   }, [theme, skin]);
 
-  // BGM 编排：菜单类页面播主菜单 BGM；进入对话（沉浸故事）时静默；战斗 BGM 由 CombatView 接管
+  // BGM 编排：菜单和对话各播对应曲目；战斗由 CombatView 接管。
   useEffect(() => {
     if (MENU_BGM_VIEWS.has(currentView)) {
       audioManager.startMenuBgm();
     } else if (currentView === "chat") {
-      audioManager.stopBgm();
+      audioManager.startDialogueBgm();
     }
   }, [currentView]);
 

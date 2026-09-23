@@ -6,7 +6,9 @@
  * 原「会话资源」右侧面板已并入场景面板的「资源」页，原顶栏的「收起面板」改到左侧，
  * 收起的正是它旁边那块面板。
  */
+import { useEffect, useState } from "react";
 import { useAppStore } from "../stores/appStore";
+import { audioManager } from "../audio/audioManager";
 import ChatPanel from "./ChatPanel";
 import ScenePanel from "./scene/ScenePanel";
 import AppIcon from "./AppIcon";
@@ -16,13 +18,27 @@ import "../styles/chat.css";
 export default function ChatView() {
   const {
     setCurrentView, chatMode, setChatMode, activeSessionId, sessions,
-    scenePanelOpen, setScenePanelOpen, chatLayout, setChatLayout,
+    scenePanelOpen, setScenePanelOpen, chatLayout, setChatLayout, currentView,
   } = useAppStore();
+
+  const [stageOnly, setStageOnly] = useState(false);
+  const [musicMuted, setMusicMuted] = useState(() => audioManager.getSettings().muted);
+  useEffect(() => {
+    if (chatLayout !== "stage" || currentView !== "chat") setStageOnly(false);
+    if (currentView === "chat") setMusicMuted(audioManager.getSettings().muted);
+  }, [chatLayout, currentView]);
+
+  const toggleMusic = () => {
+    const next = !audioManager.getSettings().muted;
+    audioManager.setMuted(next);
+    setMusicMuted(next);
+    if (!next && currentView === "chat") audioManager.startDialogueBgm();
+  };
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
 
   return (
-    <div className="chat-view flex flex-col h-full">
+    <div className={`chat-view flex flex-col h-full ${stageOnly && chatLayout === "stage" ? "is-stage-only" : ""}`}>
       {/* ═══ 沉浸式顶栏 ═══ */}
       <div className="chat-topbar">
         <button
@@ -79,13 +95,24 @@ export default function ChatView() {
             <AppIcon name="characters" size={13} /><span>舞台</span>
           </button>
         </div>
+        {chatLayout === "stage" && (
+          <button type="button" className="chat-topbar-btn" onClick={() => setStageOnly(true)} title="只显示舞台" aria-label="进入纯舞台模式">
+            <AppIcon name="maximize" size={14} /><span>纯舞台</span>
+          </button>
+        )}
+        <button type="button" className="chat-topbar-btn is-icon" onClick={toggleMusic}
+          title={musicMuted ? "开启背景音乐" : "静音背景音乐"} aria-label={musicMuted ? "开启背景音乐" : "静音背景音乐"}
+          aria-pressed={!musicMuted}>
+          <AppIcon name={musicMuted ? "volumeOff" : "volume"} size={15} />
+        </button>
       </div>
 
       {/* ═══ 主体 ═══ */}
       <div className="flex flex-1 min-h-0">
         <ScenePanel />
         <div className="flex-1 flex flex-col min-w-0">
-          <ChatPanel />
+          <ChatPanel stageOnly={stageOnly && chatLayout === "stage"} onExitStageOnly={() => setStageOnly(false)}
+            musicMuted={musicMuted} onToggleMusic={toggleMusic} />
         </div>
       </div>
     </div>

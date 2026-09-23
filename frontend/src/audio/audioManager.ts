@@ -39,8 +39,8 @@ class AudioManager {
   private bgmStarting = false;
   /** BGM 播放阶段：idle=未播 / intro=序曲 / loop=循环 */
   private bgmPhase: "idle" | "intro" | "loop" = "idle";
-  /** 当前 BGM 轨道：combat=战斗 / menu=主菜单（避免同轨道重复启动） */
-  private bgmTrack: "combat" | "menu" | null = null;
+  /** 当前 BGM 轨道（避免同轨道重复启动） */
+  private bgmTrack: "combat" | "menu" | "dialogue" | null = null;
   /** 各 BGM 元素的音量增益（菜单曲目 0.6，其余 1），setBgmVolume 时按元素恢复 */
   private elementGains = new WeakMap<HTMLAudioElement, number>();
   private settings: AudioSettings;
@@ -365,6 +365,33 @@ class AudioManager {
       // stopBgm 可能在此期间被再次调用（例如快速切换进战斗）→ 放弃
       if (this.bgmTrack !== "menu") return;
       this.playMenuTrack(base, 0);
+    });
+  }
+
+  /** 对话页复用现有曲目，低音量循环，沿用全局静音与失焦设置。 */
+  startDialogueBgm() {
+    if (this.settings.muted) return;
+    if (this.bgmTrack === "dialogue" && (this.bgmPhase !== "idle" || this.bgmStarting)) return;
+    this.stopBgm();
+    this.bgmTrack = "dialogue";
+    this.bgmStarting = true;
+    void getBaseUrl().then((base) => {
+      this.bgmStarting = false;
+      if (this.bgmTrack !== "dialogue") return;
+      const audio = new Audio();
+      const gain = 0.45;
+      audio.volume = this.settings.bgmVolume * gain;
+      this.elementGains.set(audio, gain);
+      audio.src = `${base}/api/assets/audio/bgm/menu_2.mp3`;
+      audio.loop = true;
+      this.bgmLoop = audio;
+      this.bgmPhase = "loop";
+      audio.play().catch(() => {
+        if (this.bgmLoop !== audio) return;
+        this.bgmLoop = null;
+        this.bgmPhase = "idle";
+        this.bgmTrack = null;
+      });
     });
   }
 

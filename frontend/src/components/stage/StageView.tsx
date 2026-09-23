@@ -27,11 +27,15 @@ interface Props {
   choicesDisabled: boolean;
   onChoice: (choice: string, branch?: BranchChoice) => void;
   onOpenLog: () => void;
+  stageOnly: boolean;
+  onExitStageOnly: () => void;
+  musicMuted: boolean;
+  onToggleMusic: () => void;
   onStart: () => void;
   chatMode: "story" | "free";
 }
 
-/** 打字机速度（字 / 秒）；流式生成时不用打字机（文本本来就在长） */
+/** 打字机速度（字 / 秒）；生成完成后才开始舞台演出。 */
 const TYPE_CPS = 45;
 
 type PortraitAdjustment = { x: number; y: number; scale: number };
@@ -83,7 +87,8 @@ function portraitBounds(img: HTMLImageElement): PortraitBounds {
 
 export default function StageView({
   sessionId, messages, sceneCharacters, playerName, characterColors, fontSize, waiting,
-  elapsedSeconds, choicesDisabled, onChoice, onOpenLog, onStart, chatMode,
+  elapsedSeconds, choicesDisabled, onChoice, onOpenLog, stageOnly, onExitStageOnly,
+  musicMuted, onToggleMusic, onStart, chatMode,
 }: Props) {
   const api = useApi();
   const { envRefreshKey, characterRefreshKey, resourceVersion, highlightedSpeaker, setHighlightedSpeaker } = useAppStore();
@@ -125,49 +130,54 @@ export default function StageView({
   const step = cursor.key === script.key ? cursor.step : 0;
   const current = script.steps[Math.min(step, Math.max(0, script.steps.length - 1))];
   const atEnd = step >= script.steps.length - 1;
-  const showChoices = !!script.choiceMessage && (script.steps.length === 0 || atEnd) && !script.streaming;
+  const presenting = waiting || script.streaming;
+  const showChoices = !!script.choiceMessage && (script.steps.length === 0 || atEnd) && !presenting;
 
   // 新一段开始：回到第一步
   useEffect(() => { setCursor({ key: script.key, step: 0 }); }, [script.key]);
 
   // ── 打字机 ──
-  const [typed, setTyped] = useState(0);
+  const [typedState, setTypedState] = useState({ key: "", count: 0 });
   const text = current?.text || "";
+  const typingKey = `${script.key}:${step}`;
+  const typed = typedState.key === typingKey ? typedState.count : 0;
   useEffect(() => {
-    if (script.streaming) { setTyped(text.length); return; }
-    setTyped(0);
+    if (presenting) return;
+    setTypedState({ key: typingKey, count: 0 });
     const total = text.length;
     if (!total) return;
     const start = performance.now();
     let raf = 0;
     const tick = (now: number) => {
       const n = Math.min(total, Math.floor(((now - start) / 1000) * TYPE_CPS) + 1);
-      setTyped(n);
+      setTypedState((previous) => ({ key: typingKey, count: Math.max(previous.key === typingKey ? previous.count : 0, n) }));
       if (n < total) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [text, script.key, step, script.streaming]);
-  const typing = !script.streaming && typed < text.length;
+  }, [text, typingKey, presenting]);
+  const typing = !presenting && typed < text.length;
 
   // ── 说话人高亮：步进时同步到全局（场景角色列表也会亮） ──
   const sourceMessage = messages[script.messageIndex];
   const fallbackSpeaker = sourceMessage?.role === "character" && sourceMessage.content?.trim() && !script.steps.some((entry) => entry.kind === "dialogue") ? sourceMessage.character : undefined;
-  const speaker = speakerOfStep(current) || fallbackSpeaker;
+  const speaker = presenting ? undefined : speakerOfStep(current) || fallbackSpeaker;
   const [pulse, setPulse] = useState(0);
   useEffect(() => { setHighlightedSpeaker(speaker ?? null); }, [speaker, setHighlightedSpeaker]);
   useEffect(() => () => setHighlightedSpeaker(null), [setHighlightedSpeaker]);
 
   const advance = useCallback(() => {
-    if (typing) { setTyped(text.length); return; }
+    if (presenting) return;
+    if (typing) { setTypedState({ key: typingKey, count: text.length }); return; }
     setPulse((p) => p + 1);
     if (step < script.steps.length - 1) setCursor({ key: script.key, step: step + 1 });
-  }, [typing, text.length, step, script.key, script.steps.length]);
+  }, [presenting, typing, typingKey, text.length, step, script.key, script.steps.length]);
   const back = useCallback(() => {
     if (step > 0) setCursor({ key: script.key, step: step - 1 });
   }, [step, script.key]);
 
   const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (stageOnly) rootRef.current?.focus(); }, [stageOnly]);
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
@@ -179,6 +189,7 @@ export default function StageView({
     return () => observer.disconnect();
   }, []);
   const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape" && stageOnly && !editingPortraits) { e.preventDefault(); onExitStageOnly(); return; }
     if (editingPortraits) {
       if (e.key === "Escape") { e.preventDefault(); setEditingPortraits(false); }
       return;
@@ -241,12 +252,17 @@ export default function StageView({
 
       {/* 顶部工具 */}
       <div className="stage-tools">
-        <button type="button" onClick={back} disabled={step === 0} title="上一句（←）"><AppIcon name="back" size={13} />上一句</button>
-        <button type="button" onClick={onOpenLog} title="查看完整对话记录"><AppIcon name="docs" size={13} />记录</button>
+        {stageOnly && <button type="button" className="stage-exit" onClick={onExitStageOnly} title="退出纯舞台（Esc），返回输入区"><AppIcon name="minimize" size={13} /><span>行动输入</span></button>}
+        <button type="button" onClick={onToggleMusic} aria-label={musicMuted ? "开启背景音乐" : "静音背景音乐"}
+          title={musicMuted ? "开启背景音乐" : "静音背景音乐"} aria-pressed={!musicMuted}>
+          <AppIcon name={musicMuted ? "volumeOff" : "volume"} size={13} />
+        </button>
+        <button type="button" onClick={back} disabled={step === 0} title="上一句（←）" aria-label="上一句"><AppIcon name="back" size={13} /><span>上一句</span></button>
+        <button type="button" onClick={onOpenLog} title="查看完整对话记录" aria-label="查看对话记录"><AppIcon name="docs" size={13} /><span>记录</span></button>
         <button type="button" aria-pressed={editingPortraits} onClick={() => {
           setEditingPortraits((value) => !value);
           setSelectedPortrait(sprites[0]?.name ?? roster[0]?.name ?? null);
-        }} title="调整立绘大小和位置"><AppIcon name="settings" size={13} />{editingPortraits ? "完成调整" : "调整立绘"}</button>
+        }} title="调整立绘大小和位置" aria-label={editingPortraits ? "完成立绘调整" : "调整立绘"}><AppIcon name="settings" size={13} /><span>{editingPortraits ? "完成调整" : "调整立绘"}</span></button>
       </div>
 
       {editingPortraits && (
@@ -377,7 +393,7 @@ export default function StageView({
           </div>
         ) : (
           <div
-            className={`stage-dialog ${current?.kind === "player" ? "is-player" : ""} ${current?.kind === "system" ? "is-system" : ""}`}
+            className={`stage-dialog ${presenting ? "is-waiting" : ""} ${current?.kind === "player" ? "is-player" : ""} ${current?.kind === "system" ? "is-system" : ""}`}
             onClick={advance}
             role="button"
             tabIndex={-1}
@@ -390,23 +406,23 @@ export default function StageView({
               </div>
             )}
             <div className={`stage-dialog-text ${current?.kind === "narration" ? "is-narration" : ""}`}>
-              {waiting && !text ? (
+              {presenting ? (
                 <span className="stage-waiting">
                   <i /><i /><i />
-                  <span>正在编织下一段{elapsedSeconds > 0 ? `（${elapsedSeconds}s）` : ""}…</span>
+                  <span>正在排演下一幕{elapsedSeconds > 0 ? `（${elapsedSeconds}s）` : ""}…</span>
                 </span>
               ) : (
                 <>
-                  {script.streaming ? text : text.slice(0, typed)}
-                  {(script.streaming || typing) && <span className="stage-caret" />}
+                  {text.slice(0, typed)}
+                  {typing && <span className="stage-caret" />}
                 </>
               )}
             </div>
-            {!script.streaming && !waiting && text && (
+            {!presenting && text && (
               <div className="stage-dialog-foot">
                 <span className="stage-progress">{Math.min(step + 1, script.steps.length)} / {script.steps.length}</span>
                 {!atEnd && !typing && <span className="stage-next" aria-hidden="true">▼</span>}
-                {atEnd && !typing && !showChoices && <span className="stage-next is-end">继续输入 ↓</span>}
+                {atEnd && !typing && !showChoices && <span className="stage-next is-end">{stageOnly ? "右上角行动输入 ↗" : "继续输入 ↓"}</span>}
               </div>
             )}
           </div>
