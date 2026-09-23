@@ -481,10 +481,19 @@ class SessionOverlay:
         节拍结构只在会话创建（init_session_docs）时解析进内存；服务重启后
         恢复的会话没有该属性，会导致状态展示/推进/回档全部失效。此处按
         plot_id 从剧情模板重新解析一次，保证恢复会话也能读取节点结构。
+
+        优先级：会话内的参考大纲（`story_outline`，含偏离生成的分支章节）
+        > 剧情文件里的 `## 章节 N` 节拍骨架。
         """
         if hasattr(self, "_narrative_beats"):
             return self._narrative_beats
         self._narrative_beats: list[dict] = []
+        outline = self.get_story_outline()
+        if outline:
+            from story_outline import outline_to_beats
+            self._narrative_beats = outline_to_beats(outline)
+            self._narrative_text = ""
+            return self._narrative_beats
         plot_id = self._data.get("plot_id")
         if plot_id:
             text = self._load_narrative_text(plot_id)
@@ -494,6 +503,51 @@ class SessionOverlay:
                 logger.debug("会话 %s: 惰性加载剧情结构 %s（%d 章）",
                              self.session_id, plot_id, len(self._narrative_beats))
         return self._narrative_beats
+
+    # ── 参考大纲（story_outline）：LLM 生成节点时的参考条目 ──
+
+    def get_story_outline(self) -> dict | None:
+        outline = self._data.get("story_outline")
+        return outline if isinstance(outline, dict) and outline.get("chapters") else None
+
+    def set_story_outline(self, outline: dict | None) -> None:
+        """写入（或清除）会话内的参考大纲副本，并重建节拍骨架缓存。"""
+        if outline:
+            self._data["story_outline"] = copy.deepcopy(outline)
+        else:
+            self._data.pop("story_outline", None)
+        if hasattr(self, "_narrative_beats"):
+            del self._narrative_beats
+        self._save()
+
+    def bind_combat_to_current_beat(self, node_id: str) -> bool:
+        """把现场生成的战斗节点绑定到当前参考节拍（只改会话内的大纲副本）。
+
+        绑定后节拍内容带 `[COMBAT:node_id]`，下次回到该节拍走确定性战斗目标；
+        非大纲会话（剧情文件自带骨架）不改作者文档，返回 False。
+        """
+        outline = self.get_story_outline()
+        beat_id = self.get_current_beat_id()
+        if not outline or not beat_id or not node_id:
+            return False
+        for ch in outline.get("chapters", []):
+            for b in ch.get("beats", []):
+                if b.get("id") == beat_id:
+                    combat = dict(b.get("combat") or {})
+                    combat.setdefault("required", True)
+                    combat.setdefault("description", "")
+                    combat.setdefault("enemies", [])
+                    combat.setdefault("band", "T1")
+                    combat["node_id"] = str(node_id)
+                    b["combat"] = combat
+                    self._data["story_outline"] = outline
+                    if hasattr(self, "_narrative_beats"):
+                        del self._narrative_beats
+                    self._save()
+                    self._rewrite_plot_state()
+                    return True
+        return False
+
 
     def get_beat_state(self) -> dict:
         """获取当前节拍进度状态。"""
@@ -593,11 +647,15 @@ class SessionOverlay:
             # 下一章（i == ci + 1）：仅显示章节标题，不展开节拍
         return "\n".join(lines)
 
-    def advance_beat(self):
+    def advance_beat(self, force: bool = False):
         """推进到下一个节拍。跨章节自动处理。
 
         若 beat_state 中存在待生效的分支落点（pending_branch）且目标节拍合法，
         则直接跳转到该节拍（分支自由进入的确定性落点）；否则顺序推进。
+
+        参考大纲的节拍可带 `min_rounds`（一个节拍至少叙述几轮）：LLM 几乎每轮都会
+        判定「场景到了段落结束点」，act 级的大纲节拍若一轮就推进，参考走向会跑在
+        故事前面。未满最少轮数时不推进（force=True 跳过该门槛，用于超时自动推进）。
         """
         beats = self._ensure_narrative_beats()
         bs = self._data.get("beat_state", {})
@@ -620,6 +678,13 @@ class SessionOverlay:
 
         # 记录当前节拍为已完成
         current_beat = ch["beats"][bi] if bi < len(ch["beats"]) else None
+        if current_beat and not force:
+            min_rounds = int(current_beat.get("min_rounds") or 1)
+            done_rounds = int(bs.get("narrations_on_beat", 0)) + 1
+            if done_rounds < min_rounds:
+                logger.info("会话 %s: 节拍 %s 仅叙述 %d 轮（至少 %d 轮），暂不推进",
+                            self.session_id, current_beat.get("id"), done_rounds, min_rounds)
+                return
         if current_beat:
             if "completed_beats" not in bs:
                 bs["completed_beats"] = []
@@ -656,11 +721,14 @@ class SessionOverlay:
         """获取会话文档的完整路径。"""
         return _SESSIONS_DIR / self.mode / self.session_id / name
 
-    def init_session_docs(self, plot_id: str):
+    def init_session_docs(self, plot_id: str, outline: dict | None = None):
         """从剧情模板生成会话自有文档（plot_state.md + plot_log.md）。
 
         仅在会话创建时调用一次。后续所有剧情上下文均从会话文档读取，
         不再重新加载模板文件。
+
+        从 index.md 提取各节。`outline` 为世界书里已生成的参考大纲
+        （`story_outline.load_outline`）；剧情文件没有节拍骨架时用它代替。
 
         从 index.md 提取各节。
         """
@@ -692,13 +760,30 @@ class SessionOverlay:
         self.init_story_tree(plot_id)
 
         if not narrative_text:
-            logger.debug("剧情 %s 无节拍数据，跳过文档初始化", plot_id)
-            self._narrative_beats = []
+            # 无 `## 章节 N` 骨架：改用参考大纲（书内 LLM 大纲 > 启发式切幕）。
+            # 大纲折算成同构节拍，让节拍推进 / 分支落点 / 战斗目标对护栏式剧情同样成立。
+            chosen = outline if isinstance(outline, dict) and outline.get("chapters") else None
+            if chosen is None and result:
+                try:
+                    from story_outline import heuristic_outline
+                    chosen = heuristic_outline(meta, body, worldbook_id=self._data.get("worldbook_id") or "")
+                except Exception:
+                    logger.warning("会话 %s: 启发式参考大纲构建失败", self.session_id, exc_info=True)
+                    chosen = None
+            if chosen is None:
+                logger.debug("剧情 %s 无节拍数据，跳过文档初始化", plot_id)
+                self._narrative_beats = []
+                self._narrative_text = ""
+                return
+            self._data["story_outline"] = copy.deepcopy(chosen)
+            from story_outline import outline_to_beats
             self._narrative_text = ""
-            return
-
-        self._narrative_text = narrative_text
-        self._narrative_beats = _parse_narrative_beats(narrative_text)
+            self._narrative_beats = outline_to_beats(chosen)
+            logger.info("会话 %s: 采用参考大纲（%s，%d 章）作为节拍骨架",
+                        self.session_id, chosen.get("source", "?"), len(self._narrative_beats))
+        else:
+            self._narrative_text = narrative_text
+            self._narrative_beats = _parse_narrative_beats(narrative_text)
 
         # 初始化节拍状态
         if "beat_state" not in self._data:
@@ -789,7 +874,7 @@ class SessionOverlay:
                          self.session_id,
                          (self.get_current_beat() or {}).get("id", "?"),
                          bs["narrations_on_beat"])
-            self.advance_beat()
+            self.advance_beat(force=True)
         else:
             self._rewrite_plot_state()
             self._save()
@@ -926,12 +1011,55 @@ class SessionOverlay:
             )
             lines.append(f"作者预设方向参考：{authored_txt}")
 
+        # 参考节拍（大纲 / 节拍骨架）：告诉模型当前处在哪一段、必须保留什么、
+        # 下一步有哪些可指向的候选节拍 id——这是 target_beat_id 的唯一合法来源
+        lines.extend(self._reference_beat_lines())
+
         lines.append(
-            "说明：请基于当前节点与世界观，推导玩家接下来可以走向的 2-4 个不同方向；"
-            "每个方向都会被展开成一个**新的剧情节点**（不必局限于既有节拍）。"
+            "说明：请基于当前节点、参考节拍与世界观，推导玩家接下来可以走向的 2-4 个不同方向；"
+            "每个方向都会被展开成一个**新的剧情节点**；贴合某个候选节拍的方向请填其 id，"
+            "跳出参考走向的方向 target_beat_id 填 null。"
         )
         lines.append("</current_node>")
         return "\n".join(lines)
+
+    def _reference_beat_lines(self, next_count: int = 3) -> list[str]:
+        """当前参考节拍 + 后续候选节拍（含 id）的文本行；无骨架返回空列表。"""
+        beats = self._ensure_narrative_beats()
+        bs = self._data.get("beat_state", {})
+        current = self.get_current_beat()
+        if not beats or not bs or not current:
+            return []
+        lines: list[str] = []
+        ci = bs.get("chapter_idx", 0)
+        if ci < len(beats):
+            ch = beats[ci]
+            kind = "（分支线）" if ch.get("kind") == "branch" else ""
+            lines.append(f"当前章节{kind}：{ch.get('title', '')}")
+        lines.append(f"当前参考节拍：{current['id']} — {(current.get('summary') or '')[:80]}")
+        if current.get("must_keep"):
+            lines.append(f"本节拍必须保留：{current['must_keep'][:160]}")
+        combat = current.get("combat") or {}
+        if combat.get("required"):
+            lines.append(f"本节拍应出现战斗：{combat.get('description') or ''}"[:120])
+        flat = [(c, b) for c, ch in enumerate(beats) for b in ch.get("beats", [])]
+        pos = next((p for p, (c, b) in enumerate(flat) if c == ci and b["id"] == current["id"]), None)
+        cands: list[str] = []
+        if pos is not None:
+            for p in range(pos + 1, min(pos + 1 + next_count, len(flat))):
+                c, b = flat[p]
+                if beats[c].get("kind") == "branch" and c != ci:
+                    continue
+                cands.append(f"{b['id']} — {(b.get('summary') or '')[:50]}")
+        for br in current.get("authored_branches") or []:
+            tid = br.get("target_beat_id")
+            if tid and all(not s.startswith(tid + " ") for s in cands):
+                _c, tb = next(((c, b) for c, b in flat if b["id"] == tid), (None, None))
+                if tb:
+                    cands.append(f"{tid} — {(tb.get('summary') or '')[:50]}")
+        if cands:
+            lines.append("后续候选节拍（target_beat_id 只能从这里选）：" + "；".join(cands))
+        return lines
 
     def _build_beat_branch_context(self) -> str:
         """旧会话回退：以作者节拍骨架为上下文。"""
@@ -1060,6 +1188,10 @@ class SessionOverlay:
             "id": "n_root",
             "parent_id": None,
             "depth": 0,
+            "kind": "plot",
+            "ref_chapter_id": "",
+            "ref_beat_id": "",
+            "combat_node_id": "",
             "title": (title or "序章")[:40],
             "summary": (summary or "")[:120],
             "content": (content or "")[:800],
@@ -1131,20 +1263,29 @@ class SessionOverlay:
                          title: str = "", branches: list[dict] | None = None,
                          branch: dict | None = None,
                          round_num: int | None = None,
-                         lore_resolver=None, combat_id_hint: str = "") -> dict:
+                         lore_resolver=None, combat_id_hint: str = "",
+                         combat_node_id: str = "", combat_title: str = "") -> dict:
         """把本轮叙述落成一棵树节点，并推进 current_id。
 
         - 首轮（无节点状态）：本轮叙述填充根节点；
+        - 当前节点尚无状态（偏离分支刚开出的空节点）：本轮叙述填充它；
         - 本轮玩家选了分支（branch 非空）：在父节点下生成/复用子节点并进入；
+        - 当前节点是战斗节点：战斗已结束，本轮叙述在其下开出「战斗之后」子节点；
         - 否则：停留在当前节点内，更新其内容与可选分支。
 
         节点标题/概要/内容/分支均来自 LLM（title/summary/narrative/branches），
         因此生成的是**新节点结果**，而不是从作者节拍里挑落点。
 
+        节点种类 `kind`：`plot`（剧情节点：入口 / 章节切换 / 偏离分支线起点）、
+        `beat`（节拍节点：章节内推进）、`combat`（战斗节点：本轮触发了战斗时在
+        叙述节点下追加的子节点，`combat_node_id` 指向注册表里的战斗节点）。
+        `ref_chapter_id` / `ref_beat_id` 记录落盘时所处的参考章节 / 节拍。
+
         lore_resolver：node_lore_scope.build_overlay_resolver 构造的闭包
         （书内无 lore_bindings 条目时为 None，整条链路跳过，行为与旧版一致）。
         combat_id_hint：本轮推进节拍【之前】读到的 [COMBAT:id]（chat.py 透传），
         供 combat: 绑定键激活——不能从节点快照的 beat_state 反查（那是新节拍）。
+        combat_node_id：本轮实际触发的战斗节点 id（有则追加 combat 子节点并进入）。
         """
         tree = self._ensure_story_tree()
         nodes = tree["nodes"]
@@ -1153,10 +1294,12 @@ class SessionOverlay:
         round_num = int(round_num)
 
         cur = nodes.get(tree.get("current_id") or "")
+        ref_chapter = self.get_current_chapter_id()
+        ref_beat = self.get_current_beat_id()
 
         if cur is None or not cur.get("state"):
-            # 首轮：根节点
-            node = nodes.get(tree.get("root_id") or "n_root")
+            # 首轮：根节点；或当前节点是刚开出的空节点（偏离分支起点）→ 填充它
+            node = cur if cur is not None else nodes.get(tree.get("root_id") or "n_root")
             if node is None:
                 node = self.init_story_tree(self._data.get("plot_id") or "")
                 nodes = self.get_story_tree()["nodes"]
@@ -1169,9 +1312,14 @@ class SessionOverlay:
                 node["title"] = title[:40]
             self._attach_tree_branches(node, branches)
             node["state"] = self._tree_state_snapshot(round_num, node.get("state"))
+            node.setdefault("kind", "plot")
+            node["ref_chapter_id"] = ref_chapter
+            node["ref_beat_id"] = ref_beat
             tree["current_id"] = node["id"]
-        elif branch:
-            # 玩家选了分支 → 生成/复用一个子节点
+        elif branch or cur.get("kind") == "combat":
+            # 玩家选了分支 → 生成/复用一个子节点；战斗节点之后的叙述同样开子节点
+            if not branch:
+                branch = {"label": "战斗之后", "intent": "战斗结算后继续"}
             label = str(branch.get("label") or "").strip() or "分支"
             child_id = self._tree_node_id(cur["id"], label)
             child = nodes.get(child_id)
@@ -1180,6 +1328,10 @@ class SessionOverlay:
                     "id": child_id,
                     "parent_id": cur["id"],
                     "depth": int(cur.get("depth", 0)) + 1,
+                    "kind": "beat",
+                    "ref_chapter_id": ref_chapter,
+                    "ref_beat_id": ref_beat,
+                    "combat_node_id": "",
                     "title": (title or label)[:40],
                     "summary": (summary or "")[:120],
                     "content": (narrative or "")[:800],
@@ -1206,6 +1358,12 @@ class SessionOverlay:
                     child["title"] = title[:40]
             self._attach_tree_branches(child, branches)
             child["state"] = self._tree_state_snapshot(round_num, child.get("state"))
+            child["ref_chapter_id"] = ref_chapter
+            child["ref_beat_id"] = ref_beat
+            # 章节切换 → 剧情节点；章节内推进 → 节拍节点
+            parent_chapter = cur.get("ref_chapter_id") or ""
+            if child.get("kind") != "plot":
+                child["kind"] = "plot" if (ref_chapter and ref_chapter != parent_chapter) else "beat"
             tree["current_id"] = child_id
             node = child
         else:
@@ -1219,6 +1377,9 @@ class SessionOverlay:
                 node["title"] = title[:40]
             self._attach_tree_branches(node, branches)
             node["state"] = self._tree_state_snapshot(round_num, node.get("state"))
+            node.setdefault("kind", "beat")
+            node["ref_chapter_id"] = ref_chapter
+            node["ref_beat_id"] = ref_beat
 
         # 节点级世界书作用域：在节点落盘的同一帧冻结（复用或重算由 resolver 内部
         # 按 bindings_fingerprint 决定）。resolver 为 None 表示书内无绑定条目——
@@ -1236,9 +1397,229 @@ class SessionOverlay:
         elif "lore_scope_active" in self._data:
             self.set_active_lore_scope(None)
 
+        # 本轮触发了战斗 → 在叙述节点下追加战斗节点并进入；战斗结束后的叙述
+        # 会在它下面继续开节点（见上面的 kind == "combat" 分支）
+        if combat_node_id:
+            node = self._attach_combat_node(tree, node, combat_node_id, combat_title, round_num)
+
         self._data["story_tree"] = tree
         self._save()
         return node
+
+    def _attach_combat_node(self, tree: dict, parent: dict, combat_node_id: str,
+                            combat_title: str, round_num: int) -> dict:
+        """在 parent 下生成/复用战斗节点（kind=combat）并把 current_id 移过去。"""
+        nodes = tree["nodes"]
+        label = f"战斗：{combat_title or combat_node_id}"
+        child_id = self._tree_node_id(parent["id"], f"combat:{combat_node_id}")
+        child = nodes.get(child_id)
+        if child is None:
+            child = {
+                "id": child_id,
+                "parent_id": parent["id"],
+                "depth": int(parent.get("depth", 0)) + 1,
+                "kind": "combat",
+                "ref_chapter_id": parent.get("ref_chapter_id") or "",
+                "ref_beat_id": parent.get("ref_beat_id") or "",
+                "combat_node_id": combat_node_id,
+                "title": (combat_title or combat_node_id)[:40],
+                "summary": f"战斗节点 {combat_node_id}"[:120],
+                "content": (parent.get("content") or "")[:800],
+                "intent": "战斗",
+                "branch_label": label[:30],
+                "created_round": round_num,
+                "children": [],
+                "branches": [],
+                "state": None,
+            }
+            nodes[child_id] = child
+            parent.setdefault("children", [])
+            if child_id not in parent["children"]:
+                parent["children"].append(child_id)
+            logger.info("会话 %s: 剧情树新增战斗节点 %s（%s）",
+                        self.session_id, child_id, combat_node_id)
+        child["state"] = self._tree_state_snapshot(round_num, child.get("state"))
+        if (parent.get("state") or {}).get("lore_scope") is not None:
+            child["state"]["lore_scope"] = copy.deepcopy(parent["state"]["lore_scope"])
+        tree["current_id"] = child_id
+        return child
+
+    def get_current_chapter_id(self) -> str:
+        """当前参考章节 id（大纲章节 id / 剧情文件 **ID**）；无骨架返回空串。"""
+        beats = self._ensure_narrative_beats()
+        bs = self._data.get("beat_state", {})
+        ci = bs.get("chapter_idx", 0) if bs else 0
+        if beats and 0 <= ci < len(beats):
+            return str(beats[ci].get("id") or f"ch_{ci + 1}")
+        return ""
+
+    # ── 偏离检测：多轮之后剧情走向与参考大纲不一致 → 自动开新分支线 ──
+
+    def get_deviation_state(self) -> dict:
+        st = self._data.get("deviation")
+        return st if isinstance(st, dict) else {"last_check_round": 0, "history": []}
+
+    def deviation_check_due(self, *, interval: int = 4, min_rounds: int = 4) -> bool:
+        """是否到了该做偏离检测的轮次（有参考骨架 + 距上次检测满 interval 轮）。"""
+        if not self._ensure_narrative_beats() or not self._data.get("beat_state"):
+            return False
+        interval = max(1, int(interval or 1))
+        round_num = int(self._data.get("narration_round", 0))
+        if round_num < max(1, int(min_rounds or 1)):
+            return False
+        last = int(self.get_deviation_state().get("last_check_round") or 0)
+        return round_num - last >= interval
+
+    def build_deviation_context(self, *, recent_entries: int = 8) -> dict:
+        """偏离检测的两段输入：参考走向（当前 / 后续节拍）与实际轨迹（日志 + 节点链）。"""
+        beats = self._ensure_narrative_beats()
+        bs = self._data.get("beat_state", {})
+        current = self.get_current_beat()
+        ref_lines: list[str] = []
+        if beats and bs and current:
+            ci = bs.get("chapter_idx", 0)
+            ch = beats[ci] if ci < len(beats) else {}
+            ref_lines.append(f"当前章节：{ch.get('title', '')}（{ch.get('summary', '')[:120]}）")
+            ref_lines.append(f"当前参考节拍 {current['id']}：{(current.get('content') or current.get('summary') or '')[:400]}")
+            if current.get("must_keep"):
+                ref_lines.append(f"必须保留：{current['must_keep'][:200]}")
+            flat = [(c, b) for c, chp in enumerate(beats) for b in chp.get("beats", [])]
+            pos = next((p for p, (c, b) in enumerate(flat) if c == ci and b["id"] == current["id"]), None)
+            if pos is not None:
+                nxt = [f"{b['id']}：{(b.get('summary') or '')[:80]}"
+                       for c, b in flat[pos + 1: pos + 4] if beats[c].get("kind") != "branch" or c == ci]
+                if nxt:
+                    ref_lines.append("原定后续节拍：" + "；".join(nxt))
+            done = bs.get("completed_beats") or []
+            if done:
+                ref_lines.append("已完成节拍：" + "、".join(done[-6:]))
+
+        entries = self._plot_log_entries()[-recent_entries:]
+        traj_lines = list(entries)
+        tree = self.get_story_tree()
+        nodes = tree.get("nodes", {})
+        cur = nodes.get(tree.get("current_id") or "")
+        chain: list[dict] = []
+        nid = cur.get("id") if cur else ""
+        seen: set[str] = set()
+        while nid and nid in nodes and nid not in seen:
+            seen.add(nid)
+            chain.append(nodes[nid])
+            nid = nodes[nid].get("parent_id")
+        chain.reverse()
+        node_lines = [
+            f"{n.get('title') or n['id']}（{n.get('branch_label') or ''}）：{(n.get('summary') or '')[:80]}"
+            for n in chain[-6:]
+        ]
+        return {
+            "reference": "\n".join(ref_lines),
+            "trajectory": "\n".join(traj_lines),
+            "node_chain": "\n".join(node_lines),
+            "current_beat_id": current["id"] if current else "",
+            "round": int(self._data.get("narration_round", 0)),
+        }
+
+    def apply_deviation_result(self, result: dict, *, threshold: float = 0.6,
+                               round_num: int | None = None) -> dict:
+        """记录一次偏离检测结果；判定偏离且给出新走向时，开出新的分支线。
+
+        分支线：追加为大纲里 kind=branch 的章节（只改会话副本，不回写世界书），
+        节拍状态跳到它的首个节拍，并在剧情树当前节点下开出一个 kind=plot 的
+        空节点（下一轮叙述填充它）。返回 {"checked", "deviated", "applied", ...}。
+        """
+        from story_outline import append_branch_chapter
+
+        if round_num is None:
+            round_num = int(self._data.get("narration_round", 0))
+        state = self.get_deviation_state()
+        state["last_check_round"] = int(round_num)
+        result = dict(result or {})
+        confidence = result.get("confidence")
+        try:
+            confidence = float(confidence) if confidence is not None else (1.0 if result.get("deviated") else 0.0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        deviated = bool(result.get("deviated")) and confidence >= float(threshold)
+        record = {
+            "round": int(round_num),
+            "deviated": deviated,
+            "confidence": round(confidence, 3),
+            "reason": str(result.get("reason") or "")[:300],
+            "degraded": bool(result.get("degraded")),
+            "beat_id": self.get_current_beat_id(),
+        }
+        applied = None
+        branch = result.get("branch") if isinstance(result.get("branch"), dict) else None
+        if deviated and branch and self.get_story_outline() is not None:
+            outline = self._data["story_outline"]
+            tree = self._ensure_story_tree()
+            cur = tree["nodes"].get(tree.get("current_id") or "") or {}
+            parent_beat = self.get_current_beat_id()
+            chapter = append_branch_chapter(
+                outline, branch, round_num=round_num,
+                from_node_id=cur.get("id") or "", parent_beat_id=parent_beat)
+            if hasattr(self, "_narrative_beats"):
+                del self._narrative_beats
+            first_beat = chapter["beats"][0]["id"]
+            self.jump_to_beat(first_beat)
+            self.clear_pending_branch()
+            node = self._open_deviation_node(tree, cur, chapter, round_num)
+            applied = {"chapter_id": chapter["id"], "title": chapter["title"],
+                       "first_beat_id": first_beat, "node_id": node["id"] if node else ""}
+            record["branch"] = applied
+            logger.info("会话 %s: 第 %d 轮判定剧情偏离（%.2f），开出分支线 %s（%s）",
+                        self.session_id, round_num, confidence, chapter["id"], chapter["title"])
+        elif deviated and self.get_story_outline() is None:
+            # 剧情文件自带骨架（非大纲会话）：只记录，不改作者骨架
+            record["note"] = "非大纲会话：仅记录偏离，不修改作者节拍骨架"
+        history = list(state.get("history") or [])
+        history.append(record)
+        state["history"] = history[-20:]
+        self._data["deviation"] = state
+        self._save()
+        return {"checked": True, "deviated": deviated, "confidence": record["confidence"],
+                "reason": record["reason"], "applied": applied, "degraded": record["degraded"]}
+
+    def _open_deviation_node(self, tree: dict, cur: dict, chapter: dict, round_num: int) -> dict | None:
+        """在当前节点下开出偏离分支线的起点节点（kind=plot，无状态，待下一轮填充）。"""
+        if not cur:
+            return None
+        nodes = tree["nodes"]
+        label = f"偏离：{chapter['title']}"[:30]
+        child_id = self._tree_node_id(cur["id"], label)
+        child = nodes.get(child_id)
+        if child is None:
+            child = {
+                "id": child_id,
+                "parent_id": cur["id"],
+                "depth": int(cur.get("depth", 0)) + 1,
+                "kind": "plot",
+                "ref_chapter_id": chapter["id"],
+                "ref_beat_id": chapter["beats"][0]["id"],
+                "combat_node_id": "",
+                "title": chapter["title"][:40],
+                "summary": (chapter.get("summary") or "")[:120],
+                "content": (chapter["beats"][0].get("content") or chapter.get("summary") or "")[:800],
+                "intent": "剧情偏离，开启新走向",
+                "branch_label": label,
+                "created_round": int(round_num),
+                "deviation": {"round": int(round_num), "chapter_id": chapter["id"]},
+                "children": [],
+                "branches": [],
+                "state": None,
+            }
+            nodes[child_id] = child
+            cur.setdefault("children", [])
+            if child_id not in cur["children"]:
+                cur["children"].append(child_id)
+            # 父节点上也留一条可回头点选的分支，方便回档后重走
+            cur.setdefault("branches", []).append({
+                "id": f"dv_{len(cur['branches']) + 1}", "label": label, "intent": "剧情偏离",
+                "source": "deviation", "child_id": child_id,
+            })
+        tree["current_id"] = child_id
+        self._data["story_tree"] = tree
+        return child
 
     def build_tree_state(self) -> dict:
         """剧情树视图：节点列表（含深度/父子/状态）+ 当前路径 + 当前节点的可走分支。"""
@@ -1273,6 +1654,11 @@ class SessionOverlay:
                 "id": nid,
                 "parent_id": n.get("parent_id"),
                 "depth": int(n.get("depth", 0)),
+                "kind": n.get("kind") or ("plot" if n.get("parent_id") is None else "beat"),
+                "ref_chapter_id": n.get("ref_chapter_id") or "",
+                "ref_beat_id": n.get("ref_beat_id") or "",
+                "combat_node_id": n.get("combat_node_id") or "",
+                "deviation": n.get("deviation"),
                 "title": n.get("title", ""),
                 "summary": n.get("summary", ""),
                 "intent": n.get("intent", ""),
@@ -1568,6 +1954,19 @@ class SessionOverlay:
         tree = self.build_tree_state()
         beats = self._ensure_narrative_beats()
         bs = self._data.get("beat_state", {})
+        outline = self.get_story_outline()
+        outline_info = None
+        if outline:
+            outline_info = {
+                "source": outline.get("source", ""),
+                "generated_at": outline.get("generated_at"),
+                "chapter_count": len(outline.get("chapters", [])),
+                "branch_chapters": [
+                    {"id": ch["id"], "title": ch.get("title", ""), "origin": ch.get("origin", {})}
+                    for ch in outline.get("chapters", []) if ch.get("kind") == "branch"
+                ],
+            }
+        deviation = self.get_deviation_state()
         if not beats or not bs:
             # 无作者骨架：至少返回剧情树（LLM 生成结构独立于作者骨架成立）
             return {
@@ -1576,6 +1975,8 @@ class SessionOverlay:
                 "plot_name": self._data.get("plot_name", ""),
                 "roads": [],
                 "tree": tree,
+                "outline": outline_info,
+                "deviation": deviation,
                 "character_states": self._data.get("character_states", {}),
                 "quest_states": self._data.get("quest_states", {}),
                 "node_history": self._tree_node_history(tree),
@@ -1604,16 +2005,22 @@ class SessionOverlay:
                 snap = snap_by_node.get(b["id"])
                 ch_beats.append({
                     "id": b["id"],
+                    "title": b.get("title") or "",
                     "summary": (b.get("summary") or "")[:80],
                     "keep_on_deviate": b.get("keep_on_deviate", False),
+                    "must_keep": (b.get("must_keep") or "")[:160],
+                    "combat": b.get("combat"),
                     "state": bstate,
                     "round_start": snap.get("round_start") if snap else None,
                     "round_end": snap.get("round_end") if snap else None,
-                    "has_combat": "[COMBAT:" in (b.get("content") or ""),
+                    "has_combat": "[COMBAT:" in (b.get("content") or "") or bool((b.get("combat") or {}).get("required")),
                     "authored_branches": b.get("authored_branches", []),
                 })
             roads.append({
                 "chapter_idx": i,
+                "id": ch.get("id", ""),
+                "kind": ch.get("kind") or "main",
+                "origin": ch.get("origin") or {},
                 "title": ch.get("title", ""),
                 "summary": (ch.get("summary") or "")[:120],
                 "state": ch_state,
@@ -1644,6 +2051,8 @@ class SessionOverlay:
             "beat": beat_info,
             "roads": roads,
             "tree": tree,
+            "outline": outline_info,
+            "deviation": deviation,
             "completed_beats": list(bs.get("completed_beats", [])),
             "pending_branch": self.get_pending_branch(),
             "character_states": self._data.get("character_states", {}),

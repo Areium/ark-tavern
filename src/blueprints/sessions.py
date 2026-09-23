@@ -161,7 +161,16 @@ def register(app, managers):
                 if (content_root(_REPO_ROOT) / "plots" / resolved).is_dir():
                     session.overlay.load_quests_from_plot(plot_id)
                     _load_plot_opening(session, plot_id, load_characters="roster_character_ids" not in data)
-                    session.overlay.init_session_docs(plot_id)
+                    # 参考大纲：书里已生成的 LLM 大纲优先；剧情文件无节拍骨架时，
+                    # init_session_docs 会回落到启发式切幕（确定性、不调 LLM）
+                    outline = None
+                    if book is not None:
+                        try:
+                            from story_outline import load_outline
+                            outline = load_outline(wb_mgr, book.id, plot_id)
+                        except Exception:
+                            logger.warning("读取世界书参考大纲失败，改用启发式大纲", exc_info=True)
+                    session.overlay.init_session_docs(plot_id, outline=outline)
             for character in dict.fromkeys(name.strip() for name in roster):
                 if character != player_identity and not session.scene_manager.load_character(character):
                     raise ValueError(f"无法加载入队角色：{character}")

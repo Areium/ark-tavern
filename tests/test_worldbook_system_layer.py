@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import combat_nodes
 import node_lore_scope
 import plot_graphs
+import story_outline
 from world_book import (
     DEFAULT_CATEGORIES, SYSTEM_ENTRY_FENCES, SYSTEM_ENTRY_TYPES, WorldBook,
     WorldBookEntry, WorldBookManager, book_entry_stats, entry_layer,
@@ -32,10 +33,12 @@ from worldbook_scope import ACTIVATION_ALWAYS, EXPANSION_NONE
 # ── 1. 判定与承载模块的常量必须同步 ──
 
 def test_system_entry_tables_match_the_owning_modules():
-    """三张表（world_book / plot_graphs / node_lore_scope）不允许各自漂移。"""
-    assert set(SYSTEM_ENTRY_TYPES) == {plot_graphs._ENTRY_TYPE, node_lore_scope._ENTRY_TYPE}
+    """四张表（world_book / plot_graphs / node_lore_scope / story_outline）不允许各自漂移。"""
+    assert set(SYSTEM_ENTRY_TYPES) == {plot_graphs._ENTRY_TYPE, node_lore_scope._ENTRY_TYPE,
+                                       story_outline.ENTRY_TYPE}
     assert set(SYSTEM_ENTRY_FENCES) == {plot_graphs.WORLD_BOOK_FENCE,
-                                        node_lore_scope.WORLD_BOOK_FENCE}
+                                        node_lore_scope.WORLD_BOOK_FENCE,
+                                        story_outline.WORLD_BOOK_FENCE}
     # 战斗节点条目是**会注入**的（有关键词），绝不能滑进系统层。
     assert combat_nodes._ENTRY_TYPE not in SYSTEM_ENTRY_TYPES
     assert combat_nodes.WORLD_BOOK_FENCE not in SYSTEM_ENTRY_FENCES

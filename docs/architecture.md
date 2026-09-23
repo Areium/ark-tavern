@@ -25,8 +25,10 @@
 | 模块 | 职责 |
 |---|---|
 | `app.py` | Flask factory `create_app()`，注册所有 Blueprint + 全局 Manager（含 WorldBookManager），入口 `main()` |
-| `SceneManager.py` | 多角色场景编排，**两阶段叙述**：先 LLM 生成叙述文本流式推送，再 LLM 提取**结构化产物**（单个 JSON：`beat_complete` / `combat` / `choices` / `branches` / `summary`；早期文档说的 `[BEAT_COMPLETE]` 等字面标记已废弃）。支持结构化对话输出（`parse_structured()`）用于气泡模式 |
+| `SceneManager.py` | 多角色场景编排，**两阶段叙述**：先 LLM 生成叙述文本流式推送，再 LLM 提取**结构化产物**（单个 JSON：`beat_complete` / `combat_trigger` / `combat_scene`（交手处境 + 敌人名 + 阶段带，战术模式下用于现场生成战斗节点）/ `choices` / `branches`（`target_beat_id` 只接受 `<current_node>` 列出的参考节拍 id）/ `node_title` / `summary` / `environment`；早期文档说的 `[BEAT_COMPLETE]` 等字面标记已废弃）。**Call 3 `assess_deviation`**：参考走向 vs 实际轨迹 → `{deviated, confidence, reason, branch}`，偏离时给出新分支线设计。支持结构化对话输出（`parse_structured()`）用于气泡模式 |
 | `CharacterAgent.py` | 单角色人设：角色卡 + 6 条行为规则 + Wiki 上下文 + 记忆注入 + function calling（wiki 查询工具，最多 3 轮） |
+| `story_outline.py` | **剧情参考大纲**（LLM 生成节点的「参考条目」）：启发式切幕（`## 第N幕：` + `**必须保留的节拍**` → 章节/节拍，续写「路线」成分支章节）与 LLM 生成（书内剧情/世界/角色/地点/阵营/物品条目 → 章节/节拍/`must_keep`/`combat`/分支 JSON，解析失败重试一次后回落启发式且 `generation.error` 标明）；以系统层条目 `story_outline_<plot_id>`（围栏 ```json story-outline`，永不注入）存进世界书；`outline_to_beats` 折算成与 `_parse_narrative_beats` 同构的节拍骨架（含 `[COMBAT:node_id]`、`min_rounds`）；`append_branch_chapter` 给偏离检测追加 kind=branch 章节 |
+| `combat_generation.py` | **按剧情场景现场生成战斗节点**：Call 2 的 `combat_scene`（或大纲里 `combat.required` 的节拍）→ 只从注册表已有敌人按阶段带凑编排 → `validate_node` → `perf_tests/simulate_combat` 固定种子试跑（胜率 / 血损阈值，不达标收缩规模重试）→ `save_node` 入库并 `bind` 到剧情/章节/节拍、标 `worldbook_id`；失败返回 None 不落盘。`materialize_outline_combat` 物化大纲战斗节拍 |
 | `llm_backend_manager.py` | 多 Provider 编排，主/备自动降级（验证缓存 120s TTL + 真实失败 30s 冷却） |
 | `load_llm.py` | Ollama / OpenAI 兼容 HTTP 客户端。**结构化错误（LLMError 系列，错误绝不伪装成模型回复）+ 连接/429/5xx 指数退避重试 + 请求指纹日志（前缀漂移标尺）+ `on_failure` 降级回调** |
 
@@ -97,6 +99,8 @@
 `tests/`（已纳入版本控制，含黄金基线 `tests/golden/`）+ `perf_tests/test_*_v1.py`（无外部依赖的战斗/结算子集）。统一入口 `bash scripts/run_tests.sh`（内含 pytest 与 `tests/legacy/` 脚本式检查）。
 
 剧情树（LLM 生成节点）的两层验证：`tests/test_story_tree_full_flow.py`（脚本化 LLM 驱动 narrate-continue 全链路的确定性完整流程用例）与 `scripts/verify_llm_node_generation.py`（真实 LLM 端到端冒烟，需 `config/llm_config.json`，输出可行性报告至 `.tmp/`）。
+
+**剧情树节点种类与参考大纲**（`session_overlay.py`）：树节点带 `kind`（`plot` 剧情节点 = 入口 / 章节切换 / 偏离分支线起点，`beat` 节拍节点 = 章节内推进，`combat` 战斗节点 = 本轮触发战斗时挂在叙述节点下、`combat_node_id` 指向注册表）与 `ref_chapter_id` / `ref_beat_id`（落盘时所处的参考章节 / 节拍）。没有 `## 章节 N` 骨架的剧情（如「彼岸双生」）在会话创建时用参考大纲（书内 LLM 大纲 > 启发式切幕）代替节拍骨架（`init_session_docs(plot_id, outline=…)`，大纲副本存 `story_outline`）；`<current_node>` 列出当前参考节拍 / `must_keep` / 后续候选节拍 id，玩家选带落点的分支时在叙述前就 `jump_to_beat`（`chat._apply_branch_landing`）；大纲节拍的 `min_rounds` 阻止 `beat_complete` 一轮一推。战术模式下 Call 2 选中的现成节点若不属于本剧情 / 本书（别的世界观的通用遭遇），且有 `combat_scene`，改为现场生成绑定节点（`chat._resolve_combat_scene`）。**偏离检测**：每 `deviation_check_interval` 轮（默认 4）把参考走向与 plot_log / 节点链交给 Call 3，`confidence ≥ deviation_confidence_threshold`（默认 0.6）且给出 branch 时 `apply_deviation_result` 追加 kind=branch 章节、跳到其首节拍、在树上开出待填充的偏离节点（`/story-state` 的 `outline` / `deviation` 字段可见；`POST /sessions/<id>/deviation-check` 手动触发）。接口：`GET/POST/DELETE /api/worldbooks/<book>/story-outline`（`blueprints/story.py`，POST 可选 `mode=llm|heuristic`、`generate_combat`）。验证：`tests/test_story_outline.py`、`tests/test_story_generation_beyond_twin.py`（脚本化 LLM）、`scripts/verify_beyond_twin_generation.py`（真实 LLM 冒烟，写临时目录）。
 
 ---
 

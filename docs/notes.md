@@ -321,3 +321,34 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
   会静默丢掉它——那两条链路目前没有前端消费者，将来接线时要一并补上。
 - **证据**：`tests/test_document_worldbook_source.py` 覆盖有标注 / 缺字段 / `null` / 空白四种取值，
   以及「不请求内容摘要时也能拿到来源」「原有键值不变」，外加 `/api/characters` 端点层的字段断言。
+
+## 剧情节点生成
+
+### 护栏式剧情没有节拍骨架：参考大纲代替，act 级节拍要设 `min_rounds`（2026-09-23，`feat/story-node-generation`）
+
+- **现象**：「彼岸双生」用 `## 第N幕：` + `**必须保留的节拍**` 写成，没有 `## 章节 N` / `#### beat_` 骨架，
+  会话里 `beat_state` 为空 → Call 2 不问 `beat_complete`、`_valid_beat_ids()` 为空、所有 `target_beat_id`
+  被置 null，分支「凭空生成」；`<current_node>`（树模式）原本也不列后续节拍候选。
+- **口径**：会话创建时 `init_session_docs(plot_id, outline=…)` 用参考大纲（`story_outline.py`：书内 LLM 大纲
+  `story_outline_<plot_id>` 系统层条目 > 启发式切幕）折算成同构节拍骨架；`<current_node>` 列出当前参考节拍、
+  `must_keep` 与后续候选 id。启发式一幕一节拍时 `min_rounds=3`、LLM 大纲节拍默认 2：真实模型（deepseek-v4-flash）
+  几乎**每轮**都判 `beat_complete=true`，不设门槛参考走向会一轮一幕地跑在故事前面（`advance_beat(force=True)`
+  只给 8 轮超时自动推进用）。玩家选带落点的分支时改为**叙述前**就 `jump_to_beat`（`chat._apply_branch_landing`），
+  否则本轮树节点的 `ref_beat_id` 还停在旧节拍。
+- **LLM 大纲不稳**：同一提示词下 deepseek 有时输出 15k 字符的非 JSON（非截断），`generate_outline_with_llm`
+  重试一次仍失败就回落启发式并在 `generation.error` / `raw_head` 标明，接口照常 200；不要把回落当成功——
+  前端 / 脚本要看 `outline.source`。
+- **战术模式的通用遭遇**：`node_overview(book_id)` 会把没有 `worldbook_id` 的通用节点（`enc_defense` 等
+  明日方舟遭遇）列给任何书，Call 2 在「彼岸双生」里真的会选它。`chat._resolve_combat_scene` 现在只接受
+  绑定到本剧情 / 本书的节点，否则按 `combat_scene` 现场生成（`combat_generation.py`，写到
+  `data/worldbooks/content/combat/nodes/`，测试与冒烟脚本都要把 `combat_nodes.NODE_DIR` 与
+  `CombatDataLoader._node_dir` 指到临时目录）。敌人只能取注册表已有条目——为现代都市剧情补了
+  `澜晶安保人员` / `失控巡检机器人` 两个敌人（`content/enemies/`，`worldbook_id: beyond-twin`）。
+- **偏离检测**：`deviation_check_interval` 默认 4 轮；真实模型对「连夜坐火车离开深湾、雪山定居」这类明显离线
+  给 0.82–0.92 置信度并能设计 2–3 节拍的新分支线；分支章节只写进会话 `story_outline` 副本，不回写书。
+- **验证**：`tests/test_story_outline.py`、`tests/test_story_generation_beyond_twin.py`（脚本化 LLM）；
+  `python scripts/verify_beyond_twin_generation.py`（真实 LLM，≈1–2 分钟，全部写临时目录，报告在
+  `.tmp/beyond_twin_generation_report.json`）。
+- **顺手修的旧 bug**：`session_manager.rollback_to_node` 的 `_lore_resolver_factory` 读 `self._worldbook_manager`
+  （`Session` 没有这个属性，`SessionManager` 才有）→ 每次树上回档都 warning 并按「作用域关闭」处理；
+  改读 `scene_manager._worldbook_manager`。

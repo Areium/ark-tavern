@@ -17,6 +17,7 @@ def _empty_extraction_result() -> dict:
     return {
         "beat_complete": False,
         "combat": None,
+        "combat_scene": None,
         "choices": None,
         "branches": None,
         "node_title": None,
@@ -64,12 +65,35 @@ def _parse_extraction_json(text: str, valid_beat_ids=None) -> dict:
     return {
         "beat_complete": bool(data.get("beat_complete", False)),
         "combat": _normalize_combat_field(data.get("combat_trigger")),
+        "combat_scene": _normalize_combat_scene_field(data.get("combat_scene")),
         "choices": _normalize_choices_field(data.get("choices")),
         "branches": _normalize_branches_field(data.get("branches"), valid_beat_ids),
         "node_title": _normalize_node_title_field(data.get("node_title")),
         "summary": _normalize_summary_field(data.get("summary")),
         "environment": _normalize_environment_field(data.get("environment")),
     }
+
+
+def _normalize_combat_scene_field(scene) -> dict | None:
+    """规范化 combat_scene（叙述里出现了需要交手的场面，但不一定有现成节点）。
+
+    {"description": str, "enemies": [str], "band": "T0-T4", "name": str | None}
+    """
+    if not scene or not isinstance(scene, dict):
+        return None
+    description = str(scene.get("description") or "").strip()
+    if not description:
+        return None
+    enemies = scene.get("enemies")
+    if isinstance(enemies, str):
+        enemies = [enemies]
+    enemies = [str(e).strip() for e in (enemies or []) if str(e).strip()][:8] if isinstance(enemies, list) else []
+    band = str(scene.get("band") or "T1").strip().upper()
+    if band not in ("T0", "T1", "T2", "T3", "T4"):
+        band = "T1"
+    name = scene.get("name")
+    name = str(name).strip()[:20] if isinstance(name, str) and name.strip() else None
+    return {"description": description[:200], "enemies": enemies, "band": band, "name": name}
 
 
 def _normalize_node_title_field(title) -> str | None:
@@ -642,14 +666,14 @@ speaker 必须从场景角色列表选择，无法判断时用 null
 - MUST：只输出 JSON 对象，不要输出任何其他文字或解释
 - MUST：只基于叙述文本中实际发生的内容进行判断，严禁虚构或推测
 - MUST：只有叙述末尾场景明确达到段落结束点（角色离开、对话结束、行动完成等），才设置 beat_complete 为 true
-- MUST：只有叙述中明确出现了敌对冲突/战斗场面时，才设置 combat_trigger
+- MUST：只有叙述中明确出现了敌对冲突/战斗场面时，才设置 combat_trigger 或 combat_scene
 - MUST：选项必须同时参照叙述内容、<current_node>（玩家当前节点状态）与
   <world_background>（世界背景设定）推导；每个选项不超过15个汉字
 - MUST：branches 里每个选项的 target_beat_id 只能从 <current_node> 列出的
-  后续节拍 id 中选取；若都不合适则填 null，严禁编造节拍 id
+  后续候选节拍 id 中选取；若都不合适则填 null，严禁编造节拍 id
 - SHOULD：让不同意图的分支指向各自最贴合方向的后续节拍，使玩家能走向不同节点
 - MUST：只有叙述中明确出现了场景转移、天气/时段/氛围变化时，才填写 environment；没有变化时为 null
-- 如果对某个字段没有把握，使用默认值（false / null / null / null / null / null）
+- 如果对某个字段没有把握，使用默认值（false / null / null / null / null / null / null）
 </core_rules>
 
 <output_format>
@@ -657,6 +681,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
 {
   "beat_complete": false,
   "combat_trigger": null,
+  "combat_scene": null,
   "choices": null,
   "branches": null,
   "node_title": null,
@@ -667,11 +692,48 @@ speaker 必须从场景角色列表选择，无法判断时用 null
 字段说明：
 - beat_complete: boolean，场景是否自然结束
 - combat_trigger: null 或 {"encounter_id": "遭遇ID", "params": null}
+- combat_scene: null 或 {"name": "≤8字战斗名", "description": "交手处境与对象（≤60字）", "enemies": ["敌人名"], "band": "T0-T4 之一"}；只在叙述里明确出现需要交手的敌对冲突时填写
 - choices: null 或字符串数组（每个选项不超过15个汉字，与 branches 的 label 对应）
 - branches: null 或对象数组，每项 {"label": "≤15字行动文本", "intent": "方向标签或null", "target_beat_id": "后续节拍id或null（null 表示开启全新节点）"}
 - node_title: null 或字符串（当前场景/节点的简短标题，不超过8个汉字）
 - summary: null 或字符串（不超过50个汉字，只写事实不写评价）
 - environment: null 或对象，可包含 location（地点名）、weather（天气）、time（时段）、atmosphere（氛围字符串或字符串数组）；只填写叙述中明确出现变化的内容
+</output_format>"""
+
+    _DEVIATION_ASSESSOR_SYSTEM = """\
+<role>
+你是文字冒险游戏的剧情监理。给你「参考走向」（作者大纲里当前与后续的节拍）和
+「实际轨迹」（最近几轮真实发生的事件），判断剧情是否已经偏离原定走向；若偏离，
+为接下来的剧情设计一条新的分支线（章节 + 2-3 个节拍），让故事顺着玩家实际的选择继续。
+</role>
+
+<core_rules>
+- MUST：只输出一个 JSON 对象，不要输出其他文字
+- MUST：偏离指「关键事实/人物关系/地点已与参考走向不可调和，后续参考节拍无法自然发生」；
+  仅仅顺序不同、细节不同、进度慢，不算偏离
+- MUST：confidence 是 0-1 的数字，表示你对「已偏离」判断的把握；未偏离时 branch 为 null
+- MUST：新分支线必须承接实际轨迹里已经发生的事实，不得推翻它们；参考走向中标注「必须保留」的事实
+  若尚未发生，应在新分支线里以合理方式重新给出机会
+- MUST：严禁在 JSON 字符串里使用英文双引号
+- SHOULD：节拍 content 100-150 字，写「发生什么、谁在场、悬念是什么」，不写玩家会怎么做
+</core_rules>
+
+<output_format>
+{
+  "deviated": false,
+  "confidence": 0.0,
+  "reason": "一句话说明判断依据",
+  "branch": null
+}
+branch 非 null 时格式：
+{
+  "title": "分支线标题（≤12字）",
+  "summary": "这条新走向的一句话概要",
+  "beats": [
+    {"title": "节拍标题", "summary": "≤50字", "content": "100-150字", "must_keep": "",
+     "combat": null 或 {"required": true, "description": "交手处境", "enemies": [], "band": "T1"}}
+  ]
+}
 </output_format>"""
 
     def _build_extraction_messages(
@@ -714,6 +776,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
 
         if self._combat_mode == "tactical":
             encounters = self._list_encounters()
+            enemy_names = self._list_enemy_names()
             tasks.append(
                 f"- 判断叙述中是否出现了需要触发回合制战斗的明确的敌对冲突：\n"
                 f"  袭击、交火、武装对峙（武器出鞘/即将动手）等场面。\n"
@@ -724,7 +787,12 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                 f"  列表为空或没有合适节点时返回 null，不得编造节点 ID。\n"
                 f"  将结果填入 combat_trigger 字段（格式：{{\"encounter_id\": \"遭遇ID\", \"params\": null}}）。\n"
                 f"  可选：在 combat_trigger.params 中设置 status_effects，\n"
-                f"  格式 {{\"角色名\": {{\"hp_penalty\": 0.0~1.0}}}}"
+                f"  格式 {{\"角色名\": {{\"hp_penalty\": 0.0~1.0}}}}\n"
+                f"- 只要叙述里出现了上述需要交手的场面（无论有没有合适的现成节点），同时把处境写进 combat_scene：\n"
+                f"  {{\"name\": \"≤8字战斗名\", \"description\": \"交手对象与处境（≤60字）\", "
+                f"\"enemies\": [\"敌人名\"], \"band\": \"T0-T4\"}}；\n"
+                f"  enemies 只能从下列可用敌人里选与叙述最贴合的 1-3 种（没有贴合的就留空数组）：{enemy_names}\n"
+                f"  band 按处境强度估：T0 教学/杂兵，T1 普通，T2 精锐，T3 精英，T4 首领。没有交手场面时 combat_scene 为 null。"
             )
 
         if choices_count > 0:
@@ -883,6 +951,75 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             f"{row['node_id']}（{row['name']}）"
             for row in rows if node_exists(row["node_id"])
         ) or "（无可用战斗节点）"
+
+    def _list_enemy_names(self) -> str:
+        """注册表里全部可用敌人名（供 Call 2 的 combat_scene 从中选取）。"""
+        try:
+            from combat_data_loader import CombatDataLoader
+            names = CombatDataLoader().list_enemy_names()
+        except Exception:
+            logger.debug("读取敌人目录失败", exc_info=True)
+            names = []
+        return "、".join(names) if names else "（无）"
+
+    def assess_deviation(self, reference: str, trajectory: str, node_chain: str = "",
+                         max_tokens: int = 3072) -> dict:
+        """Call 3：判断剧情是否偏离参考走向；偏离则给出新的分支线设计。
+
+        Returns:
+            {"deviated": bool, "confidence": float, "reason": str,
+             "branch": {"title", "summary", "beats": [...]} | None,
+             "usage": dict | None, "error": str | None, "degraded": bool}
+        """
+        empty = {"deviated": False, "confidence": 0.0, "reason": "", "branch": None,
+                 "usage": None, "error": None, "degraded": False}
+        if not (reference or "").strip() or not (trajectory or "").strip():
+            return {**empty, "reason": "缺少参考走向或实际轨迹，跳过检测"}
+        parts = [
+            f"<reference_plan>\n{reference}\n</reference_plan>",
+            f"<actual_trajectory>\n{trajectory}\n</actual_trajectory>",
+        ]
+        if node_chain:
+            parts.append(f"<node_chain>\n{node_chain}\n</node_chain>")
+        parts.append("请按 <output_format> 判断是否偏离，并在偏离时给出新的分支线。MUST：只输出 JSON 对象。")
+        messages = [
+            {"role": "system", "content": self._DEVIATION_ASSESSOR_SYSTEM},
+            {"role": "user", "content": "\n\n".join(parts)},
+        ]
+        try:
+            _t0 = time.monotonic()
+            result = self._llm.chat(messages, stream=False, max_tokens=max_tokens, thinking="none")
+            logger.info("[TIMING] assess_deviation LLM调用: %.0fms", (time.monotonic() - _t0) * 1000)
+        except Exception as e:  # LLMError 系列：结构化上抛为 error，不伪装成判定
+            logger.warning("Deviation assessment failed: %s", e)
+            return {**empty, "error": str(e), "degraded": True}
+        text = result.get("content", "") if isinstance(result, dict) else str(result)
+        usage = result.get("usage") if isinstance(result, dict) else None
+        from story_outline import extract_json_object
+        data = extract_json_object(text)
+        if not isinstance(data, dict):
+            logger.warning("Deviation assessment: 非 JSON 响应（len=%d）", len(text or ""))
+            return {**empty, "usage": usage, "degraded": True, "error": "模型输出不是 JSON 对象"}
+        try:
+            confidence = float(data.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        confidence = max(0.0, min(1.0, confidence))
+        branch = data.get("branch") if isinstance(data.get("branch"), dict) else None
+        if branch is not None:
+            beats = branch.get("beats") if isinstance(branch.get("beats"), list) else []
+            branch = {
+                "title": str(branch.get("title") or "新的走向")[:30],
+                "summary": str(branch.get("summary") or "")[:200],
+                "beats": [b for b in beats if isinstance(b, dict)][:6],
+            }
+        return {
+            "deviated": bool(data.get("deviated")),
+            "confidence": confidence,
+            "reason": str(data.get("reason") or "")[:300],
+            "branch": branch,
+            "usage": usage, "error": None, "degraded": False,
+        }
 
     def _valid_beat_ids(self) -> list[str]:
         """当前会话剧情中全部真实节拍 id（用于校验分支目标）。

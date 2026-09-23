@@ -230,6 +230,25 @@ def _resolve_branch(session, branch_id: str, label: str) -> dict | None:
     return None
 
 
+def _apply_branch_landing(session, selected_branch: dict | None) -> None:
+    """玩家选了带落点（target_beat_id）的分支：本轮叙述开始前就把参考节拍跳过去。
+
+    这样 Call 1 看到的路线图 [HERE]、Call 2 的 <current_node>、以及本轮落成的
+    树节点 ref_beat_id 都指向分支落点，而不是等到 beat_complete 才生效。
+    目标与当前节拍相同或不存在时只记 pending（行为与旧版一致）。
+    """
+    overlay = getattr(session, "overlay", None)
+    if overlay is None or not selected_branch or not selected_branch.get("target_beat_id"):
+        return
+    overlay.set_pending_branch({**selected_branch, "round": session.narration_count})
+    target = str(selected_branch.get("target_beat_id") or "")
+    try:
+        if target and target != overlay.get_current_beat_id() and target in overlay._beat_index():
+            overlay.advance_beat()  # pending 落点优先：直接跳到目标节拍
+    except Exception:
+        logger.warning("会话 %s: 分支落点跳转失败，保留 pending", session.id, exc_info=True)
+
+
 def _record_node_snapshot(session):
     """推进后记录刚完成节点的状态快照（供状态展示与回档）。"""
     overlay = getattr(session, "overlay", None)
@@ -244,7 +263,8 @@ def _record_node_snapshot(session):
 def _commit_tree_step(session, narrative: str, summary: str,
                       title: str | None, branches: list[dict] | None,
                       branch: dict | None,
-                      lore_resolver=None, combat_id_hint: str = "") -> None:
+                      lore_resolver=None, combat_id_hint: str = "",
+                      combat_node_id: str = "", combat_title: str = "") -> None:
     """把本轮叙述落成剧情树上的一个节点（节点内容由 LLM 生成）。
 
     节点标题/概要/内容/分支都取自 LLM 输出（title/summary/narrative/branches），
@@ -254,6 +274,8 @@ def _commit_tree_step(session, narrative: str, summary: str,
 
     lore_resolver / combat_id_hint：节点级世界书作用域（见
     docs/design/worldbook/node-scoped-worldbook-loading.md §4.1）；resolver 为 None 即功能关闭。
+    combat_node_id / combat_title：本轮实际触发的战斗（战前简报已下发）→ 在叙述
+    节点下追加 kind=combat 的战斗节点。
     """
     overlay = getattr(session, "overlay", None)
     if overlay is None or not hasattr(overlay, "commit_tree_step"):
@@ -268,6 +290,8 @@ def _commit_tree_step(session, narrative: str, summary: str,
             round_num=session.narration_count,
             lore_resolver=lore_resolver,
             combat_id_hint=combat_id_hint,
+            combat_node_id=combat_node_id or "",
+            combat_title=combat_title or "",
         )
     except Exception:
         logger.warning("剧情树提交失败", exc_info=True)
@@ -281,6 +305,109 @@ def _build_lore_resolver(session, worldbook_mgr):
         return node_lore_scope.build_overlay_resolver(book, overlay)
     except Exception:
         logger.warning("构造节点世界书作用域解析器失败，按关闭处理", exc_info=True)
+        return None
+
+
+def _combat_node_owned_by_session(session, encounter_id: str) -> bool:
+    """现成战斗节点是否属于本会话的剧情 / 世界书（不是别的世界观里借来的通用遭遇）。"""
+    if not encounter_id:
+        return False
+    try:
+        from combat_nodes import load_node_file
+        node = load_node_file(encounter_id) or {}
+    except Exception:
+        return False
+    overlay = getattr(session, "overlay", None)
+    plot_id = (overlay.get_plot_id() if overlay else "") or ""
+    book_id = (overlay.get_worldbook_id() if overlay else "") or ""
+    bind_plot = str((node.get("bind") or {}).get("plot_id") or "")
+    node_book = str(node.get("worldbook_id") or "")
+    if plot_id and bind_plot == plot_id:
+        return True
+    if book_id and node_book == book_id:
+        return True
+    # 会话没绑书也没绑剧情：任何节点都算可用（旧行为）
+    return not plot_id and not book_id
+
+
+def _resolve_combat_scene(session, markers: dict, config: dict) -> dict | None:
+    """战术模式下：叙述出现交手场面（combat_scene）→ 优先用本剧情自己的战斗节点，否则现场生成。
+
+    - Call 2 选中的现成节点属于本剧情 / 本书 → 直接用它；
+    - 选中的是别的世界观的通用遭遇（或没选中）但有 combat_scene → 按场景生成一个
+      绑定到当前剧情 / 章节 / 节拍的新节点（编排 → 校验 → 试跑 → 入库）；
+      生成失败时才退回那个通用遭遇（有）或 None。
+    成功生成后把节点绑定到当前参考节拍，下次回到该节拍即确定性复用。
+    返回与 combat_trigger 同构的 {"encounter_id", "params", "generated": True}。
+    """
+    if getattr(session, "combat_mode", "narrative") != "tactical":
+        return None
+    existing = markers.get("combat")
+    if existing and _combat_node_owned_by_session(session, existing.get("encounter_id", "")):
+        return None
+    scene = markers.get("combat_scene")
+    if not scene or not config.get("auto_generate_combat_nodes", True):
+        return None
+    overlay = getattr(session, "overlay", None)
+    if overlay is None:
+        return None
+    try:
+        from combat_generation import generate_combat_node_for_scene
+        node = generate_combat_node_for_scene(
+            scene,
+            plot_id=overlay.get_plot_id() or "",
+            chapter_id=overlay.get_current_chapter_id() if hasattr(overlay, "get_current_chapter_id") else "",
+            beat_id=overlay.get_current_beat_id() if hasattr(overlay, "get_current_beat_id") else "",
+            worldbook_id=overlay.get_worldbook_id() or "",
+            simulate=bool(config.get("simulate_generated_combat", True)),
+        )
+    except Exception:
+        logger.warning("会话 %s: 现场生成战斗节点失败", session.id, exc_info=True)
+        return None
+    if not node:
+        return None
+    if hasattr(overlay, "bind_combat_to_current_beat"):
+        try:
+            overlay.bind_combat_to_current_beat(node["node_id"])
+        except Exception:
+            logger.warning("会话 %s: 绑定生成的战斗节点到参考节拍失败", session.id, exc_info=True)
+    logger.info("会话 %s: 依据叙述场景生成战斗节点 %s（%s）", session.id, node["node_id"], node.get("name"))
+    return {"encounter_id": node["node_id"], "params": None, "generated": True,
+            "name": node.get("name", node["node_id"])}
+
+
+def _maybe_check_deviation(session, config: dict) -> dict | None:
+    """多轮之后自动判断剧情是否偏离参考走向；偏离则开出新的分支线（Call 3）。
+
+    仅剧情会话且有参考骨架时每 `deviation_check_interval` 轮检测一次；
+    LLM 失败 / 非 JSON 只记录 degraded，不改剧情结构。
+    """
+    if session.mode != "story" or not config.get("deviation_detection", True):
+        return None
+    overlay = getattr(session, "overlay", None)
+    if overlay is None or not hasattr(overlay, "deviation_check_due"):
+        return None
+    interval = int(config.get("deviation_check_interval", 4) or 4)
+    threshold = float(config.get("deviation_confidence_threshold", 0.6) or 0.6)
+    try:
+        if not overlay.deviation_check_due(interval=interval, min_rounds=interval):
+            return None
+        ctx = overlay.build_deviation_context()
+        if not ctx.get("reference") or not ctx.get("trajectory"):
+            return None
+        result = session.scene_manager.assess_deviation(
+            ctx["reference"], ctx["trajectory"], ctx.get("node_chain", ""))
+        if result.get("usage"):
+            session.accumulate_usage(result["usage"])
+        outcome = overlay.apply_deviation_result(
+            result, threshold=threshold, round_num=session.narration_count)
+        if outcome.get("applied"):
+            # 新分支线已切换参考节拍：让玩家看到的分支包含新走向
+            overlay.set_emitted_branches(
+                (overlay.get_current_tree_node() or {}).get("branches", []) or overlay.get_emitted_branches())
+        return outcome
+    except Exception:
+        logger.warning("会话 %s: 偏离检测异常", session.id, exc_info=True)
         return None
 
 
@@ -413,8 +540,7 @@ def register(app, managers):
 
         # 分支落点：玩家上一轮选择的分支（若带 branch_id/label 则恢复其目标）
         selected_branch = _resolve_branch(session, branch_id, user_action)
-        if selected_branch and selected_branch.get("target_beat_id"):
-            session.overlay.set_pending_branch({**selected_branch, "round": session.narration_count})
+        _apply_branch_landing(session, selected_branch)
         branch_hint = ""
         if selected_branch:
             hint_bits = []
@@ -500,6 +626,7 @@ def register(app, managers):
                 plot_summary = None
                 marker_env = None
                 lore_combat_hint = ""
+                combat_node_for_tree = ("", "")
                 for event_type, data in session.scene_manager.narrate_stream(
                     player_info, context_with_memory,
                     user_action=user_action, structured=False,
@@ -551,11 +678,15 @@ def register(app, managers):
                     _apply_beat_complete(session, markers.get("beat_complete", False))
                     # 节点级世界书：combat: 绑定键只在本轮确实触发战斗时激活
                     lore_combat_hint = beat_combat_id if combat_due else ""
+                    combat_data = _resolve_combat_scene(session, markers, config) or markers.get("combat")
                     briefing = _apply_combat_briefing(
-                        session, markers.get("combat"), stream_id,
+                        session, combat_data, stream_id,
                         beat_combat_id=beat_combat_id if combat_due else "",
                     )
                     if briefing:
+                        if combat_data and combat_data.get("generated"):
+                            briefing["generated"] = True
+                        combat_node_for_tree = (briefing.get("encounter_id", ""), briefing.get("name", ""))
                         yield f"data: {json.dumps({'type': 'combat_briefing', 'data': briefing}, ensure_ascii=False)}\n\n"
                     inline_choices = markers.get("choices")
                     inline_branches = markers.get("branches")
@@ -618,7 +749,15 @@ def register(app, managers):
                         node_title, branches, selected_branch,
                         lore_resolver=_build_lore_resolver(session, worldbook_mgr),
                         combat_id_hint=lore_combat_hint,
+                        combat_node_id=combat_node_for_tree[0],
+                        combat_title=combat_node_for_tree[1],
                     )
+                    # 偏离检测：多轮之后剧情走向与参考大纲不一致 → 自动开新分支线
+                    deviation = _maybe_check_deviation(session, config)
+                    if deviation:
+                        yield f"data: {json.dumps({'type': 'deviation', 'data': {**deviation, 'stream_id': stream_id}}, ensure_ascii=False)}\n\n"
+                        if deviation.get("applied") and session.overlay:
+                            branches = session.overlay.get_emitted_branches() or branches
 
                 yield f"data: {json.dumps({'type': 'choice', 'data': {'options': options, 'branches': branches, 'stream_id': stream_id}}, ensure_ascii=False)}\n\n"
 
@@ -652,8 +791,7 @@ def register(app, managers):
         user_action = data.get("action", "")
         branch_id = str(data.get("branch_id") or "").strip()
         selected_branch = _resolve_branch(session, branch_id, user_action)
-        if selected_branch and selected_branch.get("target_beat_id"):
-            session.overlay.set_pending_branch({**selected_branch, "round": session.narration_count})
+        _apply_branch_landing(session, selected_branch)
         branch_hint = ""
         if selected_branch:
             hint_bits = []
@@ -747,6 +885,7 @@ def register(app, managers):
             combat_briefing = None
             marker_env = None
             lore_combat_hint = ""
+            combat_node_for_tree = ("", "")
             if _should_extract_markers(session, choices_count):
                 markers = session.scene_manager.extract_markers(
                     narrative, choices_count=choices_count,
@@ -762,10 +901,15 @@ def register(app, managers):
                 _apply_beat_complete(session, markers.get("beat_complete", False))
                 # 节点级世界书：combat: 绑定键只在本轮确实触发战斗时激活
                 lore_combat_hint = beat_combat_id if combat_due else ""
+                combat_data = _resolve_combat_scene(session, markers, config) or markers.get("combat")
                 combat_briefing = _apply_combat_briefing(
-                    session, markers.get("combat"), "",
+                    session, combat_data, "",
                     beat_combat_id=beat_combat_id if combat_due else "",
                 )
+                if combat_briefing:
+                    if combat_data and combat_data.get("generated"):
+                        combat_briefing["generated"] = True
+                    combat_node_for_tree = (combat_briefing.get("encounter_id", ""), combat_briefing.get("name", ""))
                 inline_choices = markers.get("choices")
                 inline_branches = markers.get("branches")
                 node_title = markers.get("node_title")
@@ -807,7 +951,15 @@ def register(app, managers):
                     node_title, branches, selected_branch,
                     lore_resolver=_build_lore_resolver(session, worldbook_mgr),
                     combat_id_hint=lore_combat_hint,
+                    combat_node_id=combat_node_for_tree[0],
+                    combat_title=combat_node_for_tree[1],
                 )
+                # 偏离检测：多轮之后剧情走向与参考大纲不一致 → 自动开新分支线
+                deviation = _maybe_check_deviation(session, config)
+                if deviation:
+                    response_extra["deviation"] = deviation
+                    if deviation.get("applied") and session.overlay:
+                        response_extra["branches"] = session.overlay.get_emitted_branches() or branches
 
             if dialogue_segments:
                 response_extra["dialogue_segments"] = dialogue_segments

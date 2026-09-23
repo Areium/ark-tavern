@@ -583,7 +583,7 @@ class Session:
                 # 在 overlay 状态恢复【之后】调用：用恢复后的 beat_state 构造
                 try:
                     import node_lore_scope
-                    mgr = self._worldbook_manager
+                    mgr = getattr(self.scene_manager, "_worldbook_manager", None)
                     book = mgr.resolve(self.overlay) if mgr else None
                     return node_lore_scope.build_overlay_resolver(book, self.overlay)
                 except Exception:

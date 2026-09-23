@@ -233,6 +233,19 @@ export default function StoryStatePanel() {
                       }`}
                     >
                       {n.title || n.id}
+                      {n.kind && n.kind !== "beat" && (
+                        <span
+                          className={`ml-1 text-[9px] px-1 rounded ${
+                            n.kind === "combat"
+                              ? "bg-red-600/30 text-red-200"
+                              : n.deviation
+                              ? "bg-purple-600/30 text-purple-200"
+                              : "bg-sky-600/30 text-sky-200"
+                          }`}
+                        >
+                          {n.kind === "combat" ? "战斗" : n.deviation ? "偏离分支" : "剧情"}
+                        </span>
+                      )}
                       {isCurrent && (
                         <span className="ml-1 text-[9px] px-1 rounded bg-amber-600/40 text-amber-200">
                           当前
@@ -246,6 +259,7 @@ export default function StoryStatePanel() {
                       {n.has_state && n.round_start != null
                         ? ` · 第 ${n.round_start}–${n.round_end} 轮`
                         : ""}
+                      {n.ref_beat_id ? ` · ${n.ref_beat_id}` : ""}
                     </div>
                   </div>
                   {n.has_state && !isCurrent && (

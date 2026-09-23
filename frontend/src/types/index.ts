@@ -160,6 +160,15 @@ export interface StoryTreeNode {
   summary: string;
   intent?: string;
   branch_label?: string;
+  /** 节点种类：plot 剧情节点（入口 / 章节切换 / 偏离分支线起点）、beat 节拍节点、combat 战斗节点 */
+  kind?: "plot" | "beat" | "combat";
+  /** 落盘时所处的参考章节 / 节拍（来自参考大纲或剧情文件骨架） */
+  ref_chapter_id?: string;
+  ref_beat_id?: string;
+  /** kind === "combat" 时指向注册表里的战斗节点 */
+  combat_node_id?: string;
+  /** 偏离检测开出的分支线起点 */
+  deviation?: { round: number; chapter_id: string } | null;
   children: string[];
   branches: (BranchChoice & { child_id?: string; taken?: boolean })[];
   round_start?: number | null;
@@ -190,6 +199,16 @@ export interface StoryStateDTO {
   roads: StoryRoad[];
   /** 动态剧情树（LLM 生成的节点结构） */
   tree?: StoryTreeDTO;
+  /** 参考大纲（节点生成的参考条目）摘要；剧情文件自带骨架的会话为 null */
+  outline?: {
+    source: string; generated_at?: number | null; chapter_count: number;
+    branch_chapters: { id: string; title: string; origin: Record<string, any> }[];
+  } | null;
+  /** 偏离检测状态：上次检测轮次 + 历史记录 */
+  deviation?: {
+    last_check_round: number;
+    history: { round: number; deviated: boolean; confidence: number; reason: string; branch?: any }[];
+  };
   completed_beats?: string[];
   pending_branch?: any;
   character_states?: Record<string, any>;

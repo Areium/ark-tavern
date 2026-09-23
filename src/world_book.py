@@ -863,8 +863,8 @@ def _excluded_reason(entry: WorldBookEntry) -> str:
 # extensions 标记优先、围栏块兜底。常量必须与来源模块保持一致，
 # `tests/test_worldbook_system_layer.py` 直接比对它们的 `_ENTRY_TYPE` /
 # `WORLD_BOOK_FENCE`，两处漂移会立刻失败。
-SYSTEM_ENTRY_TYPES = ("plot_graph", "lore_bindings")
-SYSTEM_ENTRY_FENCES = ("plot-graph", "arknights_tavern_lore_bindings")
+SYSTEM_ENTRY_TYPES = ("plot_graph", "lore_bindings", "story_outline")
+SYSTEM_ENTRY_FENCES = ("plot-graph", "arknights_tavern_lore_bindings", "story-outline")
 _SYSTEM_EXT_NAMESPACE = "arknights_tavern"
 _SYSTEM_FENCE_RE = re.compile(
     r"```json\s+(?:%s)\s*\n" % "|".join(re.escape(name) for name in SYSTEM_ENTRY_FENCES))
