@@ -18,6 +18,6 @@
 
 ## 美术资源
 
-横版场景使用随前端分发的工业夜景视差图层与金属平台贴图，来源和 CC0 许可列在 `frontend/public/THIRD_PARTY_NOTICES.txt`。这些 PNG 可直接由 PixiJS 加载，不依赖 Unity 或 Godot 运行时。
+横版场景使用为“废城边界 · 雨幕行动”生成的雨夜废城背景、石钢地表、运输障碍箱和红色晶体危险带。素材位于 `frontend/public/assets/sideview/`，由 PixiJS 直接加载；原第三方工业视差图层与金属图集已从项目移除。背景是通用街区突破场景的美术方向，不表示所有剧情遭遇都发生在同一地点。
 
 玩家与守卫优先复用项目现有的 Spine 战斗小人及动画。Spine 文件位于 `data/worldbooks/content/characters/<角色>/spine/`，由现有资源接口提供；这些第三方角色素材被 `.gitignore` 排除，不随代码仓库分发。没有对应文件或加载失败时，横版关卡保留可识别的后备角色显示，碰撞与结算不依赖美术资源。

@@ -46,21 +46,3 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
----
-
-Side-view industrial scenery
-----------------------------
-
-The files in assets/sideview/industrial-*.png are from "Industrial Parallax
-Background" by Luis Zuno (@ansimuz):
-https://opengameart.org/content/industrial-parallax-background
-
-The file assets/sideview/metal-tiles.png is from "Pixel Platformer: Metal
-Expansion" by Pien Krings:
-https://opengameart.org/content/pixel-platformer-metal-expansion
-
-Both artwork packs are licensed under Creative Commons Zero (CC0 1.0):
-https://creativecommons.org/publicdomain/zero/1.0/
-
-These third-party art assets are not covered by this project's MIT license.

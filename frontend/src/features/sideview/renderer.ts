@@ -13,41 +13,58 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
   const terrain = new Graphics(); const actors = new Graphics(); const fx = new Graphics(); const foreground = new Graphics();
   app.stage.addChild(scenery, backdrop, world, foreground); world.addChild(surfaces, terrain, actors, figures, fx);
   let disposed = false, lastElapsed = 0;
-  const layers: TilingSprite[] = [];
+  let city: Sprite | undefined;
+  const ready = { platforms: false, obstacles: false, hazards: false };
   const units = new Map<string, ReturnType<typeof makeSideviewSpine>>();
   const failures = new Set<string>();
-  const report = () => onAssets(failures.size ? `简化显示：${[...failures].join('、')}；操作不受影响。` : '');
-  const sceneryFiles = ['industrial-bg', 'industrial-far', 'industrial-mid', 'industrial-near'];
-  backdrop.sortableChildren = true;
-  // Keep the original layer indices even if one asset fails or finishes late.
-  Promise.allSettled(sceneryFiles.map(async (name, i) => {
-    const texture = await Texture.fromURL(`./assets/sideview/${name}.png`);
-    if (disposed) return;
-    texture.baseTexture.scaleMode = SCALE_MODES.NEAREST;
-    const layer = new TilingSprite(texture, 1, 1);
-    layer.alpha = [0.85, 0.55, 0.72, 0.95][i];
-    layer.zIndex = i;
-    backdrop.addChild(layer); layers[i] = layer;
-  })).then(results => {
-    if (!disposed && results.some(result => result.status === 'rejected')) {
-      failures.add('部分厂区背景'); report();
-    }
+  let pendingAssets = 5; // Four scenery images and the model group.
+  const report = () => onAssets([
+    pendingAssets ? '正在装载场景与战斗模型…' : '',
+    failures.size ? `简化显示：${[...failures].join('、')}；操作不受影响。` : '',
+  ].filter(Boolean).join(' '));
+  const loadScenery = async (file: string, label: string, apply: (texture: Texture) => void) => {
+    try {
+      const texture = await Texture.fromURL(`./assets/sideview/${file}.png`);
+      if (disposed) return;
+      texture.baseTexture.scaleMode = SCALE_MODES.LINEAR;
+      apply(texture);
+    } catch { if (!disposed) failures.add(label); }
+    finally { if (!disposed) { pendingAssets--; report(); } }
+  };
+  void loadScenery('rainbound-city', '雨夜废城背景', texture => {
+    city = new Sprite(texture); city.alpha = 0.86; backdrop.addChild(city);
   });
-  Texture.fromURL('./assets/sideview/metal-tiles.png').then(texture => {
-    if (disposed) return;
-    texture.baseTexture.scaleMode = SCALE_MODES.NEAREST;
-    const plate = new Texture(texture.baseTexture, new Rectangle(0, 0, 18, 18));
-    const rail = new Texture(texture.baseTexture, new Rectangle(0, 96, 18, 18));
-    const crate = new Texture(texture.baseTexture, new Rectangle(0, 191, 18, 18));
+  void loadScenery('ruin-terrain', '平台纹理', texture => {
     for (const p of level.platforms) {
-      const body = new TilingSprite(rail, p.width, p.height); body.position.set(p.x, p.y); body.tileScale.set(2); body.tint = 0x6a8783; surfaces.addChild(body);
-      const rim = new TilingSprite(plate, p.width, Math.min(p.height, 12)); rim.position.set(p.x, p.y); rim.tileScale.set(1.3); rim.tint = 0xa3b2a2; surfaces.addChild(rim);
+      const body = new TilingSprite(texture, p.width, p.height);
+      body.position.set(p.x, p.y); body.tileScale.set(0.28);
+      body.tilePosition.set(-p.x, -p.y); surfaces.addChild(body);
     }
-    for (const o of level.obstacles) { const box = new Sprite(crate); box.position.set(o.x, o.y); box.width = o.width; box.height = o.height; box.tint = 0xb9b2a0; surfaces.addChild(box); }
-  }).catch(() => { if (!disposed) { failures.add('金属纹理'); report(); } });
+    ready.platforms = true;
+  });
+  void loadScenery('cargo-barrier', '障碍箱', texture => {
+    // Alpha > 100 bounds of the supplied image: transparent export padding is
+    // excluded so the visible body occupies the simulation's collision box.
+    const cropped = new Texture(texture.baseTexture, new Rectangle(54, 133, 1195, 913));
+    for (const o of level.obstacles) {
+      const box = new Sprite(cropped); box.position.set(o.x, o.y);
+      box.width = o.width; box.height = o.height; surfaces.addChild(box);
+    }
+    ready.obstacles = true;
+  });
+  void loadScenery('crystal-hazard', '晶体危险带', texture => {
+    const cropped = new Texture(texture.baseTexture, new Rectangle(7, 183, 2158, 403));
+    for (const h of level.hazards) {
+      const crystals = new Sprite(cropped);
+      const visualHeight = Math.max(h.height, Math.min(48, h.width * 0.38));
+      crystals.position.set(h.x, h.y + h.height - visualHeight);
+      crystals.width = h.width; crystals.height = visualHeight; surfaces.addChild(crystals);
+    }
+    ready.hazards = true;
+  });
   const names = [{ id: 'player', name: operatorName }, ...level.enemies.map(e => ({ id: e.id, name: e.kind === 'ranger' ? '整合运动狙击手' : e.kind === 'elite' ? '整合运动盾卫' : '整合运动士兵' }))];
   const cache = new Map<string, ReturnType<typeof loadSideviewSpine>>();
-  onAssets('正在装载战斗模型…');
+  report();
   Promise.all(names.map(async ({ id, name }) => {
     try {
       if (!cache.has(name)) cache.set(name, loadSideviewSpine(name));
@@ -55,7 +72,7 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
       if (disposed) return;
       const unit = makeSideviewSpine(data); units.set(id, unit); figures.addChild(unit.spine);
     } catch { if (!disposed) failures.add(name); }
-  })).then(() => { if (!disposed) report(); });
+  })).then(() => { if (!disposed) { pendingAssets--; report(); } });
   function drawUnit(id: string, body: Body, dt: number, attacking: boolean, hurt: boolean, dead = false) {
     const unit = units.get(id);
     if (!unit) return false;
@@ -108,27 +125,41 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
     world.scale.set(scale); world.position.set(-camera * scale, -cy * scale);
     scenery.clear(); scenery.scale.set(scale);
     scenery.beginFill(C.sky).drawRect(0, 0, vw, vh).endFill();
-    layers.forEach((layer, i) => {
-      const textureScale = height / 160;
-      layer.width = width; layer.height = layer.texture.height * textureScale;
-      layer.y = height - layer.height;
-      layer.tileScale.set(textureScale);
-      layer.tilePosition.set(-camera * scale * [0.06, 0.13, 0.27, 0.46][i], 0);
-    });
+    if (city) {
+      // Cover once, never repeat. Overscan allows a restrained parallax pan
+      // across the full level without exposing an edge at either camera limit.
+      const cover = Math.max(width / city.texture.width, height / city.texture.height) * 1.08;
+      city.scale.set(cover);
+      const travel = Math.max(1, level.worldWidth - vw);
+      const progress = Math.max(0, Math.min(1, camera / travel));
+      const horizontalRoom = Math.max(0, city.width - width);
+      const pan = Math.min(horizontalRoom, width * 0.1);
+      city.position.set(-horizontalRoom / 2 + (0.5 - progress) * pan, (height - city.height) / 2);
+    }
     terrain.clear();
     for (const p of level.platforms) {
-      if (!surfaces.children.length) terrain.beginFill(C.stone).drawRect(p.x, p.y, p.width, p.height).endFill();
-      terrain.beginFill(0xc3d9c5, 0.75).drawRect(p.x, p.y, p.width, 2).endFill();
-      terrain.beginFill(0x020c11, 0.5).drawRect(p.x, p.y + 13, p.width, Math.max(0, p.height - 13)).endFill();
-      for (let x = p.x + 12; x < p.x + p.width - 8; x += 96) terrain.beginFill(C.cyan, 0.8).drawRect(x, p.y + 5, 14, 2).endFill();
+      if (!ready.platforms) terrain.beginFill(C.stone).drawRect(p.x, p.y, p.width, p.height).endFill();
+      terrain.beginFill(0x020c11, 0.24).drawRect(p.x, p.y + 4, p.width, Math.max(0, p.height - 4)).endFill();
+      terrain.beginFill(0xb4d7d8, 0.85).drawRect(p.x, p.y, p.width, 2).endFill();
+      terrain.beginFill(0x07171f, 0.8).drawRect(p.x, p.y + p.height - 2, p.width, 2).endFill();
     }
     for (const o of level.obstacles) {
-      if (!surfaces.children.length) terrain.beginFill(C.stone).drawRect(o.x, o.y, o.width, o.height).endFill();
-      terrain.beginFill(C.orange, 0.85).drawRect(o.x + 8, o.y + 6, 22, 3).endFill();
+      if (!ready.obstacles) terrain.beginFill(C.stone).drawRect(o.x, o.y, o.width, o.height).endFill();
+      // The thin top rail identifies the full standable width, including the
+      // open handles in the illustration, without painting over the artwork.
+      terrain.lineStyle(1, C.orange, 0.7).moveTo(o.x, o.y).lineTo(o.x + o.width, o.y).lineStyle(0);
     }
     for (const h of level.hazards) {
-      terrain.beginFill(C.red, 0.22).drawRect(h.x, h.y, h.width, h.height).endFill();
-      for (let x = h.x; x < h.x + h.width; x += 16) terrain.beginFill(C.red, 0.8).drawPolygon([x, h.y + h.height, x + 7, h.y - 4, x + 14, h.y + h.height]).endFill();
+      terrain.beginFill(C.red, 0.09).drawRect(h.x, h.y, h.width, h.height).endFill();
+      if (!ready.hazards) {
+        for (let x = h.x; x < h.x + h.width; x += 16) {
+          const right = Math.min(x + 14, h.x + h.width);
+          terrain.beginFill(C.red, 0.8).drawPolygon([x, h.y + h.height, (x + right) / 2, h.y, right, h.y + h.height]).endFill();
+        }
+      }
+      // End ticks and a red baseline expose the exact dangerous interval.
+      terrain.lineStyle(1.5, C.red, 0.9).moveTo(h.x, h.y).lineTo(h.x, h.y + h.height)
+        .lineTo(h.x + h.width, h.y + h.height).lineTo(h.x + h.width, h.y).lineStyle(0);
     }
     const goal = level.goal, unlocked = s.enemies.every(e => e.hp <= 0);
     terrain.lineStyle(4, unlocked ? C.cyan : 0x71858b).drawRect(goal.x, goal.y, goal.width, goal.height).lineStyle(0);
