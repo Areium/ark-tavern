@@ -63,11 +63,11 @@ export default function WorldbookGroupList<T>({
       >
         <AppIcon name="content" size={13} />
         <span className="truncate">{allLabel}</span>
-        <span className="text-[11px] text-gray-500 ml-auto">({totalCount})</span>
+        <span className="text-[12px] text-gray-500 ml-auto">({totalCount})</span>
       </button>
 
       {activeMissing && (
-        <p className="text-[10px] text-gray-600 text-center py-1">
+        <p className="text-[11px] text-gray-600 text-center py-1">
           当前来源下无匹配条目，点上方「{allLabel}」查看其它来源
         </p>
       )}
@@ -107,7 +107,7 @@ export default function WorldbookGroupList<T>({
                   size={12}
                 />
                 <span className="truncate">{group.label}</span>
-                <span className="text-[11px] text-gray-500 shrink-0">
+                <span className="text-[12px] text-gray-500 shrink-0">
                   ({group.items.length})
                 </span>
               </button>
@@ -163,7 +163,7 @@ export function GroupDimensionToggle<T extends string>({
             title={opt.hint}
             aria-pressed={value === opt.id}
             className={
-              "flex items-center gap-1 px-2 py-0.5 rounded text-[11px] whitespace-nowrap transition-colors " +
+              "flex items-center gap-1 px-2 py-0.5 rounded text-[12px] whitespace-nowrap transition-colors " +
               (value === opt.id
                 ? "bg-amber-600/25 text-amber-300"
                 : "text-gray-500 hover:text-gray-300")

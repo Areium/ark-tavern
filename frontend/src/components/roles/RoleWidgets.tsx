@@ -25,8 +25,8 @@ export function SourceBookBadge({
 }) {
   const xs = size === "xs";
   const cls = xs
-    ? "text-[10px] px-1 py-px gap-0.5 max-w-[8rem]"
-    : "text-[11px] px-1.5 py-0.5 gap-1 max-w-[12rem]";
+    ? "text-[11px] px-1 py-px gap-0.5 max-w-[8rem]"
+    : "text-[12px] px-1.5 py-0.5 gap-1 max-w-[12rem]";
   if (!name) {
     return (
       <span
@@ -241,7 +241,7 @@ export function WorldbookSelect({
 }) {
   return (
     <select
-      className="bg-gray-800/80 border border-gray-700 rounded-md px-1.5 py-1 text-[11px] text-gray-300 max-w-[12rem]"
+      className="bg-gray-800/80 border border-gray-700 rounded-md px-1.5 py-1 text-[12px] text-gray-300 max-w-[12rem]"
       value={value}
       onChange={(e) => onChange(e.target.value)}
       title="标注来源世界书"

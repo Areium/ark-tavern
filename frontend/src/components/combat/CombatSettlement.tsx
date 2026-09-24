@@ -28,8 +28,8 @@ function XpBar({ xp, needed, level }: { xp: number; needed: number; level: numbe
   return (
     <div>
       <div className="flex justify-between items-center mb-1">
-        <span className="text-[10px] text-gray-500 font-mono">XP {xp} / {needed}</span>
-        <span className="text-[10px] text-gray-500 font-mono">Lv.{level}</span>
+        <span className="text-[11px] text-gray-500 font-mono">XP {xp} / {needed}</span>
+        <span className="text-[11px] text-gray-500 font-mono">Lv.{level}</span>
       </div>
       <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
         <div className="h-full bg-amber-400 transition-all" style={{ width: pct + "%" }} />
@@ -45,7 +45,7 @@ function CharacterRow({ ch }: { ch: CharacterSettlementDTO }) {
       <div className="flex items-center gap-2 mb-1.5">
         <span className="text-sm text-gray-100 font-display tracking-wide">{ch.name}</span>
         {!ch.alive && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-950/70 text-red-300 border border-red-900/60">
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-950/70 text-red-300 border border-red-900/60">
             阵亡
           </span>
         )}
@@ -60,7 +60,7 @@ function CharacterRow({ ch }: { ch: CharacterSettlementDTO }) {
           <span className="text-cyan-400 text-xs">→</span>
           <span className="text-sm font-bold text-combat-gold font-mono">Lv.{ch.level_after}</span>
           {ch.level_delta > 1 && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-950/70 text-amber-300 border border-amber-900/60">
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-950/70 text-amber-300 border border-amber-900/60">
               连升 {ch.level_delta} 级
             </span>
           )}
@@ -74,7 +74,7 @@ function CharacterRow({ ch }: { ch: CharacterSettlementDTO }) {
           {ch.attribute_changes.map((a) => (
             <span
               key={a.name}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/50 text-emerald-300 border border-emerald-900/60 font-mono"
+              className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-950/50 text-emerald-300 border border-emerald-900/60 font-mono"
             >
               {a.name} {a.before} → {a.after} ({a.delta > 0 ? "+" : ""}{a.delta})
             </span>
@@ -85,7 +85,7 @@ function CharacterRow({ ch }: { ch: CharacterSettlementDTO }) {
       {((ch.attribute_points_gained || 0) > 0
         || (ch.specialization_points_gained || 0) > 0
         || (ch.attribute_points_pending || 0) > 0) && (
-        <div className="flex flex-wrap items-center gap-2 mb-1.5 text-[10px] text-gray-400">
+        <div className="flex flex-wrap items-center gap-2 mb-1.5 text-[11px] text-gray-400">
           {(ch.attribute_points_gained || 0) > 0 && (
             <span>
               属性点 +{ch.attribute_points_gained}
@@ -105,7 +105,7 @@ function CharacterRow({ ch }: { ch: CharacterSettlementDTO }) {
       <XpBar xp={ch.xp_after} needed={ch.xp_needed} level={ch.level_after} />
 
       {ch.capped && (
-        <div className="text-[10px] text-gray-500 mt-1.5">⛔ {ch.cap_reason}</div>
+        <div className="text-[11px] text-gray-500 mt-1.5">⛔ {ch.cap_reason}</div>
       )}
     </div>
   );
@@ -140,7 +140,7 @@ export default function CombatSettlement({
 
         {/* 经验公式说明 */}
         {rewards?.xp_formula && (
-          <div className="text-[10px] text-gray-600 font-mono text-center mb-3">
+          <div className="text-[11px] text-gray-600 font-mono text-center mb-3">
             {rewards.xp_formula}
           </div>
         )}
@@ -155,7 +155,7 @@ export default function CombatSettlement({
         {/* 角色结算 */}
         {settlement.characters.length > 0 && (
           <div className="mb-4">
-            <div className="text-[10px] text-gray-500 font-display tracking-wider mb-2">
+            <div className="text-[11px] text-gray-500 font-display tracking-wider mb-2">
               参战角色（{settlement.characters.length}）
             </div>
             <div className="space-y-2">
@@ -168,7 +168,7 @@ export default function CombatSettlement({
 
         {/* 其他奖励 */}
         <div className="mb-4">
-          <div className="text-[10px] text-gray-500 font-display tracking-wider mb-2">奖励</div>
+          <div className="text-[11px] text-gray-500 font-display tracking-wider mb-2">奖励</div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs px-2 py-1 rounded bg-amber-950/40 text-amber-300 border border-amber-900/50 font-mono">
               经验 {rewards?.xp_total ?? 0}
@@ -186,7 +186,7 @@ export default function CombatSettlement({
             )}
           </div>
           {(rewards?.unwired || []).length > 0 && (
-            <div className="text-[10px] text-gray-600 mt-2">
+            <div className="text-[11px] text-gray-600 mt-2">
               遭遇声明了尚未接入结算的奖励字段：{rewards.unwired.join("、")}
             </div>
           )}
@@ -195,7 +195,7 @@ export default function CombatSettlement({
         {/* 战后选卡 */}
         {cards.length > 0 && (
           <div className="mb-4">
-            <div className="text-[10px] text-gray-500 font-display tracking-wider mb-2">
+            <div className="text-[11px] text-gray-500 font-display tracking-wider mb-2">
               选择一张卡加入卡组（下场战斗可用）
             </div>
             <div className="flex gap-2">
@@ -213,8 +213,8 @@ export default function CombatSettlement({
                   disabled={!!pickedCardId}
                 >
                   <div className="text-xs font-bold">{c.name}</div>
-                  <div className="text-[10px] text-gray-500 mt-0.5">{c.description}</div>
-                  <div className="text-[9px] text-gray-600 mt-1">费用 {c.cost} · {c.class_required}</div>
+                  <div className="text-[11px] text-gray-500 mt-0.5">{c.description}</div>
+                  <div className="text-[10px] text-gray-600 mt-1">费用 {c.cost} · {c.class_required}</div>
                 </button>
               ))}
             </div>

@@ -17,7 +17,7 @@ export default function TokenUsage({ usage }: { usage: UsageData }) {
   }
 
   return (
-    <div className="text-[10px] text-gray-600 mt-1 select-none">
+    <div className="text-[11px] text-gray-600 mt-1 select-none">
       {usage.total_tokens} tokens
       <span className="text-gray-700">
         {" "}(输入 {usage.prompt_tokens} + 输出 {usage.completion_tokens})

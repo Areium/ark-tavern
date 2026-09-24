@@ -195,7 +195,7 @@ export default function CombatGrid({
             {Array.from({ length: cols }, (_, c) => (
               <div
                 key={c}
-                className="text-center text-[9px] text-gray-600 font-mono"
+                className="text-center text-[10px] text-gray-600 font-mono"
                 style={{ width: cellSize }}
               >
                 {c}
@@ -205,7 +205,7 @@ export default function CombatGrid({
           {rowNodes.map((row, i) => (
             <div key={i} className="flex gap-0.5 items-center">
               <div
-                className="text-center text-[9px] text-gray-600 font-mono"
+                className="text-center text-[10px] text-gray-600 font-mono"
                 style={{ width: cellSize }}
               >
                 {i}

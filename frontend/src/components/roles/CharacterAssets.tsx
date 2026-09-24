@@ -121,7 +121,7 @@ export default function CharacterAssets({ characterId }: Props) {
   return (
     <div className="max-w-2xl space-y-5">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-[11px] text-gray-500 leading-relaxed">
+        <p className="text-[12px] text-gray-500 leading-relaxed">
           图片存在 <code className="font-mono">characters/{entity}/</code> 下的三个子目录；带 ★ 的是当前默认图。
           会话里想临时换形象，用对话页场景面板的「资源」页（只对该会话生效）。
         </p>
@@ -138,7 +138,7 @@ export default function CharacterAssets({ characterId }: Props) {
           <section key={section.subdir}>
             <h3 className="roles-section">
               {section.label}
-              <span className="text-[10px] font-normal tracking-normal text-gray-600">{section.hint}</span>
+              <span className="text-[11px] font-normal tracking-normal text-gray-600">{section.hint}</span>
             </h3>
             <div className="flex flex-wrap gap-2">
               {images.map((img) => {
@@ -154,9 +154,9 @@ export default function CharacterAssets({ characterId }: Props) {
                     )}
                     <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 px-1 py-1 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity">
                       {!isDefault ? (
-                        <button type="button" className="text-[10px] text-amber-300 hover:text-amber-200" disabled={busy}
+                        <button type="button" className="text-[11px] text-amber-300 hover:text-amber-200" disabled={busy}
                           onClick={() => void setDefault(section.type, img.name)}>设为默认</button>
-                      ) : <span className="text-[10px] text-amber-300">默认</span>}
+                      ) : <span className="text-[11px] text-amber-300">默认</span>}
                       <button type="button" className="text-gray-300 hover:text-red-300" disabled={busy} title="删除" aria-label={`删除 ${img.name}`}
                         onClick={() => void remove(img.path)}>
                         <AppIcon name="trash" size={11} />
@@ -168,13 +168,13 @@ export default function CharacterAssets({ characterId }: Props) {
               <label className={`flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-gray-700 text-gray-500 hover:text-amber-300 hover:border-amber-500/50 cursor-pointer transition-colors ${busy ? "opacity-50 pointer-events-none" : ""}`}
                 style={{ width: section.subdir === "skin" ? 96 : 80, height: section.subdir === "skin" ? 128 : 80 }} title={`上传${section.label}`}>
                 <AppIcon name="upload" size={16} />
-                <span className="text-[10px]">上传</span>
+                <span className="text-[11px]">上传</span>
                 <input type="file" accept={IMAGE_ACCEPT} className="hidden"
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(section.subdir, f); e.target.value = ""; }} />
               </label>
             </div>
             {section.subdir !== "card_face" && images.length > 0 && (
-              <p className="mt-1.5 text-[10px] text-gray-600">
+              <p className="mt-1.5 text-[11px] text-gray-600">
                 也可以把这里的图设为卡面：
                 {images.map((img) => (
                   <button key={img.path} type="button" className="ml-1.5 underline hover:text-amber-300" disabled={busy}

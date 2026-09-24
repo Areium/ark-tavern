@@ -640,7 +640,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
           <div className="flex items-center gap-2 min-w-0">
             <span className="chat-head-round">ROUND {Math.max(activeSession.narration_count ?? 0, narrationCount)}</span>
             {activeSession.in_combat && (
-              <span className="text-[10px] text-orange-400 font-medium animate-pulse">⚔ 战斗中</span>
+              <span className="text-[11px] text-orange-400 font-medium animate-pulse">⚔ 战斗中</span>
             )}
             {!activeSession.in_combat && activeSession.combat_resumable && (
               <button
@@ -653,7 +653,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
               </button>
             )}
             {chatMode === "story" && activeSession.combat_mode === "tactical" && (
-              <span className="text-[10px] text-orange-400/70 font-medium">⚔ 战术</span>
+              <span className="text-[11px] text-orange-400/70 font-medium">⚔ 战术</span>
             )}
             {chatMode === "story" && activeSession.combat_mode === "tactical" && !activeSession.in_combat && (
               <button
@@ -845,7 +845,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                           >
                             ◂
                           </button>
-                          <span className="text-[10px] text-gray-600">
+                          <span className="text-[11px] text-gray-600">
                             {(msg.variantIndex ?? 0) + 1}/{msg.variants.length}
                           </span>
                           <button
@@ -941,7 +941,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                           onClick={() => handleDeleteMessage(i)}
                           disabled={choiceLocked}
                           className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-gray-600
-                            text-gray-300 hover:bg-red-500 text-[10px] leading-5
+                            text-gray-300 hover:bg-red-500 text-[11px] leading-5
                             opacity-0 group-hover:opacity-100 transition-opacity disabled:hidden"
                           title="删除此消息"
                         >
@@ -955,7 +955,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                           onClick={() => startEdit(i, msg.content)}
                           disabled={choiceLocked}
                           className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-gray-600
-                            text-gray-300 hover:bg-gray-500 text-[10px] leading-5
+                            text-gray-300 hover:bg-gray-500 text-[11px] leading-5
                             opacity-0 group-hover:opacity-100 transition-opacity disabled:hidden"
                           title="编辑此消息"
                         >
@@ -1146,7 +1146,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
               </button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
-              <p className="text-[11px] text-gray-500 mb-3">
+              <p className="text-[12px] text-gray-500 mb-3">
                 战斗选项为必选流程节点，无法关闭；可最小化后继续查看剧情，完成后自动恢复。
               </p>
               {briefingCheck ? (
@@ -1193,7 +1193,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                       className="text-left px-3 py-2.5 bg-gray-900 border border-gray-700 rounded-lg hover:bg-gray-700 transition-colors"
                     >
                       <span className="text-sm text-gray-200 font-medium">{ap.label}</span>
-                      <span className="block text-[11px] text-gray-500 mt-0.5">{ap.hint}</span>
+                      <span className="block text-[12px] text-gray-500 mt-0.5">{ap.hint}</span>
                     </button>
                   ))}
                 </div>

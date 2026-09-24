@@ -81,7 +81,7 @@ function FieldControl({ field, value, disabled, onChange }: {
             <div className="stat-meter-fill" style={{ width: `${pct}%` }} />
           </div>
         )}
-        {pct == null && max != null && <span className="text-[10px] text-gray-500">/ {max}</span>}
+        {pct == null && max != null && <span className="text-[11px] text-gray-500">/ {max}</span>}
       </div>
     );
   }

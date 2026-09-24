@@ -673,13 +673,13 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
           </select>
         )}
         {doc && (
-          <span className="text-[10px] text-gray-500 shrink-0">
+          <span className="text-[11px] text-gray-500 shrink-0">
             {doc.nodes.length} 节点 · {doc.edges.length} 连线
           </span>
         )}
         <div className="flex-1" />
         {notice && (
-          <span className={"text-[11px] shrink-0 " + (notice.kind === "err" ? "text-red-300" : "text-emerald-300")}>
+          <span className={"text-[12px] shrink-0 " + (notice.kind === "err" ? "text-red-300" : "text-emerald-300")}>
             {notice.text}
           </span>
         )}
@@ -695,26 +695,26 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
         >↪ 重做</button>
         <span className="w-px h-4 bg-gray-700" />
         <button
-          className="text-[11px] px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 disabled:opacity-30"
+          className="text-[12px] px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 disabled:opacity-30"
           disabled={!doc}
           onClick={addNoteAtCenter}
           title="在视口中心新建自由节点"
         >✎ 自由节点</button>
         <button
-          className="text-[11px] px-2 py-1 rounded bg-amber-700/30 border border-amber-600/50 hover:bg-amber-700/50 disabled:opacity-40"
+          className="text-[12px] px-2 py-1 rounded bg-amber-700/30 border border-amber-600/50 hover:bg-amber-700/50 disabled:opacity-40"
           disabled={!doc}
           onClick={() => { const c = canvasApi.current?.centerWorld(); if (c) setCombatModal({ wx: c.x, wy: c.y, id: "", name: "", error: "" }); }}
           title="新建战斗节点并加入节点图"
         >＋ 战斗节点</button>
         <button
-          className="text-[11px] px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 disabled:opacity-30"
+          className="text-[12px] px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 disabled:opacity-30"
           disabled={!doc || doc.nodes.length === 0}
           onClick={resetPositions}
           title="重置节点位置：把全部节点坐标恢复为剧情结构的默认布局（保留节点与连线，可 Ctrl+Z 撤销）"
         >⟲ 重置节点位置</button>
         <span className="w-px h-4 bg-gray-700" />
         <span className={
-          "text-[11px] shrink-0 " +
+          "text-[12px] shrink-0 " +
           (saveState.status === "error" ? "text-red-300"
             : dirty ? "text-amber-400"
             : saveState.status === "saved" ? "text-emerald-300" : "text-gray-500")
@@ -724,7 +724,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
             : saveState.text || "已同步"}
         </span>
         <button
-          className="text-[11px] px-3 py-1 rounded bg-emerald-800/40 border border-emerald-600/50 hover:bg-emerald-800/70 disabled:opacity-40"
+          className="text-[12px] px-3 py-1 rounded bg-emerald-800/40 border border-emerald-600/50 hover:bg-emerald-800/70 disabled:opacity-40"
           onClick={() => save()} disabled={!plotId || saveState.status === "saving"}
           title="把当前剧情的节点图保存到世界书（Ctrl+S）"
         >💾 保存</button>
@@ -732,7 +732,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
 
       {/* ── 二级菜单：剧情切换（一页一剧情） ── */}
       <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-800/80 bg-gray-900/40 shrink-0 overflow-x-auto">
-        <span className="text-[10px] text-gray-500 mr-1 shrink-0">剧情</span>
+        <span className="text-[11px] text-gray-500 mr-1 shrink-0">剧情</span>
         {loading && !overview && <span className="text-xs text-gray-500 px-2">加载中…</span>}
         {plots.map((p) => {
           const active = p.plot_id === plotId;
@@ -762,7 +762,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
         )}
         <div className="flex-1" />
         {currentPlot && (
-          <span className="text-[10px] text-gray-500 shrink-0 mr-1"
+          <span className="text-[11px] text-gray-500 shrink-0 mr-1"
             title={currentPlot.source === "outline"
               ? "章节来自参考大纲（书内 LLM 分析结果，未分析时为按标题启发式切幕）"
               : "章节来自剧情正文的「## 章节 N」骨架"}>
@@ -890,7 +890,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50" onPointerDown={(e) => e.stopPropagation()}>
             <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 w-96 shadow-2xl">
               <p className="text-sm text-gray-100 mb-1">从图中移除「{node?.title || "节点"}」？</p>
-              <p className="text-[11px] text-gray-400 mb-3">
+              <p className="text-[12px] text-gray-400 mb-3">
                 {linked
                   ? "仅移除图上的引用节点，底层剧情/战斗数据不受影响；可用 Ctrl+Z 撤销。"
                   : "该节点的标题与备注只存在于图文档中；可用 Ctrl+Z 撤销。"}
@@ -920,7 +920,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
                 placeholder="名称（可选）"
                 value={combatModal.name}
                 onChange={(e) => setCombatModal({ ...combatModal, name: e.target.value, error: "" })} />
-              {combatModal.error && <p className="text-[11px] text-red-300">{combatModal.error}</p>}
+              {combatModal.error && <p className="text-[12px] text-red-300">{combatModal.error}</p>}
             </div>
             <div className="flex justify-end gap-2">
               <button className="text-xs px-3 py-1.5 rounded border border-gray-700 hover:bg-gray-800"

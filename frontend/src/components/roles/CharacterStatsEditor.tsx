@@ -84,7 +84,7 @@ export default function CharacterStatsEditor({ characterId }: Props) {
 
   return (
     <div className="max-w-xl space-y-4">
-      <div className="flex items-start gap-2 text-[11px] text-gray-500 leading-relaxed">
+      <div className="flex items-start gap-2 text-[12px] text-gray-500 leading-relaxed">
         <AppIcon name="info" size={13} className="mt-0.5 shrink-0" />
         <span>
           这里是角色的<b className="text-gray-300">全局默认值</b>，写进角色目录的 <code className="font-mono">index.md</code>。
@@ -107,7 +107,7 @@ export default function CharacterStatsEditor({ characterId }: Props) {
 
       <StatValuesForm fields={data.fields} values={data.values} sources={data.sources} ownSource="global" onChange={change} />
 
-      <div className="flex items-center justify-between text-[11px] text-gray-500">
+      <div className="flex items-center justify-between text-[12px] text-gray-500">
         <span>{status === "saving" ? "保存中…" : status === "saved" ? "已保存" : error ? <span className="text-red-400">{error}</span> : ""}</span>
         {data.worldbook_id && (
           <ActionButton icon="worldbook" variant="ghost" onClick={jumpToBook} title="在世界书工作台编辑这本书的统一字段">

@@ -44,7 +44,7 @@ const CLASS_DOT_COLORS: Record<string, string> = {
 function renderStars(tier: string) {
   const filled = tier === "elite" ? 3 : 1;
   return Array.from({ length: 6 }, (_, i) => (
-    <span className={i < filled ? "text-yellow-400 text-[11px]" : "text-gray-700 text-[11px] star-empty"} key={i}>
+    <span className={i < filled ? "text-yellow-400 text-[12px]" : "text-gray-700 text-[12px] star-empty"} key={i}>
       ★
     </span>
   ));
@@ -121,8 +121,8 @@ export default function CombatCard({ card, index, affordable, selected, highligh
         {!compact && (
           <div className="flex items-center gap-1">
             <span className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: classDotColor }} />
-            <span className="text-[11px] text-gray-500">{card.class_required === "any" ? "通用" : card.class_required}</span>
-            {card.owner && <span className="text-[11px] text-combat-gold">{card.owner}</span>}
+            <span className="text-[12px] text-gray-500">{card.class_required === "any" ? "通用" : card.class_required}</span>
+            {card.owner && <span className="text-[12px] text-combat-gold">{card.owner}</span>}
           </div>
         )}
       </div>
@@ -154,11 +154,11 @@ export default function CombatCard({ card, index, affordable, selected, highligh
             onError={() => setImgError(true)}
           />
         ) : null}
-        <span className={`absolute top-1 right-1 text-[11px] font-bold ${DMG_COLORS[card.damage_type] || "text-gray-400"}`}>
+        <span className={`absolute top-1 right-1 text-[12px] font-bold ${DMG_COLORS[card.damage_type] || "text-gray-400"}`}>
           {DMG_LABELS[card.damage_type]?.charAt(0) || "?"}
         </span>
         {showWatermark && (
-          <span className="text-gray-600 text-[10px] font-mono opacity-30 rotate-[-30deg] select-none absolute inset-0 flex items-center justify-center">
+          <span className="text-gray-600 text-[11px] font-mono opacity-30 rotate-[-30deg] select-none absolute inset-0 flex items-center justify-center">
             {card.name.length > 4 ? card.name.slice(0, 2) : card.name}
           </span>
         )}

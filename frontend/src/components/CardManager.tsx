@@ -180,7 +180,7 @@ export default function CardManager() {
           className={type === "character" ? "text-purple-400" : "text-amber-500"}
         />
         <span className="truncate">{name}</span>
-        {classOf && <span className="text-[10px] text-gray-500 shrink-0">{classOf}</span>}
+        {classOf && <span className="text-[11px] text-gray-500 shrink-0">{classOf}</span>}
         <span className="flex-1" />
         {/* 来源徽章只在「按类型」维度显示；「按世界书」维度下分组标题已经标明来源。
             未标注的条目不占位，免得 9 个职业各拖一个「未分类」 */}
@@ -204,7 +204,7 @@ export default function CardManager() {
           <AppIcon name={isCollapsed ? "forward" : "expand"} size={12} className="text-gray-500" />
           <AppIcon name={type === "character" ? "user" : "class"} size={13} className={type === "character" ? "text-purple-400" : "text-amber-500"} />
           <span>{label}</span>
-          <span className="text-[11px] text-gray-600 font-normal">({names.length})</span>
+          <span className="text-[12px] text-gray-600 font-normal">({names.length})</span>
         </button>
         {!isCollapsed && (
           <div className="ml-2 pl-2 border-l border-gray-700/30 space-y-0.5">
@@ -244,7 +244,7 @@ export default function CardManager() {
           />
           {dimension === "type" && (
             <select
-              className="w-full bg-gray-800/80 border border-gray-700 rounded-md px-2 py-1 text-[11px] text-gray-300"
+              className="w-full bg-gray-800/80 border border-gray-700 rounded-md px-2 py-1 text-[12px] text-gray-300"
               value={bookFilter}
               onChange={(e) => setBookFilter(e.target.value)}
               title="按所属世界书筛选"
@@ -307,7 +307,7 @@ export default function CardManager() {
               title={selectedCardEntity}
               actions={
                 <>
-                  <span className="text-[11px] text-gray-500">所属世界书</span>
+                  <span className="text-[12px] text-gray-500">所属世界书</span>
                   <WorldbookSelect
                     value={bookOf(selectedCardEntityType, selectedCardEntity)}
                     worldbooks={worldbooks}

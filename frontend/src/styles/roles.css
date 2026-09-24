@@ -12,7 +12,7 @@
   --roles-muted: var(--ng-muted, #8b93a1);
   --roles-accent: var(--ng-edge-color-hl, #dfa945);
   --roles-line: color-mix(in srgb, var(--roles-muted) 26%, transparent);
-  font-size: 12.5px;
+  font-size: 13.5px;
   line-height: 1.5;
 }
 
@@ -22,7 +22,7 @@
   align-items: center;
   gap: 5px;
   font-family: var(--roles-display);
-  font-size: 9.5px;
+  font-size: 10.5px;
   font-weight: 600;
   letter-spacing: .2em;
   text-transform: uppercase;
@@ -46,7 +46,7 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: .14em;
   color: var(--roles-muted);
@@ -90,10 +90,10 @@
   padding: 24px;
   text-align: center;
   color: var(--roles-muted);
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 .roles-empty > svg { opacity: .4; }
-.roles-empty small { display: block; font-size: 11px; opacity: .75; line-height: 1.5; }
+.roles-empty small { display: block; font-size: 12px; opacity: .75; line-height: 1.5; }
 
 /* 键值表（资产详情） */
 .roles-kv {
@@ -101,16 +101,16 @@
   grid-template-columns: 5.5em minmax(0, 1fr);
   gap: 5px 12px;
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 .roles-kv dt { color: var(--roles-muted); }
 .roles-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--roles-body); }
-.roles-kv dd.is-mono { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: 11px; }
+.roles-kv dd.is-mono { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: 12px; }
 
 /* 资产分类标题（characters / classes …）：Orbitron 眉标风格的小字 */
 .roles-category {
   font-family: var(--roles-display);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: .18em;
   text-transform: uppercase;
@@ -119,7 +119,7 @@
 
 /* 资产缩略图网格里的子目录名（avatar / skin / card art） */
 .roles-subdir {
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: .12em;
   text-transform: uppercase;
   color: var(--roles-muted);
@@ -132,7 +132,7 @@
 }
 .roles-detail-tabs button {
   display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 11px; margin-bottom: -1px;
-  border-bottom: 2px solid transparent; font-size: 12px; color: var(--roles-muted); transition: color .15s, border-color .15s;
+  border-bottom: 2px solid transparent; font-size: 13px; color: var(--roles-muted); transition: color .15s, border-color .15s;
 }
 .roles-detail-tabs button:hover { color: var(--roles-text); }
 .roles-detail-tabs button[aria-pressed="true"] { color: var(--roles-accent); border-bottom-color: var(--roles-accent); }

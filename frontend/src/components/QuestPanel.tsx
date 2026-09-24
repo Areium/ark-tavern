@@ -51,7 +51,7 @@ function QuestItem({
       >
         {/* Type badge */}
         <span
-          className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${
+          className={`text-[11px] px-1.5 py-0.5 rounded font-medium shrink-0 ${
             quest.type === "main"
               ? "bg-amber-600/30 text-amber-300"
               : quest.type === "deep"
@@ -71,7 +71,7 @@ function QuestItem({
         </span>
 
         {/* Status label */}
-        <span className={`text-[10px] shrink-0 ${st.color}`}>{st.label}</span>
+        <span className={`text-[11px] shrink-0 ${st.color}`}>{st.label}</span>
 
         {/* Expand icon */}
         {!isLocked && (
@@ -250,13 +250,13 @@ export default function QuestPanel() {
         {!plotId ? (
           <button
             onClick={handleLoadPlot}
-            className="text-[10px] px-2 py-1 rounded-md bg-blue-600/20 text-blue-400
+            className="text-[11px] px-2 py-1 rounded-md bg-blue-600/20 text-blue-400
                        hover:bg-blue-600/40 transition-colors"
           >
             加载剧情
           </button>
         ) : (
-          <span className="text-[10px] text-gray-500">
+          <span className="text-[11px] text-gray-500">
             {activeCount > 0 && `${activeCount} 进行中 `}
             {visibleCount > 0 && `${visibleCount} 待触发 `}
             {activeCount === 0 && visibleCount === 0 && `${completedCount} 已完成`}
@@ -284,7 +284,7 @@ export default function QuestPanel() {
       {/* Main quests */}
       {mainQuests.length > 0 && (
         <div className="space-y-1">
-          <p className="text-[10px] text-amber-500/70 font-medium px-1">主线任务</p>
+          <p className="text-[11px] text-amber-500/70 font-medium px-1">主线任务</p>
           {mainQuests.map((q) => (
             <QuestItem
               key={q.id}
@@ -299,7 +299,7 @@ export default function QuestPanel() {
       {/* Side quests */}
       {sideQuests.length > 0 && (
         <div className="space-y-1">
-          <p className="text-[10px] text-blue-400/70 font-medium px-1">支线任务</p>
+          <p className="text-[11px] text-blue-400/70 font-medium px-1">支线任务</p>
           {sideQuests.map((q) => (
             <QuestItem
               key={q.id}
@@ -315,7 +315,7 @@ export default function QuestPanel() {
       {plotId && (
         <button
           onClick={handleLoadPlot}
-          className="w-full text-[10px] text-gray-600 hover:text-gray-400 transition-colors py-1"
+          className="w-full text-[11px] text-gray-600 hover:text-gray-400 transition-colors py-1"
         >
           切换剧情 ({plotId})
         </button>

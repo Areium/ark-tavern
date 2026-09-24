@@ -44,7 +44,7 @@ function SessionNotesPanel({ ctx }: ScenePanelProps) {
 
   return (
     <div className="space-y-2">
-      <p className="text-[11px] text-gray-500 leading-relaxed">
+      <p className="text-[12px] text-gray-500 leading-relaxed">
         写给自己的备忘：线索、约定、还没兑现的伏笔。只属于本会话，回档到旧节点时会一起回到那时的内容。
       </p>
       <textarea
@@ -53,7 +53,7 @@ function SessionNotesPanel({ ctx }: ScenePanelProps) {
         placeholder="例如：答应过瑕光去看比赛；临光的剑还没修好……"
         onChange={(e) => save(e.target.value)}
       />
-      <div className="flex items-center justify-between text-[10px] text-gray-500">
+      <div className="flex items-center justify-between text-[11px] text-gray-500">
         <span>
           {status === "saving" ? "保存中…" : status === "error" ? "保存失败" : savedAt ? `已保存 ${new Date(savedAt * 1000).toLocaleTimeString()}` : "尚未保存"}
         </span>

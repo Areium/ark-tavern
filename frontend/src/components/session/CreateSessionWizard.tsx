@@ -241,7 +241,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700/70 shrink-0">
           <div>
             <h2 className="text-lg font-bold text-amber-300">新建会话</h2>
-            <p className="text-[11px] text-gray-500 mt-0.5">按步骤配置你的故事开端</p>
+            <p className="text-[12px] text-gray-500 mt-0.5">按步骤配置你的故事开端</p>
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -325,7 +325,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                       <span className="text-sm">📜</span>
                       <span className="text-sm font-medium text-blue-300">纯剧情叙述</span>
                     </div>
-                    <p className="text-[11px] text-gray-500">战斗由叙述呈现，不进入战术回合制。</p>
+                    <p className="text-[12px] text-gray-500">战斗由叙述呈现，不进入战术回合制。</p>
                   </div>
                   <div
                     className={`pick-card p-3 ${combatMode === "tactical" ? "selected" : ""}`}
@@ -335,7 +335,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                       <span className="text-sm">⚔️</span>
                       <span className="text-sm font-medium text-orange-300">战术模式</span>
                     </div>
-                    <p className="text-[11px] text-gray-500">对话中触发战斗时进入 7×7 回合制战术战斗。</p>
+                    <p className="text-[12px] text-gray-500">对话中触发战斗时进入 7×7 回合制战术战斗。</p>
                   </div>
                 </div>
               </div>
@@ -358,7 +358,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                 onClick={() => pickPlot("")}
               >
                 <span className="text-sm text-gray-300 font-medium">不绑定</span>
-                <span className="text-[11px] text-gray-500 ml-2">自由探索，不加载任何剧情</span>
+                <span className="text-[12px] text-gray-500 ml-2">自由探索，不加载任何剧情</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto lobby-scroll pr-1">
                 {filteredPlots.map((p) => (
@@ -373,9 +373,9 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                         {p.category === "main" ? "主线" : p.category}
                       </span>
                     </div>
-                    <div className="text-[10px] text-gray-600 mt-1">{p.id}</div>
+                    <div className="text-[11px] text-gray-600 mt-1">{p.id}</div>
                     {!!p.initial_characters?.length && (
-                      <div className="text-[10px] text-cyan-300 mt-1">
+                      <div className="text-[11px] text-cyan-300 mt-1">
                         开场角色 {p.initial_characters.length} 名 · 选中后自动预选入队
                       </div>
                     )}
@@ -396,7 +396,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                 onClick={() => setWorldbookId(null)}
               >
                 <span className="text-sm text-gray-300 font-medium">不绑定</span>
-                <span className="text-[11px] text-gray-500 ml-2">不使用世界书注入</span>
+                <span className="text-[12px] text-gray-500 ml-2">不使用世界书注入</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto lobby-scroll pr-1">
                 {books.map((b) => (
@@ -409,7 +409,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                       <span className="text-sm font-medium text-gray-200 truncate">{b.name}</span>
                       {b.is_default && <span className="badge badge-wb">默认</span>}
                     </div>
-                    <div className="text-[10px] text-gray-600 mt-1">
+                    <div className="text-[11px] text-gray-600 mt-1">
                       {b.entry_count} 条目 · 预算 {b.budget_tokens} tokens · {b.source_format}
                     </div>
                   </div>
@@ -433,7 +433,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   <button
                     type="button"
                     onClick={() => { setCharacterTab("characters"); setCurrentView("characters"); onClose(); }}
-                    className="text-[11px] px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+                    className="text-[12px] px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
                   >
                     去角色库创建角色
                   </button>
@@ -448,18 +448,18 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                         <span className="badge badge-narrative ml-2">本次主控 · 玩家身份</span>
                         <span className="badge badge-wb ml-1.5">已入队</span>
                       </div>
-                      <div className="text-[10px] text-gray-500 mt-0.5 truncate">{summaryText(mainControlItem)}</div>
+                      <div className="text-[11px] text-gray-500 mt-0.5 truncate">{summaryText(mainControlItem)}</div>
                     </div>
                     <button
                       type="button"
                       onClick={() => setMainControl("")}
-                      className="text-[11px] text-gray-400 hover:text-gray-200 px-2 py-1 rounded bg-gray-700/60"
+                      className="text-[12px] text-gray-400 hover:text-gray-200 px-2 py-1 rounded bg-gray-700/60"
                     >
                       取消选择
                     </button>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-amber-300" role="alert">
+                  <p className="text-[12px] text-amber-300" role="alert">
                     还没选主控：选一个角色才能创建会话（它会是你的玩家身份，并同时入队）。
                   </p>
                 )}
@@ -503,7 +503,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                 )}
 
                 {teammates.length === 0 && (
-                  <p className="text-[11px] text-amber-300" role="alert">
+                  <p className="text-[12px] text-amber-300" role="alert">
                     {mode === "story" && plotId
                       ? "队友为空：本次会话只会载入主控角色。剧情开场角色只在未指定阵容时由服务端补齐，这里显式留空就不会补。"
                       : "队友为空：本次会话只载入主控角色，创建后可到会话大厅的「角色阵容」入队。"}
@@ -527,12 +527,12 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
 
               {/* ③ 阵容 → 候选范围（服务端真实解析） */}
               <section className="space-y-2" aria-label="本次阵容">
-                <p className="text-[11px] text-gray-500">
+                <p className="text-[12px] text-gray-500">
                   本次阵容 {lineup.length} 名：{lineup.length
                     ? lineup.map((key) => itemName(key) + (key === mainControl ? "（主控）" : (plotPreset.includes(key) ? "（剧情预选）" : ""))).join("、")
                     : "（空）"}
                 </p>
-                {!worldbookId && <p className="text-[11px] text-gray-500">
+                {!worldbookId && <p className="text-[12px] text-gray-500">
                   未绑定世界书：阵容不会影响设定载入。上一步可以选一本世界书。
                 </p>}
               </section>
@@ -646,7 +646,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                 </div>
 
                 {!!scopePreview?.warnings?.length && <div className="space-y-1">
-                  {scopePreview.warnings.map((warning) => <p key={warning} className="text-[11px] text-amber-300">{warning}</p>)}
+                  {scopePreview.warnings.map((warning) => <p key={warning} className="text-[12px] text-amber-300">{warning}</p>)}
                 </div>}
               </div>}
             </div>
@@ -665,7 +665,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                 />
               </div>
               <div className="detail-section p-4 space-y-2">
-                <p className="text-[11px] text-gray-500 tracking-wider">配置预览</p>
+                <p className="text-[12px] text-gray-500 tracking-wider">配置预览</p>
                 <div className="flex flex-wrap gap-2">
                   <span className={`badge ${mode === "story" ? "badge-story" : "badge-free"}`}>
                     {mode === "story" ? "📖 剧情模式" : "🕊️ 自由模式"}
@@ -688,7 +688,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                       {presetSelected.length > 0 && (
                         <span className="badge badge-wb">🗺 剧情预选 {presetSelected.length} 名</span>
                       )}
-                      <p className="text-[11px] text-gray-400 w-full mt-1">
+                      <p className="text-[12px] text-gray-400 w-full mt-1">
                         角色：{lineup.map((key) =>
                           itemName(key)
                           + (key === mainControl ? "（主控）" : (plotPreset.includes(key) ? "（剧情预选）" : ""))

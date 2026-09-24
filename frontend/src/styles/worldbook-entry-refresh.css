@@ -28,7 +28,7 @@
   --wber-display: "Orbitron", "Noto Sans SC", sans-serif;
   display: grid; grid-template-columns: 272px minmax(0, 1fr); height: 100%; min-height: 0;
   color: var(--wber-body); background: var(--wber-panel); container-type: inline-size;
-  font-size: 13px; line-height: 1.5;
+  font-size: 14px; line-height: 1.5;
 }
 html.light .wber-shell {
   --wber-shadow: 0 18px 40px -24px rgba(15, 23, 42, .35);
@@ -43,7 +43,7 @@ html.light .wber-shell {
 .wber-shell button {
   appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   min-height: 32px; padding: 0 13px; border: 1px solid var(--wber-border); border-radius: 8px;
-  color: var(--wber-text); font-size: 12.5px; font-weight: 500; line-height: 1; white-space: nowrap;
+  color: var(--wber-text); font-size: 13.5px; font-weight: 500; line-height: 1; white-space: nowrap;
   background: linear-gradient(180deg, var(--wber-soft-2), var(--wber-soft));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
   cursor: pointer; user-select: none;
@@ -69,7 +69,7 @@ html.light .wber-shell {
 }
 .wber-shell button.is-danger { color: var(--wber-danger); }
 .wber-shell button.is-danger:hover:not(:disabled) { border-color: color-mix(in srgb, var(--wber-danger) 55%, transparent); background: color-mix(in srgb, var(--wber-danger) 10%, transparent); box-shadow: none; }
-.wber-shell button.is-sm { min-height: 28px; padding: 0 10px; font-size: 12px; border-radius: 7px; }
+.wber-shell button.is-sm { min-height: 28px; padding: 0 10px; font-size: 13px; border-radius: 7px; }
 .wber-shell button.is-ghost { border-color: transparent; background: transparent; box-shadow: none; }
 .wber-shell button.is-ghost:hover:not(:disabled) { background: var(--wber-soft); border-color: var(--wber-border); box-shadow: none; transform: none; }
 .wber-shell button.is-icon { width: 32px; padding: 0; }
@@ -91,7 +91,7 @@ html.light .wber-shell {
   background-position: calc(100% - 15px) 55%, calc(100% - 10px) 55%; background-size: 5px 5px; background-repeat: no-repeat; }
 .wber-shell input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: var(--wber-accent); cursor: pointer; flex-shrink: 0; }
 .wber-eyebrow {
-  display: inline-block; color: var(--wber-accent); font-family: var(--wber-display); font-size: 9.5px; font-weight: 600;
+  display: inline-block; color: var(--wber-accent); font-family: var(--wber-display); font-size: 10.5px; font-weight: 600;
   letter-spacing: .22em; text-transform: uppercase; opacity: .9;
 }
 
@@ -109,9 +109,9 @@ html.light .wber-shell {
 .wber-shelf-head .wber-eyebrow { white-space: nowrap; }
 .wber-shelf-head h2 { margin-top: 4px; font-family: var(--wber-serif); font-size: 21px; font-weight: 700; letter-spacing: .04em; line-height: 1.15; color: var(--wber-text); }
 .wber-head-actions, .wber-hero-actions, .wber-dialog-actions { display: flex; gap: 6px; }
-.wber-head-actions button { min-height: 30px; padding: 0 9px; font-size: 12px; }
+.wber-head-actions button { min-height: 30px; padding: 0 9px; font-size: 13px; }
 .wber-filters { display: flex; gap: 3px; margin: 0 14px 12px; padding: 3px; border: 1px solid var(--wber-border); border-radius: 9px; background: var(--wber-soft); }
-.wber-filters button { flex: 1; min-height: 26px; padding: 0 6px; border: none; border-radius: 6px; background: transparent; box-shadow: none; color: var(--wber-muted); font-size: 12px; }
+.wber-filters button { flex: 1; min-height: 26px; padding: 0 6px; border: none; border-radius: 6px; background: transparent; box-shadow: none; color: var(--wber-muted); font-size: 13px; }
 .wber-filters button:hover:not(:disabled) { transform: none; box-shadow: none; color: var(--wber-text); background: var(--wber-soft-2); }
 .wber-filters button[aria-pressed="true"] { color: var(--wber-text); background: var(--wber-card); box-shadow: 0 1px 3px rgba(0, 0, 0, .35), inset 0 0 0 1px var(--wber-border); }
 .wber-book-list { flex: 1; min-height: 0; overflow: auto; padding: 2px 10px 16px; scrollbar-width: thin; }
@@ -119,7 +119,7 @@ html.light .wber-shell {
 /* ── 书架统一检索（迁自原「内容中心」顶栏搜索：跨全部世界书查条目 → 选中该书） ── */
 .wber-shelf-search { position: relative; margin: 0 14px 12px; }
 .wber-shelf-search .wber-search { width: 100%; }
-.wber-shelf-search-state { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--wber-muted); font-size: 12px; }
+.wber-shelf-search-state { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--wber-muted); font-size: 13px; }
 .wber-shelf-hits {
   position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 6px); max-height: 320px; overflow: auto;
   padding: 6px; border: 1px solid var(--wber-border-strong); border-radius: 10px; background: var(--wber-float);
@@ -130,9 +130,9 @@ html.light .wber-shell {
   border-color: transparent; background: transparent; box-shadow: none; text-align: left; font-weight: 400;
 }
 .wber-shell .wber-shelf-hits button:hover:not(:disabled) { background: var(--wber-soft-2); transform: none; box-shadow: none; }
-.wber-shelf-hit-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wber-text); font-size: 12px; }
-.wber-shelf-hit-count { flex-shrink: 0; color: var(--wber-accent); font-size: 11px; font-variant-numeric: tabular-nums; }
-.wber-shelf-hit-empty { padding: 8px; color: var(--wber-muted); font-size: 12px; text-align: center; }
+.wber-shelf-hit-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wber-text); font-size: 13px; }
+.wber-shelf-hit-count { flex-shrink: 0; color: var(--wber-accent); font-size: 12px; font-variant-numeric: tabular-nums; }
+.wber-shelf-hit-empty { padding: 8px; color: var(--wber-muted); font-size: 13px; text-align: center; }
 .wber-shell .wber-book {
   width: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 11px; align-items: center; margin: 0 0 4px;
   min-height: 0; padding: 8px 10px 8px 8px; border-color: transparent; border-radius: 10px;
@@ -155,9 +155,9 @@ html.light .wber-shell {
 .wber-book-cover { width: 44px; height: 58px; border-radius: 4px 6px 6px 4px; font-size: 20px; font-weight: 700; box-shadow: 0 6px 14px -8px rgba(0, 0, 0, .8); }
 .wber-book-cover img, .wber-hero-cover img { width: 100%; height: 100%; object-fit: cover; }
 .wber-book-copy { display: flex; flex-direction: column; min-width: 0; gap: 4px; }
-.wber-book-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wber-text); font-size: 13px; font-weight: 600; }
-.wber-book-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wber-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.wber-empty, .wber-order-note { color: var(--wber-muted); font-size: 12px; line-height: 1.7; }
+.wber-book-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wber-text); font-size: 14px; font-weight: 600; }
+.wber-book-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wber-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.wber-empty, .wber-order-note { color: var(--wber-muted); font-size: 13px; line-height: 1.7; }
 .wber-book-list .wber-empty { padding: 18px 8px; text-align: center; }
 
 /* ══ 主区 ══ */
@@ -193,12 +193,12 @@ html.light .wber-shell {
 .wber-hero:hover .wber-hero-cover { transform: translateY(-3px) rotate(-1deg); box-shadow: 0 30px 40px -18px rgba(0, 0, 0, .9); }
 .wber-hero-content { min-width: 0; }
 .wber-meta-reading h1 { margin-top: 6px; overflow-wrap: anywhere; font-family: var(--wber-serif); font-size: clamp(22px, 2.6vw, 30px); font-weight: 700; letter-spacing: .02em; line-height: 1.25; color: var(--wber-text); }
-.wber-meta-reading p { margin-top: 8px; max-width: 70ch; color: var(--wber-body); font-size: 13.5px; line-height: 1.75; white-space: pre-wrap; }
+.wber-meta-reading p { margin-top: 8px; max-width: 70ch; color: var(--wber-body); font-size: 14.5px; line-height: 1.75; white-space: pre-wrap; }
 .wber-meta-reading > button, .wber-meta-editor > button { margin-top: 12px; }
 .wber-title-input { margin-top: 6px; border-color: transparent; padding-left: 0; background: transparent; font-family: var(--wber-serif); font-size: clamp(20px, 2.6vw, 30px); font-weight: 700; }
 .wber-title-input:focus { border-color: var(--wber-accent-line); padding-left: 10px; }
 .wber-description { margin-top: 8px; resize: vertical; line-height: 1.7; }
-.wber-stats { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; color: var(--wber-muted); font-size: 12px; }
+.wber-stats { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; color: var(--wber-muted); font-size: 13px; }
 .wber-stats > span { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--wber-border); border-radius: 999px; background: var(--wber-soft); font-variant-numeric: tabular-nums; }
 .wber-stats b { color: var(--wber-text); font-weight: 600; }
 .wber-save::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--wber-ok); box-shadow: 0 0 8px color-mix(in srgb, var(--wber-ok) 60%, transparent); }
@@ -211,7 +211,7 @@ html.light .wber-shell {
 .wber-more { position: relative; }
 .wber-more summary {
   display: inline-flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; min-height: 32px; padding: 0 12px;
-  border: 1px solid var(--wber-border); border-radius: 8px; font-size: 12.5px; font-weight: 500; color: var(--wber-text);
+  border: 1px solid var(--wber-border); border-radius: 8px; font-size: 13.5px; font-weight: 500; color: var(--wber-text);
   background: linear-gradient(180deg, var(--wber-soft-2), var(--wber-soft)); transition: border-color .16s, background-color .16s;
 }
 .wber-more summary::-webkit-details-marker { display: none; }
@@ -230,7 +230,7 @@ html.light .wber-shell {
 .wber-tabs { position: relative; display: flex; gap: 2px; margin: 22px 0 16px; border-bottom: 1px solid var(--wber-border); }
 .wber-tabs button {
   position: relative; min-height: 38px; padding: 0 14px 2px; border: none; border-radius: 6px 6px 0 0; background: transparent; box-shadow: none;
-  color: var(--wber-muted); font-size: 13px; font-weight: 500; letter-spacing: .02em;
+  color: var(--wber-muted); font-size: 14px; font-weight: 500; letter-spacing: .02em;
 }
 .wber-tabs button::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--wber-accent); transform: scaleX(0); transition: transform .25s var(--wber-ease); }
 .wber-tabs button:hover:not(:disabled) { transform: none; box-shadow: none; color: var(--wber-text); background: var(--wber-soft); }
@@ -238,7 +238,7 @@ html.light .wber-shell {
 .wber-tabs button[aria-pressed="true"]::after { transform: scaleX(1); }
 .wber-alert, .wber-config-save {
   display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 10px 0; padding: 10px 14px;
-  border: 1px solid var(--wber-border); border-left: 3px solid var(--wber-accent); border-radius: 10px; background: var(--wber-card); font-size: 12.5px;
+  border: 1px solid var(--wber-border); border-left: 3px solid var(--wber-accent); border-radius: 10px; background: var(--wber-card); font-size: 13.5px;
 }
 .wber-alert { border-left-color: var(--wber-danger); color: var(--wber-danger); }
 .wber-alert > button { margin-left: auto; }
@@ -246,7 +246,7 @@ html.light .wber-shell {
 .wber-toast {
   position: fixed; z-index: 80; right: 24px; bottom: 28px; display: flex; align-items: center; gap: 8px; padding: 11px 16px;
   border: 1px solid var(--wber-border-strong); border-radius: 10px; color: var(--wber-text); background: var(--wber-float); backdrop-filter: blur(10px);
-  box-shadow: 0 18px 44px -12px rgba(0, 0, 0, .8); animation: wber-toast .3s var(--wber-ease) both; font-size: 12.5px;
+  box-shadow: 0 18px 44px -12px rgba(0, 0, 0, .8); animation: wber-toast .3s var(--wber-ease) both; font-size: 13.5px;
 }
 .wber-toast::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--wber-accent); box-shadow: 0 0 10px var(--wber-accent); }
 
@@ -278,23 +278,23 @@ html.light .wber-shell {
 .wber-entry-divider {
   display: flex; align-items: center; gap: 7px; margin: 14px 0 -2px; padding-top: 14px;
   border-top: 1px dashed color-mix(in srgb, var(--wber-system) 34%, transparent);
-  color: var(--wber-system); font-size: 10.5px; letter-spacing: .08em;
+  color: var(--wber-system); font-size: 11.5px; letter-spacing: .08em;
 }
 .wber-shell .wber-entry-toggle {
   flex: 1; justify-content: flex-start; gap: 8px; min-width: 0; min-height: 28px; padding: 0 6px 0 4px;
   border: none; border-radius: 6px; text-align: left; background: transparent; box-shadow: none; font-weight: 500;
 }
 .wber-shell .wber-entry-toggle:hover:not(:disabled) { transform: none; box-shadow: none; color: var(--wber-accent); }
-.wber-entry-toggle strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 600; }
+.wber-entry-toggle strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; font-weight: 600; }
 .wber-chevron { color: var(--wber-muted); transition: transform .22s var(--wber-ease), color .15s; }
 .wber-entry-toggle[aria-expanded="true"] .wber-chevron { transform: rotate(90deg); color: var(--wber-accent); }
-.wber-layer { flex-shrink: 0; border: 1px solid var(--wber-border); border-radius: 999px; padding: 3px 9px; color: var(--wber-muted); background: var(--wber-soft); font-size: 10.5px; letter-spacing: .04em; }
+.wber-layer { flex-shrink: 0; border: 1px solid var(--wber-border); border-radius: 999px; padding: 3px 9px; color: var(--wber-muted); background: var(--wber-soft); font-size: 11.5px; letter-spacing: .04em; }
 .wber-layer.is-stable { color: var(--wber-accent); border-color: var(--wber-accent-line); background: var(--wber-accent-soft); }
-.wber-token, .wber-seq { flex-shrink: 0; color: var(--wber-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.wber-seq { min-width: 30px; text-align: right; font-family: var(--wber-display); font-size: 10px; letter-spacing: .06em; opacity: .8; }
+.wber-token, .wber-seq { flex-shrink: 0; color: var(--wber-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.wber-seq { min-width: 30px; text-align: right; font-family: var(--wber-display); font-size: 11px; letter-spacing: .06em; opacity: .8; }
 .wber-entry-body { position: relative; border-top: 1px solid var(--wber-border); padding: 16px 20px 20px 40px; background: color-mix(in srgb, var(--wber-panel) 35%, transparent); animation: wber-fade .25s ease both; }
 .wber-entry-actions { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 10px; }
-.wber-markdown { line-height: 1.85; font-size: 13.5px; color: var(--wber-body); overflow-wrap: anywhere; }
+.wber-markdown { line-height: 1.85; font-size: 14.5px; color: var(--wber-body); overflow-wrap: anywhere; }
 .wber-markdown > * + * { margin-top: .85em; }
 .wber-markdown h1, .wber-markdown h2, .wber-markdown h3 { margin-top: 1.3em; color: var(--wber-text); font-family: var(--wber-serif); font-weight: 700; }
 .wber-markdown h1 { font-size: 1.35em; } .wber-markdown h2 { font-size: 1.2em; } .wber-markdown h3 { font-size: 1.08em; }
@@ -309,34 +309,34 @@ html.light .wber-shell {
 .wber-markdown th, .wber-markdown td { border: 1px solid var(--wber-border); padding: 6px 10px; }
 .wber-markdown th { background: var(--wber-soft); color: var(--wber-text); }
 .wber-markdown hr { border: none; border-top: 1px solid var(--wber-border); }
-.wber-entry-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--wber-border); color: var(--wber-muted); font-size: 11.5px; }
+.wber-entry-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--wber-border); color: var(--wber-muted); font-size: 12.5px; }
 .wber-entry-meta span { padding: 3px 9px; border-radius: 999px; background: var(--wber-soft); }
 
 /* 依赖展开 */
 .wber-dependencies { margin-top: 14px; border-top: 1px dashed var(--wber-border); padding-top: 10px; }
 .wber-shell .wber-dep-toggle, .wber-shell .wber-dep-row { justify-content: flex-start; min-height: 28px; padding: 0 6px; border: none; background: transparent; box-shadow: none; font-weight: 500; }
 .wber-shell .wber-dep-toggle:hover:not(:disabled), .wber-shell .wber-dep-row:hover:not(:disabled) { transform: none; box-shadow: none; background: var(--wber-soft); }
-.wber-shell .wber-dep-toggle { color: var(--wber-muted); font-size: 12px; }
+.wber-shell .wber-dep-toggle { color: var(--wber-muted); font-size: 13px; }
 .wber-dep-toggle span { margin-left: 2px; border-radius: 999px; padding: 1px 7px; background: var(--wber-accent-soft); color: var(--wber-accent); font-variant-numeric: tabular-nums; }
 .wber-dep-tree { margin-top: 6px; }
 .wber-dep-node { border-left: 1px solid var(--wber-border); padding-left: 8px; }
 .wber-dep-row { gap: 8px; width: calc(100% - 4px); text-align: left; }
 .wber-dep-row > span { width: 12px; color: var(--wber-muted); text-align: center; }
-.wber-dep-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 500; }
-.wber-dep-row small { margin-left: auto; color: var(--wber-danger); font-size: 10.5px; }
+.wber-dep-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 500; }
+.wber-dep-row small { margin-left: auto; color: var(--wber-danger); font-size: 11.5px; }
 .wber-dep-row.is-missing { opacity: .7; }
-.wber-dep-content { margin: 4px 8px 10px 26px; padding: 10px 13px; border: 1px solid var(--wber-border); border-radius: 8px; background: var(--wber-panel); color: var(--wber-body); font-size: 12.5px; line-height: 1.75; overflow-wrap: anywhere; }
+.wber-dep-content { margin: 4px 8px 10px 26px; padding: 10px 13px; border: 1px solid var(--wber-border); border-radius: 8px; background: var(--wber-panel); color: var(--wber-body); font-size: 13.5px; line-height: 1.75; overflow-wrap: anywhere; }
 .wber-dep-content > * + * { margin-top: .65em; }
-.wber-dep-limit { margin-left: 18px; color: var(--wber-muted); font-size: 11px; }
+.wber-dep-limit { margin-left: 18px; color: var(--wber-muted); font-size: 12px; }
 
 /* 编辑器 */
 .wber-editor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
-.wber-editor label { display: flex; flex-direction: column; gap: 6px; color: var(--wber-muted); font-size: 12px; font-weight: 500; letter-spacing: .02em; }
-.wber-editor textarea { min-height: 200px; resize: vertical; line-height: 1.75; font-size: 13.5px; }
+.wber-editor label { display: flex; flex-direction: column; gap: 6px; color: var(--wber-muted); font-size: 13px; font-weight: 500; letter-spacing: .02em; }
+.wber-editor textarea { min-height: 200px; resize: vertical; line-height: 1.75; font-size: 14.5px; }
 .wber-editor .is-wide, .wber-editor-note { grid-column: 1 / -1; }
 .wber-editor .wber-check { flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--wber-border); border-radius: 8px; background: var(--wber-soft); color: var(--wber-text); cursor: pointer; }
 .wber-editor .wber-check input { width: auto; }
-.wber-editor small, .wber-editor-note { color: var(--wber-muted); font-size: 11.5px; font-weight: 400; line-height: 1.6; }
+.wber-editor small, .wber-editor-note { color: var(--wber-muted); font-size: 12.5px; font-weight: 400; line-height: 1.6; }
 .wber-editor-note { display: flex; align-items: center; gap: 6px; }
 .wber-editor-note::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--wber-ok); }
 
@@ -347,21 +347,21 @@ html.light .wber-shell {
 .wber-library-search summary::after, .wber-paste-import summary::after { content: "＋"; color: var(--wber-muted); font-size: 15px; transition: transform .2s var(--wber-ease); }
 .wber-library-search[open] summary::after, .wber-paste-import[open] summary::after { transform: rotate(45deg); }
 .wber-library-search summary strong { font-family: var(--wber-serif); font-size: 14.5px; font-weight: 700; }
-.wber-library-search summary span { margin-right: auto; color: var(--wber-muted); font-size: 12px; }
+.wber-library-search summary span { margin-right: auto; color: var(--wber-muted); font-size: 13px; }
 .wber-library-search > :not(summary), .wber-paste-import > :not(summary) { margin: 0 18px; }
 .wber-library-search > :last-child:not(summary), .wber-paste-import > :last-child:not(summary) { margin-bottom: 18px; }
-.wber-library-search p { color: var(--wber-muted); font-size: 12px; }
+.wber-library-search p { color: var(--wber-muted); font-size: 13px; }
 .wber-library-controls { display: flex; gap: 8px; margin-top: 2px; }
 .wber-library-controls input { flex: 1; }
 .wber-library-controls select { width: auto; min-width: 180px; }
 .wber-library-result { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--wber-border); }
-.wber-library-result > strong { display: block; margin-bottom: 4px; color: var(--wber-text); font-size: 13px; }
+.wber-library-result > strong { display: block; margin-bottom: 4px; color: var(--wber-text); font-size: 14px; }
 .wber-library-result > div { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; color: var(--wber-body); }
 .wber-library-result > div > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wber-paste-import { margin-top: 12px; color: var(--wber-muted); font-size: 12.5px; }
-.wber-paste-import textarea { margin: 0 0 10px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; line-height: 1.6; resize: vertical; }
+.wber-paste-import { margin-top: 12px; color: var(--wber-muted); font-size: 13.5px; }
+.wber-paste-import textarea { margin: 0 0 10px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; line-height: 1.6; resize: vertical; }
 .wber-index { min-height: 480px; animation: wber-rise .35s var(--wber-ease) both; }
-.wber-index > p { margin-bottom: 12px; color: var(--wber-muted); font-size: 12px; letter-spacing: .04em; }
+.wber-index > p { margin-bottom: 12px; color: var(--wber-muted); font-size: 13px; letter-spacing: .04em; }
 
 /* 新建对话框 */
 .wber-create { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgba(2, 6, 12, .62); backdrop-filter: blur(6px); animation: wber-fade .2s ease both; }
@@ -371,8 +371,8 @@ html.light .wber-shell {
 }
 .wber-create-card > * + * { margin-top: 14px; }
 .wber-create-card h3 { font-family: var(--wber-serif); font-size: 20px; font-weight: 700; color: var(--wber-text); }
-.wber-create-card h3 + p { margin-top: 4px; color: var(--wber-muted); font-size: 12.5px; }
-.wber-create-card label { display: flex; flex-direction: column; gap: 6px; color: var(--wber-muted); font-size: 12px; font-weight: 500; }
+.wber-create-card h3 + p { margin-top: 4px; color: var(--wber-muted); font-size: 13.5px; }
+.wber-create-card label { display: flex; flex-direction: column; gap: 6px; color: var(--wber-muted); font-size: 13px; font-weight: 500; }
 .wber-create-card textarea { resize: vertical; line-height: 1.6; }
 .wber-type-choice { display: flex; gap: 8px; }
 .wber-type-choice button { flex: 1; min-height: 36px; }
@@ -388,13 +388,13 @@ html.light .wber-shell {
 .wber-system-note {
   margin: 0 0 12px; padding: 9px 13px; border: 1px solid color-mix(in srgb, var(--wber-system) 34%, transparent);
   border-left: 3px solid var(--wber-system); border-radius: 8px; color: var(--wber-muted);
-  background: color-mix(in srgb, var(--wber-system) 7%, transparent); font-size: 12px; line-height: 1.7;
+  background: color-mix(in srgb, var(--wber-system) 7%, transparent); font-size: 13px; line-height: 1.7;
 }
 .wber-system-note b { color: var(--wber-text); }
 /* 系统层条数不在书架 / hero 上单独出标识：条目行有分层标签、列表底部有分界行。
    这两条规则曾是那两个标识的样式，随标识一起删除（.is-muted 留给「N 条已停用」）。 */
 .wber-stats > span.is-muted { opacity: .75; }
-.wber-stats small { color: var(--wber-muted); font-size: 10.5px; }
+.wber-stats small { color: var(--wber-muted); font-size: 11.5px; }
 .wbpp-system-note { display: block; margin-top: 8px; color: var(--wber-muted); }
 .wbpp-system-note b { color: var(--wber-text); }
 
@@ -402,7 +402,7 @@ html.light .wber-shell {
 .wber-layer-filter { display: flex; flex-shrink: 0; gap: 2px; padding: 3px; border: 1px solid var(--wber-border); border-radius: 9px; background: var(--wber-soft); }
 .wber-shell .wber-layer-filter button {
   min-height: 26px; padding: 0 10px; border: none; border-radius: 6px; background: transparent; box-shadow: none;
-  color: var(--wber-muted); font-size: 11.5px; font-weight: 500;
+  color: var(--wber-muted); font-size: 12.5px; font-weight: 500;
 }
 .wber-shell .wber-layer-filter button:hover:not(:disabled) { transform: none; box-shadow: none; color: var(--wber-text); background: var(--wber-soft-2); }
 .wber-shell .wber-layer-filter button[aria-pressed="true"] { color: var(--wber-text); background: var(--wber-card); box-shadow: inset 0 0 0 1px var(--wber-border-strong); }
@@ -416,18 +416,18 @@ html.light .wber-shell {
 .wber-cover-picker-preview {
   display: grid; flex-shrink: 0; place-items: center; width: 46px; height: 62px; overflow: hidden;
   border: 1px solid var(--wber-border-strong); border-radius: 4px 7px 7px 4px; color: var(--wber-muted);
-  background: linear-gradient(150deg, color-mix(in srgb, var(--wber-accent) 18%, var(--wber-card)), var(--wber-card)); font-size: 9px;
+  background: linear-gradient(150deg, color-mix(in srgb, var(--wber-accent) 18%, var(--wber-card)), var(--wber-card)); font-size: 10px;
 }
 .wber-cover-picker-preview img { width: 100%; height: 100%; object-fit: cover; }
 .wber-cover-picker-copy { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .wber-cover-picker-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.wber-cover-picker-copy small { color: var(--wber-muted); font-size: 11px; font-weight: 400; line-height: 1.6; }
-.wber-create-cover { display: flex; flex-direction: column; gap: 6px; color: var(--wber-muted); font-size: 12px; font-weight: 500; }
-.wber-field-label { color: var(--wber-muted); font-size: 12px; font-weight: 500; }
+.wber-cover-picker-copy small { color: var(--wber-muted); font-size: 12px; font-weight: 400; line-height: 1.6; }
+.wber-create-cover { display: flex; flex-direction: column; gap: 6px; color: var(--wber-muted); font-size: 13px; font-weight: 500; }
+.wber-field-label { color: var(--wber-muted); font-size: 13px; font-weight: 500; }
 .wber-hero-cover .wber-cover-overlay-button {
   position: absolute; z-index: 2; right: 6px; bottom: 6px; left: 6px; min-height: 26px; padding: 0 6px;
   border-color: var(--wber-border-strong); background: var(--wber-float); color: var(--wber-text);
-  font-size: 10.5px; opacity: 0; transition: opacity .2s var(--wber-ease);
+  font-size: 11.5px; opacity: 0; transition: opacity .2s var(--wber-ease);
 }
 .wber-hero-cover:hover .wber-cover-overlay-button, .wber-hero-cover:focus-within .wber-cover-overlay-button { opacity: 1; }
 .wber-hero-cover .wber-cover-overlay-button:focus-visible { opacity: 1; }
@@ -479,15 +479,15 @@ html.light .wber-shell {
 /* ── 统一数值字段编辑器（StatFieldsEditor）── */
 .wber-sf-card { width: min(860px, 94vw); max-height: 88vh; display: flex; flex-direction: column; }
 .wber-sf-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-top: 12px; padding-right: 4px; }
-.wber-sf-empty { padding: 18px 14px; border: 1px dashed var(--wber-border-strong); border-radius: 10px; color: var(--wber-muted); font-size: 12px; line-height: 1.7; }
+.wber-sf-empty { padding: 18px 14px; border: 1px dashed var(--wber-border-strong); border-radius: 10px; color: var(--wber-muted); font-size: 13px; line-height: 1.7; }
 .wber-sf-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--wber-border); border-radius: 10px; background: var(--wber-soft); }
 .wber-sf-grid { flex: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 10px; }
-.wber-sf-grid label { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 11px; color: var(--wber-muted); }
+.wber-sf-grid label { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 12px; color: var(--wber-muted); }
 .wber-sf-grid label.is-wide { grid-column: span 2; }
-.wber-sf-input { min-height: 28px; padding: 0 8px; border: 1px solid var(--wber-border); border-radius: 7px; background: var(--wber-card); color: var(--wber-text); font-size: 12px; }
+.wber-sf-input { min-height: 28px; padding: 0 8px; border: 1px solid var(--wber-border); border-radius: 7px; background: var(--wber-card); color: var(--wber-text); font-size: 13px; }
 .wber-sf-input.is-mono { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; }
 .wber-sf-input:focus { border-color: var(--wber-accent-line); outline: none; }
 .wber-sf-actions { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
 .wber-sf-add { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
-.wber-sf-add small { color: var(--wber-muted); font-size: 11px; line-height: 1.5; }
+.wber-sf-add small { color: var(--wber-muted); font-size: 12px; line-height: 1.5; }
 @media (max-width: 720px) { .wber-sf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

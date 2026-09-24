@@ -39,23 +39,23 @@ export default function GameTopBar() {
       {/* 返回主菜单 */}
       <button
         onClick={() => setCurrentView("home")}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-gray-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors"
+        className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap text-gray-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors"
         title="返回主菜单"
       >
         <AppIcon name="back" size={15} />
         <span>主菜单</span>
       </button>
 
-      <div className="w-px h-5 bg-gray-700/70 mx-1" />
+      <div className="w-px h-5 shrink-0 bg-gray-700/70 mx-1" />
 
       {/* 管理页导航 */}
-      <nav className="flex items-center gap-1 overflow-x-auto">
+      <nav className="flex min-w-0 items-center gap-1 overflow-x-auto">
         {NAV_ITEMS.map((item) => (
           <button
             key={item.id}
             onClick={() => setCurrentView(item.id)}
             className={
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap transition-colors " +
+              "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap transition-colors " +
               (currentView === item.id
                 ? "bg-amber-600/20 text-amber-300 font-medium border border-amber-500/30"
                 : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 border border-transparent")
@@ -70,7 +70,7 @@ export default function GameTopBar() {
       <div className="flex-1" />
 
       {/* 音频：静音（暂停/继续）+ BGM 音量 */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-1.5">
         <button
           onClick={toggleMute}
           className="px-2 py-1.5 rounded-lg text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 transition-colors"
@@ -85,7 +85,7 @@ export default function GameTopBar() {
           step={0.05}
           value={bgmVol}
           onChange={(e) => changeBgmVol(parseFloat(e.target.value))}
-          className="w-20 h-1.5 accent-amber-500 cursor-pointer"
+          className="hidden md:block w-20 h-1.5 accent-amber-500 cursor-pointer"
           title={"BGM 音量 " + Math.round(bgmVol * 100) + "%"}
         />
       </div>

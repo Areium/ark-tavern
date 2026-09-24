@@ -55,8 +55,8 @@ const GridCell = memo(function GridCell({
       title={glyph ? `${tile?.name}（移动代价 ${tile?.move_cost}）` : undefined}
     >
       {glyph
-        ? <span className="text-[10px] leading-none opacity-70">{glyph}</span>
-        : <span className="text-[9px] text-gray-700 font-mono">{row},{col}</span>}
+        ? <span className="text-[11px] leading-none opacity-70">{glyph}</span>
+        : <span className="text-[10px] text-gray-700 font-mono">{row},{col}</span>}
     </button>
   );
 }, (prev, next) => {

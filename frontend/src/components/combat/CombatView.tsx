@@ -1259,14 +1259,14 @@ export default function CombatView() {
           )}
           {selectedNode && (
             <div className="mb-3">
-              <p className="text-[10px] text-gray-500">
+              <p className="text-[11px] text-gray-500">
                 {selectedNode.summary}
                 {selectedNode.bind?.beat_id
                   ? ` · 剧情节点 ${selectedNode.bind.plot_id}/${selectedNode.bind.beat_id}`
                   : " · 无剧情节拍绑定"}
               </p>
               <button
-                className="mt-1 text-[10px] text-amber-400/90 hover:text-amber-300 underline"
+                className="mt-1 text-[11px] text-amber-400/90 hover:text-amber-300 underline"
                 onClick={() => {
                   setCombatNodeJumpId(selectedNode.node_id);
                   // 节点图归世界书：定位该节点归属的世界书并直接打开「节点图」页签
@@ -1318,11 +1318,11 @@ export default function CombatView() {
                     disabled={loading}
                   >
                     <span className="text-sm text-gray-200 font-medium">{ap.label}</span>
-                    <span className="block text-[10px] text-gray-500 mt-0.5">{ap.hint}</span>
+                    <span className="block text-[11px] text-gray-500 mt-0.5">{ap.hint}</span>
                   </button>
                 ))}
               </div>
-              <button className="text-[10px] text-gray-500 hover:text-gray-300 mt-1.5" onClick={() => setApproaches(null)}>返回</button>
+              <button className="text-[11px] text-gray-500 hover:text-gray-300 mt-1.5" onClick={() => setApproaches(null)}>返回</button>
             </div>
           )}
 
@@ -1334,14 +1334,14 @@ export default function CombatView() {
               <p className={"text-xs font-bold mt-0.5 " + (checkResult.success ? "text-emerald-300" : "text-red-300")}>
                 {checkResult.success ? "✅ 成功 — 避免战斗" : "❌ 失败 — 敌人警觉，被迫开战"}
               </p>
-              <button className="text-[10px] text-gray-500 hover:text-gray-300 mt-1" onClick={() => setCheckResult(null)}>关闭</button>
+              <button className="text-[11px] text-gray-500 hover:text-gray-300 mt-1" onClick={() => setCheckResult(null)}>关闭</button>
             </div>
           )}
 
           {avoidMsg && (
             <div className="mb-3 px-3 py-2 rounded-lg border border-gray-700 bg-surface-hover">
               <p className="text-xs text-gray-300">已{avoidMsg} — 未进入战斗</p>
-              <button className="text-[10px] text-gray-500 hover:text-gray-300 mt-1" onClick={() => setAvoidMsg(null)}>关闭</button>
+              <button className="text-[11px] text-gray-500 hover:text-gray-300 mt-1" onClick={() => setAvoidMsg(null)}>关闭</button>
             </div>
           )}
 
@@ -1615,7 +1615,7 @@ export default function CombatView() {
               return (
                 <span
                   key={uid}
-                  className={"absolute -translate-x-1/2 -translate-y-full px-1.5 py-0.5 rounded-full text-[10px] font-display border text-center leading-tight whitespace-normal break-words " + badge.cls}
+                  className={"absolute -translate-x-1/2 -translate-y-full px-1.5 py-0.5 rounded-full text-[11px] font-display border text-center leading-tight whitespace-normal break-words " + badge.cls}
                   style={{
                     left: anchor.x,
                     top: anchor.y - 2, // 与角色头顶留 2px 间隙，避免压住小人
@@ -1884,7 +1884,7 @@ export default function CombatView() {
             title="抽牌堆"
           >
             <span className="text-lg">🂠</span>
-            <span className="text-[11px] text-gray-300 font-display tracking-wider">抽牌堆</span>
+            <span className="text-[12px] text-gray-300 font-display tracking-wider">抽牌堆</span>
             <span className="text-xs text-cyan-300 font-mono bg-cyan-950/50 px-1.5 py-0.5 rounded">
               {combatState.shared_pool?.deck?.length ?? 0}
             </span>
@@ -1894,7 +1894,7 @@ export default function CombatView() {
             onClick={() => { setDeckFilterMode("discard"); setShowDeckViewer(true); }}
             title="弃牌堆"
           >
-            <span className="text-[11px] text-gray-300 font-display tracking-wider">弃牌堆</span>
+            <span className="text-[12px] text-gray-300 font-display tracking-wider">弃牌堆</span>
             <span className="text-xs text-amber-300 font-mono bg-amber-950/50 px-1.5 py-0.5 rounded">
               {combatState.shared_pool?.discard?.length ?? 0}
             </span>

@@ -144,7 +144,7 @@ export default function StoryStatePanel() {
         <h3 className="panel-title">剧情进度</h3>
         <button
           onClick={load}
-          className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors"
+          className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
           title="刷新"
         >
           ⟳
@@ -154,15 +154,15 @@ export default function StoryStatePanel() {
       {/* ── 当前位置 ── */}
       <div className="rounded-lg border border-amber-600/30 bg-amber-500/5 px-3 py-2 space-y-1.5">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600/30 text-amber-300 shrink-0">
+          <span className="text-[11px] px-1.5 py-0.5 rounded bg-amber-600/30 text-amber-300 shrink-0">
             第 {currentChapterIdx + 1} 章
           </span>
           <span className="text-xs text-gray-300 truncate">{chapter?.title || "—"}</span>
-          <span className="ml-auto text-[10px] text-gray-500 shrink-0">
+          <span className="ml-auto text-[11px] text-gray-500 shrink-0">
             {chapter ? `${currentChapterIdx + 1}/${chapter.total}` : ""}
           </span>
         </div>
-        <div className="text-[11px] text-amber-200/90">
+        <div className="text-[12px] text-amber-200/90">
           {treeCurrent ? (
             <>
               当前节点：{treeCurrent.title || treeCurrent.id}
@@ -185,7 +185,7 @@ export default function StoryStatePanel() {
           />
         </div>
         {!treeCurrent && beat && beat.narrations_on_beat > 0 && (
-          <div className="text-[10px] text-gray-500">
+          <div className="text-[11px] text-gray-500">
             本节点已进行 {beat.narrations_on_beat} 轮叙述
           </div>
         )}
@@ -196,7 +196,7 @@ export default function StoryStatePanel() {
         <div className="space-y-1">
           <button
             onClick={() => setShowTree((v) => !v)}
-            className="w-full flex items-center justify-between text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
+            className="w-full flex items-center justify-between text-[11px] text-gray-500 hover:text-gray-300 transition-colors px-1"
           >
             <span>剧情树（{treeNodes.length} 节点）</span>
             <span>{showTree ? "▲" : "▼"}</span>
@@ -228,14 +228,14 @@ export default function StoryStatePanel() {
                   />
                   <div className="flex-1 min-w-0">
                     <div
-                      className={`text-[11px] truncate ${
+                      className={`text-[12px] truncate ${
                         isCurrent ? "text-amber-200 font-medium" : "text-gray-300"
                       }`}
                     >
                       {n.title || n.id}
                       {n.kind && n.kind !== "beat" && (
                         <span
-                          className={`ml-1 text-[9px] px-1 rounded ${
+                          className={`ml-1 text-[10px] px-1 rounded ${
                             n.kind === "combat"
                               ? "bg-red-600/30 text-red-200"
                               : n.deviation
@@ -247,12 +247,12 @@ export default function StoryStatePanel() {
                         </span>
                       )}
                       {isCurrent && (
-                        <span className="ml-1 text-[9px] px-1 rounded bg-amber-600/40 text-amber-200">
+                        <span className="ml-1 text-[10px] px-1 rounded bg-amber-600/40 text-amber-200">
                           当前
                         </span>
                       )}
                     </div>
-                    <div className="text-[10px] text-gray-600 truncate">
+                    <div className="text-[11px] text-gray-600 truncate">
                       {n.branch_label && n.branch_label !== "开始"
                         ? `分支「${n.branch_label}」`
                         : "起点"}
@@ -266,7 +266,7 @@ export default function StoryStatePanel() {
                     <button
                       onClick={() => handleRollback(n.id, n.round_end ?? 0, n.title || n.id)}
                       disabled={rollingBack !== null}
-                      className="text-[10px] px-2 py-1 rounded bg-blue-600/20 text-blue-300
+                      className="text-[11px] px-2 py-1 rounded bg-blue-600/20 text-blue-300
                                  hover:bg-blue-600/40 transition-colors disabled:opacity-40 shrink-0"
                     >
                       {rollingBack === n.id ? "回档中..." : "回档"}
@@ -283,13 +283,13 @@ export default function StoryStatePanel() {
         <div className="space-y-1">
           <button
             onClick={() => setShowHistory((v) => !v)}
-            className="w-full flex items-center justify-between text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
+            className="w-full flex items-center justify-between text-[11px] text-gray-500 hover:text-gray-300 transition-colors px-1"
           >
             <span>关键节点回档（{history.length}）</span>
             <span>{showHistory ? "▲" : "▼"}</span>
           </button>
           {showHistory && history.length === 0 && (
-            <div className="text-[11px] text-gray-600 px-1">尚无已记录节点</div>
+            <div className="text-[12px] text-gray-600 px-1">尚无已记录节点</div>
           )}
           {showHistory && history.map((n) => (
           <div
@@ -298,10 +298,10 @@ export default function StoryStatePanel() {
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70 shrink-0" />
             <div className="flex-1 min-w-0">
-              <div className="text-[11px] text-gray-300 truncate">
+              <div className="text-[12px] text-gray-300 truncate">
                 {beatLabel[n.node_id] || n.node_id}
               </div>
-              <div className="text-[10px] text-gray-600">
+              <div className="text-[11px] text-gray-600">
                 第 {n.round_start}–{n.round_end} 轮
               </div>
             </div>
@@ -310,7 +310,7 @@ export default function StoryStatePanel() {
                 handleRollback(n.node_id, n.round_end ?? 0, beatLabel[n.node_id] || n.node_id)
               }
               disabled={rollingBack !== null}
-              className="text-[10px] px-2 py-1 rounded bg-blue-600/20 text-blue-300
+              className="text-[11px] px-2 py-1 rounded bg-blue-600/20 text-blue-300
                          hover:bg-blue-600/40 transition-colors disabled:opacity-40 shrink-0"
             >
               {rollingBack === n.node_id ? "回档中..." : "回档"}
@@ -324,7 +324,7 @@ export default function StoryStatePanel() {
       {roads.length > 0 && (
         <button
           onClick={() => setShowRoadmap((v) => !v)}
-          className="w-full flex items-center justify-between text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
+          className="w-full flex items-center justify-between text-[11px] text-gray-500 hover:text-gray-300 transition-colors px-1"
         >
           <span>作者节拍骨架</span>
           <span>{showRoadmap ? "▲" : "▼"}</span>
@@ -348,7 +348,7 @@ export default function StoryStatePanel() {
                     }`}
                   />
                   <span
-                    className={`text-[11px] truncate ${
+                    className={`text-[12px] truncate ${
                       isCurrent ? "text-amber-200" : isLocked ? "text-gray-600" : "text-gray-400"
                     }`}
                   >
@@ -362,7 +362,7 @@ export default function StoryStatePanel() {
                       return (
                         <div key={b.id} className="flex items-start gap-1.5">
                           <span className={`w-1 h-1 rounded-full mt-1.5 shrink-0 ${st.dot}`} />
-                          <span className={`text-[10px] leading-tight ${st.text}`}>
+                          <span className={`text-[11px] leading-tight ${st.text}`}>
                             {b.summary || b.id}
                             {b.has_combat && <span className="ml-1 text-red-400/80">⚔</span>}
                           </span>
@@ -382,14 +382,14 @@ export default function StoryStatePanel() {
         <div className="space-y-1 border-t border-gray-700/40 pt-2">
           <button
             onClick={() => setShowStates((v) => !v)}
-            className="w-full flex items-center justify-between text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
+            className="w-full flex items-center justify-between text-[11px] text-gray-500 hover:text-gray-300 transition-colors px-1"
           >
             <span>角色状态（{charNames.length}）</span>
             <span>{showStates ? "▲" : "▼"}</span>
           </button>
           {showStates &&
             charNames.map((name) => (
-              <div key={name} className="text-[10px] text-gray-400 px-1">
+              <div key={name} className="text-[11px] text-gray-400 px-1">
                 <span className="text-gray-300">{name}</span>
                 <span className="text-gray-500">
                   ：{(charStates[name].conditions || []).map((c: any) => c.name).join("、")}

@@ -98,11 +98,11 @@ export default function CharacterStatsPanel({ ctx }: ScenePanelProps) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <p className="text-[11px] text-gray-500 leading-relaxed">
+        <p className="text-[12px] text-gray-500 leading-relaxed">
           改动只对本会话生效，随剧情节点回档；叙述时模型会看到这些数值。
         </p>
         <button type="button" onClick={() => void load()} disabled={loading}
-          className="text-[11px] text-gray-500 hover:text-gray-300 shrink-0 ml-2" title="重新拉取">
+          className="text-[12px] text-gray-500 hover:text-gray-300 shrink-0 ml-2" title="重新拉取">
           <AppIcon name="refresh" size={12} className={loading ? "animate-spin" : ""} />
         </button>
       </div>
@@ -135,9 +135,9 @@ export default function CharacterStatsPanel({ ctx }: ScenePanelProps) {
               <span className="min-w-0 flex-1 text-left">
                 <span className="block text-xs font-medium truncate">
                   {row.name}
-                  {row.is_player && <span className="ml-1.5 text-[10px] text-amber-300/80">主控</span>}
+                  {row.is_player && <span className="ml-1.5 text-[11px] text-amber-300/80">主控</span>}
                 </span>
-                <span className="block text-[10px] text-gray-500 truncate">
+                <span className="block text-[11px] text-gray-500 truncate">
                   {row.fields.length ? `${row.fields.length} 个字段` : "无统一字段"}
                   {sessionCount > 0 && ` · 会话改动 ${sessionCount} 项`}
                   {saving === row.name && " · 保存中…"}

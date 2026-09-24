@@ -28,7 +28,7 @@ export default function MinimizedDialogDock() {
                      hover:bg-amber-600/20 transition-colors text-xs"
         >
           <span className="truncate">{entry.title}</span>
-          <span className="text-[10px] text-amber-200/70 shrink-0">展开 ▲</span>
+          <span className="text-[11px] text-amber-200/70 shrink-0">展开 ▲</span>
         </button>
       ))}
     </div>

@@ -291,10 +291,10 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
     <div className="flex-1 flex flex-col min-w-0 min-h-0">
       <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-800">
         <span className="text-sm font-medium truncate">{node.name}</span>
-        <span className="text-[10px] text-gray-500 font-mono">{node.node_id}</span>
-        {dirty && <span className="text-[10px] text-amber-400">● 未保存</span>}
+        <span className="text-[11px] text-gray-500 font-mono">{node.node_id}</span>
+        {dirty && <span className="text-[11px] text-amber-400">● 未保存</span>}
         <div className="flex-1" />
-        {notice && <span className="text-[11px] text-emerald-300">{notice}</span>}
+        {notice && <span className="text-[12px] text-emerald-300">{notice}</span>}
         {onClose && (
           <button className="text-xs text-gray-500 hover:text-gray-300" onClick={onClose}>
             ✕ 关闭
@@ -335,7 +335,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
         <section className="space-y-2">
           <h3 className="text-xs text-gray-400 tracking-wider">基本信息</h3>
           <div className="grid grid-cols-2 gap-2">
-            <label className="text-[11px] text-gray-500">
+            <label className="text-[12px] text-gray-500">
               名称
               <input
                 className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs"
@@ -343,7 +343,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                 onChange={(e) => patch((d) => { d.name = e.target.value; })}
               />
             </label>
-            <label className="text-[11px] text-gray-500">
+            <label className="text-[12px] text-gray-500">
               分类
               <select
                 className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs"
@@ -357,7 +357,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
               </select>
             </label>
           </div>
-          <label className="block text-[11px] text-gray-500">
+          <label className="block text-[12px] text-gray-500">
             概要
             <input
               className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs"
@@ -367,10 +367,10 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
           </label>
           <div className="grid grid-cols-3 gap-2">
             {(["plot_id", "chapter_id", "beat_id"] as const).map((key) => (
-              <label key={key} className="text-[11px] text-gray-500">
+              <label key={key} className="text-[12px] text-gray-500">
                 {key}
                 <input
-                  className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-[11px] font-mono"
+                  className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-[12px] font-mono"
                   value={(node.bind as any)?.[key] || ""}
                   onChange={(e) => patch((d) => {
                     d.bind = { ...(d.bind || {}), [key]: e.target.value };
@@ -385,24 +385,24 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
         <section className="space-y-2">
           <div className="flex items-center gap-2">
             <h3 className="text-xs text-gray-400 tracking-wider">地图</h3>
-            <span className="text-[10px] text-gray-500">
+            <span className="text-[11px] text-gray-500">
               {rows}×{cols}（上限 40×40）
             </span>
             <div className="flex-1" />
-            <label className="text-[10px] text-gray-500">
+            <label className="text-[11px] text-gray-500">
               行
               <input
                 type="number" min={1} max={40}
-                className="ml-1 w-14 bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-[11px]"
+                className="ml-1 w-14 bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-[12px]"
                 value={rows}
                 onChange={(e) => resizeMap(Math.max(1, Math.min(40, +e.target.value || 1)), cols)}
               />
             </label>
-            <label className="text-[10px] text-gray-500">
+            <label className="text-[11px] text-gray-500">
               列
               <input
                 type="number" min={1} max={40}
-                className="ml-1 w-14 bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-[11px]"
+                className="ml-1 w-14 bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-[12px]"
                 value={cols}
                 onChange={(e) => resizeMap(rows, Math.max(1, Math.min(40, +e.target.value || 1)))}
               />
@@ -415,7 +415,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                 key={m}
                 onClick={() => { setMode(m); setPlacing(null); }}
                 className={
-                  "text-[11px] px-2 py-1 rounded border "
+                  "text-[12px] px-2 py-1 rounded border "
                   + (mode === m
                     ? "border-amber-500/60 bg-amber-600/20 text-amber-200"
                     : "border-gray-700 text-gray-400 hover:text-gray-200")
@@ -433,7 +433,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                       onClick={() => setBrush(t.tile_id)}
                       title={`${t.name}（移动代价 ${t.move_cost}${t.blocks_movement ? "，不可通行" : ""}）`}
                       className={
-                        "w-6 h-6 rounded border text-[10px] flex items-center justify-center "
+                        "w-6 h-6 rounded border text-[11px] flex items-center justify-center "
                         + (brush === t.tile_id ? "ring-2 ring-amber-400/70 " : "")
                       }
                       style={{ backgroundColor: `${t.color}cc`, borderColor: `${t.color}` }}
@@ -441,7 +441,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                   ))}
                 </div>
                 <button
-                  className="text-[11px] px-2 py-1 rounded border border-gray-700 hover:text-gray-200"
+                  className="text-[12px] px-2 py-1 rounded border border-gray-700 hover:text-gray-200"
                   onClick={() => patch((d) => {
                     d.map.tiles = Array.from({ length: rows }, () =>
                       Array.from({ length: cols }, () => brush));
@@ -450,7 +450,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
               </>
             )}
             {placing && (
-              <span className="text-[11px] text-amber-300">
+              <span className="text-[12px] text-amber-300">
                 站位模式：点击地图为 wave{placing.wave + 1} / {node.waves[placing.wave]?.enemies[placing.entry]?.enemy} 指定落点
                 <button className="ml-2 underline" onClick={() => setPlacing(null)}>退出</button>
               </span>
@@ -464,7 +464,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
               highlight={placing ? new Set(deploy.enemy.map(([r, c]) => `${r},${c}`)) : undefined}
             />
           </div>
-          <p className="text-[10px] text-gray-500">
+          <p className="text-[11px] text-gray-500">
             勾选模式后按住左键可连续涂抹；部署区格子在战斗内决定入场位置（未声明时按左右三分之一推导）。
           </p>
         </section>
@@ -474,7 +474,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
           <div className="flex items-center gap-2">
             <h3 className="text-xs text-gray-400 tracking-wider">敌人编成</h3>
             <button
-              className="text-[11px] px-2 py-0.5 rounded border border-gray-700 hover:text-gray-200"
+              className="text-[12px] px-2 py-0.5 rounded border border-gray-700 hover:text-gray-200"
               onClick={() => patch((d) => { d.waves = [...d.waves, { enemies: [] }]; })}
             >＋ 波次</button>
           </div>
@@ -482,13 +482,13 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
           {node.waves.map((wave, wi) => (
             <div key={wi} className="border border-gray-800 rounded p-2 space-y-2">
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-gray-400">第 {wi + 1} 波</span>
-                <span className="text-[10px] text-gray-600">
+                <span className="text-[12px] text-gray-400">第 {wi + 1} 波</span>
+                <span className="text-[11px] text-gray-600">
                   {wave.enemies.reduce((sum, e) => sum + (e.count || 0), 0)} 个单位
                 </span>
                 <div className="flex-1" />
                 <button
-                  className="text-[11px] px-1.5 rounded border border-gray-700 hover:text-red-300"
+                  className="text-[12px] px-1.5 rounded border border-gray-700 hover:text-red-300"
                   onClick={() => patch((d) => {
                     d.waves.splice(wi, 1);
                     if (!d.waves.length) d.waves = [{ enemies: [] }];
@@ -501,7 +501,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                 return (
                   <div key={ei} className="flex flex-wrap items-center gap-2 bg-gray-900/60 rounded px-2 py-1.5">
                     <select
-                      className="bg-gray-900 border border-gray-700 rounded px-1.5 py-0.5 text-[11px] max-w-[12rem]"
+                      className="bg-gray-900 border border-gray-700 rounded px-1.5 py-0.5 text-[12px] max-w-[12rem]"
                       value={entry.enemy}
                       onChange={(e) => patch((d) => {
                         d.waves[wi].enemies[ei].enemy = e.target.value;
@@ -516,23 +516,23 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                         </option>
                       ))}
                     </select>
-                    <label className="text-[10px] text-gray-500">
+                    <label className="text-[11px] text-gray-500">
                       数量
                       <input
                         type="number" min={1} max={12}
-                        className="ml-1 w-12 bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-[11px]"
+                        className="ml-1 w-12 bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-[12px]"
                         value={entry.count}
                         onChange={(e) => patch((d) => {
                           d.waves[wi].enemies[ei].count = Math.max(1, Math.min(12, +e.target.value || 1));
                         })}
                       />
                     </label>
-                    <label className="text-[10px] text-gray-500">
+                    <label className="text-[11px] text-gray-500">
                       血量覆盖
                       <input
                         type="number" min={1}
                         placeholder={String(catalog?.combat_stats?.hp ?? "")}
-                        className="ml-1 w-16 bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-[11px]"
+                        className="ml-1 w-16 bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-[12px]"
                         value={entry.stats?.hp ?? ""}
                         onChange={(e) => patch((d) => {
                           const target = d.waves[wi].enemies[ei];
@@ -546,12 +546,12 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                         })}
                       />
                     </label>
-                    <span className="text-[10px] text-gray-500">
+                    <span className="text-[11px] text-gray-500">
                       站位 {entry.positions?.length ? entry.positions.map(([r, c]) => `${r},${c}`).join(" ") : "自动"}
                     </span>
                     <button
                       className={
-                        "text-[11px] px-1.5 rounded border "
+                        "text-[12px] px-1.5 rounded border "
                         + (placing && placing.wave === wi && placing.entry === ei
                           ? "border-amber-500/60 text-amber-200"
                           : "border-gray-700 hover:text-gray-200")
@@ -560,7 +560,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                         placing && placing.wave === wi && placing.entry === ei ? null : { wave: wi, entry: ei })}
                     >📍 指定站位</button>
                     <button
-                      className="text-[11px] px-1.5 rounded border border-gray-700 hover:text-red-300"
+                      className="text-[12px] px-1.5 rounded border border-gray-700 hover:text-red-300"
                       onClick={() => patch((d) => { d.waves[wi].enemies.splice(ei, 1); })}
                     >移除</button>
                   </div>
@@ -569,7 +569,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
 
               <div className="flex items-center gap-2">
                 <select
-                  className="bg-gray-900 border border-gray-700 rounded px-1.5 py-0.5 text-[11px]"
+                  className="bg-gray-900 border border-gray-700 rounded px-1.5 py-0.5 text-[12px]"
                   defaultValue=""
                   onChange={(e) => {
                     const name = e.target.value;
@@ -584,7 +584,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                   ))}
                 </select>
                 {wave.enemies.length === 0 && (
-                  <span className="text-[10px] text-amber-300/80">
+                  <span className="text-[11px] text-amber-300/80">
                     这一波还没有敌人（空节点无法开战）
                   </span>
                 )}
@@ -597,7 +597,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
         <section className="space-y-2">
           <h3 className="text-xs text-gray-400 tracking-wider">难度与奖励</h3>
           <div className="grid grid-cols-4 gap-2">
-            <label className="text-[11px] text-gray-500">
+            <label className="text-[12px] text-gray-500">
               阶段带
               <select
                 className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs"
@@ -610,7 +610,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                 {BANDS.map((b) => <option key={b} value={b}>{b}</option>)}
               </select>
             </label>
-            <label className="text-[11px] text-gray-500">
+            <label className="text-[12px] text-gray-500">
               威胁预算
               <input type="number" step="0.1"
                 className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs"
@@ -620,7 +620,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                 })}
               />
             </label>
-            <label className="text-[11px] text-gray-500">
+            <label className="text-[12px] text-gray-500">
               目标回合
               <input type="number"
                 className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs"
@@ -630,7 +630,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                 })}
               />
             </label>
-            <label className="text-[11px] text-gray-500">
+            <label className="text-[12px] text-gray-500">
               回合上限
               <input type="number"
                 className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs"
@@ -642,7 +642,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
             </label>
           </div>
           <div className="grid grid-cols-3 gap-2">
-            <label className="text-[11px] text-gray-500">
+            <label className="text-[12px] text-gray-500">
               奖励 XP
               <input type="number"
                 className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs"
@@ -652,7 +652,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                 })}
               />
             </label>
-            <label className="text-[11px] text-gray-500">
+            <label className="text-[12px] text-gray-500">
               背景 id
               <input
                 className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs font-mono"
@@ -660,7 +660,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
                 onChange={(e) => patch((d) => { d.background = e.target.value; })}
               />
             </label>
-            <label className="text-[11px] text-gray-500">
+            <label className="text-[12px] text-gray-500">
               可撤退
               <select
                 className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs"
@@ -680,15 +680,15 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
         <section className="space-y-1">
           <h3 className="text-xs text-gray-400 tracking-wider">校验</h3>
           {validation.errors.length === 0 && validation.warnings.length === 0 && (
-            <p className="text-[11px] text-emerald-300">✔ 通过（可保存 / 可试打）</p>
+            <p className="text-[12px] text-emerald-300">✔ 通过（可保存 / 可试打）</p>
           )}
           {validation.errors.map((msg, i) => (
-            <p key={`e${i}`} className="text-[11px] text-red-300">✖ {msg}</p>
+            <p key={`e${i}`} className="text-[12px] text-red-300">✖ {msg}</p>
           ))}
           {validation.warnings.map((msg, i) => (
-            <p key={`w${i}`} className="text-[11px] text-amber-300/90">⚠ {msg}</p>
+            <p key={`w${i}`} className="text-[12px] text-amber-300/90">⚠ {msg}</p>
           ))}
-          <p className="text-[10px] text-gray-600">
+          <p className="text-[11px] text-gray-600">
             校验由服务端判定（与开战同一套规则）；错误会阻止保存与试打，警告仅供提醒。
           </p>
         </section>

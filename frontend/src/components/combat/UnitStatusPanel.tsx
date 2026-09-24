@@ -42,7 +42,7 @@ function StatusBadges({ status }: { status?: Record<string, number> }) {
   return (
     <div className="flex flex-wrap gap-1 mt-1">
       {active.map((s) => (
-        <span key={s.key} className={"px-1 py-0.5 rounded text-[9px] font-display border " + s.cls}>
+        <span key={s.key} className={"px-1 py-0.5 rounded text-[10px] font-display border " + s.cls}>
           {s.label} {status[s.key]}
         </span>
       ))}
@@ -61,7 +61,7 @@ function HPBar({ current, max }: { current: number; max: number }) {
           style={{ width: `${pct * 100}%` }}
         />
       </div>
-      <span className="text-[10px] text-gray-500 font-mono w-12 text-right">
+      <span className="text-[11px] text-gray-500 font-mono w-12 text-right">
         {current}/{max}
       </span>
     </div>
@@ -92,13 +92,13 @@ export default function UnitStatusPanel({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-[11px] font-bold text-gray-400 uppercase tracking-widest border-b border-combat-divider pb-1.5 font-display">
+      <div className="text-[12px] font-bold text-gray-400 uppercase tracking-widest border-b border-combat-divider pb-1.5 font-display">
         {label}
       </div>
 
       {isPlayer && sharedAp !== undefined && sharedApMax !== undefined && (
         <div className="flex items-center gap-2 px-1">
-          <span className="text-[9px] text-gray-500 w-10">Shared</span>
+          <span className="text-[10px] text-gray-500 w-10">Shared</span>
           <APDots current={sharedAp} max={sharedApMax} color="#ffffff" />
         </div>
       )}
@@ -140,7 +140,7 @@ export default function UnitStatusPanel({
                   <span className={`text-xs font-bold truncate ${dead ? "text-gray-600" : "text-gray-200"}`}>
                     {u.name}
                   </span>
-                  <span className="text-[9px] text-gray-600 ml-1 flex-shrink-0">{u.char_class}</span>
+                  <span className="text-[10px] text-gray-600 ml-1 flex-shrink-0">{u.char_class}</span>
                 </div>
                 <div className="mt-1">
                   <HPBar current={u.hp} max={u.max_hp} />
@@ -149,7 +149,7 @@ export default function UnitStatusPanel({
                 {u.is_alive && (
                   <div className="mt-1 flex justify-between items-center">
                     <APDots current={u.personal_ap} max={u.max_personal_ap} />
-                    <span className="text-[9px] text-gray-600">{u.mobility}速</span>
+                    <span className="text-[10px] text-gray-600">{u.mobility}速</span>
                   </div>
                 )}
                 {!isPlayer && u.is_alive && intents && (() => {
@@ -158,7 +158,7 @@ export default function UnitStatusPanel({
                   // v1：精英/Boss 每轮多段动作；逐段列出，避免 UI 只表达首段造成误判
                   const plan: any[] = Array.isArray(it.actions) ? it.actions : [];
                   return (
-                    <div className="mt-1 text-[9px] leading-tight font-display">
+                    <div className="mt-1 text-[10px] leading-tight font-display">
                       <span className={INTENT_COLOR[it.type] || "text-gray-400"}>
                         意图：{it.label}
                       </span>

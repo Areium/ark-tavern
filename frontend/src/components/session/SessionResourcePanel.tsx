@@ -67,7 +67,7 @@ function Thumb({ url, alt, className = "w-12 h-12" }: {
   useEffect(() => { setOk(true); }, [url]);
   if (!url || !ok) {
     return (
-      <div className={`${className} rounded bg-gray-800 flex items-center justify-center text-gray-600 text-[10px] shrink-0`}>
+      <div className={`${className} rounded bg-gray-800 flex items-center justify-center text-gray-600 text-[11px] shrink-0`}>
         无图
       </div>
     );
@@ -268,12 +268,12 @@ export default function SessionResourcePanel() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] text-gray-500">存档</span>
+        <span className="text-[12px] text-gray-500">存档</span>
         <div className="flex gap-1">
           <button
             disabled={busy}
             onClick={handleExport}
-            className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
+            className="text-[11px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
             title="导出会话存档 zip（含资源依赖，可分享）"
           >
             ⬇ 导出
@@ -281,7 +281,7 @@ export default function SessionResourcePanel() {
           <button
             disabled={busy}
             onClick={() => importFileRef.current?.click()}
-            className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
+            className="text-[11px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
             title="导入会话存档 zip"
           >
             ⬆ 导入
@@ -317,7 +317,7 @@ export default function SessionResourcePanel() {
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs font-medium truncate">{name}</span>
                     <span
-                      className={`text-[10px] px-1.5 rounded ${
+                      className={`text-[11px] px-1.5 rounded ${
                         coveredType
                           ? "bg-blue-700/40 text-blue-200"
                           : "bg-gray-700 text-gray-400"
@@ -335,7 +335,7 @@ export default function SessionResourcePanel() {
                       url={`/api/characters/${encodeURIComponent(name)}/avatar`}
                       alt={`${name}全局头像`}
                     />
-                    <span className="text-[10px] text-gray-600">会话 / 全局</span>
+                    <span className="text-[11px] text-gray-600">会话 / 全局</span>
                   </div>
                   <div className="flex gap-1 flex-wrap">
                     {MEDIA_TYPES.map((t) => {
@@ -346,7 +346,7 @@ export default function SessionResourcePanel() {
                           <button
                             disabled={busy}
                             onClick={() => fileRefs.current[key]?.click()}
-                            className={`text-[10px] px-1.5 py-0.5 rounded ${
+                            className={`text-[11px] px-1.5 py-0.5 rounded ${
                               isCovered
                                 ? "bg-amber-700/30 text-amber-300 hover:bg-amber-700/50"
                                 : "bg-gray-700 text-gray-300 hover:bg-gray-600"
@@ -358,7 +358,7 @@ export default function SessionResourcePanel() {
                           <button
                             disabled={busy}
                             onClick={() => openPicker(name, t)}
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-blue-700/30 text-blue-200 hover:bg-blue-700/50"
+                            className="text-[11px] px-1.5 py-0.5 rounded bg-blue-700/30 text-blue-200 hover:bg-blue-700/50"
                             title={`从「${name}」的图片库中选取${MEDIA_LABEL[t]}设为会话覆盖`}
                           >
                             选取
@@ -370,7 +370,7 @@ export default function SessionResourcePanel() {
                       <button
                         disabled={busy}
                         onClick={() => handleCharMediaDelete(name, coveredType!)}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-red-700/30 text-red-300 hover:bg-red-700/50"
+                        className="text-[11px] px-1.5 py-0.5 rounded bg-red-700/30 text-red-300 hover:bg-red-700/50"
                         title="删除会话覆盖，还原为全局形象"
                       >
                         删除
@@ -401,7 +401,7 @@ export default function SessionResourcePanel() {
       {/* ── 战斗背景 ── */}
       <section>
         <h3 className="text-xs font-semibold text-gray-400 mb-2">战斗背景</h3>
-        <p className="text-gray-600 text-[11px] mb-2">
+        <p className="text-gray-600 text-[12px] mb-2">
           上传后，本会话的战斗优先使用此图；删除即还原全局背景。
         </p>
         {!data || data.available_background_ids.length === 0 ? (
@@ -415,7 +415,7 @@ export default function SessionResourcePanel() {
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs font-medium truncate">{bgId}</span>
                     <span
-                      className={`text-[10px] px-1.5 rounded ${
+                      className={`text-[11px] px-1.5 rounded ${
                         covered
                           ? "bg-blue-700/40 text-blue-200"
                           : "bg-gray-700 text-gray-400"
@@ -435,13 +435,13 @@ export default function SessionResourcePanel() {
                       alt={`${bgId}全局图`}
                       className="w-16 h-10"
                     />
-                    <span className="text-[10px] text-gray-600">会话 / 全局</span>
+                    <span className="text-[11px] text-gray-600">会话 / 全局</span>
                   </div>
                   <div className="flex gap-1">
                     <button
                       disabled={busy}
                       onClick={() => fileRefs.current[`bg-${bgId}`]?.click()}
-                      className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      className={`text-[11px] px-1.5 py-0.5 rounded ${
                         covered
                           ? "bg-amber-700/30 text-amber-300 hover:bg-amber-700/50"
                           : "bg-gray-700 text-gray-300 hover:bg-gray-600"
@@ -453,7 +453,7 @@ export default function SessionResourcePanel() {
                       <button
                         disabled={busy}
                         onClick={() => handleBgDelete(bgId)}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-red-700/30 text-red-300 hover:bg-red-700/50"
+                        className="text-[11px] px-1.5 py-0.5 rounded bg-red-700/30 text-red-300 hover:bg-red-700/50"
                       >
                         删除
                       </button>
@@ -479,7 +479,7 @@ export default function SessionResourcePanel() {
 
       {/* ── 目录路径 ── */}
       {data && (
-        <div className="text-[10px] text-gray-600 break-all border-t border-gray-700/50 pt-2">
+        <div className="text-[11px] text-gray-600 break-all border-t border-gray-700/50 pt-2">
           <div>resources: {data.resources_dir}</div>
           <div>backgrounds: {data.backgrounds_dir}</div>
         </div>
@@ -505,7 +505,7 @@ export default function SessionResourcePanel() {
               <h3 className="text-sm font-medium mb-1">
                 选取{picker.name}·{MEDIA_LABEL[picker.mediaType]}
               </h3>
-              <p className="text-[11px] text-gray-500 mb-3">
+              <p className="text-[12px] text-gray-500 mb-3">
                 从该角色全局图片库（{wantDir}/ 目录）中挑一张，设为仅本会话生效的覆盖图
               </p>
               {libraryLoading ? (
@@ -531,7 +531,7 @@ export default function SessionResourcePanel() {
                         alt={img.name}
                         className="w-full h-20 object-cover"
                       />
-                      <span className="absolute inset-x-0 bottom-0 bg-black/60 text-[9px] text-gray-300 px-1 py-0.5 truncate opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="absolute inset-x-0 bottom-0 bg-black/60 text-[10px] text-gray-300 px-1 py-0.5 truncate opacity-0 group-hover:opacity-100 transition-opacity">
                         {pickingUrl === img.url ? "应用中..." : img.name}
                       </span>
                     </button>

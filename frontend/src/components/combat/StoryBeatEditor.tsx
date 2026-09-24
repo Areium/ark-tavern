@@ -150,10 +150,10 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
     <div className="flex-1 flex flex-col min-w-0 min-h-0">
       <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-800">
         <span className="text-sm font-medium truncate">📜 剧情：{plotId}</span>
-        {selectedBeat && <span className="text-[10px] text-gray-500 font-mono">{selectedBeat}</span>}
-        {dirty && <span className="text-[10px] text-amber-400">● 未保存</span>}
+        {selectedBeat && <span className="text-[11px] text-gray-500 font-mono">{selectedBeat}</span>}
+        {dirty && <span className="text-[11px] text-amber-400">● 未保存</span>}
         <div className="flex-1" />
-        {notice && <span className="text-[11px] text-emerald-300">{notice}</span>}
+        {notice && <span className="text-[12px] text-emerald-300">{notice}</span>}
         <button
           className="text-xs px-2 py-1 rounded border border-gray-700 hover:text-gray-200"
           onClick={handleAddChapter}
@@ -183,7 +183,7 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
         <section className="space-y-1">
           <h3 className="text-xs text-gray-400 tracking-wider">章节与节拍</h3>
           {chapters.length === 0 && (
-            <p className="text-[11px] text-gray-500">
+            <p className="text-[12px] text-gray-500">
               该剧情正文没有「## 章节 N」+「#### beat_id」骨架：节点图上的章节 / 节拍来自参考大纲
               （「LLM 分析剧情结构」的结果，或按「第N幕」标题切出），这里不能逐节拍编辑；
               要改正文请到「文档」页编辑该剧情，或用「+ 章节」为它建立标准骨架。
@@ -195,7 +195,7 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
                 <span className="text-xs text-gray-300">章节 {ch.idx}：{ch.title}</span>
                 <div className="flex-1" />
                 <button
-                  className="text-[10px] px-1.5 rounded border border-gray-700 hover:text-gray-200"
+                  className="text-[11px] px-1.5 rounded border border-gray-700 hover:text-gray-200"
                   onClick={() => handleAddBeat(ch.idx, null)}
                   disabled={busy}
                   title="在该章节末尾追加节拍"
@@ -206,7 +206,7 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
                   <span
                     key={bid}
                     className={
-                      "text-[10px] px-1.5 py-0.5 rounded border cursor-pointer transition-colors " +
+                      "text-[11px] px-1.5 py-0.5 rounded border cursor-pointer transition-colors " +
                       (selectedBeat === bid
                         ? "border-amber-500/60 bg-amber-600/20 text-amber-200"
                         : "border-gray-700 text-gray-400 hover:text-gray-200")
@@ -225,7 +225,7 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
             <div className="flex items-center gap-2">
               <h3 className="text-xs text-gray-400 tracking-wider">节拍正文</h3>
               <div className="flex-1" />
-              <label className="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer">
+              <label className="flex items-center gap-1 text-[11px] text-gray-500 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={keepOnDeviate}
@@ -235,13 +235,13 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
                 偏离保留（keep_on_deviate）
               </label>
               <button
-                className="text-[10px] px-1.5 rounded border border-gray-700 hover:text-gray-200"
+                className="text-[11px] px-1.5 rounded border border-gray-700 hover:text-gray-200"
                 onClick={handleToggleDeviate}
                 disabled={busy}
                 title="立即写入偏离标记（不等正文一起保存）"
               >仅切换标记</button>
               <button
-                className="text-[10px] px-1.5 rounded border border-red-800/60 text-red-300 hover:bg-red-900/30"
+                className="text-[11px] px-1.5 rounded border border-red-800/60 text-red-300 hover:bg-red-900/30"
                 onClick={handleDeleteBeat}
                 disabled={busy}
               >删除节拍</button>
@@ -258,13 +258,13 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
                 onClick={saveBeat}
                 disabled={busy || !dirty}
               >保存节拍</button>
-              <p className="text-[10px] text-gray-600">
+              <p className="text-[11px] text-gray-600">
                 保存到当前剧情；如有其他修改，会提示保存冲突。
               </p>
             </div>
           </section>
         ) : (
-          chapters.length > 0 && <p className="text-[11px] text-gray-500">点击上方节拍标签编辑其正文。</p>
+          chapters.length > 0 && <p className="text-[12px] text-gray-500">点击上方节拍标签编辑其正文。</p>
         )}
       </div>
     </div>

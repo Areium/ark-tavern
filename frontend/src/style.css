@@ -587,7 +587,7 @@ html.light .hover\:text-green-400:hover { color: rgb(21 128 61); }
   padding: 0 3px;
   border-radius: 3px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
   color: #1a1408;
@@ -601,7 +601,7 @@ html.light .hover\:text-green-400:hover { color: rgb(21 128 61); }
 }
 /* ── 卡牌描述 ── */
 .card-description {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.3;
   color: #6b7280;
   margin-top: 2px;
@@ -612,7 +612,7 @@ html.light .hover\:text-green-400:hover { color: rgb(21 128 61); }
 }
 /* ── 伤害数值行 ── */
 .damage-range-row {
-  font-size: 11px;
+  font-size: 12px;
   margin-top: 2px;
   display: flex;
   align-items: center;
@@ -1138,7 +1138,7 @@ html.light .session-card.selected {
   gap: 0.25rem;
   padding: 0.1rem 0.45rem;
   border-radius: 0.375rem;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   line-height: 1.4;
   white-space: nowrap;
@@ -1217,7 +1217,7 @@ html.light .wizard-panel { background: linear-gradient(165deg, #ffffff, #f5f4f0)
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   border: 1px solid rgba(75, 85, 99, 0.9);
   color: rgb(107 114 128);
@@ -1226,7 +1226,7 @@ html.light .wizard-panel { background: linear-gradient(165deg, #ffffff, #f5f4f0)
 }
 .step-dot.active { border-color: rgba(251, 191, 36, 0.7); color: #fcd34d; box-shadow: 0 0 12px -2px rgba(251, 191, 36, 0.4); }
 .step-dot.done { border-color: rgba(52, 211, 153, 0.5); color: #6ee7b7; background: rgba(16, 185, 129, 0.12); }
-.step-label { font-size: 11px; color: rgb(107 114 128); }
+.step-label { font-size: 12px; color: rgb(107 114 128); }
 .step-label.active { color: #fcd34d; }
 .step-label.done { color: #6ee7b7; }
 html.light .step-dot { background: #fff; color: rgb(107 114 128); border-color: rgb(209 213 219); }
@@ -1340,7 +1340,7 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
 }
 .home-splash-press {
   margin-top: 14px;
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: 0.5em;
   text-indent: 0.5em;
   color: rgba(209, 213, 219, 0.85);
@@ -1398,7 +1398,7 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
 }
 .home-menu-sub {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.42em;
   text-indent: 0.42em;
   color: rgba(156, 163, 175, 0.85);
@@ -1471,7 +1471,7 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13.5px;
+  font-size: 14.5px;
   font-weight: 600;
   color: #e5e7eb;
   letter-spacing: 0.06em;
@@ -1479,12 +1479,12 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
 .home-menu-item-desc {
   display: block;
   margin-top: 1px;
-  font-size: 10.5px;
+  font-size: 11.5px;
   color: rgba(156, 163, 175, 0.75);
   letter-spacing: 0.04em;
 }
 .home-menu-item-badge {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   padding: 1px 7px;
   border-radius: 999px;
@@ -1493,7 +1493,7 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
   border: 1px solid rgba(245, 158, 11, 0.3);
 }
 .home-menu-item-arrow {
-  font-size: 10px;
+  font-size: 11px;
   color: #fcd34d;
   opacity: 0;
   transform: translateX(-4px);
@@ -1529,7 +1529,7 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
   align-items: center;
   justify-content: center;
   gap: 20px;
-  font-size: 11px;
+  font-size: 12px;
   color: rgba(156, 163, 175, 0.8);
   z-index: 10;
 }
@@ -1660,7 +1660,7 @@ html.light .home-menu-version { color: rgba(203, 213, 225, 0.8); }
   padding: 6px 8px 8px;
 }
 .card-fly-name {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: #e5e7eb;
   line-height: 1.3;
@@ -1673,7 +1673,7 @@ html.light .home-menu-version { color: rgba(203, 213, 225, 0.8); }
   align-items: center;
   justify-content: space-between;
   margin-top: 3px;
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 .card-fly-cost {
   color: #00d4ff;
@@ -1855,9 +1855,9 @@ html.light {
   padding: 7px 10px 5px 12px;
   border-radius: 9px 9px 0 0;
 }
-.ng-node-icon { font-size: 11px; line-height: 1; }
+.ng-node-icon { font-size: 12px; line-height: 1; }
 .ng-node-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--ng-title);
   line-height: 1.3;
@@ -1867,7 +1867,7 @@ html.light {
 }
 .ng-node-sub {
   padding: 1px 10px 0 12px;
-  font-size: 9px;
+  font-size: 10px;
   font-family: ui-monospace, monospace;
   color: var(--ng-muted);
   white-space: nowrap;
@@ -1876,7 +1876,7 @@ html.light {
 }
 .ng-node-body {
   padding: 4px 10px 8px 12px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.45;
   color: var(--ng-body);
   display: -webkit-box;
@@ -1887,7 +1887,7 @@ html.light {
 .ng-node-progress {
   display: inline-block;
   margin: 0 10px 8px 12px;
-  font-size: 9px;
+  font-size: 10px;
   border-radius: 4px;
   padding: 0 5px;
   border: 1px solid transparent;
@@ -1941,7 +1941,7 @@ html.light .ng-progress-locked  { color: #4b5563; }
   border: 1px solid var(--ng-card-border);
   border-radius: 6px;
   padding: 3px 6px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--ng-title);
 }
@@ -1952,13 +1952,13 @@ html.light .ng-progress-locked  { color: #4b5563; }
   border: 1px solid var(--ng-card-border);
   border-radius: 6px;
   padding: 3px 6px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--ng-body);
   resize: none;
 }
 .ng-edit-tip {
   padding: 0 12px;
-  font-size: 8.5px;
+  font-size: 10px;
   color: var(--ng-muted);
 }
 
@@ -1978,7 +1978,7 @@ html.light .ng-progress-locked  { color: #4b5563; }
 }
 .ng-tool-btn {
   padding: 3px 9px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ng-body);
   border-radius: 6px;
   cursor: pointer;
@@ -1987,7 +1987,7 @@ html.light .ng-progress-locked  { color: #4b5563; }
 .ng-tool-zoom {
   min-width: 52px;
   text-align: center;
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--ng-title);
   cursor: pointer;
@@ -1996,7 +1996,7 @@ html.light .ng-progress-locked  { color: #4b5563; }
 }
 .ng-tool-zoom:hover { background: rgba(148,163,184,.18); }
 .ng-tool-sep { width: 1px; height: 16px; background: var(--ng-card-border); margin: 0 3px; }
-.ng-tool-hint { font-size: 10px; color: var(--ng-edge-color-hl); padding: 0 8px; white-space: nowrap; }
+.ng-tool-hint { font-size: 11px; color: var(--ng-edge-color-hl); padding: 0 8px; white-space: nowrap; }
 
 /* ── 浮层：图例 ── */
 .ng-legend {
@@ -2013,13 +2013,13 @@ html.light .ng-progress-locked  { color: #4b5563; }
   width: 100%;
   text-align: left;
   padding: 6px 10px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ng-body);
   cursor: pointer;
   border-radius: 10px;
 }
 .ng-legend-body { padding: 2px 10px 8px; display: flex; flex-direction: column; gap: 3px; }
-.ng-legend-item { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--ng-body); }
+.ng-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ng-body); }
 .ng-legend-dot {
   width: 10px; height: 10px;
   border-radius: 3px;
@@ -2063,7 +2063,7 @@ html.light .ng-progress-locked  { color: #4b5563; }
   width: 100%;
   text-align: left;
   padding: 5px 10px;
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--ng-title);
   border-radius: 6px;
   cursor: pointer;
@@ -2076,11 +2076,11 @@ html.light .ng-progress-locked  { color: #4b5563; }
 html.light .ng-menu-item.danger { color: #b91c1c; }
 .ng-menu-head {
   padding: 5px 10px 2px;
-  font-size: 9.5px;
+  font-size: 10.5px;
   color: var(--ng-muted);
 }
 .ng-menu-list { max-height: 132px; overflow-y: auto; }
-.ng-menu-empty { display: block; padding: 2px 10px 4px; font-size: 10px; color: var(--ng-muted); }
+.ng-menu-empty { display: block; padding: 2px 10px 4px; font-size: 11px; color: var(--ng-muted); }
 .ng-menu-sep { height: 1px; background: var(--ng-card-border); margin: 4px 2px; }
 
 /* ── 空图引导 ── */
@@ -2103,10 +2103,10 @@ html.light .ng-menu-item.danger { color: #b91c1c; }
   box-shadow: 0 8px 28px rgba(0,0,0,.35);
 }
 .ng-empty-title { font-size: 15px; font-weight: 600; color: var(--ng-title); margin-bottom: 4px; }
-.ng-empty-sub { font-size: 11px; color: var(--ng-muted); margin-bottom: 14px; }
+.ng-empty-sub { font-size: 12px; color: var(--ng-muted); margin-bottom: 14px; }
 .ng-empty-actions { display: flex; gap: 8px; justify-content: center; }
 .ng-empty-btn {
-  font-size: 12px;
+  font-size: 13px;
   padding: 6px 14px;
   border-radius: 8px;
   border: 1px solid var(--ng-card-border);

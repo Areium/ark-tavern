@@ -122,7 +122,7 @@ export default function CharacterPicker({
                     ? "来源世界书里定义的角色（随书导入，带 worldbook_id 标注）"
                     : "自建与世界书角色一起显示"}
                 onClick={() => { setSource(filter.id); if (filter.id !== "worldbook") setBookId(""); }}
-                className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                className={`text-[12px] px-2.5 py-1 rounded-full border transition-colors ${
                   active
                     ? "bg-amber-600/25 text-amber-200 border-amber-500/40"
                     : "bg-gray-800/60 text-gray-400 border-gray-700 hover:text-gray-200"
@@ -135,7 +135,7 @@ export default function CharacterPicker({
         </div>
         {source === "worldbook" && books.length > 0 && (
           <select
-            className="bg-gray-800/80 border border-gray-700 rounded-md px-1.5 py-1 text-[11px] text-gray-300 max-w-[12rem]"
+            className="bg-gray-800/80 border border-gray-700 rounded-md px-1.5 py-1 text-[12px] text-gray-300 max-w-[12rem]"
             value={effectiveBookId}
             onChange={(e) => setBookId(e.target.value)}
             aria-label="按世界书筛选"
@@ -144,7 +144,7 @@ export default function CharacterPicker({
             {books.map((book) => <option key={book.id} value={book.id}>{book.name}</option>)}
           </select>
         )}
-        <span className="text-[11px] text-gray-500 whitespace-nowrap">
+        <span className="text-[12px] text-gray-500 whitespace-nowrap">
           候选 {filtered.length}/{items.length}
         </span>
       </div>
@@ -152,13 +152,13 @@ export default function CharacterPicker({
       {/* 已在阵容的角色：不参与候选，避免同一角色被两条路径重复添加 */}
       {locked.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[11px] text-gray-500">{lockedLabel}：</span>
+          <span className="text-[12px] text-gray-500">{lockedLabel}：</span>
           {locked.map((key) => {
             const item = items.find((entry) => entry.key === key);
             return (
               <span
                 key={key}
-                className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-purple-600/20 text-purple-200 border border-purple-500/30"
+                className="inline-flex items-center gap-1 text-[12px] px-2 py-0.5 rounded-full bg-purple-600/20 text-purple-200 border border-purple-500/30"
               >
                 <EntityAvatar name={item?.name || key} src={characterAvatarUrl(key)} size={16} shape="circle" />
                 {item?.name || key}
@@ -169,7 +169,7 @@ export default function CharacterPicker({
       )}
 
       {skippedCount > 0 && (
-        <p className="text-[11px] text-amber-300" role="status">
+        <p className="text-[12px] text-amber-300" role="status">
           有 {skippedCount} 个角色卡既没有 id 也没有名称，无法作为阵容键，已从候选中跳过。
         </p>
       )}
@@ -208,7 +208,7 @@ export default function CharacterPicker({
                 <div className="relative w-full flex justify-center">
                   <EntityAvatar name={item.name} src={characterAvatarUrl(item.key)} size={40} />
                   {isSelected && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-black text-[10px] font-bold flex items-center justify-center shadow">
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-black text-[11px] font-bold flex items-center justify-center shadow">
                       ✓
                     </span>
                   )}
@@ -216,7 +216,7 @@ export default function CharacterPicker({
                 <span className={`text-xs truncate w-full text-center ${isSelected ? "text-amber-300 font-medium" : "text-gray-200"}`}>
                   {item.name}
                 </span>
-                <span className="text-[10px] text-gray-500 text-center line-clamp-2 w-full leading-snug">
+                <span className="text-[11px] text-gray-500 text-center line-clamp-2 w-full leading-snug">
                   {summaryText(item)}
                 </span>
                 <span className="flex flex-wrap items-center justify-center gap-1">
@@ -224,24 +224,24 @@ export default function CharacterPicker({
                     <SourceBookBadge name={item.bookName || item.bookId} size="xs" />
                   ) : (
                     <span
-                      className="text-[10px] px-1 py-px rounded bg-violet-600/20 text-violet-300 border border-violet-500/30"
+                      className="text-[11px] px-1 py-px rounded bg-violet-600/20 text-violet-300 border border-violet-500/30"
                       title="玩家自己创建或导入的角色：角色卡未标注来源世界书"
                     >
                       {SOURCE_LABELS.own}
                     </span>
                   )}
                   {inBoundBook && (
-                    <span className="text-[10px] px-1 py-px rounded bg-emerald-600/20 text-emerald-300 border border-emerald-500/30">
+                    <span className="text-[11px] px-1 py-px rounded bg-emerald-600/20 text-emerald-300 border border-emerald-500/30">
                       本次绑定
                     </span>
                   )}
                   {item.missing.includes("简介") && (
-                    <span className="text-[10px] px-1 py-px rounded bg-gray-700/60 text-gray-400" title="角色卡缺少 summary 字段">
+                    <span className="text-[11px] px-1 py-px rounded bg-gray-700/60 text-gray-400" title="角色卡缺少 summary 字段">
                       缺简介
                     </span>
                   )}
                   {isSelected && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-600/30 text-amber-300">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-600/30 text-amber-300">
                       {selectedBadge}
                     </span>
                   )}

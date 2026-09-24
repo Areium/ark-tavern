@@ -259,7 +259,7 @@ export default function SettingsPanel() {
                     ))}
                   </div>
                   <p className="text-xs font-semibold">{s.name}</p>
-                  <p className="text-[10px] text-gray-500 mt-0.5 leading-snug">{s.desc}</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{s.desc}</p>
                 </button>
               );
             })}

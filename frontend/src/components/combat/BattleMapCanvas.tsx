@@ -48,13 +48,13 @@ export default function BattleMapCanvas({
       <div className="flex gap-0.5 mb-0.5">
         <div style={{ width: 16 }} />
         {Array.from({ length: cols }, (_, c) => (
-          <div key={c} className="text-center text-[9px] text-gray-600 font-mono"
+          <div key={c} className="text-center text-[10px] text-gray-600 font-mono"
                style={{ width: cellSize }}>{c}</div>
         ))}
       </div>
       {Array.from({ length: rows }, (_, r) => (
         <div key={r} className="flex gap-0.5 items-center">
-          <div className="text-center text-[9px] text-gray-600 font-mono"
+          <div className="text-center text-[10px] text-gray-600 font-mono"
                style={{ width: 16 }}>{r}</div>
           {Array.from({ length: cols }, (_, c) => {
             const key = `${r},${c}`;
@@ -83,7 +83,7 @@ export default function BattleMapCanvas({
                   borderColor: `${colorOf(def)}aa`,
                 }}
               >
-                <span className="text-[9px] opacity-70">
+                <span className="text-[10px] opacity-70">
                   {tileId === "ground" ? "" : (def?.glyph ?? "")}
                 </span>
               </button>

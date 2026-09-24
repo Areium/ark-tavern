@@ -52,22 +52,22 @@ export default function CombatQuestBar({ sessionId }: { sessionId: string | null
       {/* 折叠胶囊 */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 px-3 py-1 rounded-full border border-amber-500/30 bg-gray-950/70 backdrop-blur-sm text-[11px] text-gray-200 hover:border-amber-400/50 hover:bg-gray-900/80 transition-colors shadow-lg"
+        className="flex items-center gap-2 px-3 py-1 rounded-full border border-amber-500/30 bg-gray-950/70 backdrop-blur-sm text-[12px] text-gray-200 hover:border-amber-400/50 hover:bg-gray-900/80 transition-colors shadow-lg"
         title="任务状态（点击展开）"
       >
         <span className={"w-1.5 h-1.5 rounded-full " + (STATUS_DOT[primary.status] || "bg-gray-500")} />
-        <span className={"px-1 py-px rounded border text-[9px] font-medium " + primaryBadge.cls}>
+        <span className={"px-1 py-px rounded border text-[10px] font-medium " + primaryBadge.cls}>
           {primaryBadge.label}
         </span>
         <span className="max-w-48 truncate">{primary.name}</span>
         {quests.length > 1 && <span className="text-gray-500">+{quests.length - 1}</span>}
-        <span className={"text-gray-500 text-[9px] transition-transform " + (open ? "rotate-180" : "")}>▼</span>
+        <span className={"text-gray-500 text-[10px] transition-transform " + (open ? "rotate-180" : "")}>▼</span>
       </button>
 
       {/* 展开列表 */}
       {open && (
         <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 w-72 rounded-xl border border-gray-700/80 bg-gray-950/95 backdrop-blur shadow-2xl p-2 space-y-1.5">
-          <div className="px-1.5 pb-1 text-[10px] text-gray-500 border-b border-gray-800">
+          <div className="px-1.5 pb-1 text-[11px] text-gray-500 border-b border-gray-800">
             进行中任务 {activeCount} · 待触发 {quests.length - activeCount}
           </div>
           {quests.map((q) => {
@@ -75,14 +75,14 @@ export default function CombatQuestBar({ sessionId }: { sessionId: string | null
             return (
               <div key={q.id} className="px-1.5 py-1">
                 <div className="flex items-center gap-1.5">
-                  <span className={"px-1 py-px rounded border text-[9px] font-medium shrink-0 " + badge.cls}>
+                  <span className={"px-1 py-px rounded border text-[10px] font-medium shrink-0 " + badge.cls}>
                     {badge.label}
                   </span>
                   <span className="text-xs text-gray-200 truncate">{q.name}</span>
                   <span className={"ml-auto w-1.5 h-1.5 rounded-full shrink-0 " + (STATUS_DOT[q.status] || "bg-gray-600")} />
                 </div>
                 {q.objective && (
-                  <div className="mt-1 pl-1 text-[10px] text-gray-500 leading-relaxed">
+                  <div className="mt-1 pl-1 text-[11px] text-gray-500 leading-relaxed">
                     目标：{q.objective}
                   </div>
                 )}

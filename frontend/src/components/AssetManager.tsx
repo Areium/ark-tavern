@@ -395,7 +395,7 @@ export default function AssetManager() {
                     >
                       <AppIcon name="close" size={10} />
                     </button>
-                    <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[10px] text-gray-300 px-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[11px] text-gray-300 px-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                       <div className="truncate">{img.name}</div>
                       {img.size != null && (
                         <div className="text-gray-500">{formatFileSize(img.size)}</div>
@@ -448,10 +448,10 @@ export default function AssetManager() {
       <div key={cat} className="mb-3">
         <div className="flex items-center gap-1.5 py-1 mb-1">
           <span className="roles-category">{cat}</span>
-          <span className="text-[11px] text-gray-600">({items.length})</span>
+          <span className="text-[12px] text-gray-600">({items.length})</span>
           <div className="flex-1" />
           <label
-            className="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-amber-300 cursor-pointer px-1 py-0.5 rounded hover:bg-gray-700/50"
+            className="inline-flex items-center gap-1 text-[12px] text-gray-500 hover:text-amber-300 cursor-pointer px-1 py-0.5 rounded hover:bg-gray-700/50"
             title="上传到该类别目录"
           >
             <AppIcon name="upload" size={12} />
@@ -504,7 +504,7 @@ export default function AssetManager() {
           />
           {dimension === "category" && (
             <select
-              className="w-full bg-gray-800/80 border border-gray-700 rounded-md px-2 py-1 text-[11px] text-gray-300"
+              className="w-full bg-gray-800/80 border border-gray-700 rounded-md px-2 py-1 text-[12px] text-gray-300"
               value={bookFilter}
               onChange={(e) => setBookFilter(e.target.value)}
               title="按来源世界书筛选"

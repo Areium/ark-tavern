@@ -106,7 +106,7 @@ function Chip({ tone, children }: { tone: "blue" | "purple" | "green"; children:
     : tone === "purple"
       ? "bg-purple-700/50 text-purple-200"
       : "bg-green-800/50 text-green-200";
-  return <span className={`px-1.5 py-0.5 rounded text-[11px] ${cls}`}>{children}</span>;
+  return <span className={`px-1.5 py-0.5 rounded text-[12px] ${cls}`}>{children}</span>;
 }
 
 /** 左栏列表行：头像 + 名称 + 一行说明，角色库与玩家身份共用 */
@@ -133,7 +133,7 @@ function ListRow({
       <EntityAvatar name={name} src={characterAvatarUrl(id)} size={30} />
       <div className="min-w-0">
         <div className="text-xs font-medium truncate">{name}</div>
-        {sub && <div className="text-[11px] text-gray-500 truncate">{sub}</div>}
+        {sub && <div className="text-[12px] text-gray-500 truncate">{sub}</div>}
       </div>
     </button>
   );
@@ -460,7 +460,7 @@ export default function CharacterManager() {
           {tags.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1.5">
               {tags.map((t) => (
-                <span key={t} className="px-1.5 py-0.5 rounded bg-gray-700/50 text-gray-300 text-[11px]">{t}</span>
+                <span key={t} className="px-1.5 py-0.5 rounded bg-gray-700/50 text-gray-300 text-[12px]">{t}</span>
               ))}
             </div>
           )}
@@ -486,7 +486,7 @@ export default function CharacterManager() {
             {charDetailTab === "assets" && <CharacterAssets key={`assets-${selectedChar}`} characterId={selectedChar} />}
             {charDetailTab === "profile" && (
               <>
-                {summary && <p className="text-[13px] text-gray-300 leading-relaxed">{summary}</p>}
+                {summary && <p className="text-[14px] text-gray-300 leading-relaxed">{summary}</p>}
 
                 {Object.keys(attrs).length > 0 && (
                   <section>
@@ -494,7 +494,7 @@ export default function CharacterManager() {
                     <div className="grid grid-cols-4 gap-2">
                       {orderAttrs(attrs).map(([k, v]) => (
                         <div key={k} className="stat-cell flex flex-col items-center px-2 py-1.5">
-                          <span className="text-[11px] text-gray-500">{ATTR_LABELS[k] || k}</span>
+                          <span className="text-[12px] text-gray-500">{ATTR_LABELS[k] || k}</span>
                           <span className="text-gray-200 font-mono text-sm">{v}</span>
                         </div>
                       ))}
@@ -602,7 +602,7 @@ export default function CharacterManager() {
               <div className="grid grid-cols-4 gap-2">
                 {Object.entries(ATTR_LABELS).map(([key, label]) => (
                   <label key={key} className="stat-cell flex flex-col items-center gap-1 px-2 py-1.5">
-                    <span className="text-[11px] text-gray-500">{label}</span>
+                    <span className="text-[12px] text-gray-500">{label}</span>
                     <input
                       className="w-full bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-xs text-center text-gray-200 font-mono"
                       type="number"
@@ -650,7 +650,7 @@ export default function CharacterManager() {
               )}
             </div>
 
-            <p className="flex items-start gap-1.5 text-[11px] text-gray-500 leading-relaxed">
+            <p className="flex items-start gap-1.5 text-[12px] text-gray-500 leading-relaxed">
               <AppIcon name="info" size={13} className="mt-0.5" />
               <span>
                 玩家身份保存为角色目录 <code className="font-mono">characters/{(isCreating ? draftName.trim() : selectedIdentity) || "<身份名>"}/</code>，
@@ -776,7 +776,7 @@ export default function CharacterManager() {
                       {identitySearch ? "未找到匹配身份" : "还没有玩家身份"}
                     </p>
                     {!identitySearch && !isCreating && (
-                      <p className="text-[11px] text-gray-600">点上方「新建身份」创建你自己的角色卡</p>
+                      <p className="text-[12px] text-gray-600">点上方「新建身份」创建你自己的角色卡</p>
                     )}
                   </div>
                 ) : (

@@ -29,7 +29,7 @@ function AttrBar({ value }: { value: number }) {
       <div className="w-12 h-1.5 bg-gray-800 rounded overflow-hidden">
         <div className={`h-full ${color}`} style={{ width: `${pct * 100}%` }} />
       </div>
-      <span className="text-[10px] text-gray-300 w-3 text-right">{value}</span>
+      <span className="text-[11px] text-gray-300 w-3 text-right">{value}</span>
     </div>
   );
 }
@@ -86,7 +86,7 @@ export default function CombatUnitTooltip({ unit, anchorRect, onMouseEnter, onMo
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-700 shrink-0 bg-gray-800/50">
         <span className={`text-sm font-bold ${teamColor}`}>{unit.name}</span>
-        <span className="text-[10px] text-gray-500 bg-gray-700 px-1.5 py-0.5 rounded">
+        <span className="text-[11px] text-gray-500 bg-gray-700 px-1.5 py-0.5 rounded">
           {unit.char_class}
         </span>
       </div>
@@ -95,14 +95,14 @@ export default function CombatUnitTooltip({ unit, anchorRect, onMouseEnter, onMo
         {/* Raw attributes */}
         {hasAttrs ? (
           <div>
-            <div className="text-[10px] text-gray-500 mb-1 uppercase tracking-wider">属性</div>
+            <div className="text-[11px] text-gray-500 mb-1 uppercase tracking-wider">属性</div>
             <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
               {ATTR_ORDER.map((key) => {
                 const val = unit.attributes![key] ?? 0;
                 const label = ATTR_LABELS[key] || key;
                 return (
                   <div key={key} className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] text-gray-400 w-12 shrink-0">{label}</span>
+                    <span className="text-[11px] text-gray-400 w-12 shrink-0">{label}</span>
                     <div className="flex-1 min-w-0">
                       <AttrBar value={val} />
                     </div>
@@ -112,12 +112,12 @@ export default function CombatUnitTooltip({ unit, anchorRect, onMouseEnter, onMo
             </div>
           </div>
         ) : (
-          <div className="text-[10px] text-gray-600 italic">无属性数据</div>
+          <div className="text-[11px] text-gray-600 italic">无属性数据</div>
         )}
 
         {/* Derived combat stats */}
         <div>
-          <div className="text-[10px] text-gray-500 mb-1 uppercase tracking-wider">战斗数值</div>
+          <div className="text-[11px] text-gray-500 mb-1 uppercase tracking-wider">战斗数值</div>
           <div className="grid grid-cols-3 gap-x-2 gap-y-0.5">
             {[
               ["HP", `${unit.hp}/${unit.max_hp}`],
@@ -131,8 +131,8 @@ export default function CombatUnitTooltip({ unit, anchorRect, onMouseEnter, onMo
               ["AP", `${unit.personal_ap}/${unit.max_personal_ap}`],
             ].map(([label, val]) => (
               <div key={label} className="flex justify-between gap-1">
-                <span className="text-[10px] text-gray-500">{label}</span>
-                <span className="text-[10px] text-gray-300 font-mono">{val}</span>
+                <span className="text-[11px] text-gray-500">{label}</span>
+                <span className="text-[11px] text-gray-300 font-mono">{val}</span>
               </div>
             ))}
           </div>
@@ -140,8 +140,8 @@ export default function CombatUnitTooltip({ unit, anchorRect, onMouseEnter, onMo
 
         {/* Items */}
         <div>
-          <div className="text-[10px] text-gray-500 mb-1 uppercase tracking-wider">携带物品</div>
-          <div className="text-[10px] text-gray-600 italic">暂未携带物品</div>
+          <div className="text-[11px] text-gray-500 mb-1 uppercase tracking-wider">携带物品</div>
+          <div className="text-[11px] text-gray-600 italic">暂未携带物品</div>
         </div>
       </div>
     </div>,

@@ -12,8 +12,8 @@ export default function SourceBadge({
   const isPreinstalled = source === "preinstalled" || source === "builtin";
   const cls =
     size === "xs"
-      ? "text-[10px] px-1 py-px rounded"
-      : "text-[11px] px-1.5 py-0.5 rounded";
+      ? "text-[11px] px-1 py-px rounded"
+      : "text-[12px] px-1.5 py-0.5 rounded";
   if (isPreinstalled) {
     return (
       <span

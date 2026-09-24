@@ -322,17 +322,17 @@ export default function SessionManagerView() {
   return (
     <div className="h-full flex flex-col session-manager-view">
       {/* ═══ 英雄横幅（预留壁纸位：覆盖 --session-hero-wallpaper 即可） ═══ */}
-      <header className="session-hero px-6 md:px-10 py-6 flex items-center justify-between gap-4">
+      <header className="session-hero px-6 md:px-10 py-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="session-hero-title text-2xl md:text-3xl">会话大厅</h1>
-          <p className="session-hero-sub text-[11px] mt-1.5">ARKNIGHTS TAVERN · 选择或创建你的故事</p>
+          <p className="session-hero-sub text-[12px] mt-1.5">ARKNIGHTS TAVERN · 选择或创建你的故事</p>
         </div>
-        <div className="flex items-center gap-2 md:gap-3">
-          <div className="hidden md:flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 md:gap-3">
+          <div className="hidden lg:flex items-center gap-2">
             <span className="badge badge-story">剧情 {tabCounts.story}</span>
             <span className="badge badge-free">自由 {tabCounts.free}</span>
           </div>
-          <label className="btn btn-ghost text-xs cursor-pointer" title="导入会话存档（zip）">
+          <label className="btn btn-ghost text-xs cursor-pointer whitespace-nowrap" title="导入会话存档（zip）">
             📂 导入存档
             <input
               type="file"
@@ -346,12 +346,12 @@ export default function SessionManagerView() {
           </label>
           <button
             onClick={enterPractice}
-            className="btn btn-ghost text-xs"
+            className="btn btn-ghost text-xs whitespace-nowrap"
             title="战斗演练：不入会话的测试战场"
           >
             ⚔ 战斗演练
           </button>
-          <button onClick={() => setWizardOpen(true)} className="btn btn-hero px-5 py-2 text-sm">
+          <button onClick={() => setWizardOpen(true)} className="btn btn-hero px-5 py-2 text-sm whitespace-nowrap">
             ＋ 新建会话
           </button>
         </div>
@@ -360,11 +360,11 @@ export default function SessionManagerView() {
       {/* ═══ 挂起的战斗演练（战斗页「临时返回」留下的存档，无会话归属） ═══ */}
       {testResumes.length > 0 && (
         <div className="px-6 md:px-10 py-2 border-b border-gray-700/60 bg-gray-850/40 flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] text-amber-200 font-display tracking-wider">⏸ 挂起的战斗演练</span>
+          <span className="text-[12px] text-amber-200 font-display tracking-wider">⏸ 挂起的战斗演练</span>
           {testResumes.map((t) => (
             <span
               key={t.test_id}
-              className="flex items-center gap-2 text-[11px] bg-gray-800/60 border border-gray-700/60 rounded-lg pl-2.5 pr-1 py-1"
+              className="flex items-center gap-2 text-[12px] bg-gray-800/60 border border-gray-700/60 rounded-lg pl-2.5 pr-1 py-1"
             >
               <span className="text-gray-300">{t.encounter_id || "未知节点"}</span>
               <span className="text-gray-500">
@@ -434,20 +434,20 @@ export default function SessionManagerView() {
             {/* 批量操作栏 */}
             {batchMode && (
               <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-red-900/20 border border-red-800/40">
-                <span className="text-[11px] text-red-300">
+                <span className="text-[12px] text-red-300">
                   已选 {selectedIds.size} 个
                 </span>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setSelectedIds(new Set(filteredSessions.map((s) => s.id)))}
-                    className="text-[11px] text-gray-400 hover:text-gray-200"
+                    className="text-[12px] text-gray-400 hover:text-gray-200"
                   >
                     全选
                   </button>
                   <button
                     onClick={handleBatchDelete}
                     disabled={selectedIds.size === 0 || batchDeleting}
-                    className="text-[11px] px-2 py-0.5 rounded bg-red-700/80 hover:bg-red-600 text-white disabled:opacity-50"
+                    className="text-[12px] px-2 py-0.5 rounded bg-red-700/80 hover:bg-red-600 text-white disabled:opacity-50"
                   >
                     {batchDeleting ? "删除中..." : "删除"}
                   </button>
@@ -503,14 +503,14 @@ export default function SessionManagerView() {
                         <span className="badge badge-tactical shrink-0" title="战斗已挂起，可继续">⏸ 已挂起</span>
                       )}
                     </div>
-                    <div className="text-[10px] text-gray-600 mt-0.5">{formatDate(s.created_at)}</div>
+                    <div className="text-[11px] text-gray-600 mt-0.5">{formatDate(s.created_at)}</div>
                   </div>
                   {!batchMode && (
                     <div className="flex items-center gap-1.5 shrink-0">
                       {s.in_combat && (
                         <button
                           onClick={(e) => { e.stopPropagation(); enterCombat(s.id); }}
-                          className="btn text-[11px] px-3 py-1 bg-red-700/80 hover:bg-red-600 text-white animate-pulse"
+                          className="btn text-[12px] px-3 py-1 bg-red-700/80 hover:bg-red-600 text-white animate-pulse"
                           title="进入战斗（全屏战场）"
                         >
                           ⚔ 战斗
@@ -520,7 +520,7 @@ export default function SessionManagerView() {
                         <button
                           onClick={(e) => { e.stopPropagation(); void resumeSession(s.id); }}
                           disabled={busyKey === `session:${s.id}`}
-                          className="btn text-[11px] px-3 py-1 bg-gray-800/60 hover:bg-gray-700 text-emerald-200 disabled:opacity-40"
+                          className="btn text-[12px] px-3 py-1 bg-gray-800/60 hover:bg-gray-700 text-emerald-200 disabled:opacity-40"
                           title={resumeHint(s.combat_resume)}
                         >
                           {busyKey === `session:${s.id}` ? "恢复中…" : "▶ 继续战斗"}
@@ -528,7 +528,7 @@ export default function SessionManagerView() {
                       )}
                       <button
                         onClick={(e) => { e.stopPropagation(); enterSession(s.id); }}
-                        className="btn-hero btn text-[11px] px-3 py-1 shrink-0"
+                        className="btn-hero btn text-[12px] px-3 py-1 shrink-0"
                         title="进入对话"
                       >
                         进入
@@ -564,10 +564,10 @@ export default function SessionManagerView() {
                         );
                       })}
                       {s.characters.length > 5 && (
-                        <span className="text-[10px] text-gray-500 ml-1.5">+{s.characters.length - 5}</span>
+                        <span className="text-[11px] text-gray-500 ml-1.5">+{s.characters.length - 5}</span>
                       )}
                     </div>
-                    <div className="text-[10px] text-gray-600">
+                    <div className="text-[11px] text-gray-600">
                       {s.narration_count ?? 0} 轮{s.total_usage?.total_tokens ? ` · ${(s.total_usage.total_tokens / 1000).toFixed(1)}k tokens` : ""}
                     </div>
                   </div>
@@ -658,7 +658,7 @@ export default function SessionManagerView() {
               {/* 统计网格 */}
               <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
                 <div className="stat-cell px-3 py-2.5">
-                  <div className="text-[10px] text-gray-500">创建时间</div>
+                  <div className="text-[11px] text-gray-500">创建时间</div>
                   <div className="text-xs text-gray-200 mt-0.5">{formatDate(selected.created_at)}</div>
                 </div>
                 <div
@@ -666,24 +666,24 @@ export default function SessionManagerView() {
                   onClick={() => setIdentityPickerOpen(true)}
                   title="点击修改主控角色（玩家身份）"
                 >
-                  <div className="text-[10px] text-gray-500">玩家身份</div>
+                  <div className="text-[11px] text-gray-500">玩家身份</div>
                   <div className="text-xs text-gray-200 mt-0.5">
                     🎭 {selected.player_identity || "博士"}
-                    <span className="text-[10px] text-amber-500/80 ml-1">✎</span>
+                    <span className="text-[11px] text-amber-500/80 ml-1">✎</span>
                   </div>
                 </div>
                 <div className="stat-cell px-3 py-2.5">
-                  <div className="text-[10px] text-gray-500">叙述轮数</div>
+                  <div className="text-[11px] text-gray-500">叙述轮数</div>
                   <div className="text-xs text-gray-200 mt-0.5">{selected.narration_count ?? 0} 轮</div>
                 </div>
                 <div className="stat-cell px-3 py-2.5">
-                  <div className="text-[10px] text-gray-500">Token 用量</div>
+                  <div className="text-[11px] text-gray-500">Token 用量</div>
                   <div className="text-xs text-gray-200 mt-0.5">
                     {selected.total_usage?.total_tokens ? `${(selected.total_usage.total_tokens / 1000).toFixed(1)}k` : "—"}
                   </div>
                 </div>
                 <div className="stat-cell px-3 py-2.5">
-                  <div className="text-[10px] text-gray-500">阵容成员</div>
+                  <div className="text-[11px] text-gray-500">阵容成员</div>
                   <div className="text-xs text-gray-200 mt-0.5">{lineup.length} 名</div>
                 </div>
               </div>
@@ -692,7 +692,7 @@ export default function SessionManagerView() {
               <div className="detail-section p-4">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-semibold text-gray-300">📖 世界书绑定</h3>
-                  <span className="text-[10px] text-gray-600">未绑定时回落到全局默认书</span>
+                  <span className="text-[11px] text-gray-600">未绑定时回落到全局默认书</span>
                 </div>
                 <div className="space-y-1.5 max-h-56 overflow-y-auto lobby-scroll pr-1">
                   <button
@@ -721,13 +721,13 @@ export default function SessionManagerView() {
                         <span className="truncate">{b.name}</span>
                         {b.is_default && <span className="badge badge-wb shrink-0">默认</span>}
                       </span>
-                      <span className="text-[10px] text-gray-600 shrink-0">
+                      <span className="text-[11px] text-gray-600 shrink-0">
                         {b.entry_count} 条目{busyAction === `bind-${b.id}` ? " · 绑定中..." : ""}
                       </span>
                     </button>
                   ))}
                   {books.length === 0 && (
-                    <p className="text-[11px] text-gray-600 py-2">暂无世界书，可前往「世界书」页面创建或导入</p>
+                    <p className="text-[12px] text-gray-600 py-2">暂无世界书，可前往「世界书」页面创建或导入</p>
                   )}
                 </div>
               </div>
@@ -746,7 +746,7 @@ export default function SessionManagerView() {
                   </button>
                 </div>
                 {lineup.length === 0 ? (
-                  <p className="text-[11px] text-gray-600 py-3 text-center">
+                  <p className="text-[12px] text-gray-600 py-3 text-center">
                     阵容中还没有角色{busyAction?.startsWith("add-") ? "，正在加载..." : ""}
                   </p>
                 ) : (
@@ -781,7 +781,7 @@ export default function SessionManagerView() {
                             <span className="badge badge-narrative shrink-0">当前</span>
                           )}
                           {isMainControl ? (
-                            <span className="text-[10px] text-gray-500 px-0.5" title="换主控请点上方「玩家身份」">—</span>
+                            <span className="text-[11px] text-gray-500 px-0.5" title="换主控请点上方「玩家身份」">—</span>
                           ) : (
                             <button
                               onClick={() => void removeCharacter(name)}
@@ -797,7 +797,7 @@ export default function SessionManagerView() {
                     })}
                   </div>
                 )}
-                <p className="text-[10px] text-gray-600 mt-2.5">
+                <p className="text-[11px] text-gray-600 mt-2.5">
                   {!selected.worldbook_id && selected.worldbook_scope ? "当前未绑定世界书，角色条目不会载入。" :
                     selected.worldbook_scope?.legacy_full_scope || !selected.worldbook_scope ? "当前会话沿用旧版全量范围；启用按需策略并重新绑定后，角色条目才按阵容载入。" :
                     "提示：阵容成员（含主控）的世界书条目随会话载入；世界观及固定/依赖条目按策略生效。未入队角色不会自动导入，可在此调整阵容。"}
@@ -879,7 +879,7 @@ export default function SessionManagerView() {
               </div>
             </div>
             <div className="px-5 pt-3 pb-2">
-              <p className="text-[11px] text-gray-500">
+              <p className="text-[12px] text-gray-500">
                 候选与新建会话的「主控与阵容」同源：自建角色与世界书角色混排并标注来源。
                 阵容里的角色（含主控）不再重复出现在候选里。
               </p>
@@ -900,7 +900,7 @@ export default function SessionManagerView() {
                 listClassName="max-h-[26rem]"
               />
               {!!busyAction?.startsWith("add-") && (
-                <p className="text-[11px] text-amber-300 py-2" role="status">正在加载角色…</p>
+                <p className="text-[12px] text-amber-300 py-2" role="status">正在加载角色…</p>
               )}
             </div>
           </div>
@@ -919,7 +919,7 @@ export default function SessionManagerView() {
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
               <div>
                 <h2 className="text-base font-semibold">选择主控角色（玩家身份）</h2>
-                <p className="text-[11px] text-gray-500 mt-0.5">
+                <p className="text-[12px] text-gray-500 mt-0.5">
                   当前：{selected.player_identity || "博士"} · 换主控会同时换掉阵容里的那个角色，候选条目随之重算
                 </p>
               </div>

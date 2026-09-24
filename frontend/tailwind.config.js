@@ -64,6 +64,11 @@ export default {
           mixed: "#f0c060",
         },
       },
+      // 界面小字号整体上调 1px（默认 xs=12px、sm=14px 在桌面端偏小）
+      fontSize: {
+        xs: ["0.8125rem", { lineHeight: "1.125rem" }],
+        sm: ["0.9375rem", { lineHeight: "1.375rem" }],
+      },
       fontFamily: {
         display: ["Orbitron", "sans-serif"],
         body: ["Noto Sans SC", "sans-serif"],

@@ -210,7 +210,7 @@ export default function CharacterDetailCard({
                       key={key}
                       className="flex flex-col items-center px-1.5 py-1 rounded bg-gray-700/40 text-xs"
                     >
-                      <span className="text-gray-300 text-[10px]">
+                      <span className="text-gray-300 text-[11px]">
                         {ATTR_LABELS[key] || key}
                       </span>
                       <span className="text-gray-200 font-mono">{val}</span>
@@ -226,7 +226,7 @@ export default function CharacterDetailCard({
                 <div className="px-2.5 py-2 rounded bg-gray-700/40">
                   <div className="flex justify-between items-center mb-1.5">
                     <span className="text-amber-300 font-bold text-sm">Lv.{growth.level}</span>
-                    <span className="text-[10px] text-gray-500 font-mono">XP {growth.xp} / {growth.level * 100}</span>
+                    <span className="text-[11px] text-gray-500 font-mono">XP {growth.xp} / {growth.level * 100}</span>
                   </div>
                   <div className="h-1.5 bg-gray-600 rounded-full overflow-hidden">
                     <div
@@ -255,7 +255,7 @@ export default function CharacterDetailCard({
                     ["AP", combatStats.max_ap],
                   ].map(([label, val]) => (
                     <div key={label as string} className="flex flex-col items-center px-1 py-1 rounded bg-gray-700/40">
-                      <span className="text-gray-400 text-[9px]">{label}</span>
+                      <span className="text-gray-400 text-[10px]">{label}</span>
                       <span className="text-gray-100 font-mono text-xs">{val}</span>
                     </div>
                   ))}

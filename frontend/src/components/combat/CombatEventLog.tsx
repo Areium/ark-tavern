@@ -105,10 +105,10 @@ export default function CombatEventLog({ events }: Props) {
         className="w-full flex items-center justify-between px-2 py-1.5 bg-surface-dark hover:bg-surface-hover transition-colors sticky top-0 z-10"
         onClick={() => setCollapsed((c) => !c)}
       >
-        <span className="text-[10px] text-gray-600 uppercase tracking-widest font-display">
+        <span className="text-[11px] text-gray-600 uppercase tracking-widest font-display">
           Combat Log
         </span>
-        <span className="text-[10px] text-gray-500">
+        <span className="text-[11px] text-gray-500">
           {collapsed ? `▶ ${events.length} events` : "▼"}
         </span>
       </button>
@@ -116,13 +116,13 @@ export default function CombatEventLog({ events }: Props) {
       {!collapsed && (
         <div className="h-32 overflow-y-auto p-2">
           {events.length === 0 && (
-            <div className="text-[11px] text-gray-700 italic">等待战斗事件...</div>
+            <div className="text-[12px] text-gray-700 italic">等待战斗事件...</div>
           )}
           {events.slice(-80).map((ev, i) => {
             const { icon, text } = formatEvent(ev);
             return (
-              <div key={i} className={`combat-log-entry text-[11px] font-mono leading-relaxed ${eventStyle(ev.type)}`}>
-                <span className="log-icon text-[10px]">{icon}</span>
+              <div key={i} className={`combat-log-entry text-[12px] font-mono leading-relaxed ${eventStyle(ev.type)}`}>
+                <span className="log-icon text-[11px]">{icon}</span>
                 <span>{text}</span>
               </div>
             );

@@ -69,12 +69,12 @@ function CardMini({ card, onClick }: { card: CardDTO; onClick: () => void }) {
     >
       <span className={`font-mono font-bold w-5 text-center ${dmgColor}`}>{card.cost}</span>
       <span className="flex-1 truncate text-gray-200">{card.name}</span>
-      {card.owner && <span className="text-[10px] text-combat-gold">@{card.owner}</span>}
-      <span className="text-[10px] text-gray-500">{tgtLabel}</span>
-      <span className="text-[10px] text-gray-600 font-mono">
+      {card.owner && <span className="text-[11px] text-combat-gold">@{card.owner}</span>}
+      <span className="text-[11px] text-gray-500">{tgtLabel}</span>
+      <span className="text-[11px] text-gray-600 font-mono">
         {card.range < 0 ? "∞" : card.range}
       </span>
-      {card.tier === "elite" && <span className="text-yellow-400 text-[10px]">★</span>}
+      {card.tier === "elite" && <span className="text-yellow-400 text-[11px]">★</span>}
     </button>
   );
 }
@@ -119,7 +119,7 @@ function CardDetail({ card, onClose }: { card: CardDTO; onClose: () => void }) {
             <span className={`text-lg font-mono font-bold ${dmgColor}`}>{card.cost} AP</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <div className="grid grid-cols-2 gap-2 text-[12px]">
             <div className="bg-surface-dark/60 rounded-lg px-3 py-2">
               <span className="text-gray-500">伤害</span>
               <span className="text-gray-200 ml-2 font-mono">{card.min_damage}-{card.max_damage}</span>
@@ -151,7 +151,7 @@ function CardDetail({ card, onClose }: { card: CardDTO; onClose: () => void }) {
           </div>
 
           {card.owner && (
-            <div className="text-[11px] text-combat-gold text-right">@{card.owner}</div>
+            <div className="text-[12px] text-combat-gold text-right">@{card.owner}</div>
           )}
         </div>
       </div>
@@ -205,7 +205,7 @@ export default function DeckViewer({ units, sharedPool, filterMode = "all", onCl
             <h2 className="text-sm font-bold text-gray-200 font-display tracking-wider">
               {TITLES[filterMode]}
             </h2>
-            <span className="text-[11px] text-gray-500 font-display">{grandTotal} 张</span>
+            <span className="text-[12px] text-gray-500 font-display">{grandTotal} 张</span>
             <div className="flex-1" />
             <button
               onClick={dialog.minimize}
@@ -242,9 +242,9 @@ export default function DeckViewer({ units, sharedPool, filterMode = "all", onCl
                       {owner}
                     </span>
                     {unit && (
-                      <span className="text-[10px] text-gray-500">{unit.char_class}</span>
+                      <span className="text-[11px] text-gray-500">{unit.char_class}</span>
                     )}
-                    <span className="text-[11px] text-combat-gold font-mono ml-auto">
+                    <span className="text-[12px] text-combat-gold font-mono ml-auto">
                       {cards.length} 张
                     </span>
                   </div>
@@ -275,14 +275,14 @@ export default function DeckViewer({ units, sharedPool, filterMode = "all", onCl
                     <span className="text-sm font-bold text-gray-200 font-display tracking-wider">
                       {SECTION_LABELS[section]}
                     </span>
-                    <span className="text-[11px] text-gray-500 font-mono">({cards.length})</span>
+                    <span className="text-[12px] text-gray-500 font-mono">({cards.length})</span>
                   </div>
                   <div className="p-3 space-y-3">
                     {owners.map((owner) => {
                       const ownerCards = groups[owner];
                       return (
                         <div key={owner}>
-                          <div className="text-[10px] text-combat-gold mb-1">@{owner}</div>
+                          <div className="text-[11px] text-combat-gold mb-1">@{owner}</div>
                           <div className="space-y-1">
                             {ownerCards.map((card, i) => (
                               <CardMini
