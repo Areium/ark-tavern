@@ -133,7 +133,7 @@ export default function CombatSettlement({
             战斗结算
           </div>
           <div className="text-xs text-gray-500 font-display mt-1">
-            {settlement.encounter_name || settlement.encounter_id} · 共 {settlement.rounds} 回合
+            {settlement.encounter_name || settlement.encounter_id} · {settlement.engine === "sideview" ? `用时 ${Math.max(1, Math.ceil((settlement.durationMs || 0) / 1000))} 秒` : `共 ${settlement.rounds} 回合`}
             {settlement.victory ? " · 胜利" : settlement.winner === "escaped" ? " · 撤退" : " · 失利"}
           </div>
         </div>

@@ -311,6 +311,9 @@ def register(app, managers):
         if not session:
             return json_error("会话不存在", 404)
 
+        if session.combat_mode == "sideview":
+            return json_error("横版动作会话请使用 sideview/start", 409)
+
         data = request.json or {}
         encounter_id = data.get("encounter_id", "初遇整合运动")
         enemy_overrides = data.get("enemy_overrides")
@@ -555,6 +558,8 @@ def register(app, managers):
         session = _get_session(session_mgr, session_id)
         if not session:
             return json_error("会话不存在", 404)
+        if session.combat_mode == "sideview":
+            return json_error("横版动作会话请使用 sideview/complete", 409)
 
         req_data = request.json or {}
         combat_data = session.combat.snapshot() if session.combat else None
@@ -642,6 +647,8 @@ def register(app, managers):
         session = _get_session(session_mgr, session_id)
         if not session:
             return json_error("会话不存在", 404)
+        if session.combat_mode == "sideview":
+            return json_error("横版动作会话请使用 sideview/complete", 409)
 
         pending = session.overlay.get_pending_settlement()
         if pending is None:

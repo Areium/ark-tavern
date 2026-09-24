@@ -77,7 +77,7 @@ export function useApi() {
     listSessions: () => request<any[]>("/api/sessions"),
     listPlots: () => request<any[]>("/api/plots"),
     createSession: (mode: "free" | "story" = "free", name = "", plotId = "",
-      combatMode: "narrative" | "tactical" = "narrative", identity = "博士",
+      combatMode: "narrative" | "tactical" | "sideview" = "narrative", identity = "博士",
       worldbookId = "", rosterCharacterIds: string[] = [],
       manualEntryUids: string[] = [], expectedDraftHash = "", fullScope = false) =>
       request<any>("/api/sessions", {
@@ -638,6 +638,26 @@ export function useApi() {
       request<any>(`/api/sessions/${sessionId}/combat/start`, {
         method: "POST",
         body: JSON.stringify({ encounter_id: encounterId, characters, approach_id: approachId }),
+      }),
+
+    sideviewStart: (sessionId: string, encounterId: string, approachId?: string, operatorName?: string) =>
+      request<any>(`/api/sessions/${sessionId}/sideview/start`, {
+        method: "POST",
+        body: JSON.stringify({ encounter_id: encounterId, approach_id: approachId, operator_name: operatorName }),
+      }),
+    sideviewState: (sessionId: string) =>
+      request<any>(`/api/sessions/${sessionId}/sideview/state`),
+    sideviewSave: (sessionId: string, runId: string, snapshot: unknown, suspended = false) =>
+      request<any>(`/api/sessions/${sessionId}/sideview/save`, {
+        method: "POST", body: JSON.stringify({ runId, snapshot, suspended }),
+      }),
+    sideviewComplete: (sessionId: string, result: unknown) =>
+      request<any>(`/api/sessions/${sessionId}/sideview/complete`, {
+        method: "POST", body: JSON.stringify(result),
+      }),
+    sideviewAbandon: (sessionId: string, runId: string) =>
+      request<any>(`/api/sessions/${sessionId}/sideview/abandon`, {
+        method: "POST", body: JSON.stringify({ runId }),
       }),
 
     combatState: (sessionId: string, selectedUnit?: string) =>

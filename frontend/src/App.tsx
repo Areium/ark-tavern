@@ -8,6 +8,7 @@ import StatusBar from "./components/StatusBar";
 import ChatView from "./components/ChatView";
 import SessionManagerView from "./components/session/SessionManagerView";
 import CombatView from "./components/combat/CombatView";
+import SideviewCombatView from "./components/sideview/SideviewCombatView";
 import SettingsPanel from "./components/SettingsPanel";
 import WorldBookManager from "./components/WorldBookManager";
 import DocsView from "./components/DocsView";
@@ -20,7 +21,7 @@ const IMMERSIVE_VIEWS = new Set(["chat", "combat"]);
 const MENU_BGM_VIEWS = new Set(["home", "sessions", "characters", "worldbook", "docs", "settings"]);
 
 export default function App() {
-  const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, skin, setSkin, setEditBeforeSend, setDialogueBubbleMode } =
+  const { currentView, combatContext, sessions, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, skin, setSkin, setEditBeforeSend, setDialogueBubbleMode } =
     useAppStore();
   const api = useApi();
 
@@ -158,7 +159,8 @@ export default function App() {
         <div style={{ display: currentView === "chat" ? undefined : "none", height: "100%" }}>
           <ChatView />
         </div>
-        {currentView === "combat" && <CombatView />}
+        {currentView === "combat" && (sessions.find((session) => session.id === combatContext.sessionId)?.combat_mode === "sideview"
+          ? <SideviewCombatView /> : <CombatView />)}
         {currentView !== "home" && !immersive && (
           <div className="h-full overflow-auto">{renderManageView()}</div>
         )}

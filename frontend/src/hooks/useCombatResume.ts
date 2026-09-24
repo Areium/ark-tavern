@@ -35,14 +35,18 @@ export function useCombatResume(): CombatResumeApi {
     async (sessionId: string) => {
       setBusyKey(`session:${sessionId}`);
       try {
-        const resp = await api.combatResume(sessionId);
         const s = sessions.find((x) => x.id === sessionId);
+        const sideview = s?.combat_mode === "sideview";
+        const resp = sideview ? await api.sideviewState(sessionId) : await api.combatResume(sessionId);
+        if (sideview && resp.state?.status === "suspended") {
+          await api.sideviewSave(sessionId, resp.state.runId, resp.state.snapshot, false);
+        }
         setActiveSession(sessionId);
         if (s) setChatMode(s.mode);
         setCombatContext({
           sessionId,
           testId: null,
-          state: resp.state ?? null,
+          state: sideview ? null : resp.state ?? null,
           uiMode: "VIEWING",
           selectedCardIndex: null,
           selectedUnitId: null,

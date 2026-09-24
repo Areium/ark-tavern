@@ -56,7 +56,8 @@ export interface Session {
     total_tokens: number;
   };
   in_combat?: boolean;
-  combat_mode: "narrative" | "tactical";
+  combat_mode: "narrative" | "tactical" | "sideview";
+  sideview_status?: { operatorName: string; hp: number; maxHp: number; outcome: string; runId: string } | null;
   /** 是否存在可继续的战斗（内存中仍在，或磁盘上有挂起存档） */
   combat_resumable?: boolean;
   /** 挂起存档摘要（`in_combat` 为真时为 null，因为战斗未挂起） */
@@ -66,6 +67,7 @@ export interface Session {
 
 /** 挂起战斗摘要 —— 「继续战斗」入口展示所需的最小信息 */
 export interface CombatResumeSummaryDTO {
+  engine?: "sideview";
   encounter_id: string;
   suspended_at: number | null;
   round_num: number;
@@ -571,6 +573,8 @@ export interface SettlementRewardsDTO {
 
 /** 战斗结算 DTO（GET/POST /combat/settlement、SSE battle_end.data.settlement） */
 export interface CombatSettlementDTO {
+  engine?: "sideview";
+  durationMs?: number;
   settlement_id: string;
   encounter_id: string;
   encounter_name: string;

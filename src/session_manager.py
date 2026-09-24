@@ -66,7 +66,7 @@ class Session:
         mode_label = "剧情" if mode == "story" else "自由"
         self.name = name or f"{mode_label}对话"
         self.mode = mode  # "free" | "story"
-        self.combat_mode = combat_mode  # "narrative" | "tactical"，创建时选定，不可更改
+        self.combat_mode = combat_mode  # "narrative" | "tactical" | "sideview"，创建时选定，不可更改
         # 玩家身份角色（用户自身）：默认"博士"，创建时可选择其他角色卡
         self.player_identity = (player_identity or "").strip() or "博士"
         self.created_at = time.time()
@@ -679,8 +679,9 @@ class Session:
             "narration_count": self.narration_count,
             "total_usage": self.total_usage,
             "backgrounds_dir": str(self.data_dir / "backgrounds"),
-            "in_combat": self.combat is not None,
+            "in_combat": self.combat is not None or self._sideview_run_status() in ("active", "settling"),
             "combat": self.combat.get_state() if self.combat else None,
+            "sideview_status": self.overlay._data.get("sideview_status") if self.combat_mode == "sideview" else None,
             # 可恢复的战斗：内存中仍在，或磁盘上有挂起存档（临时返回后继续打）
             "combat_resumable": self.combat_resumable,
             "combat_resume": self.combat_resume_summary(),
@@ -688,10 +689,17 @@ class Session:
 
     # ── 战斗挂起存档 ──
 
+    def _sideview_run_status(self) -> str:
+        """横版关卡的持久状态；旧回合制战斗仍以 self.combat 为真相源。"""
+        run = self.overlay._data.get("sideview_run") or {}
+        return run.get("status", "") if self.combat_mode == "sideview" else ""
+
     @property
     def combat_resumable(self) -> bool:
         """是否存在可恢复的战斗（内存中仍在，或磁盘上有挂起存档）。"""
         if self.combat is not None:
+            return True
+        if self._sideview_run_status() in ("active", "suspended", "settling"):
             return True
         return session_resume_path(self).is_file()
 
@@ -700,6 +708,14 @@ class Session:
         if self.combat is not None:
             # 未挂起：战斗仍在内存，无存档可摘要
             return None
+        if self._sideview_run_status() in ("suspended", "settling"):
+            run = self.overlay._data.get("sideview_run") or {}
+            return {
+                "engine": "sideview", "encounter_id": run.get("encounterId", ""),
+                "suspended_at": run.get("updated_at"), "round_num": 0,
+                "phase": run.get("status"), "battle_over": run.get("status") == "settling", "player_alive": 1,
+                "hand_size": 0, "pending_waves": 0,
+            }
         return _summarize_resume(read_resume(session_resume_path(self)))
 
     def release_combat(self) -> bool:

@@ -80,13 +80,13 @@ export default function HomeMenu() {
         key: `session:${s.session_id}`,
         kind: "session",
         id: s.session_id,
-        badge: r ? `第 ${r.round_num} 回合` : "进行中",
+        badge: r?.engine === "sideview" ? "横版关卡" : r ? `第 ${r.round_num} 回合` : "进行中",
         desc: r
-          ? `${name} · 存活 ${r.player_alive} · 手牌 ${r.hand_size}` +
+          ? r.engine === "sideview" ? `${name} · ${r.encounter_id || "关卡"}（已保存）` : `${name} · 存活 ${r.player_alive} · 手牌 ${r.hand_size}` +
             (r.pending_waves > 0 ? ` · 余 ${r.pending_waves} 波` : "")
           : `${name} · 战斗仍在进行（未挂起）`,
         hint: r
-          ? `继续战斗：${r.encounter_id || "未知节点"} · 第 ${r.round_num} 回合（状态已保存）`
+          ? r.engine === "sideview" ? `继续横版关卡：${r.encounter_id || "未知节点"}（状态已保存）` : `继续战斗：${r.encounter_id || "未知节点"} · 第 ${r.round_num} 回合（状态已保存）`
           : `回到 ${name} 的战场`,
         at: r?.suspended_at ?? Number.MAX_SAFE_INTEGER,
       });

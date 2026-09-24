@@ -20,6 +20,7 @@ combat_settlement — 战斗结算：数值计算 / 结算数据组装 / 写回�
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 import uuid
@@ -511,12 +512,18 @@ def apply_settlement(session, pending: dict) -> dict:
     item_counts = (data.get("rewards", {}) or {}).get("items", []) or []
     added: list[str] = []
     if item_counts and not applied.get("inventory"):
+        item_names = [i.get("name", "") for i in item_counts]
+        previous_inventory = copy.deepcopy(overlay._data.get("inventory", []))
         try:
+            # Inventory and the applied marker must be written in the same overlay
+            # save. A crash between two saves could otherwise grant items twice.
             _add_to_inventory(overlay, item_counts)
             applied["inventory"] = True
             overlay.set_pending_settlement(pending)
-            added = [i.get("name", "") for i in item_counts]
+            added = item_names
         except Exception as e:
+            overlay._data["inventory"] = previous_inventory
+            applied["inventory"] = False
             logger.exception("结算写回失败（背包掉落）: %s", e)
             raise SettlementApplyError(f"掉落物品写入失败: {e}") from e
 
@@ -528,7 +535,7 @@ def apply_settlement(session, pending: dict) -> dict:
 
 
 def _add_to_inventory(overlay, item_counts: list[dict]) -> None:
-    """把掉落物品累加进会话背包（overlay 的 inventory 字段）。"""
+    """在内存中累加掉落；调用方与结算进度一起持久化。"""
     data = overlay._data
     inventory = data.get("inventory", [])
     for entry in item_counts:
@@ -541,7 +548,6 @@ def _add_to_inventory(overlay, item_counts: list[dict]) -> None:
         else:
             inventory.append({"name": item_name, "count": count, "obtained_at": time.time()})
     data["inventory"] = inventory
-    overlay._save()
 
 
 # ── 战斗历史 ──

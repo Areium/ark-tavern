@@ -41,7 +41,7 @@ def _require_usable(session):
 
 def _require_no_combat(session):
     """检查会话是否正在进行战斗，战斗中则返回 423。"""
-    if session.combat is not None:
+    if session.combat is not None or getattr(session, "_sideview_run_status", lambda: "")() in ("active", "suspended", "settling"):
         return json_error("战斗进行中，无法执行对话操作。请先完成或退出战斗。", 423)
     return None
 
@@ -100,7 +100,7 @@ def _should_extract_markers(session, choices_count: int) -> bool:
         return True
     if choices_count > 0:
         return True
-    if getattr(session.scene_manager, '_combat_mode', 'narrative') == "tactical":
+    if getattr(session.scene_manager, '_combat_mode', 'narrative') in ("tactical", "sideview"):
         return True
     overlay = session.overlay
     if overlay and overlay.get_beat_state():
@@ -124,7 +124,7 @@ def _apply_combat_briefing(session, combat_data: dict | None, stream_id: str,
     docs/archive/combat-core-design.md C1）。战斗目标优先级：节拍 `[COMBAT:enc_id]`
     （代码确定性解析）> LLM `combat_trigger` 提取。返回 briefing dict 或 None。
     """
-    if getattr(session, 'combat_mode', 'narrative') != "tactical":
+    if getattr(session, 'combat_mode', 'narrative') not in ("tactical", "sideview"):
         return None
     encounter_id = beat_combat_id or (combat_data or {}).get("encounter_id", "")
     if not encounter_id:

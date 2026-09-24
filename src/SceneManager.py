@@ -774,11 +774,11 @@ branch 非 null 时格式：
                 "  将判断结果填入 beat_complete 字段。"
             )
 
-        if self._combat_mode == "tactical":
+        if self._combat_mode in ("tactical", "sideview"):
             encounters = self._list_encounters()
             enemy_names = self._list_enemy_names()
             tasks.append(
-                f"- 判断叙述中是否出现了需要触发回合制战斗的明确的敌对冲突：\n"
+                f"- 判断叙述中是否出现了需要触发战斗关卡的明确的敌对冲突：\n"
                 f"  袭击、交火、武装对峙（武器出鞘/即将动手）等场面。\n"
                 f"  出现上述场面且有适合的可用节点时，combat_trigger 填写列表中的节点 ID；\n"
                 f"  仅言语争吵或没有动手意图的对峙不算。\n"
@@ -1136,9 +1136,10 @@ branch 非 null 时格式：
         context_parts = []
 
         # ── 模式提示（稳定，始终首位）──
-        if self._combat_mode == "tactical":
+        if self._combat_mode in ("tactical", "sideview"):
             context_parts.append(
-                "当前处于战术模式。如果场景中存在战斗/敌对冲突，"
+                ("当前处于战术模式。" if self._combat_mode == "tactical" else "当前处于横版动作战斗模式。")
+                + "如果场景中存在战斗/敌对冲突，"
                 "请详细描述战斗局势。战斗触发将由系统自动处理。"
             )
 
@@ -1198,7 +1199,7 @@ branch 非 null 时格式：
         # 场景角色 + 遭遇（稳定）
         chars = "\n".join(char_summaries) if char_summaries else "（无）"
         context_parts.append(f"<characters>\n{chars}\n</characters>")
-        if self._combat_mode == "tactical":
+        if self._combat_mode in ("tactical", "sideview"):
             encounter_str = self._list_encounters()
             context_parts.append(
                 f"<encounters>\n可用的战斗遭遇：{encounter_str}\n"

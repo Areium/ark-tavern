@@ -62,7 +62,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   // ── 向导状态 ──
   const [step, setStep] = useState(0);
   const [mode, setMode] = useState<"story" | "free">(chatMode);
-  const [combatMode, setCombatMode] = useState<"narrative" | "tactical">("narrative");
+  const [combatMode, setCombatMode] = useState<"narrative" | "tactical" | "sideview">("narrative");
   /** 主控角色（= 玩家身份）；空串 = 还没选，此时不能创建会话 */
   const [mainControl, setMainControl] = useState("");
   const [plotId, setPlotId] = useState("");
@@ -316,7 +316,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
 
               <div>
                 <p className="text-xs text-gray-400 mb-2">战斗模式</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div
                     className={`pick-card p-3 ${combatMode === "narrative" ? "selected" : ""}`}
                     onClick={() => setCombatMode("narrative")}
@@ -336,6 +336,19 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                       <span className="text-sm font-medium text-orange-300">战术模式</span>
                     </div>
                     <p className="text-[12px] text-gray-500">对话中触发战斗时进入 7×7 回合制战术战斗。</p>
+                  </div>
+                  <div
+                    className={`pick-card p-3 ${combatMode === "sideview" ? "selected" : ""}`}
+                    onClick={() => setCombatMode("sideview")}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setCombatMode("sideview"); } }}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm">✦</span>
+                      <span className="text-sm font-medium text-cyan-300">横版动作关卡</span>
+                    </div>
+                    <p className="text-[12px] text-gray-500">剧情中进入独立关卡，移动、跳跃、闪避、攻击与释放技能。</p>
                   </div>
                 </div>
               </div>
@@ -673,8 +686,8 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   <span className="badge badge-narrative">
                     🎭 主控（玩家身份）：{mainControl ? itemName(mainControl) : "未选择"}
                   </span>
-                  <span className={`badge ${combatMode === "tactical" ? "badge-tactical" : "badge-narrative"}`}>
-                    {combatMode === "tactical" ? "⚔️ 战术模式" : "📜 纯剧情"}
+                  <span className={`badge ${combatMode !== "narrative" ? "badge-tactical" : "badge-narrative"}`}>
+                    {combatMode === "tactical" ? "⚔️ 战术模式" : combatMode === "sideview" ? "✦ 横版动作" : "📜 纯剧情"}
                   </span>
                   {mode === "story" && plotId && (
                     <span className="badge badge-plot">🗺 {plots.find((p) => p.id === plotId)?.name || plotId}</span>

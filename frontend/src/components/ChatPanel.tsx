@@ -388,14 +388,17 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
     if (!pendingBriefing || !activeSessionId) return;
     const b = pendingBriefing;
     try {
-      const resp = await api.combatStart(b.session_id, b.encounter_id, [], approachId);
+      const sideview = sessions.find((session) => session.id === b.session_id)?.combat_mode === "sideview";
+      const resp = sideview
+        ? await api.sideviewStart(b.session_id, b.encounter_id, approachId)
+        : await api.combatStart(b.session_id, b.encounter_id, [], approachId);
       if (resp?.state) {
         if (resp.check) {
           // 谈判失败：先展示检定，玩家确认后进入战斗
           setBriefingCheck(resp.check);
           setBriefingCombatState(resp.state);
         } else {
-          setCombatContext({ sessionId: b.session_id, state: resp.state });
+          setCombatContext({ sessionId: b.session_id, state: sideview ? null : resp.state });
           setPendingBriefing(null);
           setCurrentView("combat");
         }
@@ -408,7 +411,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
     } catch (err: any) {
       alert("启动战斗失败: " + (err.message || "未知错误"));
     }
-  }, [pendingBriefing, activeSessionId, api, setCombatContext, setPendingBriefing, setCurrentView, setPendingAutoNarrate]);
+  }, [pendingBriefing, activeSessionId, sessions, api, setCombatContext, setPendingBriefing, setCurrentView, setPendingAutoNarrate]);
 
   // Auto-narrate after combat: watch for pendingAutoNarrate being set
   useEffect(() => {
@@ -420,7 +423,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
         const survivorsText = settlement.survivors.length > 0 ? `\n幸存：${settlement.survivors.join("、")}` : "";
         const settlementMsg: ChatMessage = {
           role: "system",
-          content: `⚔ 战斗结束：遭遇战「${settlement.encounter_id}」— ${winnerText}，共 ${settlement.rounds} 回合。${survivorsText}`,
+          content: `⚔ 战斗结束：遭遇战「${settlement.encounter_id}」— ${winnerText}，${settlement.engine === "sideview" ? `用时 ${Math.max(1, Math.ceil((settlement.durationMs || 0) / 1000))} 秒` : `共 ${settlement.rounds} 回合`}。${survivorsText}`,
         };
         useAppStore.getState().setSessionMessages(activeSessionId, prev => [...prev, settlementMsg]);
       }
@@ -642,6 +645,15 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
             {activeSession.in_combat && (
               <span className="text-[11px] text-orange-400 font-medium animate-pulse">⚔ 战斗中</span>
             )}
+            {activeSession.in_combat && activeSession.combat_mode === "sideview" && (
+              <button
+                type="button"
+                className="chat-head-tool is-on"
+                onClick={() => { setCombatContext({ sessionId: activeSession.id!, state: null }); setCurrentView("combat"); }}
+              >
+                ▶ 返回关卡
+              </button>
+            )}
             {!activeSession.in_combat && activeSession.combat_resumable && (
               <button
                 onClick={() => void resumeSession(activeSession.id!)}
@@ -652,15 +664,33 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                 {resumeBusy ? "恢复中…" : "▶ 继续战斗"}
               </button>
             )}
-            {chatMode === "story" && activeSession.combat_mode === "tactical" && (
-              <span className="text-[11px] text-orange-400/70 font-medium">⚔ 战术</span>
+            {activeSession.combat_mode !== "narrative" && (
+              <span className="text-[11px] text-orange-400/70 font-medium">{activeSession.combat_mode === "sideview" ? "✦ 横版动作" : "⚔ 战术"}</span>
             )}
-            {chatMode === "story" && activeSession.combat_mode === "tactical" && !activeSession.in_combat && (
+            {activeSession.sideview_status && (
+              <span className="text-[11px] text-cyan-200/80 font-medium" title={`上次横版行动：${activeSession.sideview_status.outcome}`}>
+                {activeSession.sideview_status.operatorName} HP {activeSession.sideview_status.hp}/{activeSession.sideview_status.maxHp}
+              </span>
+            )}
+            {(chatMode === "story" || activeSession.combat_mode === "sideview") && activeSession.combat_mode !== "narrative" && !activeSession.in_combat && (
               <button
                 onClick={async () => {
-                  const encounterId = prompt("输入遭遇 ID（可选）\n可用：初遇整合运动, enc_defense, enc_elite_hunt, enc_mixed_assault, enc_training") || "初遇整合运动";
+                  const encounterId = activeSession.combat_mode === "sideview"
+                    ? "enc_quick_test_1"
+                    : prompt("输入遭遇 ID（可选）\n可用：初遇整合运动, enc_defense, enc_elite_hunt, enc_mixed_assault, enc_training") || "初遇整合运动";
                   try {
-                    await api.combatStart(activeSession.id!, encounterId, []);
+                    let response: any;
+                    if (activeSession.combat_mode === "sideview") {
+                      response = await api.sideviewStart(activeSession.id!, encounterId);
+                    } else {
+                      response = await api.combatStart(activeSession.id!, encounterId, []);
+                    }
+                    if (response.kind === "approaches") {
+                      setPendingBriefing({ session_id: activeSession.id!, encounter_id: encounterId,
+                        name: encounterId, approaches: response.approaches });
+                      return;
+                    }
+                    if (!response.state) return;
                     setCombatContext({ sessionId: activeSession.id! });
                     setCurrentView("combat");
                   } catch (err: any) {
@@ -668,10 +698,10 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                   }
                 }}
                 className="chat-head-tool"
-                title={choiceLocked ? "请先完成战斗选项" : "手动触发战斗"}
+                title={choiceLocked ? "请先完成战斗选项" : activeSession.combat_mode === "sideview" ? "进入横版动作关卡" : "手动触发战斗"}
                 disabled={choiceLocked}
               >
-                ⚔
+                <AppIcon name="combat" size={15} />
               </button>
             )}
           </div>
@@ -1171,7 +1201,11 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                   ) : briefingCombatState ? (
                     <button
                       onClick={() => {
-                        setCombatContext({ sessionId: pendingBriefing.session_id, state: briefingCombatState });
+                        setCombatContext({
+                          sessionId: pendingBriefing.session_id,
+                          state: sessions.find((session) => session.id === pendingBriefing.session_id)?.combat_mode === "sideview"
+                            ? null : briefingCombatState,
+                        });
                         setPendingBriefing(null);
                         setBriefingCheck(null);
                         setBriefingCombatState(null);

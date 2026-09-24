@@ -169,8 +169,8 @@ interface AppState {
   setCombatContext: (partial: Partial<CombatContext> | null) => void;
 
   // 战斗后自动叙述
-  pendingAutoNarrate: { action: string; settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string } } | null;
-  setPendingAutoNarrate: (data: { action: string; settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string } } | null) => void;
+  pendingAutoNarrate: { action: string; settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string; engine?: "sideview"; durationMs?: number } } | null;
+  setPendingAutoNarrate: (data: { action: string; settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string; engine?: "sideview"; durationMs?: number } } | null) => void;
 
   // 战前简报（SSE combat_briefing 事件）
   pendingBriefing: CombatBriefingDTO | null;

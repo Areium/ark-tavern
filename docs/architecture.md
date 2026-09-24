@@ -70,6 +70,7 @@
 | 模块 | 职责 |
 |---|---|
 | `combat_session.py` | 战斗会话包装器：组装 CombatEngine + CombatDataLoader，管理生命周期、玩家操作、敌人 AI、SSE 推送 |
+| `sideview_combat.py` / `blueprints/sideview.py` | 横版关卡数据与快照校验、独立的启动/存档/结算 API；前端模拟见 `frontend/src/features/sideview/`，契约见 `docs/design/combat/sideview-combat.md` |
 | `combat_data_loader.py` | 加载战斗节点 `data/worldbooks/content/combat/nodes/*.json`、敌人 `data/worldbooks/content/enemies/*.md`（叙事 attributes + 战斗 combat_stats，缺 combat_stats 时按 attributes 派生）与 `backgrounds/` |
 | `combat_map.py` | 战斗地图 JSON：尺寸/格子类型注册表/部署区解析与校验（行列定位错误、软锁警告、上限 40×40） |
 | `combat_nodes.py` | 战斗节点注册表：JSON 读写 + `_hash` 冲突检测 + 校验 + 剧情节拍绑定/进度 + 世界书归属（节点 `worldbook_id`，剧情/资产/卡牌同约定）+ 剧情流程解析 `plot_flows`（章节/节拍/`[COMBAT:]` 引用，只收剧情叙述区；无 `## 章节 N` 骨架的护栏式剧情回落参考大纲 `story_outline`：书内 LLM 大纲 > 启发式切幕，与会话创建口径一致）+ 节点图数据 `node_graph`（`shared/json_hash.py` 与卡牌共用哈希） |
