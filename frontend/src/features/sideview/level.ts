@@ -1,6 +1,6 @@
 import type { SideviewLevel, SimulationLevel, SideviewOperator } from './types';
 
-export const DEMO_OPERATOR: SideviewOperator = { name: '近卫干员', maxHp: 120, attack: 26, skillPower: 65 };
+export const DEMO_OPERATOR: SideviewOperator = { name: '临光', maxHp: 120, attack: 26, skillPower: 65 };
 const demo: SimulationLevel = {
   id: 'outskirts-01', name: '废城边界 · 雨幕行动', worldWidth: 3400, worldHeight: 680,
   spawn: { x: 110, y: 490 },
@@ -20,16 +20,17 @@ const demo: SimulationLevel = {
     { id: 'g5', kind: 'elite', x: 2940, y: 478, patrolMin: 2710, patrolMax: 3110, hp: 150 },
   ],
   goal: { x: 3230, y: 426, width: 100, height: 124 },
+  victoryCondition: 'clear_and_exit',
 };
 
 export const DEMO_LEVEL: SideviewLevel = {
   schemaVersion: 1, id: demo.id, name: demo.name, width: demo.worldWidth, height: demo.worldHeight,
   platforms: demo.platforms, obstacles: demo.obstacles, hazards: demo.hazards.map(h => ({ ...h, damage: 20 })),
-  spawn: demo.spawn, exit: demo.goal, rewards: { xp: 60, items: [] },
+  spawn: demo.spawn, exit: demo.goal, victoryCondition: demo.victoryCondition, rewards: { xp: 60, items: [] },
   enemies: demo.enemies.map(e => ({ ...e, name: e.kind === 'elite' ? '重装守卫' : e.kind === 'ranger' ? '弩手' : '巡逻兵', damage: e.kind === 'elite' ? 24 : 15, speed: 105, range: e.kind === 'ranger' ? 500 : 82 })),
 };
 
 export function normalizeLevel(level: SideviewLevel): SimulationLevel {
-  return { id: level.id, name: level.name, worldWidth: level.width, worldHeight: level.height, platforms: level.platforms, obstacles: level.obstacles, hazards: level.hazards, spawn: level.spawn, goal: level.exit,
+  return { id: level.id, name: level.name, worldWidth: level.width, worldHeight: level.height, platforms: level.platforms, obstacles: level.obstacles, hazards: level.hazards, spawn: level.spawn, goal: level.exit, victoryCondition: level.victoryCondition ?? 'clear_and_exit',
     enemies: level.enemies.map(e => ({ ...e, kind: e.kind ?? 'guard', patrolMin: e.patrolMin ?? Math.max(0, e.x - 120), patrolMax: e.patrolMax ?? Math.min(level.width - 50, e.x + 120) })) };
 }

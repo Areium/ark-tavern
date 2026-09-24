@@ -46,9 +46,24 @@ test('skill and support cooldowns persist, and support heals', () => {
   assert.equal(restored.player.supportCooldown, 14); assert.equal(restored.player.skillCooldown, 6); assert.equal(restored.elapsed * 1000, Math.round(s.elapsed * 1000));
   tick(restored, 1, { support: true }); assert.equal(restored.player.hp, 90);
 });
-test('exit requires every guard cleared and simulation stops after victory', () => {
-  const s = createSimulation(level, DEMO_OPERATOR); Object.assign(s.player, { x: 3250, y: 470 }); tick(s, 1); assert.equal(s.outcome, null);
-  s.enemies.forEach(e => { e.hp = 0; }); tick(s, 1); assert.equal(s.outcome, 'victory'); const elapsed = s.elapsed; tick(s, 60); assert.equal(s.elapsed, elapsed); assert.equal(snapshotSimulation(s).exitReached, true);
+test('clear-and-exit wall blocks dash, clamps old saves, and opens after the last guard', () => {
+  const map = { ...level, worldWidth: 700, platforms: [{ x: 0, y: 550, width: 700, height: 130 }], obstacles: [], hazards: [], goal: { x: 500, y: 426, width: 100, height: 124 }, enemies: [{ ...level.enemies[0], x: 100, y: 492, patrolMin: 50, patrolMax: 150 }] };
+  const s = createSimulation(map, DEMO_OPERATOR); Object.assign(s.player, { x: 440, y: 492, grounded: true });
+  tick(s, 10, { right: true, dash: true }, map);
+  assert.equal(s.player.x, 444); assert.equal(s.outcome, null);
+  const saved = snapshotSimulation(s); saved.player.x = 520;
+  const restored = createSimulation(map, DEMO_OPERATOR, saved);
+  assert.equal(restored.player.x, 444);
+  s.enemies[0].hp = 0; tick(s, 10, { right: true }, map);
+  assert.ok(s.player.x > 444); assert.equal(s.outcome, 'victory');
+  const elapsed = s.elapsed; tick(s, 60, {}, map);
+  assert.equal(s.elapsed, elapsed); assert.equal(snapshotSimulation(s).exitReached, true);
+});
+test('reach-exit level wins with guards still alive', () => {
+  const map = { ...level, victoryCondition: 'reach_exit' };
+  const s = createSimulation(map, DEMO_OPERATOR); Object.assign(s.player, { x: 3250, y: 470 });
+  tick(s, 1, {}, map);
+  assert.equal(s.outcome, 'victory'); assert.ok(s.enemies.some(e => e.hp > 0));
 });
 test('fatal fall records defeat even when falling during a dodge', () => {
   const s = createSimulation(level, DEMO_OPERATOR); Object.assign(s.player, { x: 1250, y: 900, hp: 10, invulnerable: 2 }); tick(s, 1);

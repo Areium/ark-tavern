@@ -1,6 +1,8 @@
 import { Application, Container, Graphics, Texture, TilingSprite, Sprite, Rectangle, SCALE_MODES } from 'pixi.js';
 import type { Simulation, SimulationLevel, Body } from './types';
 import { loadSideviewSpine, makeSideviewSpine } from './spineActors';
+import { exitBarrierX, exitLocked } from './simulation';
+import { getBaseUrl } from '../../utils/baseUrl';
 
 const C = { sky: 0x0b1722, stone: 0x243b43, cyan: 0x8ce5e0, orange: 0xf4a66b, red: 0xe77977 };
 
@@ -13,11 +15,11 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
   const terrain = new Graphics(); const actors = new Graphics(); const fx = new Graphics(); const foreground = new Graphics();
   app.stage.addChild(scenery, backdrop, world, foreground); world.addChild(surfaces, terrain, actors, figures, fx);
   let disposed = false, lastElapsed = 0;
-  let city: Sprite | undefined;
+  let city: Sprite | undefined, playerPortrait: Sprite | undefined, portraitFailed = false;
   const ready = { platforms: false, obstacles: false, hazards: false };
   const units = new Map<string, ReturnType<typeof makeSideviewSpine>>();
   const failures = new Set<string>();
-  let pendingAssets = 5; // Four scenery images and the model group.
+  let pendingAssets = 5 + Number(operatorName === '临光'); // Scenery, models, and the demo portrait fallback.
   const report = () => onAssets([
     pendingAssets ? '正在装载场景与战斗模型…' : '',
     failures.size ? `简化显示：${[...failures].join('、')}；操作不受影响。` : '',
@@ -62,6 +64,19 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
     }
     ready.hazards = true;
   });
+  if (operatorName === '临光') void (async () => {
+    try {
+      const texture = await Texture.fromURL(`${await getBaseUrl()}/api/characters/${encodeURIComponent(operatorName)}/skin`);
+      if (disposed) return;
+      texture.baseTexture.scaleMode = SCALE_MODES.LINEAR;
+      playerPortrait = new Sprite(texture);
+      playerPortrait.anchor.set(0.5, 1);
+      figures.addChild(playerPortrait);
+    } catch {
+      portraitFailed = true;
+      if (!disposed && !units.has('player')) failures.add(operatorName);
+    } finally { if (!disposed) { pendingAssets--; report(); } }
+  })();
   const names = [{ id: 'player', name: operatorName }, ...level.enemies.map(e => ({ id: e.id, name: e.kind === 'ranger' ? '整合运动狙击手' : e.kind === 'elite' ? '整合运动盾卫' : '整合运动士兵' }))];
   const cache = new Map<string, ReturnType<typeof loadSideviewSpine>>();
   report();
@@ -71,7 +86,8 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
       const data = await cache.get(name)!;
       if (disposed) return;
       const unit = makeSideviewSpine(data); units.set(id, unit); figures.addChild(unit.spine);
-    } catch { if (!disposed) failures.add(name); }
+      if (id === 'player') failures.delete(name);
+    } catch { if (!disposed && (id !== 'player' || operatorName !== '临光' || portraitFailed)) failures.add(name); }
   })).then(() => { if (!disposed) { pendingAssets--; report(); } });
   function drawUnit(id: string, body: Body, dt: number, attacking: boolean, hurt: boolean, dead = false) {
     const unit = units.get(id);
@@ -161,7 +177,16 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
       terrain.lineStyle(1.5, C.red, 0.9).moveTo(h.x, h.y).lineTo(h.x, h.y + h.height)
         .lineTo(h.x + h.width, h.y + h.height).lineTo(h.x + h.width, h.y).lineStyle(0);
     }
-    const goal = level.goal, unlocked = s.enemies.every(e => e.hp <= 0);
+    const goal = level.goal, unlocked = !exitLocked(s, level);
+    if (!unlocked) {
+      const gateX = exitBarrierX(level);
+      terrain.beginFill(C.cyan, 0.15).drawRect(gateX, 0, 24, level.worldHeight).endFill();
+      terrain.lineStyle(2, C.cyan, 0.8).moveTo(gateX, 0).lineTo(gateX, level.worldHeight)
+        .moveTo(gateX + 24, 0).lineTo(gateX + 24, level.worldHeight).lineStyle(0);
+      for (let y = 16; y < level.worldHeight; y += 42) {
+        terrain.lineStyle(2, C.cyan, 0.45).moveTo(gateX + 3, y).lineTo(gateX + 21, y + 18).lineStyle(0);
+      }
+    }
     terrain.lineStyle(4, unlocked ? C.cyan : 0x71858b).drawRect(goal.x, goal.y, goal.width, goal.height).lineStyle(0);
     terrain.beginFill(unlocked ? C.cyan : 0x40545e, unlocked ? 0.17 : 0.12).drawRect(goal.x + 5, goal.y + 5, goal.width - 10, goal.height - 5).endFill();
     terrain.lineStyle(3, unlocked ? C.cyan : 0x71858b).moveTo(goal.x + 30, goal.y + 45).lineTo(goal.x + 62, goal.y + 62).lineTo(goal.x + 30, goal.y + 80).lineStyle(0);
@@ -178,7 +203,15 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
       }
     }
     const p = s.player;
-    if (!drawUnit('player', p, dt, p.attackTime > 0, p.invulnerable > 0 && Math.floor(s.elapsed * 16) % 2 === 1)) actor(actors, p.x, p.y, p.width, p.height, p.facing, C.cyan, p.invulnerable > 0 && Math.floor(s.elapsed * 16) % 2 === 1);
+    if (!drawUnit('player', p, dt, p.attackTime > 0, p.invulnerable > 0 && Math.floor(s.elapsed * 16) % 2 === 1)) {
+      if (playerPortrait) {
+        const size = p.height * 1.5 / playerPortrait.texture.height;
+        playerPortrait.visible = true;
+        playerPortrait.scale.set(size * p.facing, size);
+        playerPortrait.position.set(p.x + p.width / 2, p.y + p.height + 2);
+        playerPortrait.tint = p.invulnerable > 0 && Math.floor(s.elapsed * 16) % 2 === 1 ? 0xffd5a9 : 0xffffff;
+      } else if (operatorName !== '临光' || portraitFailed) actor(actors, p.x, p.y, p.width, p.height, p.facing, C.cyan, p.invulnerable > 0 && Math.floor(s.elapsed * 16) % 2 === 1);
+    } else if (playerPortrait) playerPortrait.visible = false;
     fx.clear();
     for (const b of s.projectiles) fx.beginFill(C.orange).drawRect(b.x, b.y, b.width, b.height).endFill();
     for (const e of s.effects) {

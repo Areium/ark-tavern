@@ -3,6 +3,8 @@ import type { Body, EnemyState, Rect, SideviewInput, SimulationLevel, SideviewOp
 export const FIXED_STEP = 1 / 60;
 export const emptyInput = (): SideviewInput => ({ left: false, right: false, jump: false, dash: false, attack: false, skill: false, support: false });
 export const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+export const exitBarrierX = (level: SimulationLevel) => level.goal.x - 24;
+export const exitLocked = (s: Simulation, level: SimulationLevel) => level.victoryCondition === 'clear_and_exit' && s.enemies.some(e => e.hp > 0);
 export const snapshotSimulation = (s: Simulation): SideviewSnapshot => ({ version: 1, elapsedMs: Math.round(s.elapsed * 1000), player: { x: s.player.x, y: s.player.y, hp: s.player.hp, facing: s.player.facing }, enemies: s.enemies.map(e => ({ id: e.id, x: e.x, y: e.y, hp: e.hp })), damageTaken: s.damageTaken, exitReached: s.outcome === 'victory', cooldowns: { skill: s.player.skillCooldown, dash: s.player.dashCooldown, support: s.player.supportCooldown } });
 
 export function createSimulation(level: SimulationLevel, operator: SideviewOperator, saved?: SideviewSnapshot): Simulation {
@@ -18,6 +20,7 @@ export function createSimulation(level: SimulationLevel, operator: SideviewOpera
     s.enemies = s.enemies.map(e => ({ ...e, ...saved.enemies.find(v => v.id === e.id) }));
     s.kills = s.enemies.filter(e => e.hp <= 0).length;
   }
+  if (exitLocked(s, level)) s.player.x = Math.min(s.player.x, exitBarrierX(level) - s.player.width);
   // Server spawns are points, not actor-size-aware rectangles. Resolve a foot
   // intersecting a floor before horizontal movement can treat it as a wall.
   for (const body of [s.player, ...s.enemies]) for (const floor of [...level.platforms, ...level.obstacles]) {
@@ -78,6 +81,9 @@ export function stepSimulation(s: Simulation, input: SideviewInput, level: Simul
     if (Math.floor(s.elapsed * 60) % 3 === 0) s.effects.push({ x: p.x, y: p.y, kind: 'dash', life: 0.22, facing: p.facing });
   } else p.vx += (dir * 285 - p.vx) * Math.min(1, dt * (p.grounded ? 18 : 9));
   move(p, solids, dt, level.worldWidth);
+  if (exitLocked(s, level) && p.x + p.width > exitBarrierX(level)) {
+    p.x = exitBarrierX(level) - p.width; p.vx = 0;
+  }
   if (input.attack && p.attackCooldown <= 0) {
     p.attackCooldown = 0.36; p.attackTime = 0.22;
     const attack = { x: p.facing > 0 ? p.x + p.width - 8 : p.x - 84, y: p.y - 12, width: 92, height: 85 };
@@ -132,6 +138,6 @@ export function stepSimulation(s: Simulation, input: SideviewInput, level: Simul
   }
   s.effects = s.effects.filter(e => (e.life -= dt) > 0);
   if (p.hp <= 0) s.outcome = 'defeat';
-  else if (s.enemies.every(e => e.hp <= 0) && overlaps(p, level.goal)) s.outcome = 'victory';
+  else if (!exitLocked(s, level) && overlaps(p, level.goal)) s.outcome = 'victory';
   s.previous = { ...input };
 }

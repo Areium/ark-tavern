@@ -1,9 +1,10 @@
 export interface Rect { x: number; y: number; width: number; height: number }
+export type SideviewVictoryCondition = 'clear_and_exit' | 'reach_exit';
 export interface SideviewEnemySpec { id: string; kind: 'guard' | 'ranger' | 'elite'; x: number; y: number; patrolMin: number; patrolMax: number; hp: number; damage?: number; speed?: number; range?: number }
 export interface SimulationLevel {
   id: string; name: string; worldWidth: number; worldHeight: number;
   platforms: Rect[]; obstacles: Rect[]; hazards: (Rect & { damage?: number })[];
-  spawn: { x: number; y: number }; enemies: SideviewEnemySpec[]; goal: Rect;
+  spawn: { x: number; y: number }; enemies: SideviewEnemySpec[]; goal: Rect; victoryCondition: SideviewVictoryCondition;
 }
 export interface SideviewOperator { name: string; maxHp: number; attack: number; skillPower: number }
 export type SideviewOutcome = 'victory' | 'defeat';
@@ -33,7 +34,7 @@ export interface SideviewLevel {
   platforms: Rect[]; obstacles: Rect[]; hazards: (Rect & { damage: number })[];
   spawn: { x: number; y: number };
   enemies: { id: string; name: string; x: number; y: number; hp: number; damage: number; speed: number; range: number; kind?: 'guard' | 'ranger' | 'elite'; patrolMin?: number; patrolMax?: number }[];
-  exit: Rect; rewards: { xp: number; items: string[] };
+  exit: Rect; victoryCondition?: SideviewVictoryCondition; rewards: { xp: number; items: string[] };
 }
 export interface SideviewSnapshot {
   version: 1; player: { x: number; y: number; hp: number; facing: number };

@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from app import create_app  # noqa: E402
 from session_overlay import SessionOverlay  # noqa: E402
 from combat_resume import session_resume_path  # noqa: E402
-from sideview_combat import minimum_victory_ms  # noqa: E402
+from sideview_combat import minimum_victory_ms, victory_satisfied  # noqa: E402
 
 ENCOUNTER = "enc_quick_test_1"
 
@@ -70,6 +70,18 @@ def _result(state, snapshot, outcome="victory"):
             "kills": sum(e["hp"] == 0 for e in snapshot["enemies"]),
             "damageTaken": snapshot.get("damageTaken", 0),
             "hpRemaining": snapshot["player"]["hp"], "snapshot": snapshot}
+
+
+def test_victory_condition_controls_enemy_clear_requirement():
+    level = {"exit": {"x": 100, "y": 50, "width": 80, "height": 100},
+             "victoryCondition": "clear_and_exit"}
+    snapshot = {"player": {"x": 110, "y": 60, "hp": 10},
+                "exitReached": True, "enemies": [{"hp": 5}]}
+    assert not victory_satisfied(snapshot, level)
+    level["victoryCondition"] = "reach_exit"
+    assert victory_satisfied(snapshot, level)
+    snapshot["player"]["x"] = 0
+    assert not victory_satisfied(snapshot, level)
 
 
 def test_start_save_and_disk_restore(client, battle):

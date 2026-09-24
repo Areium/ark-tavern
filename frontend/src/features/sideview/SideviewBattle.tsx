@@ -21,6 +21,7 @@ const keyActions: Record<string, Action> = { KeyA: 'left', ArrowLeft: 'left', Ke
 
 export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = DEMO_OPERATOR, supportName = '后方援护', practice = false, initialSnapshot, onSnapshot, onComplete, onExit, onAbandon }: SideviewBattleProps) {
   const supportLabel = supportName || '后方援护';
+  const clearRequired = (level.victoryCondition ?? 'clear_and_exit') === 'clear_and_exit';
   const root = useRef<HTMLElement>(null), host = useRef<HTMLDivElement>(null);
   const sim = useRef<Simulation | null>(null), input = useRef(emptyInput());
   const pending = useRef(emptyInput());
@@ -102,14 +103,14 @@ export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = D
   const cooldown = (value: number) => value > 0 ? `${value.toFixed(1)}s` : '就绪';
   return <section className="sideview-battle" ref={root} tabIndex={-1} aria-label={`${level.name}实时动作关卡`} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) pause(); }}>
     <header className="sv-header">
-      <div className="sv-mission"><h2>{level.name}</h2><p>清除守卫，穿过废城，抵达撤离点。</p></div>
+      <div className="sv-mission"><h2>{level.name}</h2><p>{clearRequired ? '清除全部守卫，解除出口封锁，抵达撤离点。' : '突破阻碍，抵达撤离点即可完成行动。'}</p></div>
       <div className="sv-header-actions"><span className="sv-time" aria-label="行动时间">{Math.floor(hud.seconds / 60).toString().padStart(2, '0')}:{(hud.seconds % 60).toString().padStart(2, '0')}</span><button type="button" onClick={() => phase === 'playing' ? pause() : begin()} disabled={phase === 'finished' || !!error || abandoning} aria-label={phase === 'playing' ? '暂停行动' : '继续行动'}>{phase === 'playing' ? <Pause size={18} /> : <Play size={18} />}</button>{onExit && <button type="button" onClick={exit} disabled={abandoning} aria-label={practice ? '保存演练并返回大厅' : '保存并离开'}><LogOut size={18} /></button>}</div>
     </header>
     <div className="sv-stage">
       <div className="sv-canvas" ref={host} />
       <div className="sv-status">
         <div className="sv-health"><div><strong>{operator.name}</strong><span>{Math.ceil(hud.hp)} / {operator.maxHp}</span></div><div className="sv-health-track" role="progressbar" aria-label="生命值" aria-valuemin={0} aria-valuemax={operator.maxHp} aria-valuenow={Math.ceil(hud.hp)}><i style={{ transform: `scaleX(${Math.max(0, hud.hp / operator.maxHp)})` }} /></div></div>
-        <div className="sv-objective"><Crosshair size={15}/><span>守卫 {hud.kills}/{level.enemies.length}</span></div>
+        <div className="sv-objective"><Crosshair size={15}/><span>{clearRequired ? `守卫 ${hud.kills}/${level.enemies.length} · ${hud.kills === level.enemies.length ? '出口已开放' : '出口封锁中'}` : '目标：抵达撤离点'}</span></div>
       </div>
       {assets && <p className="sv-asset-status" role="status">{assets}</p>}
       <div className="sv-route" aria-label={`关卡进度 ${Math.round(hud.progress)}%`}><i style={{ transform: `scaleX(${hud.progress / 100})` }} /></div>
@@ -134,7 +135,7 @@ export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = D
       </div>
       <button type="button" className="sv-help-toggle" onClick={() => { pause(); setHelp(v => !v); }} aria-expanded={help}>操作说明</button>
     </footer>
-    {help && <div className="sv-help"><p><strong>移动与战斗</strong>：A / D 或方向键移动，Space / W / ↑ 跳跃；短按小跳，长按高跳。Shift 闪避，J 近战连击，K 范围技能（6 秒），L 呼叫{supportLabel}（14 秒，恢复 30 生命并打击附近敌人）。Esc 暂停。</p><p>移动设备可同时按住方向与动作按钮。清除全部守卫后，最右侧撤离门会亮起。进度每 5 秒保存；{practice ? '“保存演练并返回大厅”会在本机保留进度。' : '“保存并离开”会挂起当前行动。'}</p></div>}
-    <span className="sv-sr-only" aria-live="polite">{phase === 'finished' ? (sim.current?.outcome === 'victory' ? '撤离成功' : '行动失败') : hud.kills === level.enemies.length ? '全部守卫已清除，前往最右侧撤离点。' : ''}</span>
+    {help && <div className="sv-help"><p><strong>移动与战斗</strong>：A / D 或方向键移动，Space / W / ↑ 跳跃；短按小跳，长按高跳。Shift 闪避，J 近战连击，K 范围技能（6 秒），L 呼叫{supportLabel}（14 秒，恢复 30 生命并打击附近敌人）。Esc 暂停。</p><p>移动设备可同时按住方向与动作按钮。{clearRequired ? '出口前的空气墙会阻止通行；清除全部守卫后解除封锁。' : '抵达最右侧撤离点即可完成行动，无需清除全部守卫。'}进度每 5 秒保存；{practice ? '“保存演练并返回大厅”会在本机保留进度。' : '“保存并离开”会挂起当前行动。'}</p></div>}
+    <span className="sv-sr-only" aria-live="polite">{phase === 'finished' ? (sim.current?.outcome === 'victory' ? '撤离成功' : '行动失败') : clearRequired && hud.kills === level.enemies.length ? '全部守卫已清除，出口封锁解除，前往最右侧撤离点。' : ''}</span>
   </section>;
 }

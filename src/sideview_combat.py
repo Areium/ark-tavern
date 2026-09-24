@@ -23,6 +23,9 @@ def load_level(encounter_id: str) -> dict:
         level = json.load(stream)
     if level.get("schemaVersion") != 1 or not isinstance(level.get("rewards"), dict):
         raise ValueError("侧卷轴关卡配置无效")
+    if level.get("victoryCondition", "clear_and_exit") not in ("clear_and_exit", "reach_exit"):
+        raise ValueError("侧卷轴通关条件无效")
+    level.setdefault("victoryCondition", "clear_and_exit")
     return level
 
 
@@ -128,7 +131,8 @@ def victory_satisfied(snapshot: dict, level: dict) -> bool:
             and player["x"] + 32 > end["x"]
             and player["y"] < end["y"] + end["height"]
             and player["y"] + 58 > end["y"]
-            and all(enemy["hp"] == 0 for enemy in snapshot["enemies"]))
+            and (level.get("victoryCondition", "clear_and_exit") == "reach_exit"
+                 or all(enemy["hp"] == 0 for enemy in snapshot["enemies"])))
 
 
 def minimum_victory_ms(level: dict) -> int:

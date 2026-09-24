@@ -17,5 +17,6 @@
     {"id": "raider-2", "name": "整合运动成员", "kind": "ranger", "x": 1000, "y": 580, "patrolMin": 880, "patrolMax": 1120, "hp": 60, "damage": 8, "speed": 90, "range": 160}
   ],
   "exit": {"x": 1480, "y": 520, "width": 80, "height": 100},
+  "victoryCondition": "clear_and_exit",
   "rewards": {"xp": 90, "items": []}
 }
