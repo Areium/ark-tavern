@@ -1,38 +1,102 @@
-import { Application, Container, Graphics } from 'pixi.js';
-import type { Simulation, SimulationLevel } from './types';
+import { Application, Container, Graphics, Texture, TilingSprite, Sprite, Rectangle, SCALE_MODES } from 'pixi.js';
+import type { Simulation, SimulationLevel, Body } from './types';
+import { loadSideviewSpine, makeSideviewSpine } from './spineActors';
 
-const C = { sky: 0x0b1722, far: 0x142735, mid: 0x1c3541, stone: 0x243b43, edge: 0x718b8e, cyan: 0x8ce5e0, orange: 0xf4a66b, red: 0xe77977 };
+const C = { sky: 0x0b1722, stone: 0x243b43, cyan: 0x8ce5e0, orange: 0xf4a66b, red: 0xe77977 };
 
-/** Original vector scenery. No external textures or asset requests. */
-export function createRenderer(host: HTMLDivElement, level: SimulationLevel, reducedMotion: boolean) {
+/** Texture scenery and Spine presentation; simulation remains authoritative. */
+export function createRenderer(host: HTMLDivElement, level: SimulationLevel, reducedMotion: boolean, operatorName: string, onAssets: (message: string) => void = () => {}) {
   const app = new Application({ width: host.clientWidth || 1000, height: host.clientHeight || 600, backgroundColor: C.sky, antialias: true, resolution: Math.min(devicePixelRatio || 1, 2), autoDensity: true, autoStart: false });
   const canvas = app.view as HTMLCanvasElement;
   canvas.setAttribute('aria-hidden', 'true'); host.appendChild(canvas);
-  const scenery = new Graphics(); const world = new Container();
+  const scenery = new Graphics(); const backdrop = new Container(); const surfaces = new Container(); const figures = new Container(); const world = new Container();
   const terrain = new Graphics(); const actors = new Graphics(); const fx = new Graphics(); const foreground = new Graphics();
-  app.stage.addChild(scenery, world, foreground); world.addChild(terrain, actors, fx);
+  app.stage.addChild(scenery, backdrop, world, foreground); world.addChild(surfaces, terrain, actors, figures, fx);
+  let disposed = false, lastElapsed = 0;
+  const layers: TilingSprite[] = [];
+  const units = new Map<string, ReturnType<typeof makeSideviewSpine>>();
+  const failures = new Set<string>();
+  const report = () => onAssets(failures.size ? `简化显示：${[...failures].join('、')}；操作不受影响。` : '');
+  const sceneryFiles = ['industrial-bg', 'industrial-far', 'industrial-mid', 'industrial-near'];
+  backdrop.sortableChildren = true;
+  // Keep the original layer indices even if one asset fails or finishes late.
+  Promise.allSettled(sceneryFiles.map(async (name, i) => {
+    const texture = await Texture.fromURL(`./assets/sideview/${name}.png`);
+    if (disposed) return;
+    texture.baseTexture.scaleMode = SCALE_MODES.NEAREST;
+    const layer = new TilingSprite(texture, 1, 1);
+    layer.alpha = [0.85, 0.55, 0.72, 0.95][i];
+    layer.zIndex = i;
+    backdrop.addChild(layer); layers[i] = layer;
+  })).then(results => {
+    if (!disposed && results.some(result => result.status === 'rejected')) {
+      failures.add('部分厂区背景'); report();
+    }
+  });
+  Texture.fromURL('./assets/sideview/metal-tiles.png').then(texture => {
+    if (disposed) return;
+    texture.baseTexture.scaleMode = SCALE_MODES.NEAREST;
+    const plate = new Texture(texture.baseTexture, new Rectangle(0, 0, 18, 18));
+    const rail = new Texture(texture.baseTexture, new Rectangle(0, 96, 18, 18));
+    const crate = new Texture(texture.baseTexture, new Rectangle(0, 191, 18, 18));
+    for (const p of level.platforms) {
+      const body = new TilingSprite(rail, p.width, p.height); body.position.set(p.x, p.y); body.tileScale.set(2); body.tint = 0x6a8783; surfaces.addChild(body);
+      const rim = new TilingSprite(plate, p.width, Math.min(p.height, 12)); rim.position.set(p.x, p.y); rim.tileScale.set(1.3); rim.tint = 0xa3b2a2; surfaces.addChild(rim);
+    }
+    for (const o of level.obstacles) { const box = new Sprite(crate); box.position.set(o.x, o.y); box.width = o.width; box.height = o.height; box.tint = 0xb9b2a0; surfaces.addChild(box); }
+  }).catch(() => { if (!disposed) { failures.add('金属纹理'); report(); } });
+  const names = [{ id: 'player', name: operatorName }, ...level.enemies.map(e => ({ id: e.id, name: e.kind === 'ranger' ? '整合运动狙击手' : e.kind === 'elite' ? '整合运动盾卫' : '整合运动士兵' }))];
+  const cache = new Map<string, ReturnType<typeof loadSideviewSpine>>();
+  onAssets('正在装载战斗模型…');
+  Promise.all(names.map(async ({ id, name }) => {
+    try {
+      if (!cache.has(name)) cache.set(name, loadSideviewSpine(name));
+      const data = await cache.get(name)!;
+      if (disposed) return;
+      const unit = makeSideviewSpine(data); units.set(id, unit); figures.addChild(unit.spine);
+    } catch { if (!disposed) failures.add(name); }
+  })).then(() => { if (!disposed) report(); });
+  function drawUnit(id: string, body: Body, dt: number, attacking: boolean, hurt: boolean, dead = false) {
+    const unit = units.get(id);
+    if (!unit) return false;
+    const { spine, spec } = unit;
+    spine.visible = !dead;
+    if (dead) return true;
+    const size = body.height * 1.35 / 420;
+    spine.scale.set(size * body.facing, size);
+    spine.position.set(body.x + body.width / 2, body.y + body.height - unit.bottom * size);
+    spine.tint = hurt ? 0xffd5a9 : 0xffffff;
+    if (attacking && !unit.attacking && !unit.attackPlaying && spec.attack.length) {
+      unit.attackPlaying = true;
+      let finalEntry = spine.state.setAnimation(0, spec.attack[0], false);
+      for (const name of spec.attack.slice(1)) finalEntry = spine.state.addAnimation(0, name, false, 0);
+      // The short simulation hit window does not own the visual animation's lifetime.
+      // Only completion of the final segment releases locomotion; later attack edges
+      // during this chain are consumed without restarting or truncating it.
+      finalEntry.listener = { complete: () => { unit.attackPlaying = false; } };
+      if (spec.idle) spine.state.addAnimation(0, spec.idle, true, 0);
+      unit.action = 'attack';
+    } else if (!unit.attackPlaying) {
+      const action = Math.abs(body.vx) > 15 && unit.move ? unit.move : spec.idle;
+      if (action && unit.action !== action) { spine.state.setAnimation(0, action, true); unit.action = action; }
+    }
+    unit.attacking = attacking;
+    spine.update(dt);
+    return true;
+  }
+
   let camera = 0;
   const resize = () => app.renderer.resize(Math.max(1, host.clientWidth), Math.max(1, host.clientHeight));
   const observer = new ResizeObserver(resize); observer.observe(host);
-  function actor(g: Graphics, x: number, y: number, w: number, h: number, facing: number, color: number, phase: number, enemy = false, hurt = false) {
-    const cx = x + w / 2; const headY = y + h * 0.16;
-    const stride = Math.sin(phase) * 7;
-    g.beginFill(0x02080d, 0.3).drawEllipse(cx, y + h + 2, w * 0.85, 5).endFill();
-    g.lineStyle(7, hurt ? 0xffffff : 0x0a1821).moveTo(cx - 6, y + h * 0.68).lineTo(cx - 8 + stride, y + h - 1).moveTo(cx + 6, y + h * 0.68).lineTo(cx + 8 - stride, y + h - 1);
-    g.lineStyle(0).beginFill(hurt ? 0xffffff : enemy ? 0x36424a : 0xcedee0);
-    g.drawPolygon([cx - 10, y + h * 0.31, cx + 10, y + h * 0.31, cx + 17 - facing * 4, y + h * 0.82, cx - 17 - facing * 7, y + h * 0.82]).endFill();
-    g.beginFill(enemy ? 0x19262e : 0x253d49).drawRect(cx - 9, y + h * 0.36, 18, h * 0.24).endFill();
-    g.beginFill(hurt ? 0xffffff : 0xa1b6b9).drawRoundedRect(cx - 10, headY - 6, 20, 18, 4).endFill();
-    g.beginFill(0x101f2a).drawRect(cx - 10, headY, 20, 8).endFill();
-    g.beginFill(color).drawRect(cx + (facing > 0 ? 1 : -9), headY + 1, 8, 3).drawRect(cx - 9, y + h * 0.57, 18, 3).endFill();
-    g.lineStyle(3, color, 0.9).moveTo(cx + facing * 10, y + h * 0.43).lineTo(cx + facing * 29, y + h * 0.79);
-    if (!enemy) {
-      g.lineStyle(0).beginFill(C.cyan, 0.85).drawPolygon([cx - facing * 8, y + h * 0.28, cx - facing * 37, y + h * 0.37 + Math.sin(phase) * 3, cx - facing * 21, y + h * 0.46]).endFill();
-      g.beginFill(0xcedee0).drawPolygon([cx - 9, headY - 3, cx - 8, headY - 16, cx - 2, headY - 4]).endFill();
-    }
-    g.lineStyle(0);
+  function actor(g: Graphics, x: number, y: number, w: number, h: number, facing: number, color: number, hurt = false) {
+    // Explicit tactical token when the local model is absent; never an imitation character.
+    const cx = x + w / 2;
+    g.beginFill(0x071b20, 0.95).lineStyle(2, hurt ? 0xffffff : color).drawRoundedRect(cx - 18, y + 8, 36, h - 8, 5).endFill();
+    g.lineStyle(2, color).moveTo(cx - facing * 5, y + 25).lineTo(cx + facing * 8, y + 32).lineTo(cx - facing * 5, y + 39).lineStyle(0);
   }
+
   function render(s: Simulation) {
+    const dt = Math.max(0, Math.min(0.1, s.elapsed - lastElapsed)); lastElapsed = s.elapsed;
     const width = app.screen.width, height = app.screen.height;
     // Keep the play plane at a useful vertical size on portrait devices.
     // Narrow screens see less of the world and track the player horizontally.
@@ -44,34 +108,23 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
     world.scale.set(scale); world.position.set(-camera * scale, -cy * scale);
     scenery.clear(); scenery.scale.set(scale);
     scenery.beginFill(C.sky).drawRect(0, 0, vw, vh).endFill();
-    // Distant break in the cloud deck, behind a layered industrial skyline.
-    scenery.beginFill(0x40606a, 0.16).drawEllipse(vw * 0.69, 160, 270, 95).endFill();
-    scenery.beginFill(0x87b2b7, 0.1).drawEllipse(vw * 0.69, 145, 115, 65).endFill();
-    for (let layer = 0; layer < 3; layer++) {
-      const spacing = layer === 0 ? 155 : 225;
-      const parallax = [0.12, 0.26, 0.48][layer];
-      for (let i = -2; i < Math.ceil(vw / spacing) + 3; i++) {
-        const index = i + Math.floor(camera * parallax / spacing);
-        const x = i * spacing - (camera * parallax % spacing);
-        const top = 160 + ((index * 73 + 711) % 170) + layer * 38;
-        const bw = 70 + ((index * 31 + 201) % 75);
-        scenery.beginFill([C.far, C.mid, 0x122934][layer]).drawRect(x, top, bw, vh - top).endFill();
-        scenery.lineStyle(2, 0x547780, layer === 2 ? 0.22 : 0.1).moveTo(x + 8, top).lineTo(x + 8, vh).moveTo(x + bw - 8, top).lineTo(x + bw - 8, vh).lineStyle(0);
-        if (layer < 2) for (let row = 0; row < 4; row++) scenery.beginFill(0xb2d9d5, 0.12).drawRect(x + 18, top + 22 + row * 35, 4, 10).endFill();
-        if (layer === 1) scenery.lineStyle(3, 0x36505a).moveTo(x + 20, top).lineTo(x + 20, top - 45).lineTo(x + 110, top - 45).lineStyle(0);
-      }
-    }
+    layers.forEach((layer, i) => {
+      const textureScale = height / 160;
+      layer.width = width; layer.height = layer.texture.height * textureScale;
+      layer.y = height - layer.height;
+      layer.tileScale.set(textureScale);
+      layer.tilePosition.set(-camera * scale * [0.06, 0.13, 0.27, 0.46][i], 0);
+    });
     terrain.clear();
     for (const p of level.platforms) {
-      terrain.beginFill(C.stone).drawRect(p.x, p.y, p.width, p.height).endFill();
-      terrain.beginFill(C.edge).drawRect(p.x, p.y, p.width, 3).endFill();
-      terrain.beginFill(0x0a1a24).drawRect(p.x, p.y + 13, p.width, Math.max(3, p.height - 13)).endFill();
-      for (let x = p.x + 16; x < p.x + p.width; x += 85) terrain.lineStyle(1, 0x35505b).moveTo(x, p.y + 18).lineTo(x + 28, p.y + p.height).lineStyle(0);
+      if (!surfaces.children.length) terrain.beginFill(C.stone).drawRect(p.x, p.y, p.width, p.height).endFill();
+      terrain.beginFill(0xc3d9c5, 0.75).drawRect(p.x, p.y, p.width, 2).endFill();
+      terrain.beginFill(0x020c11, 0.5).drawRect(p.x, p.y + 13, p.width, Math.max(0, p.height - 13)).endFill();
+      for (let x = p.x + 12; x < p.x + p.width - 8; x += 96) terrain.beginFill(C.cyan, 0.8).drawRect(x, p.y + 5, 14, 2).endFill();
     }
     for (const o of level.obstacles) {
-      terrain.beginFill(0x344951).drawRect(o.x, o.y, o.width, o.height).endFill();
-      terrain.lineStyle(2, 0x617477).drawRect(o.x + 5, o.y + 5, o.width - 10, o.height - 10).moveTo(o.x + 5, o.y + 5).lineTo(o.x + o.width - 5, o.y + o.height - 5).lineStyle(0);
-      terrain.beginFill(C.orange, 0.8).drawRect(o.x + 9, o.y + 8, 18, 4).endFill();
+      if (!surfaces.children.length) terrain.beginFill(C.stone).drawRect(o.x, o.y, o.width, o.height).endFill();
+      terrain.beginFill(C.orange, 0.85).drawRect(o.x + 8, o.y + 6, 22, 3).endFill();
     }
     for (const h of level.hazards) {
       terrain.beginFill(C.red, 0.22).drawRect(h.x, h.y, h.width, h.height).endFill();
@@ -83,9 +136,9 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
     terrain.lineStyle(3, unlocked ? C.cyan : 0x71858b).moveTo(goal.x + 30, goal.y + 45).lineTo(goal.x + 62, goal.y + 62).lineTo(goal.x + 30, goal.y + 80).lineStyle(0);
     actors.clear();
     for (const e of s.enemies) {
-      if (e.hp <= 0) continue;
+      if (e.hp <= 0) { drawUnit(e.id, e, dt, false, false, true); continue; }
       const spec = level.enemies.find(v => v.id === e.id)!;
-      actor(actors, e.x, e.y, e.width, e.height, e.facing, C.orange, s.elapsed * (Math.abs(e.vx) > 1 ? 9 : 0), true, e.hurt > 0);
+      if (!drawUnit(e.id, e, dt, e.windup > 0, e.hurt > 0)) actor(actors, e.x, e.y, e.width, e.height, e.facing, C.orange, e.hurt > 0);
       actors.beginFill(0x0a141c).drawRect(e.x - 5, e.y - 17, e.width + 10, 4).endFill();
       actors.beginFill(C.orange).drawRect(e.x - 5, e.y - 17, (e.width + 10) * e.hp / spec.hp, 4).endFill();
       if (e.windup > 0) {
@@ -94,7 +147,7 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
       }
     }
     const p = s.player;
-    actor(actors, p.x, p.y, p.width, p.height, p.facing, C.cyan, s.elapsed * (Math.abs(p.vx) > 20 ? 14 : 0), false, p.invulnerable > 0 && Math.floor(s.elapsed * 16) % 2 === 1);
+    if (!drawUnit('player', p, dt, p.attackTime > 0, p.invulnerable > 0 && Math.floor(s.elapsed * 16) % 2 === 1)) actor(actors, p.x, p.y, p.width, p.height, p.facing, C.cyan, p.invulnerable > 0 && Math.floor(s.elapsed * 16) % 2 === 1);
     fx.clear();
     for (const b of s.projectiles) fx.beginFill(C.orange).drawRect(b.x, b.y, b.width, b.height).endFill();
     for (const e of s.effects) {
@@ -121,5 +174,5 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
     }
     app.renderer.render(app.stage);
   }
-  return { render, destroy() { observer.disconnect(); app.destroy(true, { children: true }); } };
+  return { render, destroy() { disposed = true; observer.disconnect(); app.destroy(true, { children: true }); } };
 }

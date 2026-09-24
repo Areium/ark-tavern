@@ -28,6 +28,7 @@ export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = D
   const [phase, setPhase] = useState<Phase>('ready');
   const [hud, setHud] = useState({ hp: initialSnapshot?.player.hp ?? operator.maxHp, kills: 0, seconds: 0, skill: 0, dash: 0, support: 0, progress: 0 });
   const [error, setError] = useState('');
+  const [assets, setAssets] = useState('');
   const [help, setHelp] = useState(false);
   const [abandoning, setAbandoning] = useState(false);
   const abandoningRef = useRef(false);
@@ -43,7 +44,7 @@ export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = D
     const normalized = normalizeLevel(level);
     const state = createSimulation(normalized, operator, initialSnapshot ?? undefined); sim.current = state;
     let renderer: ReturnType<typeof createRenderer>;
-    try { renderer = createRenderer(host.current, normalized, matchMedia('(prefers-reduced-motion: reduce)').matches); }
+    try { renderer = createRenderer(host.current, normalized, matchMedia('(prefers-reduced-motion: reduce)').matches, operator.name, setAssets); }
     catch (e) { setError(`无法启动场景渲染：${e instanceof Error ? e.message : '浏览器图形上下文不可用'}`); return; }
     let frame = 0, last = performance.now(), accumulator = 0, nextHud = 0, nextSave = state.elapsed + 5, completed = false;
     const loop = (now: number) => {
@@ -109,6 +110,7 @@ export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = D
         <div className="sv-health"><div><strong>{operator.name}</strong><span>{Math.ceil(hud.hp)} / {operator.maxHp}</span></div><div className="sv-health-track" role="progressbar" aria-label="生命值" aria-valuemin={0} aria-valuemax={operator.maxHp} aria-valuenow={Math.ceil(hud.hp)}><i style={{ transform: `scaleX(${Math.max(0, hud.hp / operator.maxHp)})` }} /></div></div>
         <div className="sv-objective"><Crosshair size={15}/><span>守卫 {hud.kills}/{level.enemies.length}</span></div>
       </div>
+      {assets && <p className="sv-asset-status" role="status">{assets}</p>}
       <div className="sv-route" aria-label={`关卡进度 ${Math.round(hud.progress)}%`}><i style={{ transform: `scaleX(${hud.progress / 100})` }} /></div>
       {(phase !== 'playing' || error) && <div className="sv-curtain">
         <div className="sv-brief" role={error ? 'alert' : undefined}>

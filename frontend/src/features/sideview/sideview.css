@@ -29,3 +29,5 @@
 @media(prefers-reduced-motion:reduce){.sideview-battle *{transition:none!important;animation:none!important}}
 .sideview-battle .sv-abandon{display:flex;background:transparent;border-color:transparent;color:#e8a7a2;font-size:12px;padding:8px 0;margin-top:10px}
 .sv-abandon-confirm{margin-top:18px;padding-top:14px;border-top:1px solid #405660}.sv-abandon-confirm p{color:#e8b5b0;font-size:12px;margin-bottom:10px}
+
+.sv-asset-status{position:absolute;left:22px;bottom:12px;max-width:calc(100% - 44px);padding:6px 9px;margin:0;background:#0b1722eb;color:#d1ddd6;font-size:11px;line-height:1.5;pointer-events:none}.sv-curtain{background:#06101980}.sv-brief{box-shadow:none}.sv-stage{background:#122c25}
