@@ -8,6 +8,7 @@ import './sideview.css';
 
 export interface SideviewBattleProps {
   runId: string; level?: SideviewLevel; operator?: SideviewOperator; supportName?: string;
+  practice?: boolean;
   initialSnapshot?: SideviewSnapshot | null;
   onSnapshot?: (snapshot: SideviewSnapshot) => void;
   onComplete: (result: SideviewResult) => void;
@@ -18,7 +19,7 @@ export interface SideviewBattleProps {
 type Phase = 'ready' | 'playing' | 'paused' | 'finished';
 const keyActions: Record<string, Action> = { KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right', Space: 'jump', KeyW: 'jump', ArrowUp: 'jump', ShiftLeft: 'dash', ShiftRight: 'dash', KeyJ: 'attack', KeyK: 'skill', KeyL: 'support' };
 
-export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = DEMO_OPERATOR, supportName = '后方援护', initialSnapshot, onSnapshot, onComplete, onExit, onAbandon }: SideviewBattleProps) {
+export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = DEMO_OPERATOR, supportName = '后方援护', practice = false, initialSnapshot, onSnapshot, onComplete, onExit, onAbandon }: SideviewBattleProps) {
   const supportLabel = supportName || '后方援护';
   const root = useRef<HTMLElement>(null), host = useRef<HTMLDivElement>(null);
   const sim = useRef<Simulation | null>(null), input = useRef(emptyInput());
@@ -102,7 +103,7 @@ export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = D
   return <section className="sideview-battle" ref={root} tabIndex={-1} aria-label={`${level.name}实时动作关卡`} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) pause(); }}>
     <header className="sv-header">
       <div className="sv-mission"><h2>{level.name}</h2><p>清除守卫，穿过废城，抵达撤离点。</p></div>
-      <div className="sv-header-actions"><span className="sv-time" aria-label="行动时间">{Math.floor(hud.seconds / 60).toString().padStart(2, '0')}:{(hud.seconds % 60).toString().padStart(2, '0')}</span><button type="button" onClick={() => phase === 'playing' ? pause() : begin()} disabled={phase === 'finished' || !!error || abandoning} aria-label={phase === 'playing' ? '暂停行动' : '继续行动'}>{phase === 'playing' ? <Pause size={18} /> : <Play size={18} />}</button>{onExit && <button type="button" onClick={exit} disabled={abandoning} aria-label="保存并离开"><LogOut size={18} /></button>}</div>
+      <div className="sv-header-actions"><span className="sv-time" aria-label="行动时间">{Math.floor(hud.seconds / 60).toString().padStart(2, '0')}:{(hud.seconds % 60).toString().padStart(2, '0')}</span><button type="button" onClick={() => phase === 'playing' ? pause() : begin()} disabled={phase === 'finished' || !!error || abandoning} aria-label={phase === 'playing' ? '暂停行动' : '继续行动'}>{phase === 'playing' ? <Pause size={18} /> : <Play size={18} />}</button>{onExit && <button type="button" onClick={exit} disabled={abandoning} aria-label={practice ? '保存演练并返回大厅' : '保存并离开'}><LogOut size={18} /></button>}</div>
     </header>
     <div className="sv-stage">
       <div className="sv-canvas" ref={host} />
@@ -115,10 +116,10 @@ export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = D
       {(phase !== 'playing' || error) && <div className="sv-curtain">
         <div className="sv-brief" role={error ? 'alert' : undefined}>
           <h3>{error ? '场景未能启动' : phase === 'finished' ? (sim.current?.outcome === 'victory' ? '撤离成功' : '行动中止') : phase === 'paused' ? '行动已暂停' : '进入雨幕'}</h3>
-          <p>{error || (phase === 'finished' ? '行动结果已交给结算系统。' : phase === 'paused' ? '准备好后继续。离开页面或切换窗口会自动暂停。' : '留意敌人的橙色攻击预警。跳过危险地带，用闪避穿过攻击，再寻找近身反击的机会。')}</p>
+          <p>{error || (phase === 'finished' ? (practice ? '演练结束，正在整理结果。' : '行动结果已交给结算系统。') : phase === 'paused' ? '准备好后继续。离开页面或切换窗口会自动暂停。' : '留意敌人的橙色攻击预警。跳过危险地带，用闪避穿过攻击，再寻找近身反击的机会。')}</p>
           {(phase === 'ready' || phase === 'paused') && !error && <><div className="sv-brief-keys"><span><kbd>A</kbd><kbd>D</kbd> 移动</span><span><kbd>Space</kbd> 跳跃</span><span><kbd>Shift</kbd> 闪避</span><span><kbd>J</kbd> 近战</span><span><kbd>K</kbd> 技能</span><span><kbd>L</kbd> 援护</span></div><button type="button" className="sv-primary" onClick={begin} disabled={abandoning}><Play size={17}/>{phase === 'paused' || initialSnapshot ? '继续行动' : '开始行动'}</button></>}
-          {onExit && <button type="button" className="sv-exit" onClick={exit} disabled={abandoning}>保存并离开</button>}
-          {phase === 'paused' && onAbandon && (confirmAbandon ? <div className="sv-abandon-confirm"><p>结束本次关卡？放弃后不发放通关奖励。</p><button type="button" onClick={abandon} disabled={abandoning}>{abandoning ? '正在结束行动…' : '确认放弃'}</button><button type="button" className="sv-exit" onClick={() => setConfirmAbandon(false)} disabled={abandoning}>保留行动</button></div> : <button type="button" className="sv-abandon" onClick={() => setConfirmAbandon(true)} disabled={abandoning}>放弃本次行动</button>)}
+          {onExit && <button type="button" className="sv-exit" onClick={exit} disabled={abandoning}>{practice ? '保存演练并返回大厅' : '保存并离开'}</button>}
+          {phase === 'paused' && onAbandon && (confirmAbandon ? <div className="sv-abandon-confirm"><p>{practice ? '结束本次演练？本机保存的进度会清除。' : '结束本次关卡？放弃后不发放通关奖励。'}</p><button type="button" onClick={abandon} disabled={abandoning}>{abandoning ? '正在结束行动…' : '确认放弃'}</button><button type="button" className="sv-exit" onClick={() => setConfirmAbandon(false)} disabled={abandoning}>保留行动</button></div> : <button type="button" className="sv-abandon" onClick={() => setConfirmAbandon(true)} disabled={abandoning}>{practice ? '放弃演练' : '放弃本次行动'}</button>)}
           {abandonError && <p role="alert">{abandonError}</p>}
         </div>
       </div>}
@@ -133,7 +134,7 @@ export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = D
       </div>
       <button type="button" className="sv-help-toggle" onClick={() => { pause(); setHelp(v => !v); }} aria-expanded={help}>操作说明</button>
     </footer>
-    {help && <div className="sv-help"><p><strong>移动与战斗</strong>：A / D 或方向键移动，Space / W / ↑ 跳跃；短按小跳，长按高跳。Shift 闪避，J 近战连击，K 范围技能（6 秒），L 呼叫{supportLabel}（14 秒，恢复 30 生命并打击附近敌人）。Esc 暂停。</p><p>移动设备可同时按住方向与动作按钮。清除全部守卫后，最右侧撤离门会亮起。进度每 5 秒保存；“保存并离开”会挂起当前行动。</p></div>}
+    {help && <div className="sv-help"><p><strong>移动与战斗</strong>：A / D 或方向键移动，Space / W / ↑ 跳跃；短按小跳，长按高跳。Shift 闪避，J 近战连击，K 范围技能（6 秒），L 呼叫{supportLabel}（14 秒，恢复 30 生命并打击附近敌人）。Esc 暂停。</p><p>移动设备可同时按住方向与动作按钮。清除全部守卫后，最右侧撤离门会亮起。进度每 5 秒保存；{practice ? '“保存演练并返回大厅”会在本机保留进度。' : '“保存并离开”会挂起当前行动。'}</p></div>}
     <span className="sv-sr-only" aria-live="polite">{phase === 'finished' ? (sim.current?.outcome === 'victory' ? '撤离成功' : '行动失败') : hud.kills === level.enemies.length ? '全部守卫已清除，前往最右侧撤离点。' : ''}</span>
   </section>;
 }

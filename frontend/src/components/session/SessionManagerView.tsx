@@ -19,6 +19,7 @@ import CharacterPicker from "./CharacterPicker";
 import CreateSessionWizard from "./CreateSessionWizard";
 import { SessionWorldbookDependencies } from "./SessionWorldbookDependencies";
 import { useDialogMinimize } from "../../hooks/useDialogMinimize";
+import { ArrowRight, Swords, X } from "lucide-react";
 
 const AVATAR_URL = (name: string) => `/api/characters/${encodeURIComponent(name)}/avatar`;
 
@@ -54,6 +55,7 @@ export default function SessionManagerView() {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(activeSessionId);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [practiceOpen, setPracticeOpen] = useState(false);
 
   // ── 批量管理 ──
   const [batchMode, setBatchMode] = useState(false);
@@ -119,13 +121,13 @@ export default function SessionManagerView() {
     const s = sessions.find((x) => x.id === id);
     setActiveSession(id);
     if (s) setChatMode(s.mode);
-    setCombatContext({ sessionId: id, testId: null, state: null, uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
+    setCombatContext({ practiceMode: null, sessionId: id, testId: null, state: null, uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
     setCurrentView("combat");
   }, [sessions, setActiveSession, setChatMode, setCombatContext, setCurrentView]);
 
-  /** 战斗演练：无会话的测试战场（沿用 CombatView 设置屏） */
-  const enterPractice = useCallback(() => {
-    setCombatContext({ sessionId: null, testId: null, state: null, uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
+  /** 无会话演练：先选战斗模式，再进入对应的独立测试战场。 */
+  const enterPractice = useCallback((mode: "tactical" | "sideview") => {
+    setCombatContext({ practiceMode: mode, sessionId: null, testId: null, state: null, uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
     setCurrentView("combat");
   }, [setCombatContext, setCurrentView]);
 
@@ -346,17 +348,41 @@ export default function SessionManagerView() {
             />
           </label>
           <button
-            onClick={enterPractice}
-            className="btn btn-ghost text-xs whitespace-nowrap"
-            title="战斗演练：不入会话的测试战场"
+            onClick={() => setPracticeOpen((open) => !open)}
+            className="btn btn-ghost text-xs whitespace-nowrap inline-flex items-center gap-1.5"
+            aria-expanded={practiceOpen}
+            aria-controls="combat-practice-modes"
+            title="选择战斗演练模式"
           >
-            ⚔ 战斗演练
+            <Swords size={15} aria-hidden="true" /> 战斗演练
           </button>
           <button onClick={() => setWizardOpen(true)} className="btn btn-hero px-5 py-2 text-sm whitespace-nowrap">
             ＋ 新建会话
           </button>
         </div>
       </header>
+
+      {practiceOpen && (
+        <section id="combat-practice-modes" className="session-practice-panel px-6 md:px-10 py-4 border-b" aria-label="选择战斗演练模式">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <h2 className="session-practice-title text-sm font-semibold">选择演练方式</h2>
+              <p className="session-practice-muted text-xs mt-1">独立体验战斗，不改变当前会话进度。</p>
+            </div>
+            <button type="button" onClick={() => setPracticeOpen(false)} className="session-practice-close p-2 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" aria-label="关闭战斗演练选项"><X size={17} /></button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 max-w-3xl">
+            <button type="button" onClick={() => enterPractice("tactical")} className="session-practice-option group flex items-center justify-between gap-4 rounded-lg border px-4 py-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">
+              <span><strong className="session-practice-option-title tactical block text-sm">回合战术</strong><span className="session-practice-muted block text-xs mt-1">选战斗节点，使用卡牌与格子战场试打。</span></span>
+              <ArrowRight size={17} className="shrink-0" aria-hidden="true" />
+            </button>
+            <button type="button" onClick={() => enterPractice("sideview")} className="session-practice-option group flex items-center justify-between gap-4 rounded-lg border px-4 py-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300">
+              <span><strong className="session-practice-option-title sideview block text-sm">横版动作</strong><span className="session-practice-muted block text-xs mt-1">体验雨幕行动示例关卡，支持本机续玩。</span></span>
+              <ArrowRight size={17} className="shrink-0" aria-hidden="true" />
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* ═══ 挂起的战斗演练（战斗页「临时返回」留下的存档，无会话归属） ═══ */}
       {testResumes.length > 0 && (

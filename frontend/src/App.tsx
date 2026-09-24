@@ -9,6 +9,7 @@ import ChatView from "./components/ChatView";
 import SessionManagerView from "./components/session/SessionManagerView";
 import CombatView from "./components/combat/CombatView";
 import SideviewCombatView from "./components/sideview/SideviewCombatView";
+import SideviewPracticeView from "./components/sideview/SideviewPracticeView";
 import SettingsPanel from "./components/SettingsPanel";
 import WorldBookManager from "./components/WorldBookManager";
 import DocsView from "./components/DocsView";
@@ -159,8 +160,10 @@ export default function App() {
         <div style={{ display: currentView === "chat" ? undefined : "none", height: "100%" }}>
           <ChatView />
         </div>
-        {currentView === "combat" && (sessions.find((session) => session.id === combatContext.sessionId)?.combat_mode === "sideview"
-          ? <SideviewCombatView /> : <CombatView />)}
+        {currentView === "combat" && (combatContext.practiceMode === "sideview"
+          ? <SideviewPracticeView />
+          : sessions.find((session) => session.id === combatContext.sessionId)?.combat_mode === "sideview"
+            ? <SideviewCombatView /> : <CombatView />)}
         {currentView !== "home" && !immersive && (
           <div className="h-full overflow-auto">{renderManageView()}</div>
         )}

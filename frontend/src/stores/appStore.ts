@@ -10,6 +10,7 @@ type Theme = "dark" | "light";
 export type SkinId = "default" | "prts" | "tavern";
 
 export interface CombatContext {
+  practiceMode: "tactical" | "sideview" | null;
   state: CombatStateDTO | null;
   uiMode: "VIEWING" | "TARGETING";
   selectedCardIndex: number | null;
@@ -313,6 +314,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // 战斗
   combatContext: {
+    practiceMode: null,
     state: null,
     uiMode: "VIEWING" as const,
     selectedCardIndex: null,
@@ -324,6 +326,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (partial === null) {
       return {
         combatContext: {
+          practiceMode: null,
           state: null,
           uiMode: "VIEWING",
           selectedCardIndex: null,

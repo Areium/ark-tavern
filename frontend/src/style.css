@@ -1088,6 +1088,50 @@ html.light .deploy-arrow {
   color: rgba(156, 163, 175, 0.9);
 }
 
+.session-practice-panel {
+  --practice-surface: #1a1d27;
+  --practice-card: #242937;
+  --practice-card-hover: #303747;
+  --practice-ink: #f3f4f6;
+  --practice-muted: #c6ccd6;
+  --practice-line: #555f70;
+  --practice-tactical: #fcd58d;
+  --practice-sideview: #a5e8e8;
+  background: var(--practice-surface);
+  color: var(--practice-ink);
+  border-color: var(--practice-line);
+}
+.session-practice-panel .session-practice-title { color: var(--practice-ink); }
+.session-practice-panel .session-practice-muted { color: var(--practice-muted); }
+.session-practice-panel .session-practice-close { color: var(--practice-muted); }
+.session-practice-panel .session-practice-close:hover { color: var(--practice-ink); background: var(--practice-card-hover); }
+.session-practice-panel .session-practice-option {
+  background: var(--practice-card);
+  border-color: var(--practice-line);
+  color: var(--practice-muted);
+  transition: background-color .16s ease, border-color .16s ease;
+}
+.session-practice-panel .session-practice-option:hover { background: var(--practice-card-hover); border-color: var(--practice-sideview); }
+.session-practice-panel .session-practice-option-title.tactical { color: var(--practice-tactical); }
+.session-practice-panel .session-practice-option-title.sideview { color: var(--practice-sideview); }
+
+html.skin-tavern .session-practice-panel {
+  --practice-surface: #efe4cc;
+  --practice-card: #fbf6e9;
+  --practice-card-hover: #fffaf0;
+  --practice-ink: #40342a;
+  --practice-muted: #685745;
+  --practice-line: #cbb894;
+  --practice-tactical: #805014;
+  --practice-sideview: #175c60;
+}
+html.skin-prts .session-practice-panel {
+  --practice-surface: #0b1524;
+  --practice-card: #152638;
+  --practice-card-hover: #1e3648;
+  --practice-line: #51758c;
+}
+
 /* 大厅主按钮（金色） */
 .btn-hero {
   background: linear-gradient(135deg, #f59e0b 0%, #d97706 60%, #b45309 100%);

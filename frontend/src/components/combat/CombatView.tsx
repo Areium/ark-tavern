@@ -195,7 +195,10 @@ export default function CombatView() {
     setParticleEmitters((prev) => prev.filter((e) => e.id !== id));
   }, []);
 
-  const sessionId = combatSessionId || activeSessionId || (sessions.length > 0 ? sessions[0].id : null);
+  // Standalone tests must never inherit the last active story session.
+  const sessionId = ctx.practiceMode || combatTestId
+    ? null
+    : combatSessionId || activeSessionId || (sessions.length > 0 ? sessions[0].id : null);
   const effectiveId = combatTestId || sessionId;
 
   /**
@@ -844,8 +847,8 @@ export default function CombatView() {
       }
       sseRef.current?.close();
       setCombatContext(null);
-      // 会话战回会话界面（可继续看剧情），无会话的测试战回主页
-      setCurrentView(combatTestId ? "home" : "chat");
+      // 无会话演练回大厅，挂起入口就在那里。
+      setCurrentView(combatTestId ? "sessions" : "chat");
     } catch (e: any) {
       setError(e?.message || "战斗状态保存失败，请重试");
     } finally {
@@ -954,7 +957,7 @@ export default function CombatView() {
     setSettlementError(null);
     setPickedCardId(null);
     setCombatContext(null);
-    setCurrentView("chat");
+    setCurrentView(combatTestId ? "sessions" : "chat");
   }, [combatTestId, sessionId, combatState, encounterId, api, setCombatContext, setCurrentView, setPendingAutoNarrate, setSessions, sessions]);
 
   /** 结算写回失败后重试：重新拉取结算数据再提交写回。 */
@@ -965,11 +968,11 @@ export default function CombatView() {
     await handleReturnToChat();
   }, [requestSettlement, handleReturnToChat]);
 
-  // 结束测试：确认后复用 handleReturnToChat（内含测试会话销毁 + 返回对话大厅）
+  // 结束测试：确认后复用 handleReturnToChat（内含测试会话销毁 + 返回会话大厅）
   const handleEndTest = useCallback(async () => {
     if (!combatTestId) return;
     // 战斗进行中才有损失，需二次确认；已结束则直接退出
-    if (!combatState?.battle_over && !window.confirm("结束本次战斗测试并返回对话大厅？")) return;
+    if (!combatState?.battle_over && !window.confirm("结束本次战斗测试并返回会话大厅？")) return;
     await handleReturnToChat();
   }, [combatTestId, combatState?.battle_over, handleReturnToChat]);
 
@@ -1217,7 +1220,7 @@ export default function CombatView() {
       <div className="flex items-center justify-center h-full bg-combat-bg">
         <div className="bg-surface-card border border-combat-border rounded-xl p-6 w-96 shadow-2xl">
           <h2 className="text-lg font-bold text-gray-200 mb-4 font-display tracking-wide">
-            {combatSessionId && loading ? "加载战斗中..." : "开始战斗"}
+            {combatSessionId && loading ? "加载战斗中..." : !sessionId ? "回合战术演练" : "开始战斗"}
           </h2>
 
           {combatSessionId && loading && (
@@ -1226,7 +1229,7 @@ export default function CombatView() {
 
           {!sessionId && (
             <p className="text-sm text-combat-gold/80 mb-3">
-              未选择会话 — 可使用下方"战斗测试"直接开战，或先在对话页面创建会话
+              选择战斗节点后直接试打；演练不会改变会话进度。
             </p>
           )}
 
@@ -1277,34 +1280,32 @@ export default function CombatView() {
             </div>
           )}
 
-          <label className="block text-xs text-gray-500 mb-1 font-display tracking-wider">参战角色（会话入队阵容）</label>
-          {!sessionId ? (
-            <p className="text-xs text-gray-500 mb-4">
-              未选择会话 — 参战阵容取自会话的入队角色
-            </p>
-          ) : rosterLoading ? (
-            <p className="text-xs text-gray-500 mb-4">读取会话阵容中...</p>
-          ) : sessionRoster.length === 0 ? (
-            <p className="text-xs text-amber-400/80 mb-4">
-              会话暂无入队角色 — 请先在会话大厅「角色阵容」中入队
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-1 mb-4">
-              {sessionRoster.map((c) => (
-                <span key={c} className="inline-flex items-center px-2.5 py-1 text-xs bg-cyan-950/50 border border-cyan-900/50 text-cyan-300 rounded-full">
-                  {c}
-                </span>
-              ))}
-            </div>
-          )}
+          {sessionId && <>
+            <label className="block text-xs text-gray-500 mb-1 font-display tracking-wider">参战角色（会话入队阵容）</label>
+            {rosterLoading ? (
+              <p className="text-xs text-gray-500 mb-4">读取会话阵容中...</p>
+            ) : sessionRoster.length === 0 ? (
+              <p className="text-xs text-amber-400/80 mb-4">
+                会话暂无入队角色 — 请先在会话大厅「角色阵容」中入队
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1 mb-4">
+                {sessionRoster.map((c) => (
+                  <span key={c} className="inline-flex items-center px-2.5 py-1 text-xs bg-cyan-950/50 border border-cyan-900/50 text-cyan-300 rounded-full">
+                    {c}
+                  </span>
+                ))}
+              </div>
+            )}
 
-          <button
-            className="w-full py-2.5 bg-cyan-900 hover:bg-cyan-800 text-cyan-200 rounded-lg text-sm font-medium transition-all disabled:opacity-40 mb-3 border border-cyan-800/50"
-            onClick={handleStartBattle}
-            disabled={!sessionId || sessionRoster.length === 0 || loading}
-          >
-            {loading ? "启动中..." : "开始战斗"}
-          </button>
+            <button
+              className="w-full py-2.5 bg-cyan-900 hover:bg-cyan-800 text-cyan-200 rounded-lg text-sm font-medium transition-all disabled:opacity-40 mb-3 border border-cyan-800/50"
+              onClick={handleStartBattle}
+              disabled={sessionRoster.length === 0 || loading}
+            >
+              {loading ? "启动中..." : "开始战斗"}
+            </button>
+          </>}
 
           {approaches && approaches.length > 0 && (
             <div className="mb-3">
@@ -1345,18 +1346,17 @@ export default function CombatView() {
             </div>
           )}
 
-          <div className="border-t border-combat-divider pt-3 mt-1">
-            <p className="text-xs text-gray-600 mb-2">
-              测试模式：无需会话，使用测试剧情中的角色和随机敌人
-            </p>
+          {!sessionId && <div className="border-t border-combat-divider pt-3 mt-1">
+            <p className="text-xs text-gray-400 mb-2">使用内置参战角色，敌人与地形取自所选节点。</p>
             <button
               className="w-full py-2.5 bg-emerald-900/60 hover:bg-emerald-800/60 text-emerald-200 rounded-lg text-sm font-medium transition-all disabled:opacity-40 border border-emerald-800/50"
               onClick={handleStartTestBattle}
               disabled={loading}
             >
-              {loading ? "启动中..." : "战斗测试 (无需会话)"}
+              {loading ? "启动中..." : "开始回合战术演练"}
             </button>
-          </div>
+            <button type="button" className="w-full mt-2 py-2 text-xs text-gray-400 hover:text-gray-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" onClick={() => { setCombatContext(null); setCurrentView("sessions"); }}>返回会话大厅</button>
+          </div>}
         </div>
       </div>
     );
@@ -1777,7 +1777,7 @@ export default function CombatView() {
               className="px-5 py-1.5 text-xs bg-yellow-900/60 hover:bg-yellow-800/60 text-yellow-200 rounded-lg transition-all border border-yellow-800/50"
               onClick={handleReturnToChat}
             >
-              返回对话
+              {combatTestId ? "返回会话大厅" : "返回对话"}
             </button>
           )}
           {!combatState.battle_over && (
@@ -1802,7 +1802,7 @@ export default function CombatView() {
               className="px-4 py-1.5 text-xs bg-red-900/40 hover:bg-red-800/50 text-red-300 rounded-lg transition-all border border-red-800/30"
               onClick={handleEndTest}
               disabled={loading}
-              title="退出测试模式并返回对话大厅"
+              title="退出测试模式并返回会话大厅"
             >
               结束测试
             </button>
@@ -1869,7 +1869,7 @@ export default function CombatView() {
               onClick={handleReturnToChat}
               disabled={settlementBusy}
             >
-              {settlementBusy ? "结算中…" : "返回对话"}
+              {settlementBusy ? "结算中…" : combatTestId ? "返回会话大厅" : "返回对话"}
             </button>
           </div>
         </div>
