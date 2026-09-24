@@ -105,10 +105,11 @@ html.light .wber-shell {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 1px; pointer-events: none;
   background: linear-gradient(90deg, transparent, var(--wber-accent-line), transparent);
 }
-.wber-shelf-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; padding: 20px 14px 14px 16px; }
+.wber-shelf-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px; padding: 20px 14px 14px 16px; }
 .wber-shelf-head .wber-eyebrow { white-space: nowrap; }
 .wber-shelf-head h2 { margin-top: 4px; font-family: var(--wber-serif); font-size: 21px; font-weight: 700; letter-spacing: .04em; line-height: 1.15; color: var(--wber-text); }
 .wber-head-actions, .wber-hero-actions, .wber-dialog-actions { display: flex; gap: 6px; }
+.wber-head-actions { margin-left: auto; }
 .wber-head-actions button { min-height: 30px; padding: 0 9px; font-size: 13px; }
 .wber-filters { display: flex; gap: 3px; margin: 0 14px 12px; padding: 3px; border: 1px solid var(--wber-border); border-radius: 9px; background: var(--wber-soft); }
 .wber-filters button { flex: 1; min-height: 26px; padding: 0 6px; border: none; border-radius: 6px; background: transparent; box-shadow: none; color: var(--wber-muted); font-size: 13px; }
