@@ -17,6 +17,6 @@ registerScenePanel({
   component: () => <QuestPanel />,
 });
 registerScenePanel({
-  id: "resources", title: "资源", icon: "images", order: 80, hint: "会话资源：角色形象覆盖、背景覆盖、存档导入导出",
+  id: "resources", title: "资源", icon: "images", order: 80, hint: "会话资源：角色形象覆盖、背景覆盖",
   component: () => <SessionResourcePanel />,
 });

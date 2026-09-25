@@ -10,6 +10,7 @@ import NarrationText from "./chat/NarrationText";
 import LoadingIndicator from "./chat/LoadingIndicator";
 import TokenUsage from "./chat/TokenUsage";
 import StageView from "./stage/StageView";
+import { isChoiceMessage } from "../utils/stageScript";
 import AppIcon from "./AppIcon";
 
 const EMPTY_MSGS: ChatMessage[] = [];
@@ -103,6 +104,15 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   const sending = useAppStore(s => s.sessionSending[activeSessionId || ""] ?? false);
   const narrationCount = useAppStore(s => s.sessionNarrationCount[activeSessionId || ""] ?? 0);
   const [input, setInput] = useState("");
+  const [stagePlayback, setStagePlayback] = useState<{ sessionId: string; messages: ChatMessage[]; complete: boolean } | null>(null);
+  const [editedChoiceMessages, setEditedChoiceMessages] = useState<ChatMessage[] | null>(null);
+  const onPlaybackChange = useCallback((sessionId: string, source: ChatMessage[], complete: boolean) => {
+    setStagePlayback({ sessionId, messages: source, complete });
+  }, []);
+  const stageDialogueComplete = stagePlayback?.sessionId === activeSessionId
+    && stagePlayback?.messages === messages && stagePlayback.complete;
+  const stageInputReady = !stageMode || (!!stageDialogueComplete
+    && (!isChoiceMessage(messages[messages.length - 1]) || editedChoiceMessages === messages));
   // 战前简报：d20 检定结果 + 谈判失败后暂存的战斗状态
   const [briefingCheck, setBriefingCheck] = useState<{ d20: number; modifier: number; total: number; dc: number; success: boolean; attr: string; character: string } | null>(null);
   const [briefingCombatState, setBriefingCombatState] = useState<any | null>(null);
@@ -433,7 +443,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
   const handleSend = useCallback(() => {
     const text = input.trim();
-    if (!text || sending || streaming || !activeSessionId || choiceLocked) return;
+    if (!text || sending || streaming || !activeSessionId || choiceLocked || !stageInputReady) return;
 
     const sid = activeSessionId;
     const curRound = useAppStore.getState().sessionNarrationCount[sid] || 0;
@@ -441,14 +451,15 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
     useAppStore.getState().setSessionSending(sid, true);
     useAppStore.getState().setSessionMessages(sid, (prev) => [...prev, { role: "user", content: text, round: curRound }]);
     performSend(text);
-  }, [input, sending, streaming, activeSessionId, performSend]);
+  }, [input, sending, streaming, activeSessionId, performSend, choiceLocked, stageInputReady]);
 
   const handleChoiceClick = useCallback(
     (choice: string, branch?: BranchChoice) => {
       // 必选战斗选项未完成前，内联选项同样不允许推进剧情
-      if (choiceLocked) return;
+      if (choiceLocked || sending || streaming || (stageMode && !stageDialogueComplete)) return;
       if (editBeforeSend) {
         setInput(choice);
+        setEditedChoiceMessages(messages);
         return;
       }
       if (!activeSessionId) return;
@@ -458,11 +469,11 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
       useAppStore.getState().setSessionMessages(sid, (prev) => [...prev, { role: "user", content: choice, round: curRound }]);
       performSend(choice, branch?.id);
     },
-    [activeSessionId, performSend, editBeforeSend]
+    [activeSessionId, performSend, editBeforeSend, choiceLocked, sending, streaming, stageMode, stageDialogueComplete, messages]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
     }
@@ -634,7 +645,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const sessionTokens = activeSession?.total_usage;
-  const actionInput = (
+  const actionInput = stageInputReady && (!stageMode || (!sending && !streaming && !choiceLocked)) ? (
     <div className={`chat-input-bar ${stageOnly && stageMode ? "stage-action-input" : ""}`}>
         {choiceLocked && (
           <p className="chat-lock-note">
@@ -673,7 +684,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
           </button>
         </div>
       </div>
-  );
+  ) : null;
 
   return (
     <div className="flex flex-col h-full">
@@ -771,7 +782,9 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
       )}
       {stageMode && activeSessionId && (
         <StageView
+          key={activeSessionId}
           sessionId={activeSessionId}
+          onPlaybackChange={onPlaybackChange}
           messages={messages}
           sceneCharacters={sceneCharacters}
           playerName={activeSession?.player_identity || "博士"}

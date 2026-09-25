@@ -5,7 +5,7 @@
  * 推进；说话的角色立绘高亮、其余压暗；走到末尾若有选项就在舞台上亮出来。
  * 完整消息流仍可通过「记录」打开（由 ChatPanel 提供）。
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi } from "../../hooks/useApi";
 import type { BranchChoice, ChatMessage, StageDTO } from "../../types";
@@ -23,6 +23,7 @@ interface Props {
   characterColors: Record<string, string>;
   fontSize: number;
   waiting: boolean;
+  onPlaybackChange: (sessionId: string, messages: ChatMessage[], complete: boolean) => void;
   elapsedSeconds: number;
   choicesDisabled: boolean;
   onChoice: (choice: string, branch?: BranchChoice) => void;
@@ -89,7 +90,7 @@ function portraitBounds(img: HTMLImageElement): PortraitBounds {
 export default function StageView({
   sessionId, messages, sceneCharacters, playerName, characterColors, fontSize, waiting,
   elapsedSeconds, choicesDisabled, onChoice, onOpenLog, stageOnly, onExitStageOnly,
-  musicMuted, onToggleMusic, onStart, chatMode, actionInput,
+  musicMuted, onToggleMusic, onStart, chatMode, actionInput, onPlaybackChange,
 }: Props) {
   const api = useApi();
   const { envRefreshKey, characterRefreshKey, resourceVersion, highlightedSpeaker, setHighlightedSpeaker } = useAppStore();
@@ -132,7 +133,6 @@ export default function StageView({
   const current = script.steps[Math.min(step, Math.max(0, script.steps.length - 1))];
   const atEnd = step >= script.steps.length - 1;
   const presenting = waiting || script.streaming;
-  const showChoices = !!script.choiceMessage && (script.steps.length === 0 || atEnd) && !presenting;
 
   // 新一段开始：回到第一步
   useEffect(() => { setCursor({ key: script.key, step: 0 }); }, [script.key]);
@@ -158,6 +158,9 @@ export default function StageView({
     return () => cancelAnimationFrame(raf);
   }, [text, typingKey, presenting]);
   const typing = !presenting && typed < text.length;
+  const complete = !presenting && !typing && (script.steps.length === 0 || atEnd);
+  const showChoices = !!script.choiceMessage && complete;
+  useLayoutEffect(() => { onPlaybackChange(sessionId, messages, complete); }, [sessionId, messages, complete, onPlaybackChange]);
 
   // ── 说话人高亮：步进时同步到全局（场景角色列表也会亮） ──
   const sourceMessage = messages[script.messageIndex];
@@ -178,6 +181,40 @@ export default function StageView({
   }, [step, script.key]);
 
   const rootRef = useRef<HTMLDivElement>(null);
+  const fastForwardTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fastForwardDelay = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const controlPress = useRef<{ holding: boolean } | null>(null);
+  const advanceRef = useRef(advance);
+  advanceRef.current = advance;
+  const stopFastForward = useCallback(() => {
+    if (fastForwardTimer.current !== null) clearInterval(fastForwardTimer.current);
+    fastForwardTimer.current = null;
+    if (fastForwardDelay.current !== null) clearTimeout(fastForwardDelay.current);
+    fastForwardDelay.current = null;
+    controlPress.current = null;
+  }, []);
+  useEffect(() => {
+    const onRelease = (event: KeyboardEvent) => {
+      // A short, standalone Ctrl press advances only on release, after combo detection.
+      if (event.key === "Control" && controlPress.current && !controlPress.current.holding
+        && !event.altKey && !event.metaKey && !event.shiftKey) advanceRef.current();
+      if (event.key === "Control" || !event.ctrlKey) stopFastForward();
+    };
+    const onCombo = (event: KeyboardEvent) => { if (event.key !== "Control") stopFastForward(); };
+    const onVisibility = () => { if (document.hidden) stopFastForward(); };
+    window.addEventListener("keyup", onRelease);
+    window.addEventListener("keydown", onCombo);
+    window.addEventListener("blur", stopFastForward);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stopFastForward();
+      window.removeEventListener("keyup", onRelease);
+      window.removeEventListener("keydown", onCombo);
+      window.removeEventListener("blur", stopFastForward);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [stopFastForward]);
+  useEffect(() => { stopFastForward(); }, [script.key, presenting, choicesDisabled, editingPortraits, complete, stopFastForward]);
   const backgroundPress = useRef<{ x: number; y: number } | null>(null);
   const isBackground = (target: EventTarget | null) => target instanceof HTMLElement
     && (target === rootRef.current || target.classList.contains("stage-bg") || target.classList.contains("stage-dialog-wrap"));
@@ -206,7 +243,22 @@ export default function StageView({
       if (e.key === "Escape") { e.preventDefault(); setEditingPortraits(false); }
       return;
     }
-    if ((e.target as HTMLElement).closest("button, input, textarea, select, a, [contenteditable], [role=button]")) return;
+    if (e.nativeEvent.isComposing || e.altKey || e.metaKey) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("button, input, textarea, select, a, [contenteditable]")) return;
+    if (e.key === "Control") {
+      if (e.repeat || e.shiftKey || presenting || choicesDisabled || complete || controlPress.current) return;
+      controlPress.current = { holding: false };
+      fastForwardDelay.current = setTimeout(() => {
+        fastForwardDelay.current = null;
+        if (!controlPress.current) return;
+        controlPress.current.holding = true;
+        advanceRef.current();
+        fastForwardTimer.current = setInterval(() => advanceRef.current(), 180);
+      }, 450);
+      return;
+    }
+    if (e.ctrlKey || target.closest("[role=button]")) return;
     if (e.key === " " || e.key === "Enter" || e.key === "ArrowRight") { e.preventDefault(); advance(); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); back(); }
   };
@@ -248,7 +300,7 @@ export default function StageView({
   };
 
   return (
-    <div ref={rootRef} className={`stage ${stageOnly ? "has-action-input" : ""}`} tabIndex={0} onKeyDown={onKey} aria-label="对话舞台"
+    <div ref={rootRef} className={`stage ${stageOnly && actionInput ? "has-action-input" : ""}`} tabIndex={0} onKeyDown={onKey} onBlur={stopFastForward} aria-label="对话舞台"
       onPointerDown={(event) => { backgroundPress.current = event.button === 0 && isBackground(event.target) && !editingPortraits ? { x: event.clientX, y: event.clientY } : null; }}
       onPointerCancel={() => { backgroundPress.current = null; }} onClick={advanceBackground}>
       <div className="stage-bg" style={bgStyle} aria-hidden="true" />
@@ -409,7 +461,7 @@ export default function StageView({
           <div
             className={`stage-dialog ${presenting ? "is-waiting" : ""} ${current?.kind === "player" ? "is-player" : ""} ${current?.kind === "system" ? "is-system" : ""}`}
             onClick={(event) => { event.stopPropagation(); if (!window.getSelection()?.toString()) advance(); }}
-            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); advance(); } }}
+            onKeyDown={(event) => { if (!event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); event.stopPropagation(); advance(); } }}
             role="button"
             aria-label="推进当前对话"
             aria-disabled={presenting || choicesDisabled || editingPortraits}
@@ -437,7 +489,7 @@ export default function StageView({
             </div>
             {!presenting && text && (
               <div className="stage-dialog-foot">
-                <span className="stage-progress">{Math.min(step + 1, script.steps.length)} / {script.steps.length}</span>
+                <span className="stage-progress">{Math.min(step + 1, script.steps.length)} / {script.steps.length}{!complete && " · Ctrl 快进"}</span>
                 {!atEnd && !typing && <span className="stage-next" aria-hidden="true">▼</span>}
                 {atEnd && !typing && !showChoices && <span className="stage-next is-end">继续输入 ↓</span>}
               </div>

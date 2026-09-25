@@ -67,8 +67,8 @@ function Thumb({ url, alt, className = "w-12 h-12" }: {
   useEffect(() => { setOk(true); }, [url]);
   if (!url || !ok) {
     return (
-      <div className={`${className} rounded bg-gray-800 flex items-center justify-center text-gray-600 text-[11px] shrink-0`}>
-        无图
+      <div role="img" aria-label={`${alt}：无`} className={`${className} rounded border border-gray-600 bg-gray-800 flex items-center justify-center text-gray-400 text-[11px] shrink-0`}>
+        无
       </div>
     );
   }
@@ -76,7 +76,7 @@ function Thumb({ url, alt, className = "w-12 h-12" }: {
     <img
       src={url}
       alt={alt}
-      className={`${className} rounded object-cover shrink-0 border border-gray-700`}
+      className={`${className} rounded object-contain bg-gray-800 shrink-0 border border-gray-700`}
       onError={() => setOk(false)}
     />
   );
@@ -86,11 +86,8 @@ export default function SessionResourcePanel() {
   const { activeSessionId, sessions, bumpResourceVersion } = useAppStore();
   const combatMode = sessions.find((session) => session.id === activeSessionId)?.combat_mode;
   const showBattleBackgrounds = combatMode === "tactical" || combatMode === "sideview";
-  const setSessions = useAppStore((s) => s.setSessions);
-  const setActiveSession = useAppStore((s) => s.setActiveSession);
   const resourceVersion = useAppStore((s) => s.resourceVersion);
   const api = useApi();
-  const importFileRef = useRef<HTMLInputElement | null>(null);
 
   const [data, setData] = useState<SessionResourcesDTO | null>(null);
   const [loading, setLoading] = useState(false);
@@ -102,27 +99,58 @@ export default function SessionResourcePanel() {
   const [picker, setPicker] = useState<{ name: string; mediaType: string } | null>(null);
   const [library, setLibrary] = useState<AssetEntity[] | null>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryError, setLibraryError] = useState("");
+  const [defaults, setDefaults] = useState<Record<string, { default_avatar: string; default_skin: string; card_face: string }>>({});
+  const loadSequence = useRef(0);
   const [pickingUrl, setPickingUrl] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     if (!activeSessionId) {
       setData(null);
       return;
     }
     setLoading(true);
+    setData(null);
+    setLibrary(null);
+    setDefaults({});
     setError("");
     try {
       const d = await api.getSessionResources(activeSessionId);
+      if (sequence !== loadSequence.current) return;
       setData(d);
+      setLibraryLoading(true);
+      setLibraryError("");
+      try {
+        const images: AssetEntity[] = await api.listAssetImages();
+        if (sequence !== loadSequence.current) return;
+        const entries = await Promise.all(d.scene_characters.map(async (name) => {
+          const entity = findCharacterLibrary(images, name);
+          if (!entity) return [name, { default_avatar: "", default_skin: "", card_face: "" }] as const;
+          return [name, await api.getDefaultImage("characters", entity.entity)] as const;
+        }));
+        if (sequence !== loadSequence.current) return;
+        setLibrary(images);
+        setDefaults(Object.fromEntries(entries));
+      } catch (err: any) {
+        if (sequence !== loadSequence.current) return;
+        setLibrary(null);
+        setDefaults({});
+        setLibraryError(err.message || "图片库加载失败");
+      } finally {
+        if (sequence === loadSequence.current) setLibraryLoading(false);
+      }
     } catch (err: any) {
-      setError(err.message);
+      if (sequence === loadSequence.current) setError(err.message);
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) setLoading(false);
     }
   }, [activeSessionId, api]);
 
   useEffect(() => {
-    load();
+    setPicker(null);
+    void load();
+    return () => { loadSequence.current += 1; };
   }, [load]);
 
   const refresh = async () => {
@@ -188,18 +216,8 @@ export default function SessionResourcePanel() {
 
   // ── 形象快捷选取：从该角色全局图片库挑一张设为会话覆盖 ──
 
-  const openPicker = async (name: string, mediaType: string) => {
+  const openPicker = (name: string, mediaType: string) => {
     setPicker({ name, mediaType });
-    if (!library) {
-      setLibraryLoading(true);
-      try {
-        setLibrary(await api.listAssetImages());
-      } catch {
-        setLibrary([]);
-      } finally {
-        setLibraryLoading(false);
-      }
-    }
   };
 
   const handlePickImage = async (img: AssetImage) => {
@@ -222,34 +240,6 @@ export default function SessionResourcePanel() {
     }
   };
 
-  const handleExport = async () => {
-    if (!activeSessionId) return;
-    setBusy(true);
-    try {
-      await api.exportSession(activeSessionId);
-    } catch (err: any) {
-      alert("导出失败: " + err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleImport = async (file: File) => {
-    setBusy(true);
-    try {
-      const res = await api.importSession(file);
-      const newId = res?.id;
-      const sessions = await api.listSessions();
-      setSessions(sessions);
-      if (newId) setActiveSession(newId);
-      alert(`会话导入成功${newId && newId !== activeSessionId ? "，已切换到新会话" : ""}`);
-    } catch (err: any) {
-      alert("导入失败: " + err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   if (!activeSessionId) {
     return (
       <p className="text-gray-500 text-sm text-center py-6 leading-relaxed">
@@ -264,134 +254,69 @@ export default function SessionResourcePanel() {
     (data?.backgrounds ?? []).map((b): [string, SessionResourceDTO] => [b.key, b]),
   );
   const mediaByChar = new Map<string, SessionResourceDTO>(
-    (data?.character_media ?? []).map((m): [string, SessionResourceDTO] => [m.key, m]),
+    (data?.character_media ?? []).map((m): [string, SessionResourceDTO] => [`${m.key}:${m.media_type}`, m]),
   );
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <span className="text-[12px] text-gray-500">存档</span>
-        <div className="flex gap-1">
-          <button
-            disabled={busy}
-            onClick={handleExport}
-            className="text-[11px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
-            title="导出会话存档 zip（含资源依赖，可分享）"
-          >
-            ⬇ 导出
-          </button>
-          <button
-            disabled={busy}
-            onClick={() => importFileRef.current?.click()}
-            className="text-[11px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
-            title="导入会话存档 zip"
-          >
-            ⬆ 导入
-          </button>
-          <input
-            ref={importFileRef}
-            type="file"
-            accept=".zip"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleImport(f);
-              e.target.value = "";
-            }}
-          />
-        </div>
-      </div>
       {error && <p className="text-red-400 text-xs">加载失败: {error}</p>}
-      {loading && <p className="text-gray-500 text-xs">加载中...</p>}
+      {loading && <p role="status" className="text-gray-400 text-xs">加载中...</p>}
+      {libraryError && <p role="alert" className="text-red-400 text-xs">图片库加载失败：{libraryError} <button className="underline" onClick={() => void load()}>重试</button></p>}
 
       {/* ── 角色形象 ── */}
       <section>
         <h3 className="text-xs font-semibold text-gray-400 mb-2">角色形象</h3>
-        {!data || data.scene_characters.length === 0 ? (
+        {loading && !data ? null : !data || data.scene_characters.length === 0 ? (
           <p className="text-gray-600 text-xs">场景尚未加载角色（阵容在会话大厅配置）</p>
         ) : (
           <div className="space-y-2">
             {data.scene_characters.map((name) => {
-              const covered = mediaByChar.get(name);
-              const coveredType = covered?.media_type ?? null;
+              const entity = findCharacterLibrary(library, name);
               return (
                 <div key={name} className="card p-2">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-medium truncate">{name}</span>
-                    <span
-                      className={`text-[11px] px-1.5 rounded ${
-                        coveredType
-                          ? "bg-blue-700/40 text-blue-200"
-                          : "bg-gray-700 text-gray-400"
-                      }`}
-                    >
-                      {coveredType ? `会话覆盖·${MEDIA_LABEL[coveredType]}` : "全局来源"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <Thumb
-                      url={coveredType === "avatar" ? withVersion(covered?.url, resourceVersion) : `/api/characters/${encodeURIComponent(name)}/avatar`}
-                      alt={`${name}头像`}
-                    />
-                    <Thumb
-                      url={`/api/characters/${encodeURIComponent(name)}/avatar`}
-                      alt={`${name}全局头像`}
-                    />
-                    <span className="text-[11px] text-gray-600">会话 / 全局</span>
-                  </div>
-                  <div className="flex gap-1 flex-wrap">
+                  <h4 className="text-xs font-medium truncate mb-2">{name}</h4>
+                  <div className="space-y-3">
                     {MEDIA_TYPES.map((t) => {
-                      const isCovered = coveredType === t;
+                      const covered = mediaByChar.get(`${name}:${t}`);
                       const key = `char-${name}-${t}`;
+                      const pool = entity?.images.filter((img) => img.subdir === t) ?? [];
+                      const defaultName = defaults[name]?.[t === "avatar" ? "default_avatar" : t === "skin" ? "default_skin" : "card_face"]?.trim();
+                      // 与后端头像/立绘规则一致；卡面仅展示明确配置的独立资源。
+                      const globalImage = pool.find((img) => img.name === defaultName)
+                        ?? (t === "card_face" ? undefined : pool
+                          .filter((img) => img.name.toLowerCase().endsWith(".png"))
+                          .sort((a, b) => a.name.length - b.name.length)[0]);
                       return (
-                        <span key={t} className="inline-flex gap-0.5">
-                          <button
-                            disabled={busy}
-                            onClick={() => fileRefs.current[key]?.click()}
-                            className={`text-[11px] px-1.5 py-0.5 rounded ${
-                              isCovered
-                                ? "bg-amber-700/30 text-amber-300 hover:bg-amber-700/50"
-                                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                            }`}
-                            title={`上传会话${MEDIA_LABEL[t]}（仅本会话生效）`}
-                          >
-                            {isCovered ? "替换" : "上传"}{MEDIA_LABEL[t]}
-                          </button>
-                          <button
-                            disabled={busy}
-                            onClick={() => openPicker(name, t)}
-                            className="text-[11px] px-1.5 py-0.5 rounded bg-blue-700/30 text-blue-200 hover:bg-blue-700/50"
-                            title={`从「${name}」的图片库中选取${MEDIA_LABEL[t]}设为会话覆盖`}
-                          >
-                            选取
-                          </button>
-                        </span>
+                        <div key={t}>
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <span className="text-xs text-gray-300">{MEDIA_LABEL[t]}</span>
+                            {covered && <span className="text-[11px] text-blue-200">会话覆盖</span>}
+                          </div>
+                          <div className="flex items-start gap-3 mb-1.5">
+                            <div className="space-y-1">
+                              <Thumb url={withVersion(covered?.url, resourceVersion)} alt={`${name}会话${MEDIA_LABEL[t]}`} className="w-14 h-16" />
+                              <p className="text-[11px] text-gray-400 text-center">会话</p>
+                            </div>
+                            <div className="space-y-1">
+                              {libraryLoading ? <div role="status" className="w-14 h-16 rounded border border-gray-600 flex items-center justify-center text-[11px] text-gray-400">加载中</div> : <Thumb url={withVersion(globalImage?.url, resourceVersion)} alt={`${name}全局${MEDIA_LABEL[t]}`} className="w-14 h-16" />}
+                              <p className="text-[11px] text-gray-400 text-center">全局</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-1 flex-wrap">
+                            <button aria-label={`${covered ? "替换" : "上传"}${name}会话${MEDIA_LABEL[t]}`} disabled={busy || loading} onClick={() => fileRefs.current[key]?.click()} className="text-[11px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400" title={`上传会话${MEDIA_LABEL[t]}（仅本会话生效）`}>
+                              {covered ? "替换" : "上传"}
+                            </button>
+                            <button aria-label={`选取${name}会话${MEDIA_LABEL[t]}`} disabled={busy || loading || !!libraryError} onClick={() => openPicker(name, t)} className="text-[11px] px-1.5 py-0.5 rounded bg-blue-700/30 text-blue-200 hover:bg-blue-700/50 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400" title={`从「${name}」的图片库中选取${MEDIA_LABEL[t]}设为会话覆盖`}>选取</button>
+                            {covered && <button aria-label={`删除${name}会话${MEDIA_LABEL[t]}覆盖`} disabled={busy || loading} onClick={() => handleCharMediaDelete(name, t)} className="text-[11px] px-1.5 py-0.5 rounded bg-red-700/30 text-red-300 hover:bg-red-700/50 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400" title={`删除会话${MEDIA_LABEL[t]}覆盖`}>删除覆盖</button>}
+                            <input type="file" accept="image/*" className="hidden" ref={(el) => { fileRefs.current[key] = el; }} onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) handleCharMediaUpload(name, t, f);
+                              e.target.value = "";
+                            }} />
+                          </div>
+                        </div>
                       );
                     })}
-                    {coveredType && (
-                      <button
-                        disabled={busy}
-                        onClick={() => handleCharMediaDelete(name, coveredType!)}
-                        className="text-[11px] px-1.5 py-0.5 rounded bg-red-700/30 text-red-300 hover:bg-red-700/50"
-                        title="删除会话覆盖，还原为全局形象"
-                      >
-                        删除
-                      </button>
-                    )}
-                    {MEDIA_TYPES.map((t) => (
-                      <input
-                        key={t}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        ref={(el) => { fileRefs.current[`char-${name}-${t}`] = el; }}
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) handleCharMediaUpload(name, t, f);
-                          e.target.value = "";
-                        }}
-                      />
-                    ))}
                   </div>
                 </div>
               );
@@ -481,14 +406,6 @@ export default function SessionResourcePanel() {
         </section>
       )}
 
-      {/* ── 目录路径 ── */}
-      {data && (
-        <div className="text-[11px] text-gray-600 break-all border-t border-gray-700/50 pt-2">
-          <div>resources: {data.resources_dir}</div>
-          <div>backgrounds: {data.backgrounds_dir}</div>
-        </div>
-      )}
-
       {/* ── 形象快捷选取弹窗（本角色图片库） ── */}
       {picker && (() => {
         const lib = findCharacterLibrary(library, picker.name);
@@ -503,22 +420,26 @@ export default function SessionResourcePanel() {
             onClick={() => setPicker(null)}
           >
             <div
-              className="bg-gray-850 border border-gray-600 rounded-xl p-4 w-[26rem] max-h-[80vh] flex flex-col"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`选取${picker.name}${MEDIA_LABEL[picker.mediaType]}`}
+              onKeyDown={(event) => { if (event.key === "Escape" && !pickingUrl) setPicker(null); }}
+              className="bg-gray-850 border border-gray-600 rounded-xl p-4 w-[26rem] max-w-[calc(100vw-2rem)] max-h-[80vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
               <h3 className="text-sm font-medium mb-1">
                 选取{picker.name}·{MEDIA_LABEL[picker.mediaType]}
               </h3>
               <p className="text-[12px] text-gray-500 mb-3">
-                从该角色全局图片库（{wantDir}/ 目录）中挑一张，设为仅本会话生效的覆盖图
+                从该角色的全局{MEDIA_LABEL[picker.mediaType]}中挑一张，仅在本会话生效
               </p>
               {libraryLoading ? (
                 <p className="text-gray-500 text-sm text-center py-6">图片库加载中...</p>
               ) : pool.length === 0 ? (
                 <p className="text-gray-500 text-sm text-center py-6">
-                  该角色的 {wantDir}/ 目录下暂无图片
+                  该角色暂无全局{MEDIA_LABEL[picker.mediaType]}
                   <br />
-                  <span className="text-xs text-gray-600">可先通过「上传」添加全局图片</span>
+                  <span className="text-xs text-gray-600">可关闭后上传会话图片，或到角色资产页添加全局图片</span>
                 </p>
               ) : (
                 <div className="grid grid-cols-3 gap-2 overflow-y-auto pr-1">
@@ -543,6 +464,8 @@ export default function SessionResourcePanel() {
                 </div>
               )}
               <button
+                autoFocus
+                disabled={pickingUrl !== null}
                 onClick={() => setPicker(null)}
                 className="btn-ghost text-xs w-full mt-3"
               >
