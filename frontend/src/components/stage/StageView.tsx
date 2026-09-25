@@ -28,6 +28,7 @@ interface Props {
   onChoice: (choice: string, branch?: BranchChoice) => void;
   onOpenLog: () => void;
   stageOnly: boolean;
+  actionInput?: React.ReactNode;
   onExitStageOnly: () => void;
   musicMuted: boolean;
   onToggleMusic: () => void;
@@ -88,7 +89,7 @@ function portraitBounds(img: HTMLImageElement): PortraitBounds {
 export default function StageView({
   sessionId, messages, sceneCharacters, playerName, characterColors, fontSize, waiting,
   elapsedSeconds, choicesDisabled, onChoice, onOpenLog, stageOnly, onExitStageOnly,
-  musicMuted, onToggleMusic, onStart, chatMode,
+  musicMuted, onToggleMusic, onStart, chatMode, actionInput,
 }: Props) {
   const api = useApi();
   const { envRefreshKey, characterRefreshKey, resourceVersion, highlightedSpeaker, setHighlightedSpeaker } = useAppStore();
@@ -167,16 +168,27 @@ export default function StageView({
   useEffect(() => () => setHighlightedSpeaker(null), [setHighlightedSpeaker]);
 
   const advance = useCallback(() => {
-    if (presenting) return;
+    if (presenting || choicesDisabled || editingPortraits) return;
     if (typing) { setTypedState({ key: typingKey, count: text.length }); return; }
     setPulse((p) => p + 1);
     if (step < script.steps.length - 1) setCursor({ key: script.key, step: step + 1 });
-  }, [presenting, typing, typingKey, text.length, step, script.key, script.steps.length]);
+  }, [presenting, choicesDisabled, editingPortraits, typing, typingKey, text.length, step, script.key, script.steps.length]);
   const back = useCallback(() => {
     if (step > 0) setCursor({ key: script.key, step: step - 1 });
   }, [step, script.key]);
 
   const rootRef = useRef<HTMLDivElement>(null);
+  const backgroundPress = useRef<{ x: number; y: number } | null>(null);
+  const isBackground = (target: EventTarget | null) => target instanceof HTMLElement
+    && (target === rootRef.current || target.classList.contains("stage-bg") || target.classList.contains("stage-dialog-wrap"));
+  const advanceBackground = (event: React.MouseEvent<HTMLDivElement>) => {
+    const press = backgroundPress.current;
+    backgroundPress.current = null;
+    if (!press || !isBackground(event.target) || editingPortraits || event.defaultPrevented
+      || Math.hypot(event.clientX - press.x, event.clientY - press.y) > 5
+      || window.getSelection()?.toString()) return;
+    advance();
+  };
   useEffect(() => { if (stageOnly) rootRef.current?.focus(); }, [stageOnly]);
   useEffect(() => {
     const root = rootRef.current;
@@ -194,7 +206,7 @@ export default function StageView({
       if (e.key === "Escape") { e.preventDefault(); setEditingPortraits(false); }
       return;
     }
-    if ((e.target as HTMLElement).closest("button, input, textarea, select, a")) return;
+    if ((e.target as HTMLElement).closest("button, input, textarea, select, a, [contenteditable], [role=button]")) return;
     if (e.key === " " || e.key === "Enter" || e.key === "ArrowRight") { e.preventDefault(); advance(); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); back(); }
   };
@@ -236,7 +248,9 @@ export default function StageView({
   };
 
   return (
-    <div ref={rootRef} className="stage" tabIndex={0} onKeyDown={onKey} aria-label="对话舞台">
+    <div ref={rootRef} className={`stage ${stageOnly ? "has-action-input" : ""}`} tabIndex={0} onKeyDown={onKey} aria-label="对话舞台"
+      onPointerDown={(event) => { backgroundPress.current = event.button === 0 && isBackground(event.target) && !editingPortraits ? { x: event.clientX, y: event.clientY } : null; }}
+      onPointerCancel={() => { backgroundPress.current = null; }} onClick={advanceBackground}>
       <div className="stage-bg" style={bgStyle} aria-hidden="true" />
       {bgUrl && <img src={bgUrl} alt="" className="hidden" onError={() => setBgFailed(true)} />}
       <div className="stage-vignette" aria-hidden="true" />
@@ -252,7 +266,7 @@ export default function StageView({
 
       {/* 顶部工具 */}
       <div className="stage-tools">
-        {stageOnly && <button type="button" className="stage-exit" onClick={onExitStageOnly} title="退出纯舞台（Esc），返回输入区"><AppIcon name="minimize" size={13} /><span>行动输入</span></button>}
+        {stageOnly && <button type="button" className="stage-exit" onClick={onExitStageOnly} title="退出纯舞台（Esc）" aria-label="退出纯舞台"><AppIcon name="minimize" size={13} /><span>退出舞台</span></button>}
         <button type="button" onClick={onToggleMusic} aria-label={musicMuted ? "开启背景音乐" : "静音背景音乐"}
           title={musicMuted ? "开启背景音乐" : "静音背景音乐"} aria-pressed={!musicMuted}>
           <AppIcon name={musicMuted ? "volumeOff" : "volume"} size={13} />
@@ -358,6 +372,7 @@ export default function StageView({
         })}
       </div>
 
+      <div className="stage-dialog-wrap">
       {/* 选项 */}
       {showChoices && script.choiceMessage && (
         <div className="stage-choices" role="group" aria-label="选项">
@@ -379,7 +394,6 @@ export default function StageView({
       )}
 
       {/* 对话框 */}
-      <div className="stage-dialog-wrap">
         {empty && !waiting ? (
           <div className="stage-dialog is-empty">
             {chatMode === "story" ? (
@@ -394,15 +408,18 @@ export default function StageView({
         ) : (
           <div
             className={`stage-dialog ${presenting ? "is-waiting" : ""} ${current?.kind === "player" ? "is-player" : ""} ${current?.kind === "system" ? "is-system" : ""}`}
-            onClick={advance}
+            onClick={(event) => { event.stopPropagation(); if (!window.getSelection()?.toString()) advance(); }}
+            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); advance(); } }}
             role="button"
-            tabIndex={-1}
+            aria-label="推进当前对话"
+            aria-disabled={presenting || choicesDisabled || editingPortraits}
+            tabIndex={0}
             style={{ fontSize: `${fontSize}px` }}
           >
             {(speaker || (current?.kind === "player")) && (
               <div className="stage-name" style={nameColor ? { "--role-color": nameColor } as React.CSSProperties : undefined}>
-                <AvatarPlaceholder name={speaker || playerName} size="sm" sessionId={sessionId} />
-                <span>{speaker}</span>
+                <span className="stage-name-avatar"><AvatarPlaceholder name={speaker || playerName} size="sm" sessionId={sessionId} /></span>
+                <span>{speaker || playerName}</span>
               </div>
             )}
             <div className={`stage-dialog-text ${current?.kind === "narration" ? "is-narration" : ""}`}>
@@ -422,11 +439,12 @@ export default function StageView({
               <div className="stage-dialog-foot">
                 <span className="stage-progress">{Math.min(step + 1, script.steps.length)} / {script.steps.length}</span>
                 {!atEnd && !typing && <span className="stage-next" aria-hidden="true">▼</span>}
-                {atEnd && !typing && !showChoices && <span className="stage-next is-end">{stageOnly ? "右上角行动输入 ↗" : "继续输入 ↓"}</span>}
+                {atEnd && !typing && !showChoices && <span className="stage-next is-end">继续输入 ↓</span>}
               </div>
             )}
           </div>
         )}
+        {actionInput}
       </div>
     </div>
   );

@@ -462,7 +462,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
     }
@@ -634,6 +634,46 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const sessionTokens = activeSession?.total_usage;
+  const actionInput = (
+    <div className={`chat-input-bar ${stageOnly && stageMode ? "stage-action-input" : ""}`}>
+        {choiceLocked && (
+          <p className="chat-lock-note">
+            ⚔ 待完成战斗选项：已暂停输入与剧情推进，请点击左下角「战斗选项（必选）」恢复并选择打法。
+          </p>
+        )}
+        <div className="flex gap-2">
+          <textarea
+            rows={stageOnly && stageMode ? 1 : 2}
+            aria-label="行动或对话"
+            placeholder={
+              choiceLocked
+                ? "请先完成战斗选项..."
+                : !activeSessionId
+                  ? "请先选择或创建会话"
+                  : activeSession?.in_combat
+                    ? "战斗中，无法对话..."
+                    : sending
+                      ? "发送中..."
+                      : chatMode === "story"
+                        ? "输入行动或对话推进剧情..."
+                        : "输入消息..."
+            }
+            value={activeSession?.in_combat ? "（战斗中 — 请先完成战斗）" : input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={!activeSessionId || sending || streaming || !!activeSession?.in_combat || choiceLocked}
+          />
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={!input.trim() || !activeSessionId || sending || streaming || !!activeSession?.in_combat || choiceLocked}
+            className="chat-send shrink-0"
+          >
+            {choiceLocked ? "待选择" : activeSession?.in_combat ? "战斗中" : sending ? "发送中…" : "发送"}
+          </button>
+        </div>
+      </div>
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -743,6 +783,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
           onChoice={handleChoiceClick}
           onOpenLog={() => setLogOverlayOpen(true)}
           stageOnly={stageOnly}
+          actionInput={stageOnly ? actionInput : undefined}
           onExitStageOnly={onExitStageOnly}
           musicMuted={musicMuted}
           onToggleMusic={onToggleMusic}
@@ -906,7 +947,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                             rows={2}
                             autoFocus
                             onKeyDown={(e) => {
-                              if (e.key === "Enter" && !e.shiftKey) {
+                              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                                 e.preventDefault();
                                 handleRegenerateSubmit();
                               }
@@ -1013,44 +1054,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
-      <div className="chat-input-bar">
-        {choiceLocked && (
-          <p className="chat-lock-note">
-            ⚔ 待完成战斗选项：已暂停输入与剧情推进，请点击左下角「战斗选项（必选）」恢复并选择打法。
-          </p>
-        )}
-        <div className="flex gap-2">
-          <textarea
-            rows={2}
-            placeholder={
-              choiceLocked
-                ? "请先完成战斗选项..."
-                : !activeSessionId
-                  ? "请先选择或创建会话"
-                  : activeSession?.in_combat
-                    ? "战斗中，无法对话..."
-                    : sending
-                      ? "发送中..."
-                      : chatMode === "story"
-                        ? "输入行动或对话推进剧情..."
-                        : "输入消息..."
-            }
-            value={activeSession?.in_combat ? "（战斗中 — 请先完成战斗）" : input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={!activeSessionId || sending || !!activeSession?.in_combat || choiceLocked}
-          />
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!input.trim() || !activeSessionId || sending || streaming || !!activeSession?.in_combat || choiceLocked}
-            className="chat-send shrink-0"
-          >
-            {choiceLocked ? "待选择" : activeSession?.in_combat ? "战斗中" : sending ? "发送中…" : "发送"}
-          </button>
-        </div>
-      </div>
+      {!(stageOnly && stageMode && activeSessionId) && actionInput}
 
       {/* Custom Prompt Modal */}
       {customPromptOpen && (

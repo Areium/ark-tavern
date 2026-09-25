@@ -83,7 +83,9 @@ function Thumb({ url, alt, className = "w-12 h-12" }: {
 }
 
 export default function SessionResourcePanel() {
-  const { activeSessionId, bumpResourceVersion } = useAppStore();
+  const { activeSessionId, sessions, bumpResourceVersion } = useAppStore();
+  const combatMode = sessions.find((session) => session.id === activeSessionId)?.combat_mode;
+  const showBattleBackgrounds = combatMode === "tactical" || combatMode === "sideview";
   const setSessions = useAppStore((s) => s.setSessions);
   const setActiveSession = useAppStore((s) => s.setActiveSession);
   const resourceVersion = useAppStore((s) => s.resourceVersion);
@@ -399,7 +401,8 @@ export default function SessionResourcePanel() {
       </section>
 
       {/* ── 战斗背景 ── */}
-      <section>
+      {showBattleBackgrounds && (
+        <section>
         <h3 className="text-xs font-semibold text-gray-400 mb-2">战斗背景</h3>
         <p className="text-gray-600 text-[12px] mb-2">
           上传后，本会话的战斗优先使用此图；删除即还原全局背景。
@@ -475,7 +478,8 @@ export default function SessionResourcePanel() {
             })}
           </div>
         )}
-      </section>
+        </section>
+      )}
 
       {/* ── 目录路径 ── */}
       {data && (

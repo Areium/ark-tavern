@@ -166,8 +166,6 @@ export default function ItemPanel({ refreshKey }: { refreshKey?: number }) {
         {!loading && items.length === 0 && (
           <p className="text-gray-500 text-sm text-center py-4">
             场景暂无物品
-            <br />
-            <span className="text-xs text-gray-600">物品由剧情发展自动增减</span>
           </p>
         )}
         {items.map((item) => (

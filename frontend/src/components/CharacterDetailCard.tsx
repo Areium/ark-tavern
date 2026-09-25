@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import AppIcon from "./AppIcon";
-import CharacterSessionStats from "./scene/CharacterSessionStats";
+import MarkdownRenderer from "./MarkdownRenderer";
 import { createPortal } from "react-dom";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
@@ -281,14 +281,11 @@ export default function CharacterDetailCard({
             {data.content && (
               <div>
                 <h4 className="text-xs text-gray-500 mb-1.5 font-medium">背景</h4>
-                <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
-                  {data.content}
-                </div>
+                <MarkdownRenderer content={data.content} />
               </div>
             )}
           </>
         )}
-        {activeSessionId && <CharacterSessionStats key={`${activeSessionId}:${characterId}`} sessionId={activeSessionId} name={characterId} />}
       </div>
     </div>,
     document.body

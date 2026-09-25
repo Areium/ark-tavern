@@ -19,7 +19,7 @@
 .chat-view.is-stage-only .chat-topbar,
 .chat-view.is-stage-only .scene-panel,
 .chat-view.is-stage-only .chat-head,
-.chat-view.is-stage-only .chat-input-bar { display: none; }
+.chat-view.is-stage-only .chat-input-bar:not(.stage-action-input) { display: none; }
 
 /* ── 顶栏 ─────────────────────────────────────────────────────────── */
 .chat-topbar {
@@ -313,12 +313,12 @@
 .stage-dialog.is-system { border-color: rgba(255, 255, 255, .18); font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: .85em; }
 .stage-dialog.is-empty { cursor: default; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
 .stage-name {
-  position: absolute; top: -15px; left: 16px; display: inline-flex; align-items: center; gap: 8px; padding: 4px 14px 4px 8px; border-radius: 999px;
+  position: relative; display: inline-flex; align-items: center; gap: 10px; margin: 0 0 8px;
   font-family: var(--chat-serif, serif); font-size: 14px; font-weight: 700; letter-spacing: .06em;
-  color: color-mix(in srgb, var(--role-color, #f5c86a) 55%, #fff); background: rgba(10, 12, 18, .92); border: 1px solid color-mix(in srgb, var(--role-color, #f5c86a) 55%, transparent);
-  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--role-color, #f5c86a) 60%, transparent);
+  color: color-mix(in srgb, var(--role-color, #f5c86a) 55%, #fff);
 }
-.stage-name .dlg-ava { width: 22px; height: 22px; }
+.stage-name-avatar { display: flex; flex: 0 0 36px; width: 36px; height: 36px; border-radius: 8px; overflow: hidden; }
+.stage .stage-name-avatar > * { width: 36px; height: 36px; border-radius: 8px; }
 .stage-dialog-text { line-height: 1.85; letter-spacing: .01em; white-space: pre-wrap; min-height: 3.6em; padding-top: 6px; }
 .stage-dialog-text.is-narration { font-family: var(--chat-serif, serif); color: #efe6d2; font-style: normal; }
 .stage-caret { display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -.15em; background: #f5c86a; animation: stage-blink 1s steps(2) infinite; }
@@ -358,10 +358,28 @@
 .character-session-stats { padding-top: 14px; border-top: 1px solid var(--ng-muted, #8b93a1); }
 .character-session-stats button:disabled { opacity: .5; cursor: not-allowed; }
 .stage-name { max-width: calc(100% - 32px); }
-.stage-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage-name > span:not(.stage-name-avatar) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 640px) {
   .scene-panel.is-open { position: absolute; inset: 0 auto 0 0; z-index: 25; max-width: calc(100vw - 32px); }
   .scene-panel-body { width: min(288px, calc(100vw - 89px)); }
   .stage-env { top: 46px; max-width: calc(100% - 24px); flex-wrap: wrap; }
   .stage-dialog-wrap { padding: 0 10px 12px; }
+}
+
+/* Pure stage keeps the same composer and send state within the dialogue area. */
+.stage:focus-visible, .stage-dialog:focus-visible { outline: 2px solid #f5c86a; outline-offset: -3px; }
+.stage-dialog[aria-disabled="true"] { cursor: default; }
+.stage-dialog-wrap { max-height: calc(100% - 88px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: #a78b56 #12151c; }
+.stage-action-input.chat-input-bar { max-width: 980px; margin: 8px auto 0; padding: 10px; border-radius: 14px; border: 1px solid rgba(245, 200, 106, .28); background: rgba(10, 12, 18, .94); color: #f4efe6; }
+.stage-action-input textarea { color: #f4efe6; background: #181b23; border-color: #42434a; caret-color: #f5c86a; user-select: text; }
+.stage-action-input textarea::placeholder { color: #b9b3a8; }
+.stage-action-input textarea::selection { background: #66512b; color: #fff6e0; }
+.stage-action-input .chat-send { min-height: 44px; background: #e8b856; box-shadow: none; }
+.stage-action-input .chat-lock-note { color: #f5c86a; opacity: 1; }
+.stage-dialog-wrap .stage-choices { position: relative; left: auto; bottom: auto; transform: none; width: min(520px, 100%); margin: 0 auto 16px; animation: stage-fade .3s ease-out; }
+@media (max-width: 640px) {
+  .stage-dialog { padding: 12px 14px 10px; }
+  .stage-name { max-width: 100%; }
+  .stage-action-input .chat-send { padding: 0 12px; }
+  .stage-action-input textarea { font-size: 16px; }
 }
