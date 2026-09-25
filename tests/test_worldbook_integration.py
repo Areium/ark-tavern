@@ -14,7 +14,9 @@ def _entry(uid, content, position=0, **kw):
     return WorldBookEntry(uid=uid, content=content, position=position, **kw)
 
 
-def test_narration_messages_inject_worldbook(tmp_path):
+def test_narration_messages_inject_worldbook(tmp_path, monkeypatch):
+    import session_overlay
+    monkeypatch.setattr(session_overlay, "_SESSIONS_DIR", tmp_path / "sessions")
     mgr = WorldBookManager(data_dir=tmp_path)
     mgr.create_book("注入测试", entries=[
         # 常驻 position=0 → 稳定层；触发型 position=0 → 动态层（前缀缓存纪律）
@@ -22,9 +24,10 @@ def test_narration_messages_inject_worldbook(tmp_path):
         _entry("2", "泰拉大陆存在源石病。", position=1, always_active=True),
         _entry("3", "这是触发型条目。", position=0, trigger_keys=["凯尔希"]),
     ])
-    mgr.set_default_book_id(mgr.list_books()[0]["id"])
+    overlay = session_overlay.SessionOverlay("narration", "free")
+    overlay.set_worldbook_id(mgr.list_books()[0]["id"])
 
-    sm = SceneManager(None, None, overlay=None, worldbook_manager=mgr,
+    sm = SceneManager(None, None, overlay=overlay, worldbook_manager=mgr,
                       combat_mode="narrative")
     messages = sm._build_narration_messages(
         {}, "", user_action="凯尔希走进办公室",
@@ -58,15 +61,18 @@ def test_narration_messages_no_worldbook_when_unbound(tmp_path):
     assert "<world_book>" not in user_content
 
 
-def test_chat_mode_passes_worldbook_to_agent(tmp_path):
+def test_chat_mode_passes_worldbook_to_agent(tmp_path, monkeypatch):
+    import session_overlay
+    monkeypatch.setattr(session_overlay, "_SESSIONS_DIR", tmp_path / "sessions")
     """chat 模式下 SceneManager 解析世界书并传给 agent（假 agent 验证参数）。"""
     mgr = WorldBookManager(data_dir=tmp_path)
     mgr.create_book("聊天注入", entries=[
         _entry("1", "聊天场景条目。", position=0, trigger_keys=["凯尔希"]),
     ])
-    mgr.set_default_book_id(mgr.list_books()[0]["id"])
+    overlay = session_overlay.SessionOverlay("chat", "free")
+    overlay.set_worldbook_id(mgr.list_books()[0]["id"])
 
-    sm = SceneManager(None, None, overlay=None, worldbook_manager=mgr,
+    sm = SceneManager(None, None, overlay=overlay, worldbook_manager=mgr,
                       combat_mode="narrative")
 
     captured = {}

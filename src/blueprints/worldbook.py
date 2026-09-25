@@ -473,7 +473,8 @@ def register(app, managers):
         return sorted(
             str(item.get("id"))
             for item in summaries
-            if isinstance(item, dict) and item.get("worldbook_id") == book_id
+            if isinstance(item, dict) and book_id in (item.get("worldbook_ids") or
+                                                       [item.get("worldbook_id")])
         )
 
     def _reference_conversion_conflict(book) -> str:
@@ -1434,19 +1435,38 @@ def register(app, managers):
             },
         })
 
-    # ── 5. 默认书 / 会话绑定 ──
+    # ── 5. 会话绑定（旧默认书接口仅返回迁移提示） ──
 
     @bp.route("/api/worldbook/<book_id>/default", methods=["POST"])
     def set_default(book_id):
-        book, err = _get_book_or_404(book_id)
-        if err:
-            return err
-        data = request.json or {}
-        is_default = bool(data.get("default", True))
-        if is_default and book.is_reference:
-            return json_error("资料库不能设为全局默认书；请选择一本剧情世界书", 409)
-        wb_mgr.set_default_book_id(book_id if is_default else None)
-        return jsonify({"default_book_id": wb_mgr.get_default_book_id()})
+        return json_error("全局默认世界书已取消，请在会话中绑定世界书", 410)
+
+    @bp.route("/api/sessions/<session_id>/worldbooks", methods=["PUT"])
+    def set_session_worldbooks(session_id, ids_override=None):
+        session = session_mgr.get_session(session_id) if session_mgr else None
+        if not session:
+            return json_error("会话不存在", 404)
+        data = request.get_json(silent=True) or {}
+        ids = ids_override if ids_override is not None else data.get("worldbook_ids")
+        if not isinstance(ids, list) or any(not isinstance(x, str) or not x.strip() for x in ids):
+            return json_error("worldbook_ids 必须是世界书 ID 数组")
+        ids = list(dict.fromkeys(x.strip() for x in ids))
+        books = []
+        for book_id in ids:
+            book = wb_mgr.load(book_id)
+            if book is None or not book.enabled:
+                return json_error("世界书不存在或已停用", 404)
+            if book.is_reference:
+                return json_error("资料库不能绑定到会话", 409)
+            books.append(book)
+        previous = set(session.overlay.get_worldbook_ids())
+        scopes = {book.id: (book.session_scope_snapshot(session.scene_manager.get_roster())
+                             if book.v3_enabled else book.resolve_import_scope(session.scene_manager.get_roster()))
+                  for book in books if book.id not in previous}
+        session.overlay.set_worldbook_bindings(ids, scopes)
+        return jsonify({"session_id": session_id, "worldbook_id": session.overlay.get_worldbook_id(),
+                        "worldbook_ids": ids, "worldbook_scope": session.overlay.get_worldbook_scope(),
+                        "worldbook_scopes": {bid: session.overlay.get_worldbook_scope(bid) for bid in ids}})
 
     @bp.route("/api/worldbook/<book_id>/bind", methods=["POST"])
     def bind_session(book_id):
@@ -1468,25 +1488,12 @@ def register(app, managers):
             book, err = _get_book_or_404(book_id)
             if err:
                 return err
-            if not book.enabled:
-                return json_error("世界书已停用")
-            # 资料库只供浏览/检索/摘录，绑定会话会改变会话的解析结果 → 明确拒绝
             if book.is_reference:
-                return json_error("资料库不能绑定到会话；请选择一本剧情世界书", 409)
-            # 阵容口径（主控 + 队友）：换绑书时主控的条目也要跟着进来
-            roster = session.scene_manager.get_roster()
-            # v3 书绑定完整规则快照（不只是版本号），会话可据此恢复它创建时的规则。
-            scope = (book.session_scope_snapshot(roster) if book.v3_enabled
-                     else book.resolve_import_scope(roster))
-        else:
-            scope = {"book_id": None, "resolved_entry_uids": []}
-        session.overlay.set_worldbook_id(book_id if bound else None)
-        session.overlay.set_worldbook_scope(scope)
-        return jsonify({
-            "session_id": session_id,
-            "worldbook_id": session.overlay.get_worldbook_id(),
-            "worldbook_scope": session.overlay.get_worldbook_scope(),
-        })
+                return json_error("资料库不能绑定到会话；请选择剧情世界书", 409)
+        ids = session.overlay.get_worldbook_ids()
+        ids = (ids + [book_id] if bound and book_id not in ids else
+               [bid for bid in ids if bid != book_id] if not bound else ids)
+        return set_session_worldbooks(session_id, ids)
 
     @bp.route("/api/worldbook/search", methods=["GET"])
     def search_books():
@@ -1543,7 +1550,7 @@ def register(app, managers):
 
     @bp.route("/api/worldbook/resolve", methods=["GET"])
     def resolve_book():
-        """查询会话当前生效的世界书（会话绑定 > 全局默认）。"""
+        """查询会话当前生效的世界书。"""
         session_id = request.args.get("session_id", "").strip()
         overlay = None
         if session_id and session_mgr:
@@ -1553,10 +1560,12 @@ def register(app, managers):
             overlay = session.overlay
         book = wb_mgr.resolve(overlay)
         if not book:
-            return jsonify({"book": None, "default_book_id": wb_mgr.get_default_book_id()})
+            return jsonify({"book": None, "books": [], "default_book_id": None})
+        resolved = book.books if hasattr(book, "books") else [book]
         return jsonify({
-            "book": _book_detail(book, include_entries=False),
-            "default_book_id": wb_mgr.get_default_book_id(),
+            "book": _book_detail(resolved[0], include_entries=False),
+            "books": [_book_detail(item, include_entries=False) for item in resolved],
+            "default_book_id": None,
         })
 
     app.register_blueprint(bp)

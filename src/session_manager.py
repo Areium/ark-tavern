@@ -585,7 +585,7 @@ class Session:
                     import node_lore_scope
                     mgr = getattr(self.scene_manager, "_worldbook_manager", None)
                     book = mgr.resolve(self.overlay) if mgr else None
-                    return node_lore_scope.build_overlay_resolver(book, self.overlay)
+                    return node_lore_scope.build_overlay_resolver(book.books[0] if hasattr(book, "books") else book, self.overlay)
                 except Exception:
                     logger.warning("回档后构造世界书作用域解析器失败，按关闭处理",
                                    exc_info=True)
@@ -651,7 +651,10 @@ class Session:
             "player_identity": self.player_identity,
             "plot_id": self.overlay.get_plot_id(),
             "worldbook_id": self.overlay.get_worldbook_id(),
+            "worldbook_ids": self.overlay.get_worldbook_ids(),
             "worldbook_scope": self.overlay.get_worldbook_scope(),
+            "worldbook_scopes": {bid: self.overlay.get_worldbook_scope(bid)
+                                  for bid in self.overlay.get_worldbook_ids()},
             "custom_prompt": self.overlay.get_custom_prompt(),
             "created_at": self.created_at,
             "usable": self.is_usable,

@@ -143,18 +143,20 @@ def test_builtin_migration_uses_generator_uid_and_external_books_are_not_guessed
 
 class Overlay:
     def __init__(self, scope=None): self.scope, self.book_id = copy.deepcopy(scope), None
-    def get_worldbook_scope(self): return copy.deepcopy(self.scope)
-    def set_worldbook_scope(self, value): self.scope = copy.deepcopy(value)
+    def get_worldbook_scope(self, book_id=None): return copy.deepcopy(self.scope)
+    def set_worldbook_scope(self, value, book_id=None): self.scope = copy.deepcopy(value)
     def get_worldbook_id(self): return self.book_id
     def set_worldbook_id(self, value): self.book_id = value
+    def get_worldbook_ids(self): return [self.book_id] if self.book_id else []
+    def set_worldbook_ids(self, values): self.book_id = values[0] if values else None
 
 
 def test_frozen_scope_and_explicit_no_book_do_not_fall_back(tmp_path):
     manager = WorldBookManager(tmp_path)
     book = book_fixture()
     manager.save(book)
-    manager.set_default_book_id(book.id)
     overlay = Overlay(book.resolve_import_scope(["A"]))
+    overlay.set_worldbook_id(book.id)
     book.import_config["fixed_entry_uids"] = ["b"]
     assert book.eligible_uids_for(overlay) == {"world", "a"}
     assert book.eligible_uids_for(Overlay({"book_id": "different", "resolved_entry_uids": ["b"]})) == set()
@@ -181,6 +183,7 @@ def test_roster_changes_refresh_scope_but_restore_keeps_snapshot(tmp_path, monke
     book = book_fixture()
     manager.save(book)
     overlay = Overlay(book.resolve_import_scope(["A"]))
+    overlay.set_worldbook_id(book.id)
     scene = scene_module.SceneManager(None, None, worldbook_manager=manager)
     scene._overlay, scene._agents, scene.active = overlay, {"A": object()}, "A"
     monkeypatch.setattr(scene, "_persist_scene", lambda: None)
@@ -355,13 +358,12 @@ def test_failed_creation_never_leaves_partial_session(session_api):
     assert not manager._sessions and not persisted and len(cleaned) == 1
 
 
-def test_new_explicit_unbound_and_legacy_client_default(session_api):
-    client, _, books, _, _ = session_api
-    books.set_default_book_id("book")
+def test_new_explicit_unbound_and_legacy_client_without_binding(session_api):
+    client, _, _, _, _ = session_api
     response = client.post("/api/sessions", json={"worldbook_id": "", "roster_character_ids": ["A"]})
     assert response.status_code == 201 and response.json["worldbook_scope"]["book_id"] is None
     response = client.post("/api/sessions", json={"roster_character_ids": ["A"]})
-    assert response.status_code == 201 and response.json["worldbook_scope"]["book_id"] == "book"
+    assert response.status_code == 201 and response.json["worldbook_scope"]["book_id"] is None
 
 
 # ─────────────────────────────────────────────────────────────

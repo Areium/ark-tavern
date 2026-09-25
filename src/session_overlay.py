@@ -225,49 +225,93 @@ class SessionOverlay:
     # ── 世界书绑定 ──
 
     def get_worldbook_id(self) -> str | None:
-        """获取会话绑定的世界书 ID（未绑定返回 None，回落到全局默认书）。"""
-        return self._data.get("worldbook_id")
+        """兼容旧调用方：返回首本绑定书。"""
+        return next(iter(self.get_worldbook_ids()), None)
+
+    def get_worldbook_ids(self) -> list[str]:
+        ids = self._data.get("worldbook_ids")
+        if isinstance(ids, list):
+            return [x for x in ids if isinstance(x, str) and x]
+        legacy = self._data.get("worldbook_id")
+        return [legacy] if isinstance(legacy, str) and legacy else []
+
+    def set_worldbook_ids(self, worldbook_ids: list[str]):
+        self.set_worldbook_bindings(worldbook_ids, {})
+
+    def set_worldbook_bindings(self, worldbook_ids: list[str], new_scopes: dict[str, dict]):
+        """一次落盘绑定列表与新增书快照；失败时恢复原数据。"""
+        ids = list(dict.fromkeys(worldbook_ids))
+        with self._lock:
+            original = copy.deepcopy(self._data)
+            try:
+                old_first = self.get_worldbook_id()
+                scopes = dict(self._data.get("worldbook_scopes") or {})
+                if old_first and isinstance(self._data.get("worldbook_scope"), dict):
+                    scopes[old_first] = self._data["worldbook_scope"]
+                scopes.update(new_scopes)
+                self._data["worldbook_ids"] = ids
+                if ids:
+                    self._data["worldbook_id"] = ids[0]
+                    self._data["worldbook_scope"] = copy.deepcopy(scopes.get(ids[0]))
+                    if self._data["worldbook_scope"] is None:
+                        self._data.pop("worldbook_scope", None)
+                else:
+                    self._data.pop("worldbook_id", None)
+                    self._data["worldbook_scope"] = {"book_id": None, "resolved_entry_uids": []}
+                self._data["worldbook_scopes"] = {
+                    bid: copy.deepcopy(scopes[bid]) for bid in ids[1:] if bid in scopes}
+                self._save()
+            except Exception:
+                self._data = original
+                raise
 
     def set_worldbook_id(self, worldbook_id: str | None):
         """绑定/解绑会话的世界书。"""
-        if worldbook_id:
-            self._data["worldbook_id"] = worldbook_id
-            logger.info("会话 %s: 世界书绑定为 %s", self.session_id, worldbook_id)
-        else:
-            self._data.pop("worldbook_id", None)
-            logger.info("会话 %s: 已解绑世界书", self.session_id)
-        self._save()
+        self.set_worldbook_ids([worldbook_id] if worldbook_id else [])
 
-    def get_worldbook_scope(self) -> dict | None:
+    def get_worldbook_scope(self, book_id: str | None = None) -> dict | None:
         """返回会话固定的世界书候选范围；旧会话返回 None 以保持兼容。"""
         with self._lock:
-            scope = self._data.get("worldbook_scope")
+            scope = ((self._data.get("worldbook_scopes") or {}).get(book_id)
+                     if book_id and book_id != self.get_worldbook_id()
+                     else self._data.get("worldbook_scope"))
             return copy.deepcopy(scope) if isinstance(scope, dict) else None
 
-    def set_worldbook_scope(self, scope: dict | None):
+    def set_worldbook_scope(self, scope: dict | None, book_id: str | None = None):
         with self._lock:
+            if book_id and book_id != self.get_worldbook_id():
+                scopes = self._data.setdefault("worldbook_scopes", {})
+                if scope:
+                    scopes[book_id] = copy.deepcopy(scope)
+                else:
+                    scopes.pop(book_id, None)
+                self._save()
+                return
             if scope:
                 self._data["worldbook_scope"] = copy.deepcopy(scope)
             else:
                 self._data.pop("worldbook_scope", None)
             self._save()
 
-    def update_worldbook_scope(self, updater):
+    def update_worldbook_scope(self, updater, book_id: str | None = None):
         """在单个 overlay 内读取、替换并一次保存世界书范围。"""
         with self._lock:
-            original = copy.deepcopy(self._data.get("worldbook_scope"))
+            secondary = bool(book_id and book_id != self.get_worldbook_id())
+            scopes = self._data.setdefault("worldbook_scopes", {}) if secondary else self._data
+            key = book_id if secondary else "worldbook_scope"
+            original = copy.deepcopy(scopes.get(key))
             updated = updater(copy.deepcopy(original))
             try:
                 if updated:
-                    self._data["worldbook_scope"] = copy.deepcopy(updated)
+                    scopes[key] = copy.deepcopy(updated)
                 else:
-                    self._data.pop("worldbook_scope", None)
+                    scopes.pop(key, None)
                 self._save()
             except Exception:
                 if original is not None:
-                    self._data["worldbook_scope"] = original
+                    scopes[key] = original
                 else:
-                    self._data.pop("worldbook_scope", None)
+                    scopes.pop(key, None)
                 raise
             return copy.deepcopy(updated)
 
@@ -2310,7 +2354,9 @@ class SessionOverlay:
             "session_id": self.session_id,
             "plot_id": self._data.get("plot_id"),
             "worldbook_id": self._data.get("worldbook_id"),
+            "worldbook_ids": self.get_worldbook_ids(),
             "worldbook_scope": self._data.get("worldbook_scope"),
+            "worldbook_scopes": self._data.get("worldbook_scopes", {}),
             "lore_scope_active": self._data.get("lore_scope_active"),
             "characters": self._data.get("characters", {}),
             "items": self._data.get("items", {}),

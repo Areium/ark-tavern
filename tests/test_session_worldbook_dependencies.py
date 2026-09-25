@@ -115,14 +115,16 @@ class Overlay:
         self.scope = None
         self.book_id = None
         self.lock = threading.RLock()
-    def get_worldbook_scope(self): return copy.deepcopy(self.scope)
-    def set_worldbook_scope(self, value): self.scope = copy.deepcopy(value)
-    def update_worldbook_scope(self, updater):
+    def get_worldbook_scope(self, book_id=None): return copy.deepcopy(self.scope)
+    def set_worldbook_scope(self, value, book_id=None): self.scope = copy.deepcopy(value)
+    def update_worldbook_scope(self, updater, book_id=None):
         with self.lock:
             self.scope = copy.deepcopy(updater(copy.deepcopy(self.scope)))
             return copy.deepcopy(self.scope)
     def get_worldbook_id(self): return self.book_id
     def set_worldbook_id(self, value): self.book_id = value
+    def get_worldbook_ids(self): return [self.book_id] if self.book_id else []
+    def set_worldbook_ids(self, values): self.book_id = values[0] if values else None
 
 
 class FakeSession:

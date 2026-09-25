@@ -349,7 +349,8 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   useEffect(() => { void loadBooks(); }, [loadBooks]);
   useEffect(() => {
     if (!indexSessionId) return;
-    const boundBookId = sessions.find((session) => session.id === indexSessionId)?.worldbook_id;
+    const session = sessions.find((item) => item.id === indexSessionId);
+    const boundBookId = session?.worldbook_ids?.[0] || session?.worldbook_id;
     if (!boundBookId) { setIndexSessionId(null); return; }
     setSelectedId(boundBookId);
     setWorldbookTab("index");

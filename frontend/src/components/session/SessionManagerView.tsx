@@ -9,7 +9,7 @@
  * （`session.roster` 由后端 `SceneManager.get_roster()` 给出）；「添加角色」用与新建
  * 向导同一个 `CharacterPicker`，候选里已经排除阵容成员，主控因此不会被重复入队。
  */
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi } from "../../hooks/useApi";
 import { useCombatResume } from "../../hooks/useCombatResume";
@@ -65,8 +65,10 @@ export default function SessionManagerView() {
   // ── 数据 ──
   const [plots, setPlots] = useState<PlotInfo[]>([]);
   const [books, setBooks] = useState<WorldBookSummary[]>([]);
+  const [dependencyBookId, setDependencyBookId] = useState("");
   const [characters, setCharacters] = useState<CharacterDoc[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const detailRef = useRef<HTMLElement>(null);
 
   // ── 详情操作状态 ──
   const [renaming, setRenaming] = useState(false);
@@ -80,7 +82,8 @@ export default function SessionManagerView() {
     Promise.allSettled([api.listPlots(), api.listWorldbooks(), api.getCharacters()]).then(([p, b, c]) => {
       if (cancelled) return;
       if (p.status === "fulfilled") setPlots(p.value || []);
-      if (b.status === "fulfilled") setBooks(b.value?.books || []);
+      if (b.status === "fulfilled") setBooks((b.value?.books || []).filter(
+        (book: WorldBookSummary) => book.book_type !== "reference" && book.enabled));
       if (c.status === "fulfilled") setCharacters((c.value as CharacterDoc[]) || []);
     });
     return () => { cancelled = true; };
@@ -101,6 +104,8 @@ export default function SessionManagerView() {
   }, [sessions, tab, search]);
 
   const selected = sessions.find((s) => s.id === selectedId) || null;
+  const selectedBookIds = selected?.worldbook_ids || (selected?.worldbook_id ? [selected.worldbook_id] : []);
+  const activeDependencyBookId = selectedBookIds.includes(dependencyBookId) ? dependencyBookId : selectedBookIds[0];
   const plotName = (plotId: string | null) => plots.find((p) => p.id === plotId)?.name || plotId || "";
 
   // 两个选择器各自独立的最小化状态（保留搜索词与滚动位置）
@@ -258,13 +263,16 @@ export default function SessionManagerView() {
 
   // ── 世界书绑定 ──
 
-  const bindBook = async (bookId: string | null) => {
+  const bindBook = async (bookId: string) => {
     if (!selected) return;
-    setBusyAction(bookId ? `bind-${bookId}` : "unbind");
+    setBusyAction(`bind-${bookId}`);
     try {
-      // 解绑时需传当前绑定的真实 book id（bound=false 回落全局默认）
-      const res = await api.bindWorldbook(bookId || selected.worldbook_id || "", selected.id, !!bookId);
-      setSessions(sessions.map((s) => (s.id === selected.id ? { ...s, worldbook_id: res.worldbook_id, worldbook_scope: res.worldbook_scope } : s)));
+      const ids = selectedBookIds.includes(bookId)
+        ? selectedBookIds.filter((id) => id !== bookId) : [...selectedBookIds, bookId];
+      const res = await api.setSessionWorldbooks(selected.id, ids);
+      setSessions(sessions.map((s) => (s.id === selected.id ? { ...s, worldbook_id: res.worldbook_id,
+        worldbook_ids: res.worldbook_ids, worldbook_scope: res.worldbook_scope,
+        worldbook_scopes: res.worldbook_scopes } : s)));
     } catch (err: any) {
       alert("绑定失败: " + (err?.message || "未知错误"));
     } finally {
@@ -310,6 +318,9 @@ export default function SessionManagerView() {
 
   // 候选目录：与新建向导同一个数据源（/api/characters + 书列表）
   const catalog = useMemo(() => buildCharacterCatalog(characters, books), [characters, books]);
+  const candidateItems = useMemo(() => catalog.items.filter((item) =>
+    selectedBookIds.length ? selectedBookIds.includes(item.bookId) : item.source === "own"),
+    [catalog.items, selectedBookIds.join("\u0000")]);
 
   /**
    * 阵容：优先用后端给的 `roster`（主控 + 队友，已去重）；老存档没有该字段时
@@ -417,9 +428,9 @@ export default function SessionManagerView() {
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0 flex-col md:flex-row overflow-y-auto md:overflow-hidden lobby-scroll">
         {/* ═══ 左侧：会话列表 ═══ */}
-        <aside className="w-80 xl:w-96 border-r border-gray-700/60 flex flex-col shrink-0">
+        <aside className="w-full md:w-80 xl:w-96 max-h-[42vh] md:max-h-none border-b md:border-b-0 md:border-r border-gray-700/60 flex flex-col shrink-0">
           <div className="px-4 pt-4 pb-2 space-y-2 shrink-0">
             {/* 模式 Tab */}
             <div className="flex gap-1 p-1 rounded-lg bg-gray-800/80 border border-gray-700/70">
@@ -497,7 +508,12 @@ export default function SessionManagerView() {
               <div
                 key={s.id}
                 className={`session-card p-3.5 ${selectedId === s.id ? "selected" : ""} ${activeSessionId === s.id && selectedId !== s.id ? "active-session" : ""}`}
-                onClick={() => setSelectedId(s.id)}
+                onClick={() => {
+                  setSelectedId(s.id);
+                  if (window.matchMedia("(max-width: 767px)").matches) {
+                    requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                  }
+                }}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -605,7 +621,7 @@ export default function SessionManagerView() {
         </aside>
 
         {/* ═══ 右侧：会话详情与管理 ═══ */}
-        <section className="flex-1 overflow-y-auto lobby-scroll p-6">
+        <section ref={detailRef} className="w-full md:w-auto min-w-0 flex-1 md:overflow-y-auto lobby-scroll p-4 md:p-6">
           {!selected ? (
             <div className="h-full flex flex-col items-center justify-center lobby-empty m-4">
               <div className="text-4xl mb-3">🗺️</div>
@@ -719,37 +735,27 @@ export default function SessionManagerView() {
               <div className="detail-section p-4">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-semibold text-gray-300">📖 世界书绑定</h3>
-                  <span className="text-[11px] text-gray-600">未绑定时回落到全局默认书</span>
+                  <span className="text-[11px] text-gray-400">已选 {selectedBookIds.length} 本 · 可多选</span>
                 </div>
+                <p className="text-xs text-gray-400 mb-3">选择此会话需要的剧情书。未选时不载入世界书；资料库不参与会话。</p>
                 <div className="space-y-1.5 max-h-56 overflow-y-auto lobby-scroll pr-1">
-                  <button
-                    onClick={() => void bindBook(null)}
-                    disabled={!!busyAction}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-colors border ${
-                      !selected.worldbook_id
-                        ? "border-amber-500/50 bg-amber-600/15 text-amber-300"
-                        : "border-gray-700 bg-gray-800/50 text-gray-400 hover:bg-gray-700/50"
-                    }`}
-                  >
-                    不绑定（回落全局默认）
-                  </button>
                   {books.map((b) => (
                     <button
                       key={b.id}
+                      aria-pressed={selectedBookIds.includes(b.id)}
                       onClick={() => void bindBook(b.id)}
                       disabled={!!busyAction}
                       className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs transition-colors border ${
-                        selected.worldbook_id === b.id
+                        selectedBookIds.includes(b.id)
                           ? "border-emerald-500/50 bg-emerald-600/10 text-emerald-300"
                           : "border-gray-700 bg-gray-800/50 text-gray-400 hover:bg-gray-700/50"
                       }`}
                     >
                       <span className="flex items-center gap-2 min-w-0">
                         <span className="truncate">{b.name}</span>
-                        {b.is_default && <span className="badge badge-wb shrink-0">默认</span>}
                       </span>
                       <span className="text-[11px] text-gray-600 shrink-0">
-                        {b.entry_count} 条目{busyAction === `bind-${b.id}` ? " · 绑定中..." : ""}
+                        {selectedBookIds.includes(b.id) ? "✓ 已选 · " : ""}{b.entry_count} 条目{busyAction === `bind-${b.id}` ? " · 保存中..." : ""}
                       </span>
                     </button>
                   ))}
@@ -759,7 +765,15 @@ export default function SessionManagerView() {
                 </div>
               </div>
 
-              {(selected.worldbook_id || selected.worldbook_scope?.book_id) && <SessionWorldbookDependencies key={selected.id} sessionId={selected.id} />}
+              {!!selectedBookIds.length && <div className="detail-section p-4 space-y-3">
+                <label className="text-xs text-gray-300" htmlFor="dependency-book">调整哪本书的条目关系</label>
+                <select id="dependency-book" className="input text-xs" value={activeDependencyBookId}
+                  onChange={(event) => setDependencyBookId(event.target.value)}>
+                  {selectedBookIds.map((id) => <option key={id} value={id}>{books.find((b) => b.id === id)?.name || id}</option>)}
+                </select>
+                <SessionWorldbookDependencies key={`${selected.id}:${activeDependencyBookId}`}
+                  sessionId={selected.id} bookId={activeDependencyBookId} />
+              </div>}
 
               {/* 角色阵容：主控（玩家身份）与队友在同一份名单里，各出现一次 */}
               <div className="detail-section p-4">
@@ -881,7 +895,7 @@ export default function SessionManagerView() {
           <div
             ref={pickerDialog.containerRef}
             tabIndex={-1}
-            className="bg-gray-800 border border-gray-700 rounded-xl w-[560px] max-h-[640px] flex flex-col shadow-2xl outline-none"
+            className="bg-gray-800 border border-gray-700 rounded-xl w-[560px] max-w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col shadow-2xl outline-none"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
@@ -913,7 +927,7 @@ export default function SessionManagerView() {
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-2 lobby-scroll">
               <CharacterPicker
-                items={catalog.items}
+                items={candidateItems}
                 mode="multi"
                 selected={[]}
                 onSelect={(key) => { if (!busyAction) void addCharacter(key); }}
@@ -940,7 +954,7 @@ export default function SessionManagerView() {
           <div
             ref={identityPickerDialog.containerRef}
             tabIndex={-1}
-            className="bg-gray-800 border border-gray-700 rounded-xl w-[560px] max-h-[640px] flex flex-col shadow-2xl outline-none"
+            className="bg-gray-800 border border-gray-700 rounded-xl w-[560px] max-w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col shadow-2xl outline-none"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
@@ -971,7 +985,7 @@ export default function SessionManagerView() {
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-3 lobby-scroll">
               <CharacterPicker
-                items={catalog.items}
+                items={candidateItems}
                 mode="single"
                 selected={[selected.player_identity || "博士"]}
                 onSelect={(key) => { if (!busyAction) void setIdentity(key); }}

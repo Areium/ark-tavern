@@ -241,7 +241,7 @@ def test_reference_can_be_repaired_to_story_even_when_referenced(api):
     # 强行制造坏状态：默认指针指向资料库
     # （公开的 set_default_book_id 会拒绝资料库，这里直接写底层 settings 模拟历史数据）
     manager._save_settings({"default_book_id": ref["id"]})
-    assert manager.get_default_book_id() == ref["id"]
+    assert manager.get_default_book_id() is None
 
     # 即便这本资料库还是默认书，改回 story 也必须成功
     res = client.put(f"/api/worldbook/{ref['id']}", json={"book_type": "story"})
@@ -250,13 +250,13 @@ def test_reference_can_be_repaired_to_story_even_when_referenced(api):
     assert manager.load(ref["id"]).is_reference is False
 
 
-def test_conversion_gate_still_blocks_story_to_reference_when_default(api):
-    """对照用例：反方向仍被拦截，证明上面的放行不是把闸门整个拆掉。"""
+def test_retired_default_does_not_block_story_to_reference(api):
+    """历史默认指针已失效，不再阻碍用途转换。"""
     client, manager = api
     book = make_story(client, "默认剧情书")
-    client.post(f"/api/worldbook/{book['id']}/default", json={"default": True})
+    manager._save_settings({"default_book_id": book["id"]})
     res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
-    assert res.status_code == 409
+    assert res.status_code == 200
 
 
 def test_update_book_type_rejects_invalid_value(api):
@@ -273,7 +273,7 @@ def test_reference_cannot_be_default(api):
     client, manager = api
     reference = make_reference(client, "资料库")
     res = client.post(f"/api/worldbook/{reference['id']}/default", json={"default": True})
-    assert res.status_code == 409
+    assert res.status_code == 410
     assert manager.get_default_book_id() is None
 
 
@@ -309,24 +309,16 @@ def test_reference_is_excluded_from_overlay_binding(manager):
     assert manager.resolve(Overlay(story.id)).id == story.id
 
 
-def test_story_cannot_be_switched_to_reference_while_default(api):
-    """会留下悬空默认状态时拒绝转换，并说明要处理什么（不静默改状态）。"""
+def test_default_endpoint_is_retired_for_story_books(api):
+    """剧情书也不能再设为全局默认。"""
     client, manager = api
     book = make_story(client, "默认书")
     assert client.post(f"/api/worldbook/{book['id']}/default",
-                       json={"default": True}).status_code == 200
+                       json={"default": True}).status_code == 410
 
-    res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
-    assert res.status_code == 409
-    assert "默认" in res.json["error"]
-    # 状态没被动过
-    assert manager.load(book["id"]).book_type == BOOK_TYPE_STORY
-    assert manager.get_default_book_id() == book["id"]
-
-    # 取消默认之后就能转换
-    client.post(f"/api/worldbook/{book['id']}/default", json={"default": False})
     res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
     assert res.status_code == 200
+    assert manager.get_default_book_id() is None
 
 
 def test_story_cannot_be_switched_to_reference_while_session_bound(tmp_path):
@@ -981,5 +973,7 @@ def test_reference_stays_out_of_scope_resolution(api):
     # ③ 换成剧情书就正常生效（证明上一步不是「什么都没发生」）
     story = make_story(client, "剧情书")
     seed(manager, story["id"], [make_entry("s1", "世界观设定。", category_id="worldview")])
-    assert manager.set_default_book_id(story["id"]) is None
-    assert manager.resolve().id == story["id"]
+    story_overlay = type("StoryOverlay", (), {
+        "get_worldbook_id": lambda self: story["id"],
+    })()
+    assert manager.resolve(story_overlay).id == story["id"]

@@ -287,33 +287,37 @@ export function useScopePreview(
  * 旧响应后到把新结果覆盖掉。
  */
 export function useRosterScopePreview(
-  bookId: string, roster: string[], manual: string[], fullScope: boolean, enabled = true,
+  bookIds: string[], roster: string[], manual: string[], fullScope: boolean, enabled = true,
 ) {
   const api = useApi();
-  const [preview, setPreview] = useState<WorldBookScopePreviewDTO | null>(null);
+  const [previews, setPreviews] = useState<Record<string, WorldBookScopePreviewDTO>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const sequence = useRef(0);
   const manualKey = manual.join("\u0000");
   const rosterKey = roster.join("\u0000");
+  const bookKey = bookIds.join("\u0000");
 
   useEffect(() => {
     const seq = ++sequence.current;
-    if (!enabled || !bookId) { setPreview(null); setLoading(false); setError(""); return; }
+    if (!enabled || !bookKey) { setPreviews({}); setLoading(false); setError(""); return; }
     setLoading(true);
+    setPreviews({});
     const timer = setTimeout(() => {
-      api.previewWorldbookScope(bookId, rosterKey ? rosterKey.split("\u0000") : [], undefined,
-        { manual_entry_uids: manualKey ? manualKey.split("\u0000") : [], full_scope: fullScope })
-        .then((value) => { if (seq === sequence.current) { setPreview(value); setError(""); } })
+      Promise.all(bookKey.split("\u0000").map(async (bookId, index) => [bookId,
+        await api.previewWorldbookScope(bookId, rosterKey ? rosterKey.split("\u0000") : [], undefined,
+          { manual_entry_uids: index === 0 && manualKey ? manualKey.split("\u0000") : [], full_scope: fullScope }),
+      ] as const))
+        .then((values) => { if (seq === sequence.current) { setPreviews(Object.fromEntries(values)); setError(""); } })
         .catch((e) => {
           if (seq !== sequence.current) return;   // 过时响应直接丢弃
-          setPreview(null);
+          setPreviews({});
           setError(e instanceof Error ? e.message : "候选范围预览失败");
         })
         .finally(() => { if (seq === sequence.current) setLoading(false); });
     }, 180);
     return () => { clearTimeout(timer); sequence.current++; };
-  }, [api, bookId, rosterKey, manualKey, fullScope, enabled]);
+  }, [api, bookKey, rosterKey, manualKey, fullScope, enabled]);
 
-  return { preview, loading, error };
+  return { previews, loading, error };
 }

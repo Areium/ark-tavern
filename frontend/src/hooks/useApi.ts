@@ -78,14 +78,14 @@ export function useApi() {
     listPlots: () => request<any[]>("/api/plots"),
     createSession: (mode: "free" | "story" = "free", name = "", plotId = "",
       combatMode: "narrative" | "tactical" | "sideview" = "narrative", identity = "博士",
-      worldbookId = "", rosterCharacterIds: string[] = [],
-      manualEntryUids: string[] = [], expectedDraftHash = "", fullScope = false) =>
+      worldbookIds: string[] = [], rosterCharacterIds: string[] = [],
+      manualEntryUids: string[] = [], expectedDraftHashes: Record<string, string> = {}, fullScope = false) =>
       request<any>("/api/sessions", {
         method: "POST",
         body: JSON.stringify({ mode, name, plot_id: plotId, combat_mode: combatMode, identity,
-          worldbook_id: worldbookId, roster_character_ids: rosterCharacterIds,
+          worldbook_ids: worldbookIds, roster_character_ids: rosterCharacterIds,
           // 手动追加只作用于本会话；draft_hash 让服务端校验「预览与创建一致」
-          manual_entry_uids: manualEntryUids, expected_draft_hash: expectedDraftHash || undefined,
+          manual_entry_uids: manualEntryUids, expected_draft_hashes: expectedDraftHashes,
           // 显式全量兼容：只影响本会话，不改变这本书的规则
           full_scope: fullScope || undefined }),
       }),
@@ -334,30 +334,30 @@ export function useApi() {
       `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-entry-overrides`, {
         method: "PATCH", body: JSON.stringify(data),
       }),
-    getSessionWorldbookDependencies: (sessionId: string) =>
+    getSessionWorldbookDependencies: (sessionId: string, bookId?: string) =>
       request<import("../types").SessionWorldbookDependenciesDTO>(
-        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies`),
+        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies${bookId ? `?book_id=${encodeURIComponent(bookId)}` : ""}`),
     patchSessionWorldbookDependency: (sessionId: string, data: {
       from_uid: string; to_uid: string; relation: "requires" | "related" | "none";
-      expected_scope_revision: number; enable_source_expansion?: boolean;
+      expected_scope_revision: number; enable_source_expansion?: boolean; book_id?: string;
     }) => request<import("../types").SessionWorldbookDependenciesDTO>(
-      `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies`, {
+      `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies${data.book_id ? `?book_id=${encodeURIComponent(data.book_id)}` : ""}`, {
         method: "PATCH", body: JSON.stringify(data),
       }),
     restoreSessionWorldbookDependencies: (sessionId: string, data: {
-      expected_scope_revision: number; from_uid?: string; to_uid?: string;
+      expected_scope_revision: number; from_uid?: string; to_uid?: string; book_id?: string;
     }) => request<import("../types").SessionWorldbookDependenciesDTO>(
-      `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies/restore`, {
+      `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies/restore${data.book_id ? `?book_id=${encodeURIComponent(data.book_id)}` : ""}`, {
         method: "POST", body: JSON.stringify(data),
       }),
-    previewSessionWorldbookInheritance: (sessionId: string) =>
+    previewSessionWorldbookInheritance: (sessionId: string, bookId?: string) =>
       request<import("../types").SessionInheritancePreviewDTO>(
-        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies/inheritance-preview`,
+        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies/inheritance-preview${bookId ? `?book_id=${encodeURIComponent(bookId)}` : ""}`,
         { method: "POST" }),
     updateSessionWorldbookInheritance: (sessionId: string, data: {
-      expected_scope_revision: number; preview_hash: string;
+      expected_scope_revision: number; preview_hash: string; book_id?: string;
     }) => request<import("../types").SessionWorldbookDependenciesDTO>(
-      `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies/inheritance`, {
+      `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies/inheritance${data.book_id ? `?book_id=${encodeURIComponent(data.book_id)}` : ""}`, {
         method: "POST", body: JSON.stringify(data),
       }),
     exportIndexYaml: () => request<{ yaml: string }>("/api/index/export"),
@@ -487,16 +487,18 @@ export function useApi() {
         `/api/worldbook/${encodeURIComponent(bookId)}/dependency-tree` +
         `?entry_uids=${entryUids.map(encodeURIComponent).join(",")}` +
         (maxDepth === undefined ? "" : `&max_depth=${maxDepth}`)),
-    setDefaultWorldbook: (id: string, isDefault: boolean) =>
-      request<{ default_book_id: string | null }>(`/api/worldbook/${encodeURIComponent(id)}/default`, {
-        method: "POST",
-        body: JSON.stringify({ default: isDefault }),
-      }),
     bindWorldbook: (id: string, sessionId: string, bound: boolean) =>
       request<{ session_id: string; worldbook_id: string | null; worldbook_scope: import("../types").WorldBookScopeDTO }>(
         `/api/worldbook/${encodeURIComponent(id)}/bind`, {
           method: "POST",
           body: JSON.stringify({ session_id: sessionId, bound }),
+        }),
+    setSessionWorldbooks: (sessionId: string, worldbookIds: string[]) =>
+      request<{ session_id: string; worldbook_id: string | null; worldbook_ids: string[];
+        worldbook_scope: import("../types").WorldBookScopeDTO;
+        worldbook_scopes: Record<string, import("../types").WorldBookScopeDTO | null> }>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/worldbooks`, {
+          method: "PUT", body: JSON.stringify({ worldbook_ids: worldbookIds }),
         }),
     resolveWorldbook: (sessionId?: string) =>
       request<import("../types").WorldBookResolveResult>(

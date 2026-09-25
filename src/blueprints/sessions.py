@@ -23,7 +23,7 @@ from session_worldbook_dependencies import (
     apply_inheritance_update, change_entry_override, change_relation, ensure_editable_scope,
     graph_view, preview_inheritance_update, restore_inheritance,
 )
-from world_book import content_revision
+from world_book import content_revision, is_system_entry
 
 logger = logging.getLogger(__name__)
 
@@ -136,25 +136,33 @@ def register(app, managers):
             if not player_identity:
                 return json_error("必须选择主控角色：identity 不能为空")
 
-        worldbook_id = str(data.get("worldbook_id", "") or "").strip()
+        raw_book_ids = data.get("worldbook_ids", [data.get("worldbook_id", "")])
+        if (not isinstance(raw_book_ids, list) or
+                any(not isinstance(x, str) or not x.strip() for x in raw_book_ids if x != "")):
+            return json_error("worldbook_ids 必须是世界书 ID 数组")
+        worldbook_ids = list(dict.fromkeys(x.strip() for x in raw_book_ids if x.strip()))
         roster = data.get("roster_character_ids", [])
         if not isinstance(roster, list) or not all(isinstance(x, str) and x.strip() for x in roster):
             return json_error("roster_character_ids 必须是非空字符串组成的数组")
         try:
-            book = wb_mgr.load(worldbook_id) if worldbook_id and wb_mgr else None
-            if worldbook_id and (book is None or not book.enabled):
-                return json_error("世界书不存在或已停用", 404)
-            # 资料库只供浏览/检索/摘录，不能参与会话解析，也不能被会话绑定。
-            if book is not None and book.is_reference:
-                return json_error("资料库不能绑定到会话；请选择一本剧情世界书", 409)
-            # 旧客户端未传此字段时沿用默认书；新客户端空字符串表示明确不绑定。
-            if "worldbook_id" not in data and wb_mgr:
-                book = wb_mgr.resolve()
-            book = copy.deepcopy(book)
+            books = []
+            for book_id in worldbook_ids:
+                book = wb_mgr.load(book_id) if wb_mgr else None
+                if book is None or not book.enabled:
+                    return json_error("世界书不存在或已停用", 404)
+                if book.is_reference:
+                    return json_error("资料库不能绑定到会话；请选择剧情世界书", 409)
+                books.append(copy.deepcopy(book))
+            book = books[0] if books else None
         except (ValueError, TypeError, OSError) as exc:
             return json_error(f"世界书读取失败：{exc}")
 
         def initialize(session):
+            multi_overlay = hasattr(session.overlay, "set_worldbook_ids")
+            if multi_overlay:
+                session.overlay.set_worldbook_ids(worldbook_ids)
+            elif len(worldbook_ids) > 1:
+                raise ValueError("当前会话存储不支持绑定多本世界书")
             if plot_id and mode == "story":
                 from session_overlay import _resolve_plot_dir
                 resolved = _resolve_plot_dir(plot_id) or plot_id
@@ -180,24 +188,30 @@ def register(app, managers):
             roster_ids = session.scene_manager.get_roster()
             # 「本次会话全量兼容」是显式选择，只作用于这个会话，不改这本书的规则。
             full_scope = bool(data.get("full_scope"))
-            if book is not None:
-                manual = data.get("manual_entry_uids") or []
+            manual_by_book = data.get("manual_entry_uids_by_book") or {}
+            hashes = data.get("expected_draft_hashes") or {}
+            if not isinstance(manual_by_book, dict) or not isinstance(hashes, dict):
+                raise ValueError("世界书预览参数格式不正确")
+            for scoped_book in books:
+                manual = manual_by_book.get(scoped_book.id,
+                                            data.get("manual_entry_uids", []) if scoped_book == book else []) or []
                 if not isinstance(manual, list) or any(
                         not isinstance(uid, str) or not uid.strip() for uid in manual):
                     raise ValueError("manual_entry_uids 必须是非空字符串组成的数组")
-                # 预览版本校验：带了 draft_hash 就必须与当前实际阵容的解析一致，
-                # 否则说明预览已过期，宁可报错也不静默用一套不同的范围创建会话。
-                scoped_book = copy.deepcopy(book)
+                expected = hashes.get(scoped_book.id,
+                                      data.get("expected_draft_hash") if scoped_book == book else None)
+                if expected and scoped_book.v3_enabled and expected != scoped_book.policy_draft_hash(
+                        roster_ids, manual, None, full_scope):
+                    raise ValueError("候选范围预览已过期，请重新预览后再创建会话")
                 if not scoped_book.v3_enabled:
                     scoped_book.adopt_v2_as_v3()
-                expected = data.get("expected_draft_hash")
-                if expected and book.v3_enabled and expected != book.policy_draft_hash(roster_ids, manual, None, full_scope):
-                    raise ValueError("候选范围预览已过期，请重新预览后再创建会话")
-                scope = scoped_book.session_scope_snapshot(
-                    roster_ids, manual, full_scope=full_scope)
-            else:
-                scope = {"book_id": None, "resolved_entry_uids": []}
-            session.overlay.set_worldbook_scope(scope)
+                scope = scoped_book.session_scope_snapshot(roster_ids, manual, full_scope=full_scope)
+                if multi_overlay:
+                    session.overlay.set_worldbook_scope(scope, scoped_book.id)
+                else:
+                    session.overlay.set_worldbook_scope(scope)
+            if not books:
+                session.overlay.set_worldbook_scope({"book_id": None, "resolved_entry_uids": []})
 
         try:
             session = session_mgr.create_session(
@@ -271,11 +285,23 @@ def register(app, managers):
 
     # ── 会话级世界书依赖 ──
 
+    def _bound_ids(overlay):
+        return (overlay.get_worldbook_ids() if hasattr(overlay, "get_worldbook_ids")
+                else [overlay.get_worldbook_id()] if overlay.get_worldbook_id() else [])
+
+    def _scope_for(overlay, book_id):
+        return (overlay.get_worldbook_scope(book_id) if hasattr(overlay, "get_worldbook_ids")
+                else overlay.get_worldbook_scope())
+
+    def _update_scope_for(overlay, book_id, updater):
+        return (overlay.update_worldbook_scope(updater, book_id)
+                if hasattr(overlay, "get_worldbook_ids")
+                else overlay.update_worldbook_scope(updater))
+
     def _session_book(session):
-        book_id = session.overlay.get_worldbook_id()
-        if not book_id and wb_mgr:
-            scope = session.overlay.get_worldbook_scope() or {}
-            book_id = scope.get("book_id")
+        book_id = request.args.get("book_id") or session.overlay.get_worldbook_id()
+        if book_id not in _bound_ids(session.overlay):
+            return book_id, None
         book = wb_mgr.load(book_id) if book_id and wb_mgr else None
         return book_id, book
 
@@ -294,7 +320,8 @@ def register(app, managers):
             "entries": [{"uid": e.uid, "name": e.name,
                          "selected": e.uid in selected,
                          "reasons": (scope.get("selection_reasons") or {}).get(e.uid, [])}
-                        for e in book.entries if e.enabled and (e.content or "").strip()],
+                        for e in book.entries if e.enabled and (e.content or "").strip()
+                        and not is_system_entry(e)],
         })
         return view
 
@@ -327,12 +354,12 @@ def register(app, managers):
                 return session, None, None, json_error("会话未绑定可用世界书", 404)
             roster = session.scene_manager.get_roster()
             try:
-                current = session.overlay.get_worldbook_scope()
+                current = _scope_for(session.overlay, book.id)
                 needs_refresh = (not isinstance(current, dict)
                     or current.get("schema_version") != 3 or not current.get("inheritance")
                     or sorted(current.get("roster_character_ids") or []) != sorted(roster))
                 if persist_upgrade and needs_refresh:
-                    scope = session.overlay.update_worldbook_scope(
+                    scope = _update_scope_for(session.overlay, book.id,
                         lambda latest: _refresh_managed_scope(book, latest, roster))
                 else:
                     scope = ensure_editable_scope(current, book, roster)
@@ -361,7 +388,7 @@ def register(app, managers):
             _book_id, book = _session_book(session)
             if not book:
                 return json_error("会话未绑定可用世界书", 404)
-            known = {e.uid for e in book.entries}
+            known = {e.uid for e in book.entries if not is_system_entry(e)}
             a, b = str(data.get("from_uid") or ""), str(data.get("to_uid") or "")
             if a not in known or b not in known:
                 return json_error("关系引用了不存在的条目")
@@ -373,7 +400,7 @@ def register(app, managers):
                         bool(data.get("enable_source_expansion")))
                     return book.refresh_session_scope(
                         changed, session.scene_manager.get_roster())
-                scope = session.overlay.update_worldbook_scope(update)
+                scope = _update_scope_for(session.overlay, book.id, update)
             except RuntimeError as exc:
                 return json_error(str(exc), 409)
             except ValueError as exc:
@@ -417,7 +444,7 @@ def register(app, managers):
                         managed, entry_uid, data["enabled"], expected)
                     return book.refresh_session_scope(
                         changed, session.scene_manager.get_roster())
-                scope = session.overlay.update_worldbook_scope(update)
+                scope = _update_scope_for(session.overlay, book.id, update)
             except RuntimeError as exc:
                 return json_error(str(exc), 409)
             except ValueError as exc:
@@ -446,7 +473,7 @@ def register(app, managers):
                         data.get("from_uid"), data.get("to_uid"))
                     return book.refresh_session_scope(
                         changed, session.scene_manager.get_roster())
-                scope = session.overlay.update_worldbook_scope(update)
+                scope = _update_scope_for(session.overlay, book.id, update)
             except RuntimeError as exc:
                 return json_error(str(exc), 409)
             except ValueError as exc:
@@ -483,7 +510,7 @@ def register(app, managers):
                         managed, preview, expected, str(data.get("preview_hash") or ""))
                     return book.refresh_session_scope(
                         changed, session.scene_manager.get_roster())
-                scope = session.overlay.update_worldbook_scope(update)
+                scope = _update_scope_for(session.overlay, book.id, update)
             except RuntimeError as exc:
                 return json_error(str(exc), 409)
         return jsonify(_dependency_payload(session, book, scope))

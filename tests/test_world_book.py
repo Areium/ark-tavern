@@ -384,16 +384,17 @@ def test_manager_crud_and_resolve(tmp_path):
     # 无绑定无默认 → None
     assert mgr.resolve(_FakeOverlay()) is None
 
-    # 默认书回落
-    mgr.set_default_book_id(book.id)
-    assert mgr.resolve(_FakeOverlay()) is not None
+    # 不再设置全局默认；无会话绑定始终不载入世界书。
+    with pytest.raises(ValueError):
+        mgr.set_default_book_id(book.id)
+    assert mgr.resolve(_FakeOverlay()) is None
 
-    # 会话绑定优先于默认书
+    # 会话显式绑定生效
     book2 = mgr.create_book("第二本")
     overlay = _FakeOverlay(book2.id)
     assert mgr.resolve(overlay).id == book2.id
 
-    # 删除默认书清空默认
+    # 删除书不引入默认绑定
     mgr.delete_book(book.id)
     assert mgr.get_default_book_id() is None
     assert len(mgr.list_books()) == 1

@@ -30,7 +30,9 @@ export interface Session {
   player_identity?: string;
   plot_id: string | null;
   worldbook_id?: string | null;
+  worldbook_ids?: string[];
   worldbook_scope?: WorldBookScopeDTO | null;
+  worldbook_scopes?: Record<string, WorldBookScopeDTO | null>;
   created_at: number;
   usable: boolean;
   /** 场景角色（NPC 队友）。主控角色不在其中：它由 `player_identity` 声明 */
@@ -1207,6 +1209,7 @@ export interface WorldBookImportResult {
 /** 会话当前生效世界书查询结果 */
 export interface WorldBookResolveResult {
   book: WorldBookSummary | null;
+  books?: WorldBookSummary[];
   default_book_id: string | null;
 }
 

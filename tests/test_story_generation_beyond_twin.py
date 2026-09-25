@@ -37,6 +37,9 @@ BOOK_ID = "beyond-twin"
 
 @pytest.fixture()
 def flow(tmp_path, monkeypatch):
+    # 本用例验证启发式节拍；本机预装书可能已有生成的大纲，隔离它以保持断言确定。
+    import story_outline
+    monkeypatch.setattr(story_outline, "load_outline", lambda *_args: None)
     sessions_root = tmp_path / "sessions"
     monkeypatch.setattr(so, "_SESSIONS_DIR", sessions_root)
     monkeypatch.setattr(sm_mod, "_SESSIONS_DIR", sessions_root)

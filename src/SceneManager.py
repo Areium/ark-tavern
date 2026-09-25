@@ -437,6 +437,13 @@ class SceneManager:
         # 阵容口径（主控 + 队友），不是场景角色口径：主控的条目也要跟着载入
         roster = self.get_roster()
         try:
+            if hasattr(book, "books"):
+                for member in book.books:
+                    self._overlay.update_worldbook_scope(
+                        lambda current, member=member: (
+                            member.refresh_session_scope(current, roster)
+                            if current is not None else None), member.id)
+                return
             updater = getattr(self._overlay, "update_worldbook_scope", None)
             if updater:
                 updater(lambda current: (
@@ -946,7 +953,13 @@ branch 非 null 时格式：
         from combat_nodes import node_exists, node_overview
 
         book = self._resolve_worldbook()
-        rows, _ = node_overview(book_id=book.id if book else None)
+        books = book.books if hasattr(book, "books") else [book] if book else []
+        rows = []
+        for member in books:
+            found, _ = node_overview(book_id=member.id)
+            rows.extend(found)
+        if not books:
+            rows, _ = node_overview(book_id=None)
         return "、".join(
             f"{row['node_id']}（{row['name']}）"
             for row in rows if node_exists(row["node_id"])

@@ -2330,6 +2330,56 @@ def _build_excerpt_entry(target: WorldBook, source_book: WorldBook,
 # 管理器
 # ─────────────────────────────────────────────────────────────
 
+class _BookOverlayView:
+    """Expose one book's snapshot to the existing per-book matching code."""
+
+    def __init__(self, overlay, book_id):
+        self.overlay = overlay
+        self.book_id = book_id
+
+    def get_worldbook_scope(self):
+        return self.overlay.get_worldbook_scope(self.book_id) if self.overlay else None
+
+    def set_worldbook_scope(self, scope):
+        if self.overlay:
+            self.overlay.set_worldbook_scope(scope, self.book_id)
+
+    def get_active_lore_scope(self):
+        scope = self.overlay.get_active_lore_scope() if self.overlay else None
+        return scope if scope and scope.get("book_id") == self.book_id else None
+
+
+class WorldBookBundle:
+    """Independent books, combined only after each book applies its own scope."""
+
+    def __init__(self, books):
+        self.books = books
+        self.id = books[0].id
+        self.name = "、".join(book.name for book in books)
+        self.source = "imported" if any(book.source == "imported" for book in books) else books[0].source
+        self.stat_fields = books[0].stat_fields
+
+    def eligible_uids_for(self, overlay):
+        return {book.id: book.eligible_uids_for(_BookOverlayView(overlay, book.id))
+                for book in self.books}
+
+    def collect_matches(self, recent_text, current_input, *, eligible_uids=None):
+        return {book.id: book.collect_matches(
+            recent_text, current_input,
+            eligible_uids=(eligible_uids or {}).get(book.id)) for book in self.books}
+
+    def format_injection(self, matched, *, identity="", active_char=None):
+        before, after = [], []
+        for book in self.books:
+            head, tail = book.format_injection(matched.get(book.id, []),
+                                               identity=identity, active_char=active_char)
+            if head:
+                before.append(head)
+            if tail:
+                after.append(tail)
+        return "\n\n".join(before), "\n\n".join(after)
+
+
 class WorldBookManager:
     """世界书存储管理器：统一管理 data/worldbooks/（全部可写）。
 
@@ -2339,7 +2389,7 @@ class WorldBookManager:
       与用户导入的书在同一列表、同一套规则下管理（启用/停用、编辑、删除、重装）。
     - 预装包被删除后，可通过 reinstall_book() 从分发源一键重装还原。
 
-    绑定解析规则：会话 overlay 显式绑定的书 > 全局默认书 > 已安装且启用的预装包 > None。
+    绑定解析规则：只解析会话 overlay 明确绑定且已启用的剧情世界书；无绑定时返回 None。
     """
 
     def __init__(self, data_dir: Path | str = None):
@@ -2470,7 +2520,7 @@ class WorldBookManager:
                     return data
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning("读取世界书设置失败: %s", e)
-        return {"default_book_id": None}
+        return {}
 
     def _save_settings(self, settings: dict):
         path = self._settings_path()
@@ -2481,22 +2531,11 @@ class WorldBookManager:
     # ── 默认书 ──
 
     def get_default_book_id(self) -> Optional[str]:
-        return self._load_settings().get("default_book_id")
+        return None
 
     def set_default_book_id(self, book_id: Optional[str]):
-        """设置全局默认书。
-
-        资料库不得成为默认书（它不参与解析）。读取旧 settings 时也做防御性校验：
-        即便默认指针指向一本资料库（历史数据 / 手工编辑），这里也只记录下来，
-        真正的拦截在 `resolve()` —— 见那里的说明。
-        """
-        if book_id:
-            book = self.load(book_id)
-            if book is not None and book.is_reference:
-                raise ValueError("资料库不能设为全局默认书；请在剧情世界书中选择")
-        settings = self._load_settings()
-        settings["default_book_id"] = book_id
-        self._save_settings(settings)
+        """保留旧 API 名称，但不再允许全局默认书。"""
+        raise ValueError("全局默认世界书已取消，请在会话中绑定世界书")
 
     # ── CRUD ──
 
@@ -2867,36 +2906,20 @@ class WorldBookManager:
         Args:
             overlay: SessionOverlay 实例（可空）。
         """
-        book_id = None
-        if overlay is not None:
-            # 新会话显式“不绑定”不得回退全书；已存快照的书被删除/停用也不改绑。
-            scope = getattr(overlay, "get_worldbook_scope", lambda: None)()
-            if scope is not None:
-                book_id = scope.get("book_id")
-                book = self.load(book_id) if book_id else None
-                return book if book and book.enabled and not book.is_reference else None
+        if overlay is None:
+            return None
+        ids = (overlay.get_worldbook_ids() if hasattr(overlay, "get_worldbook_ids")
+               else [overlay.get_worldbook_id()] if overlay.get_worldbook_id() else [])
+        books = []
+        for book_id in ids:
             try:
-                book_id = overlay.get_worldbook_id()
+                book = self.load(book_id)
             except Exception:
-                book_id = None
-        if not book_id:
-            book_id = self.get_default_book_id()
-        if not book_id:
-            return self._fallback_preinstalled()
-        try:
-            book = self.load(book_id)
-        except Exception as e:
-            logger.warning("加载会话世界书 %s 失败: %s", book_id, e)
-            return None
-        # 书级停用：显式绑定/默认书被停用时不生效，回退预装包
-        if book is None or not book.enabled:
-            logger.info("世界书 %s 不存在或已停用，回退预装包", book_id)
-            return self._fallback_preinstalled()
-        if book.is_reference:
-            # 不静默换成另一本书：资料库被误设成默认时宁可显示「没有生效的世界书」
-            logger.warning("世界书 %s 是资料库（reference），不参与解析", book_id)
-            return None
-        return book
+                logger.warning("加载会话世界书 %s 失败", book_id, exc_info=True)
+                continue
+            if book and book.enabled and not book.is_reference:
+                books.append(book)
+        return WorldBookBundle(books) if len(books) > 1 else (books[0] if books else None)
 
     def _fallback_preinstalled(self) -> Optional[WorldBook]:
         for bid in _PACK_FALLBACK_IDS:

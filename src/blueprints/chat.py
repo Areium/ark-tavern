@@ -302,7 +302,7 @@ def _build_lore_resolver(session, worldbook_mgr):
     try:
         overlay = getattr(session, "overlay", None)
         book = worldbook_mgr.resolve(overlay) if worldbook_mgr else None
-        return node_lore_scope.build_overlay_resolver(book, overlay)
+        return node_lore_scope.build_overlay_resolver(book.books[0] if hasattr(book, "books") else book, overlay)
     except Exception:
         logger.warning("构造节点世界书作用域解析器失败，按关闭处理", exc_info=True)
         return None
@@ -319,15 +319,16 @@ def _combat_node_owned_by_session(session, encounter_id: str) -> bool:
         return False
     overlay = getattr(session, "overlay", None)
     plot_id = (overlay.get_plot_id() if overlay else "") or ""
-    book_id = (overlay.get_worldbook_id() if overlay else "") or ""
+    book_ids = (overlay.get_worldbook_ids() if overlay and hasattr(overlay, "get_worldbook_ids")
+                else [overlay.get_worldbook_id()] if overlay and overlay.get_worldbook_id() else [])
     bind_plot = str((node.get("bind") or {}).get("plot_id") or "")
     node_book = str(node.get("worldbook_id") or "")
     if plot_id and bind_plot == plot_id:
         return True
-    if book_id and node_book == book_id:
+    if node_book and node_book in book_ids:
         return True
     # 会话没绑书也没绑剧情：任何节点都算可用（旧行为）
-    return not plot_id and not book_id
+    return not plot_id and not book_ids
 
 
 def _resolve_combat_scene(session, markers: dict, config: dict) -> dict | None:
