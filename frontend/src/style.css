@@ -1330,6 +1330,8 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
 
 .home-menu-root {
   position: relative;
+  display: flex;
+  flex-direction: column;
   height: 100%;
   width: 100%;
   overflow: hidden;
@@ -1393,11 +1395,14 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
 
 /* ── 主菜单舞台 ── */
 .home-menu-stage {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  flex: 1;
+  min-height: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: safe center;
+  overflow-y: auto;
+  padding: 24px 0;
   opacity: 0;
   pointer-events: none;
   transform: translateY(10px);
@@ -1411,7 +1416,7 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
 .home-menu-column {
   width: 100%;
   max-width: 26rem;
-  margin: 0 1.5rem;
+  margin: auto 1.5rem;
   padding: 2rem 1.75rem 1.75rem;
   border-radius: 1.25rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1564,10 +1569,8 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
 
 /* 底部状态 */
 .home-menu-footer {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: relative;
+  flex: none;
   height: 38px;
   display: flex;
   align-items: center;

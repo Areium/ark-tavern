@@ -141,7 +141,7 @@ export default function HomeMenu() {
   return (
     <div
       className="home-menu-root"
-      style={{ backgroundImage: "url(" + asset("menu_bg.jpg") + ")" }}
+      style={{ backgroundImage: "url(" + asset("menu_bg-v2.webp") + ")" }}
     >
       {/* 氛围遮罩：暗角 + 顶部/底部压暗 */}
       <div className="home-menu-vignette" />
