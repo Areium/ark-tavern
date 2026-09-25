@@ -388,3 +388,23 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
   id / 顺序可能变化，已存图上的章节 / 节拍卡会显示为「缺失」，需重新生成布局。
 - **验证**：`tests/test_node_graph_worldbook.py`（启发式回落、保存的 LLM 大纲优先、`bind` 节点挂上、combat-test
   不误切、正文骨架剧情形状不变）。
+
+## 横版战斗
+
+### 横版关卡与表现层的几个口径（2026-09-26，`feat/sideview-combat-polish`）
+
+- **薄平台是单向的**：厚度 ≤ 32 px 的平台默认可从下方与侧面穿过（`oneWay` 可显式覆盖）。旧实现里它们是实心墙，
+  默认关卡坑上方那块平台会在角色起跳时挡住头部，跳坑只剩约 10 px 余量，脚本化策略在新旧版本都卡在第一个坑。
+  改地形后先跑 `simulation.test.mjs` 里的通关策略用例，它能发现"关卡打不通"。
+- **巡逻区间只约束闲逛**：追击时不再被 `patrolMin/patrolMax` 拴住（只受平台边缘和墙约束）。否则敌人停在区间边缘，
+  玩家在 82（敌人出手距离）到 116（玩家近战距离）之间可零伤害刷怪。守卫斩击框向上多 40 px，
+  否则站在默认关卡第一个箱子上可以打到守卫而守卫打不到人。
+- **Pixi 7 的 `Graphics.arc()` 会从上一条路径末点连线**，`lineStyle(0)` 不会截断路径；每段弧线先 `moveTo` 起点
+  （`renderer.ts` 的 `arcStroke`）。
+- **WebGL 画布不能用 `drawImage` 采样判空**：未开 `preserveDrawingBuffer` 时读回的是已清空的缓冲，恒为单色；
+  判断"画面是否渲染"用 Playwright 截图的像素统计。
+- **worktree 验证时 Spine 模型缺失是正常的**：模型在 gitignored 的 `data/worldbooks/content/characters/*/spine/`，
+  隔离 worktree 里只会显示战术标记和临光立绘回退；要看真实模型得用主仓库数据。
+- **5174 被其他会话占用时**：别复用 `vite.config.shot.ts`——`node_modules` 是联接到主仓库的，`.vite-shot` 缓存目录
+  也共享，会互相覆盖。临时复制一份配置改端口与 `cacheDir`（放到 worktree 内），用完删除。
+
