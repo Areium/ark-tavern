@@ -10,6 +10,13 @@
 
 ## 会话
 
+### 多本世界书绑定与首本书兼容口径（2026-09-26，`1f5668a`）
+
+- **现象**：旧存档和部分调用方只认识 `worldbook_id` / `worldbook_scope`；多书会话若只读取这两个字段，会漏掉后续书。
+- **现状口径**：`worldbook_ids` 按选择顺序保存所有剧情书，`worldbook_scopes` 保存后续书的会话快照；旧字段始终对应首本书。依赖和条目覆盖接口以 `book_id` 选择具体书，省略时继续操作首本书。全局默认书不再回落，未绑定书的会话不注入世界书。
+- **已知边界**：新建向导的「手动追加」只作用于首本书；「全量兼容」作用于全部已选书。统一角色数值字段沿用首本书的 `stat_fields`。要按其它书的字段建模时，需单独设计跨书字段合并规则。
+- **证据**：`src/session_overlay.py`、`src/world_book.py`、`src/blueprints/sessions.py`、`tests/test_session_worldbook_multibind.py`。
+
 ### 主控角色与「角色入队」是同一次选择（2026-09-23，`feat/session-main-control`）
 
 - **口径**：会话**阵容 = 主控角色（玩家身份）+ 队友**。`SceneManager.get_roster()` 是服务端口径
