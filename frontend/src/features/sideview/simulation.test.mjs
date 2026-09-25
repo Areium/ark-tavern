@@ -1,6 +1,7 @@
 import { build } from 'esbuild';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const bundled = await build({ entryPoints: [fileURLToPath(new URL('./index.ts', import.meta.url))], bundle: true, write: false, platform: 'node', format: 'esm', external: ['react', 'react/jsx-runtime', 'pixi.js', 'lucide-react'], loader: { '.css': 'empty' } });
@@ -73,4 +74,133 @@ test('same inputs produce deterministic snapshots', () => {
   const a = createSimulation(level, DEMO_OPERATOR), b = createSimulation(level, DEMO_OPERATOR);
   for (let i = 0; i < 500; i++) { const input = { right: true, jump: i % 70 < 25, attack: true, skill: i % 150 === 0 }; tick(a, 1, input); tick(b, 1, input); }
   assert.deepEqual(snapshotSimulation(a), snapshotSimulation(b));
+});
+test('three-stage chain: finisher hits harder and cancels an ordinary windup', () => {
+  const s = createSimulation(level, DEMO_OPERATOR); tick(s, 30);
+  const e = s.enemies[0]; Object.assign(e, { x: s.player.x + 50, y: s.player.y, hp: 500 });
+  const hits = [];
+  for (let i = 0; i < 90 && hits.length < 3; i++) { const before = e.hp; tick(s, 1, { attack: true }); if (e.hp < before) hits.push(before - e.hp); }
+  assert.deepEqual(hits, [26, 29, 42]);
+  const t = createSimulation(level, DEMO_OPERATOR); tick(t, 30);
+  const g = t.enemies[0]; Object.assign(g, { x: t.player.x + 50, y: t.player.y, hp: 500, windup: 0.3 });
+  tick(t, 1, { attack: true }); assert.ok(g.windup > 0, 'opening hit only flinches');
+  tick(t, 20); Object.assign(t.player, { combo: 2, comboTime: 0.3, attackCooldown: 0 }); g.windup = 0.3;
+  tick(t, 1, { attack: true }); assert.equal(g.windup, 0); assert.ok(g.stagger > 0);
+});
+test('elite keeps super armor against the chain; the skill breaks it', () => {
+  const s = createSimulation(level, DEMO_OPERATOR); tick(s, 30);
+  const elite = s.enemies.find(e => e.id === 'g5'); Object.assign(elite, { x: s.player.x + 50, y: s.player.y - 14, windup: 0.3 });
+  Object.assign(s.player, { combo: 2, comboTime: 0.3 });
+  tick(s, 1, { attack: true }); assert.ok(elite.windup > 0); assert.equal(elite.stagger, 0);
+  tick(s, 12); elite.windup = 0.3;
+  tick(s, 1, { skill: true }); assert.equal(elite.windup, 0); assert.ok(elite.stagger > 0);
+});
+test('dodging through a landing strike takes no damage and refunds skill time once', () => {
+  const s = createSimulation(level, DEMO_OPERATOR); tick(s, 30);
+  Object.assign(s.enemies[0], { x: s.player.x + 40, y: s.player.y, windup: 2 / 60, cooldown: 0 });
+  s.player.skillCooldown = 4;
+  tick(s, 1, { dash: true }); tick(s, 3);
+  assert.equal(s.player.hp, DEMO_OPERATOR.maxHp); assert.equal(s.damageTaken, 0);
+  assert.ok(s.player.skillCooldown < 2.6 && s.player.skillCooldown > 2.3, String(s.player.skillCooldown));
+  assert.equal(s.player.dashPerfect, true);
+});
+test('a pit fall returns the player to the last safe footing, not the level start', () => {
+  const s = createSimulation(level, DEMO_OPERATOR);
+  Object.assign(s.player, { x: 1100, y: 492 }); tick(s, 5);
+  assert.equal(s.player.safeX, 1100);
+  Object.assign(s.player, { x: 1230, y: 492 }); tick(s, 60);
+  assert.equal(s.player.x > 1000 && s.player.x <= 1100, true, String(s.player.x));
+  assert.ok(s.damageTaken >= 25); assert.equal(s.outcome, null);
+});
+test('presses made during hitstop are applied when the world resumes', () => {
+  const s = createSimulation(level, DEMO_OPERATOR); tick(s, 30);
+  s.hitstop = 0.05; const x = s.player.x;
+  tick(s, 1, { dash: true }); assert.equal(s.player.dashTime, 0); assert.equal(s.player.x, x);
+  tick(s, 4); assert.ok(s.player.dashCooldown > 0); assert.ok(s.player.x > x + 10);
+});
+test('chasing guards stop at a ledge instead of walking into the pit', () => {
+  const map = { ...level, worldWidth: 1000, platforms: [{ x: 0, y: 550, width: 400, height: 130 }, { x: 600, y: 550, width: 400, height: 130 }], obstacles: [], hazards: [], goal: { x: 900, y: 426, width: 90, height: 124 }, enemies: [{ ...level.enemies[0], x: 300, y: 492, patrolMin: 0, patrolMax: 1000 }] };
+  const s = createSimulation(map, DEMO_OPERATOR); Object.assign(s.player, { x: 610, y: 492 });
+  tick(s, 120, {}, map);
+  const e = s.enemies[0]; assert.ok(e.hp > 0); assert.equal(e.grounded, true); assert.ok(e.x + e.width <= 402, String(e.x));
+});
+test('rangers back away at close range and aim shots at a raised target', () => {
+  const floor = { x: 0, y: 550, width: 1200, height: 130 };
+  const map = { ...level, worldWidth: 1200, platforms: [floor, { x: 200, y: 430, width: 150, height: 20 }], obstacles: [], hazards: [], goal: { x: 1100, y: 426, width: 90, height: 124 }, enemies: [{ ...level.enemies[1], x: 500, y: 492, patrolMin: 300, patrolMax: 800 }] };
+  const near = createSimulation(map, DEMO_OPERATOR); Object.assign(near.player, { x: 420, y: 492 });
+  tick(near, 30, {}, map); assert.ok(near.enemies[0].x > 505, String(near.enemies[0].x));
+  const far = createSimulation(map, DEMO_OPERATOR); Object.assign(far.player, { x: 250, y: 372 });
+  for (let i = 0; i < 200 && !far.projectiles.length; i++) tick(far, 1, {}, map);
+  assert.equal(far.projectiles.length, 1); assert.ok(far.projectiles[0].vy < 0);
+});
+test('the server default stage settles every actor on solid ground', () => {
+  const authored = JSON.parse(readFileSync(new URL('../../../../data/sideview_levels/default.json', import.meta.url), 'utf8'));
+  const map = normalizeLevel(authored); const s = createSimulation(map, DEMO_OPERATOR);
+  tick(s, 45, {}, map);
+  assert.equal(s.player.grounded, true);
+  for (const e of s.enemies) { assert.ok(e.hp > 0, e.id); assert.equal(e.grounded, true, e.id); }
+  assert.deepEqual(new Set(map.enemies.map(e => e.kind)), new Set(['guard', 'ranger', 'elite']));
+});
+test('thin ledges are one-way: jump up through them, land on top; thick blocks stay solid', () => {
+  const ledge = { x: 100, y: 470, width: 200, height: 20 }, wall = { x: 400, y: 380, width: 40, height: 170 };
+  const map = normalizeLevel({ ...DEMO_LEVEL, width: 800, platforms: [{ x: 0, y: 550, width: 800, height: 130 }, ledge, wall], obstacles: [], hazards: [], enemies: [], exit: { x: 700, y: 426, width: 90, height: 124 } });
+  assert.equal(map.platforms[1].oneWay, true); assert.equal(map.platforms[2].oneWay, false);
+  const s = createSimulation(map, DEMO_OPERATOR); Object.assign(s.player, { x: 150, y: 492 }); tick(s, 5, {}, map);
+  tick(s, 60, { jump: true }, map); tick(s, 30, {}, map);
+  assert.equal(s.player.grounded, true); assert.equal(s.player.y, ledge.y - s.player.height);
+  Object.assign(s.player, { x: 330, y: 492, vy: 0 }); tick(s, 60, { right: true }, map);
+  assert.equal(s.player.x, wall.x - s.player.width);
+});
+test('a simple seek-and-strike policy clears the server default stage', () => {
+  const authored = JSON.parse(readFileSync(new URL('../../../../data/sideview_levels/default.json', import.meta.url), 'utf8'));
+  const map = normalizeLevel(authored), op = { name: 'test', maxHp: 140, attack: 22, skillPower: 35 };
+  const s = createSimulation(map, op); const solids = [...map.platforms, ...map.obstacles];
+  for (let i = 0; i < 60 * 90 && !s.outcome; i++) {
+    const p = s.player, input = emptyInput();
+    const target = s.enemies.filter(e => e.hp > 0).sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x))[0];
+    const dx = target ? target.x - p.x : Infinity;
+    if (target && Math.abs(dx) < 105 && Math.abs(target.y - p.y) < 60) { input.attack = true; input.skill = p.skillCooldown <= 0; }
+    else if (target && dx < -20) input.left = true; else input.right = true;
+    if (target && Math.abs(dx) < 200 && target.y < p.y - 40) input.jump = i % 40 < 30;
+    if (s.enemies.some(e => e.hp > 0 && (e.windup > 0 && e.windup < 0.15 || e.lunge > 0) && Math.abs(e.x - p.x) < 150)) input.dash = i % 2 === 0;
+    if (p.hp < op.maxHp * 0.5) input.support = true;
+    const ahead = p.x + (input.left ? -14 : p.width + 14), foot = p.y + p.height + 4;
+    const ground = solids.some(r => ahead >= r.x && ahead <= r.x + r.width && foot >= r.y && foot <= r.y + r.height + 40);
+    const hazard = map.hazards.some(h => ahead + 50 > h.x && ahead - 20 < h.x + h.width && h.y < foot + 10 && h.y > p.y);
+    const blocked = map.obstacles.some(o => ahead >= o.x && ahead <= o.x + o.width && foot - 4 > o.y);
+    if (p.grounded && (!ground || hazard || blocked)) input.jump = true;
+    if (!p.grounded && p.vy < 0) input.jump = true;
+    stepSimulation(s, input, map, op);
+  }
+  assert.equal(s.outcome, 'victory', `kills ${s.kills}, hp ${s.player.hp}, x ${Math.round(s.player.x)}`);
+  assert.equal(s.kills, map.enemies.length);
+});
+const serverStage = () => normalizeLevel(JSON.parse(readFileSync(new URL('../../../../data/sideview_levels/default.json', import.meta.url), 'utf8')));
+test('a guard beside a crate still reaches a player standing on top of it', () => {
+  const map = serverStage(), op = { name: 'test', maxHp: 140, attack: 22, skillPower: 35 };
+  const s = createSimulation(map, op); const crate = map.obstacles[0];
+  Object.assign(s.player, { x: crate.x + 20, y: crate.y - 58, grounded: true });
+  Object.assign(s.enemies[0], { x: crate.x + crate.width + 2, y: 492, cooldown: 0 });
+  tick(s, 180, {}, map); assert.ok(s.damageTaken > 0, 'the crate top is not a safe spot');
+});
+test('a chasing guard leaves its patrol interval instead of standing still out of reach', () => {
+  const map = { ...level, worldWidth: 1400, platforms: [{ x: 0, y: 550, width: 1400, height: 130 }], obstacles: [], hazards: [], goal: { x: 1300, y: 426, width: 90, height: 124 }, enemies: [{ ...level.enemies[0], x: 490, y: 492, patrolMin: 300, patrolMax: 500 }] };
+  const s = createSimulation(map, DEMO_OPERATOR); Object.assign(s.player, { x: 620, y: 492 });
+  tick(s, 240, {}, map);
+  assert.ok(s.enemies[0].x > 500, String(s.enemies[0].x)); assert.ok(s.damageTaken > 0);
+});
+test('one dash earns the perfect-dodge refund only once', () => {
+  const s = createSimulation(level, DEMO_OPERATOR); tick(s, 30);
+  Object.assign(s.enemies[0], { x: s.player.x + 40, y: s.player.y, windup: 2 / 60, cooldown: 0 });
+  Object.assign(s.enemies[2], { x: s.player.x + 60, y: s.player.y, windup: 4 / 60, cooldown: 0 });
+  s.player.skillCooldown = 5;
+  tick(s, 1, { dash: true }); tick(s, 8);
+  assert.equal(s.effects.filter(e => e.kind === 'perfect').length, 1);
+  assert.ok(s.player.skillCooldown > 3.2, String(s.player.skillCooldown)); assert.equal(s.damageTaken, 0);
+});
+test('an enemy with fractional HP from an old save still dies in a pit', () => {
+  const s = createSimulation(level, DEMO_OPERATOR);
+  Object.assign(s.enemies[1], { hp: 17.25, x: 1250, y: 700 });
+  tick(s, 5);
+  assert.equal(s.enemies[1].hp, 0); assert.equal(s.kills, 1); assert.ok(s.enemies[1].y <= level.worldHeight + 80);
 });

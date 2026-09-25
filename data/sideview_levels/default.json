@@ -2,21 +2,37 @@
   "schemaVersion": 1,
   "id": "default",
   "name": "街区突破",
-  "width": 1600,
-  "height": 720,
+  "width": 3400,
+  "height": 680,
   "platforms": [
-    {"x": 0, "y": 620, "width": 1600, "height": 100},
-    {"x": 350, "y": 500, "width": 210, "height": 22},
-    {"x": 810, "y": 440, "width": 200, "height": 22}
+    {"x": 0, "y": 550, "width": 1180, "height": 130},
+    {"x": 1360, "y": 550, "width": 2040, "height": 130},
+    {"x": 530, "y": 425, "width": 210, "height": 24},
+    {"x": 940, "y": 390, "width": 210, "height": 24},
+    {"x": 1180, "y": 440, "width": 180, "height": 24},
+    {"x": 1710, "y": 420, "width": 220, "height": 24},
+    {"x": 2230, "y": 395, "width": 240, "height": 24}
   ],
-  "obstacles": [{"x": 650, "y": 550, "width": 48, "height": 70}],
-  "hazards": [{"x": 1080, "y": 606, "width": 110, "height": 14, "damage": 8}],
-  "spawn": {"x": 80, "y": 580},
+  "obstacles": [
+    {"x": 390, "y": 482, "width": 70, "height": 68},
+    {"x": 1570, "y": 490, "width": 75, "height": 60},
+    {"x": 2040, "y": 470, "width": 80, "height": 80}
+  ],
+  "hazards": [
+    {"x": 810, "y": 534, "width": 100, "height": 16, "damage": 12},
+    {"x": 1180, "y": 650, "width": 180, "height": 30, "damage": 12},
+    {"x": 2490, "y": 534, "width": 140, "height": 16, "damage": 12}
+  ],
+  "spawn": {"x": 110, "y": 490},
   "enemies": [
-    {"id": "raider-1", "name": "整合运动成员", "kind": "guard", "x": 540, "y": 580, "patrolMin": 420, "patrolMax": 660, "hp": 60, "damage": 8, "speed": 90, "range": 55},
-    {"id": "raider-2", "name": "整合运动成员", "kind": "ranger", "x": 1000, "y": 580, "patrolMin": 880, "patrolMax": 1120, "hp": 60, "damage": 8, "speed": 90, "range": 160}
+    {"id": "raider-1", "name": "整合运动士兵", "kind": "guard", "x": 660, "y": 490, "patrolMin": 480, "patrolMax": 780, "hp": 60, "damage": 12, "speed": 100, "range": 82},
+    {"id": "raider-2", "name": "整合运动狙击手", "kind": "ranger", "x": 1020, "y": 330, "patrolMin": 960, "patrolMax": 1100, "hp": 45, "damage": 10, "speed": 90, "range": 480},
+    {"id": "raider-3", "name": "整合运动士兵", "kind": "guard", "x": 1840, "y": 490, "patrolMin": 1660, "patrolMax": 2010, "hp": 75, "damage": 14, "speed": 105, "range": 82},
+    {"id": "raider-4", "name": "整合运动狙击手", "kind": "ranger", "x": 2350, "y": 335, "patrolMin": 2250, "patrolMax": 2420, "hp": 50, "damage": 10, "speed": 90, "range": 480},
+    {"id": "raider-5", "name": "整合运动盾卫", "kind": "elite", "x": 2940, "y": 478, "patrolMin": 2710, "patrolMax": 3110, "hp": 160, "damage": 22, "speed": 95, "range": 130},
+    {"id": "raider-6", "name": "整合运动士兵", "kind": "guard", "x": 3100, "y": 490, "patrolMin": 2900, "patrolMax": 3150, "hp": 60, "damage": 12, "speed": 100, "range": 82}
   ],
-  "exit": {"x": 1480, "y": 520, "width": 80, "height": 100},
+  "exit": {"x": 3230, "y": 426, "width": 100, "height": 124},
   "victoryCondition": "clear_and_exit",
   "rewards": {"xp": 90, "items": []}
 }

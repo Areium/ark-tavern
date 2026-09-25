@@ -73,10 +73,11 @@ export default function SideviewPracticeView() {
       <section className="w-full max-w-md rounded-xl border border-gray-600/70 bg-surface-card p-6 shadow-xl" aria-label="横版演练结果">
         <h1 className="text-xl font-display font-semibold text-cyan-100">{result.outcome === "victory" ? "演练完成" : "演练结束"}</h1>
         <p className="mt-2 text-sm text-gray-300">{DEMO_LEVEL.name} · {result.outcome === "victory" ? "成功撤离" : "行动失败"}</p>
-        <dl className="mt-5 grid grid-cols-3 gap-3 border-y border-gray-700/70 py-4 text-center">
+        <dl className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3 border-y border-gray-700/70 py-4 text-center">
           <div><dt className="text-xs text-gray-400">用时</dt><dd className="mt-1 text-lg tabular-nums">{Math.ceil(result.durationMs / 1000)} 秒</dd></div>
           <div><dt className="text-xs text-gray-400">击败敌人</dt><dd className="mt-1 text-lg tabular-nums">{result.kills} / {DEMO_LEVEL.enemies.length}</dd></div>
           <div><dt className="text-xs text-gray-400">剩余生命</dt><dd className="mt-1 text-lg tabular-nums">{Math.max(0, Math.ceil(result.hpRemaining))}</dd></div>
+          <div><dt className="text-xs text-gray-400">最高连击</dt><dd className="mt-1 text-lg tabular-nums">{result.bestChain ?? 0}</dd></div>
         </dl>
         <p className="mt-4 text-xs text-gray-400">独立演练不会发放奖励，也不会改变会话进度。</p>
         <div className="mt-6 flex flex-wrap gap-2">

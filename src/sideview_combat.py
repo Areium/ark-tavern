@@ -13,6 +13,9 @@ LEVEL_DIR = DATA_ROOT / "sideview_levels"
 SNAPSHOT_VERSION = 1
 
 
+ENEMY_KINDS = ("guard", "ranger", "elite")
+
+
 def load_level(encounter_id: str) -> dict:
     """Use a matching level when present, otherwise the authored default stage."""
     safe_id = encounter_id if isinstance(encounter_id, str) and encounter_id.isidentifier() else ""
@@ -21,12 +24,85 @@ def load_level(encounter_id: str) -> dict:
         path = LEVEL_DIR / "default.json"
     with path.open(encoding="utf-8") as stream:
         level = json.load(stream)
-    if level.get("schemaVersion") != 1 or not isinstance(level.get("rewards"), dict):
-        raise ValueError("侧卷轴关卡配置无效")
-    if level.get("victoryCondition", "clear_and_exit") not in ("clear_and_exit", "reach_exit"):
-        raise ValueError("侧卷轴通关条件无效")
+    validate_level(level)
     level.setdefault("victoryCondition", "clear_and_exit")
     return level
+
+
+def validate_level(level: object) -> None:
+    """Reject authored stages the browser simulation or settlement cannot run.
+
+    Checks structure and bounds only; whether a layout is fun or completable is
+    the author's job (the frontend simulation tests play the default stage).
+    """
+    def fail(message: str):
+        raise ValueError(f"侧卷轴关卡配置无效：{message}")
+
+    def rect(value, label: str, *, allow_pit_depth: bool = False) -> dict:
+        if not isinstance(value, dict) or not all(_number(value.get(k), -1e9, 1e9) for k in ("x", "y", "width", "height")):
+            fail(f"{label} 需要数值 x/y/width/height")
+        if value["width"] <= 0 or value["height"] <= 0:
+            fail(f"{label} 尺寸必须为正")
+        bottom = level["height"] + (80 if allow_pit_depth else 0)
+        if value["x"] < 0 or value["y"] < 0 or value["x"] + value["width"] > level["width"] or value["y"] + value["height"] > bottom:
+            fail(f"{label} 超出关卡边界")
+        return value
+
+    if not isinstance(level, dict) or level.get("schemaVersion") != 1:
+        fail("schemaVersion 必须为 1")
+    if not isinstance(level.get("id"), str) or not level["id"] or not isinstance(level.get("name"), str):
+        fail("id / name 缺失")
+    if not _number(level.get("width"), 320, 20000) or not _number(level.get("height"), 240, 4000):
+        fail("width / height 超出范围")
+    if level.get("victoryCondition", "clear_and_exit") not in ("clear_and_exit", "reach_exit"):
+        raise ValueError("侧卷轴通关条件无效")
+    for key in ("platforms", "obstacles", "hazards"):
+        if not isinstance(level.get(key), list):
+            fail(f"{key} 必须是数组")
+    if not level["platforms"]:
+        fail("至少需要一个平台")
+    for index, platform in enumerate(level["platforms"]):
+        rect(platform, f"platforms[{index}]")
+        # Omitted oneWay lets the client treat ledges up to 32 px thick as jump-through.
+        if "oneWay" in platform and type(platform["oneWay"]) is not bool:
+            fail(f"platforms[{index}].oneWay 必须是布尔值")
+    for index, obstacle in enumerate(level["obstacles"]):
+        rect(obstacle, f"obstacles[{index}]")
+    for index, hazard in enumerate(level["hazards"]):
+        rect(hazard, f"hazards[{index}]", allow_pit_depth=True)
+        if not _number(hazard.get("damage"), 0, 999):
+            fail(f"hazards[{index}].damage 需在 0–999")
+    spawn = level.get("spawn")
+    if not isinstance(spawn, dict) or not (_number(spawn.get("x"), 0, level["width"]) and _number(spawn.get("y"), 0, level["height"])):
+        fail("spawn 超出关卡边界")
+    rect(level.get("exit"), "exit")
+    enemies = level.get("enemies")
+    if not isinstance(enemies, list):
+        fail("enemies 必须是数组")
+    seen = set()
+    for index, enemy in enumerate(enemies):
+        label = f"enemies[{index}]"
+        if not isinstance(enemy, dict) or not isinstance(enemy.get("id"), str) or not enemy["id"]:
+            fail(f"{label}.id 缺失")
+        if enemy["id"] in seen:
+            fail(f"敌人 ID 重复：{enemy['id']}")
+        seen.add(enemy["id"])
+        if not isinstance(enemy.get("name"), str) or enemy.get("kind", "guard") not in ENEMY_KINDS:
+            fail(f"{label} 的 name / kind 无效")
+        if not (_number(enemy.get("x"), 0, level["width"]) and _number(enemy.get("y"), 0, level["height"])):
+            fail(f"{label} 位置超出关卡边界")
+        if not (isinstance(enemy.get("hp"), int) and not isinstance(enemy["hp"], bool) and 1 <= enemy["hp"] <= 9999):
+            fail(f"{label}.hp 需为 1–9999 的整数")
+        if not (_number(enemy.get("damage"), 1, 999) and _number(enemy.get("speed"), 0, 1000)
+                and _number(enemy.get("range"), 1, 2000)):
+            fail(f"{label} 的 damage / speed / range 超出范围")
+        patrol = [enemy.get(k) for k in ("patrolMin", "patrolMax") if k in enemy]
+        if any(not _number(v, 0, level["width"]) for v in patrol) or (len(patrol) == 2 and patrol[0] > patrol[1]):
+            fail(f"{label} 巡逻区间无效")
+    rewards = level.get("rewards")
+    if (not isinstance(rewards, dict) or not isinstance(rewards.get("xp"), int) or isinstance(rewards["xp"], bool)
+            or rewards["xp"] < 0 or not isinstance(rewards.get("items", []), list)):
+        fail("rewards 需要非负整数 xp 与 items 数组")
 
 
 def initial_snapshot(level: dict, hp: int) -> dict:

@@ -51,10 +51,11 @@ const ENEMY_SPINE_VARIANT: Record<string, string> = {
 };
 
 const SPINE_VARIANT_ALL: Record<string, string> = { ...SPINE_VARIANT, ...ENEMY_SPINE_VARIANT };
+export const hasSideviewSpine = (name: string) => Object.prototype.hasOwnProperty.call(SPINE_VARIANT_ALL, name);
 
 
 export async function loadSideviewSpine(name: string) {
-  const variant = SPINE_VARIANT_ALL[name];
+  const variant = hasSideviewSpine(name) ? SPINE_VARIANT_ALL[name] : undefined;
   if (!variant) throw new Error(`${name}暂无本地战斗模型`);
   const base = `${await getBaseUrl()}/api/assets/characters/${encodeURIComponent(name)}/spine/${variant}/Front`;
   const file = variant.split('/').pop()!;
@@ -81,5 +82,5 @@ export function makeSideviewSpine(data: Awaited<ReturnType<typeof loadSideviewSp
   if (spec.idle) spine.state.setAnimation(0, spec.idle, true);
   spine.update(0);
   const bounds = spine.getLocalBounds();
-  return { spine, spec, bottom: bounds.y + bounds.height, move: names.find(n => /^(move|walk|run)/i.test(n)), action: '', attacking: false, attackPlaying: false };
+  return { spine, spec, bottom: bounds.y + bounds.height, move: names.find(n => /^(move|walk|run)/i.test(n)), action: '', attacking: false, attackPlaying: false, dead: false };
 }

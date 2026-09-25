@@ -14,7 +14,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from app import create_app  # noqa: E402
 from session_overlay import SessionOverlay  # noqa: E402
 from combat_resume import session_resume_path  # noqa: E402
-from sideview_combat import minimum_victory_ms, victory_satisfied  # noqa: E402
+from sideview_combat import (load_level, minimum_victory_ms,  # noqa: E402
+                             validate_level, victory_satisfied)
 
 ENCOUNTER = "enc_quick_test_1"
 
@@ -53,7 +54,8 @@ def _victory(state):
     snapshot["player"].update(x=goal["x"] + 5, y=goal["y"] + 5)
     for enemy in snapshot["enemies"]:
         enemy["hp"] = 0
-    snapshot.update(elapsedMs=2500, exitReached=True, damageTaken=0,
+    snapshot.update(elapsedMs=max(2500, minimum_victory_ms(state["level"])),
+                    exitReached=True, damageTaken=0,
                     cooldowns={"skill": 0, "dash": 0, "support": 0})
     return snapshot
 
@@ -360,3 +362,40 @@ def test_new_sideview_identity_can_start_without_scene_npc(client):
         assert state["supportName"] is None
     finally:
         client.delete(f"/api/sessions/{sid}")
+
+
+def test_default_level_passes_validation_and_is_a_full_stage():
+    level = load_level("default")
+    validate_level(level)
+    kinds = {enemy["kind"] for enemy in level["enemies"]}
+    assert kinds == {"guard", "ranger", "elite"}
+    assert level["exit"]["x"] > level["spawn"]["x"] + 1000
+    assert len({enemy["id"] for enemy in level["enemies"]}) == len(level["enemies"])
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda lv: lv.update(schemaVersion=2), "schemaVersion"),
+    (lambda lv: lv.update(platforms=[]), "平台"),
+    (lambda lv: lv["platforms"][0].update(width=-1), "尺寸"),
+    (lambda lv: lv["platforms"][1].update(oneWay="yes"), "oneWay"),
+    (lambda lv: lv["obstacles"][0].update(x=lv["width"]), "边界"),
+    (lambda lv: lv["hazards"][0].pop("damage"), "damage"),
+    (lambda lv: lv["enemies"].append(dict(lv["enemies"][0])), "重复"),
+    (lambda lv: lv["enemies"][0].update(kind="dragon"), "kind"),
+    (lambda lv: lv["enemies"][0].update(hp=12.5), "hp"),
+    (lambda lv: lv["enemies"][0].update(patrolMin=900, patrolMax=100), "巡逻"),
+    (lambda lv: lv["exit"].update(y=lv["height"]), "exit"),
+    (lambda lv: lv.update(rewards={"xp": -1, "items": []}), "rewards"),
+])
+def test_invalid_level_is_rejected_with_a_named_field(mutate, message):
+    level = copy.deepcopy(load_level("default"))
+    mutate(level)
+    with pytest.raises(ValueError, match=message):
+        validate_level(level)
+
+
+def test_pit_hazard_may_extend_below_the_floor_line():
+    level = copy.deepcopy(load_level("default"))
+    level["hazards"].append({"x": 10, "y": level["height"] - 10, "width": 40,
+                             "height": 60, "damage": 5})
+    validate_level(level)

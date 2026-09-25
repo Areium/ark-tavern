@@ -1,5 +1,8 @@
 import type { SideviewLevel, SimulationLevel, SideviewOperator } from './types';
 
+/** Ledges up to this thickness default to one-way; authored `oneWay` overrides. */
+export const ONE_WAY_MAX_HEIGHT = 32;
+
 export const DEMO_OPERATOR: SideviewOperator = { name: '临光', maxHp: 120, attack: 26, skillPower: 65 };
 const demo: SimulationLevel = {
   id: 'outskirts-01', name: '废城边界 · 雨幕行动', worldWidth: 3400, worldHeight: 680,
@@ -27,10 +30,10 @@ export const DEMO_LEVEL: SideviewLevel = {
   schemaVersion: 1, id: demo.id, name: demo.name, width: demo.worldWidth, height: demo.worldHeight,
   platforms: demo.platforms, obstacles: demo.obstacles, hazards: demo.hazards.map(h => ({ ...h, damage: 20 })),
   spawn: demo.spawn, exit: demo.goal, victoryCondition: demo.victoryCondition, rewards: { xp: 60, items: [] },
-  enemies: demo.enemies.map(e => ({ ...e, name: e.kind === 'elite' ? '重装守卫' : e.kind === 'ranger' ? '弩手' : '巡逻兵', damage: e.kind === 'elite' ? 24 : 15, speed: 105, range: e.kind === 'ranger' ? 500 : 82 })),
+  enemies: demo.enemies.map(e => ({ ...e, name: e.kind === 'elite' ? '重装守卫' : e.kind === 'ranger' ? '弩手' : '巡逻兵', damage: e.kind === 'elite' ? 24 : 15, speed: 105, range: e.kind === 'ranger' ? 500 : e.kind === 'elite' ? 130 : 82 })),
 };
 
 export function normalizeLevel(level: SideviewLevel): SimulationLevel {
-  return { id: level.id, name: level.name, worldWidth: level.width, worldHeight: level.height, platforms: level.platforms, obstacles: level.obstacles, hazards: level.hazards, spawn: level.spawn, goal: level.exit, victoryCondition: level.victoryCondition ?? 'clear_and_exit',
+  return { id: level.id, name: level.name, worldWidth: level.width, worldHeight: level.height, platforms: level.platforms.map(p => ({ ...p, oneWay: p.oneWay ?? p.height <= ONE_WAY_MAX_HEIGHT })), obstacles: level.obstacles, hazards: level.hazards, spawn: level.spawn, goal: level.exit, victoryCondition: level.victoryCondition ?? 'clear_and_exit',
     enemies: level.enemies.map(e => ({ ...e, kind: e.kind ?? 'guard', patrolMin: e.patrolMin ?? Math.max(0, e.x - 120), patrolMax: e.patrolMax ?? Math.min(level.width - 50, e.x + 120) })) };
 }
