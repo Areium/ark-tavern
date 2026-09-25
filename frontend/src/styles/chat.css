@@ -289,7 +289,7 @@
   position: absolute; left: 50%; bottom: 34%; z-index: 8; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; width: min(520px, 86%);
   animation: stage-rise .3s ease-out;
 }
-.stage-choices-title { text-align: center; font-family: var(--chat-display, "Orbitron", sans-serif); font-size: 11px; letter-spacing: .3em; color: rgba(255, 228, 170, .9); text-shadow: 0 1px 6px rgba(0, 0, 0, .8); }
+.stage-choices-title { text-align: center; font-family: var(--chat-display, "Orbitron", sans-serif); font-size: 12px; letter-spacing: .06em; color: rgba(255, 228, 170, .9); text-shadow: 0 1px 6px rgba(0, 0, 0, .8); }
 .stage-choice {
   display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 18px; border-radius: 12px; text-align: left; font-size: 14px;
   color: #fff6e0; background: rgba(10, 12, 18, .78); border: 1px solid rgba(245, 200, 106, .5); backdrop-filter: blur(8px);
@@ -376,7 +376,7 @@
 .stage-action-input textarea::selection { background: #66512b; color: #fff6e0; }
 .stage-action-input .chat-send { min-height: 44px; background: #e8b856; box-shadow: none; }
 .stage-action-input .chat-lock-note { color: #f5c86a; opacity: 1; }
-.stage-dialog-wrap .stage-choices { position: relative; left: auto; bottom: auto; transform: none; width: min(520px, 100%); margin: 0 auto 16px; animation: stage-fade .3s ease-out; }
+.stage-dialog-wrap .stage-choices { position: relative; left: auto; bottom: auto; transform: none; width: min(520px, 100%); margin: 12px auto 0; animation: stage-fade .3s ease-out; }
 @media (max-width: 640px) {
   .stage-dialog { padding: 12px 14px 10px; }
   .stage-name { max-width: 100%; }

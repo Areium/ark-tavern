@@ -40,6 +40,17 @@ interface Props {
 /** 打字机速度（字 / 秒）；生成完成后才开始舞台演出。 */
 const TYPE_CPS = 45;
 
+type StageSceneSnapshot = {
+  sessionId: string;
+  stage: StageDTO | null;
+  sprites: StageDTO["characters"];
+  focus: string | null;
+};
+// Survives switching to the log layout or another session, without retaining an
+// unbounded history of stages. Only visual data is retained, never message text.
+const sceneSnapshots = new Map<string, StageSceneSnapshot>();
+const MAX_SCENE_SNAPSHOTS = 8;
+
 type PortraitAdjustment = { x: number; y: number; scale: number };
 type PortraitBounds = { width: number; height: number; left: number; top: number; right: number; bottom: number };
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -95,7 +106,7 @@ export default function StageView({
   const api = useApi();
   const { envRefreshKey, characterRefreshKey, resourceVersion, highlightedSpeaker, setHighlightedSpeaker } = useAppStore();
   const [stage, setStage] = useState<StageDTO | null>(null);
-  const [bgFailed, setBgFailed] = useState(false);
+  const [failedBackground, setFailedBackground] = useState<string | null>(null);
   const [failedSprites, setFailedSprites] = useState<string[]>([]);
   const [editingPortraits, setEditingPortraits] = useState(false);
   const [selectedPortrait, setSelectedPortrait] = useState<string | null>(null);
@@ -105,6 +116,7 @@ export default function StageView({
   const dragRef = useRef<{ name: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   useEffect(() => { setStage(null); }, [sessionId]);
   useEffect(() => { setFailedSprites([]); }, [sessionId, resourceVersion]);
+  useEffect(() => { setFailedBackground(null); }, [sessionId, resourceVersion]);
   useEffect(() => {
     setPortraitLayout(readPortraitLayout(sessionId));
     setEditingPortraits(false);
@@ -119,7 +131,12 @@ export default function StageView({
   // ── 舞台数据：背景 / 立绘 / 环境（环境、阵容、资源覆盖变化时重拉） ──
   useEffect(() => {
     let cancelled = false;
-    api.getStage(sessionId).then((data) => { if (!cancelled) { setStage(data); setBgFailed(false); } }).catch(() => {});
+    api.getStage(sessionId).then((data) => {
+      if (!cancelled) {
+        setStage(data);
+        setFailedBackground(null); // Retry once per successful refresh, never on image failure itself.
+      }
+    }).catch(() => {});
     return () => { cancelled = true; };
   }, [api, sessionId, envRefreshKey, characterRefreshKey, resourceVersion]);
 
@@ -268,21 +285,41 @@ export default function StageView({
   const segmentSpeakers = new Set(script.steps.map(speakerOfStep).filter((name): name is string => !!name));
   if (!segmentSpeakers.size && fallbackSpeaker) segmentSpeakers.add(fallbackSpeaker);
   // Filter against the whole completed segment, never the current typewriter sentence.
-  // Only unfinished streaming keeps the roster; completed narration and empty scripts have no speakers.
+  // Completed narration and empty scripts have no speakers.
   const player = stage?.player;
   const cast = npcSprites.filter((sprite) => sprite.name !== player?.name);
   if (player?.name) cast.push({ ...player, active: false });
   const roster = [...new Map(cast.map((sprite) => [sprite.name, sprite])).values()];
-  const sprites = roster.filter((sprite) => script.streaming || segmentSpeakers.has(sprite.name)
+  const nextSprites = roster.filter((sprite) => segmentSpeakers.has(sprite.name)
     || (editingPortraits && sprite.name === selectedPortrait));
+  // Keep the last committed visual scene while the next script and stage data arrive.
+  // Scope the snapshot to the session so switching sessions never borrows another cast.
+  const lastScene = useRef<StageSceneSnapshot | null>(null);
+  const previousScene = lastScene.current?.sessionId === sessionId
+    ? lastScene.current : sceneSnapshots.get(sessionId) ?? null;
+  const visibleStage = presenting ? previousScene?.stage ?? null : stage;
+  const sprites = presenting ? previousScene?.sprites ?? [] : nextSprites;
+  const focus = presenting ? previousScene?.focus ?? null : highlightedSpeaker ?? speaker ?? null;
+  useLayoutEffect(() => {
+    const snapshot = presenting ? previousScene : { sessionId, stage, sprites: nextSprites, focus };
+    if (!snapshot) return;
+    lastScene.current = snapshot;
+    // Refresh recency even when remounting mid-generation; never cache that
+    // generation's incomplete roster or newly fetched environment.
+    sceneSnapshots.delete(sessionId);
+    sceneSnapshots.set(sessionId, snapshot);
+    if (sceneSnapshots.size > MAX_SCENE_SNAPSHOTS) {
+      const oldestSession = sceneSnapshots.keys().next().value;
+      if (oldestSession !== undefined) sceneSnapshots.delete(oldestSession);
+    }
+  });
   const positions = stagePositions(sprites.length);
-  const focus = highlightedSpeaker ?? speaker ?? null;
   const someoneSpeaking = !!focus && sprites.some((s) => s.name === focus);
 
-  const bgUrl = !bgFailed ? stage?.background.url ?? null : null;
+  const bgUrl = visibleStage?.background.url && visibleStage.background.url !== failedBackground ? visibleStage.background.url : null;
   const bgStyle = bgUrl
     ? { backgroundImage: `url("${bgUrl}")` }
-    : { backgroundImage: proceduralBackground(stage?.time || "", stage?.weather || "") };
+    : { backgroundImage: proceduralBackground(visibleStage?.time || "", visibleStage?.weather || "") };
   const nameColor = speaker ? characterColors[speaker] || sprites.find((s) => s.name === speaker)?.color || undefined : undefined;
 
   const empty = messages.length === 0;
@@ -304,15 +341,15 @@ export default function StageView({
       onPointerDown={(event) => { backgroundPress.current = event.button === 0 && isBackground(event.target) && !editingPortraits ? { x: event.clientX, y: event.clientY } : null; }}
       onPointerCancel={() => { backgroundPress.current = null; }} onClick={advanceBackground}>
       <div className="stage-bg" style={bgStyle} aria-hidden="true" />
-      {bgUrl && <img src={bgUrl} alt="" className="hidden" onError={() => setBgFailed(true)} />}
+      {bgUrl && <img src={bgUrl} alt="" className="hidden" onError={() => setFailedBackground(bgUrl)} />}
       <div className="stage-vignette" aria-hidden="true" />
 
       {/* 环境角标 */}
-      {stage && (stage.location || stage.weather || stage.time) && (
-        <div className="stage-env" title={stage.atmosphere?.join("、") || undefined}>
-          {stage.location && <span><AppIcon name="location" size={11} />{stage.location}</span>}
-          {stage.weather && <span><AppIcon name="weather" size={11} />{stage.weather}</span>}
-          {stage.time && <span><AppIcon name="time" size={11} />{stage.time}</span>}
+      {visibleStage && (visibleStage.location || visibleStage.weather || visibleStage.time) && (
+        <div className="stage-env" title={visibleStage.atmosphere?.join("、") || undefined}>
+          {visibleStage.location && <span><AppIcon name="location" size={11} />{visibleStage.location}</span>}
+          {visibleStage.weather && <span><AppIcon name="weather" size={11} />{visibleStage.weather}</span>}
+          {visibleStage.time && <span><AppIcon name="time" size={11} />{visibleStage.time}</span>}
         </div>
       )}
 
@@ -425,26 +462,6 @@ export default function StageView({
       </div>
 
       <div className="stage-dialog-wrap">
-      {/* 选项 */}
-      {showChoices && script.choiceMessage && (
-        <div className="stage-choices" role="group" aria-label="选项">
-          <span className="stage-choices-title">— 请选择 —</span>
-          {script.choiceMessage.branches?.length
-            ? script.choiceMessage.branches.map((b) => (
-              <button key={b.id} type="button" className="stage-choice" disabled={choicesDisabled}
-                onClick={() => onChoice(b.label, b)} title={b.target_beat_id ? `目标节点：${b.target_beat_id}` : undefined}>
-                <span>{b.label}</span>
-                {b.intent && <em>{b.intent}</em>}
-              </button>
-            ))
-            : script.choiceMessage.choices?.map((choice, ci) => (
-              <button key={ci} type="button" className="stage-choice" disabled={choicesDisabled} onClick={() => onChoice(choice)}>
-                <span>{choice}</span>
-              </button>
-            ))}
-        </div>
-      )}
-
       {/* 对话框 */}
         {empty && !waiting ? (
           <div className="stage-dialog is-empty">
@@ -496,6 +513,26 @@ export default function StageView({
             )}
           </div>
         )}
+      {/* 选项 */}
+      {showChoices && script.choiceMessage && (
+        <div className="stage-choices" role="group" aria-label="选项">
+          <span className="stage-choices-title">选择一项，或自由输入</span>
+          {script.choiceMessage.branches?.length
+            ? script.choiceMessage.branches.map((b) => (
+              <button key={b.id} type="button" className="stage-choice" disabled={choicesDisabled}
+                onClick={() => onChoice(b.label, b)} title={b.target_beat_id ? `目标节点：${b.target_beat_id}` : undefined}>
+                <span>{b.label}</span>
+                {b.intent && <em>{b.intent}</em>}
+              </button>
+            ))
+            : script.choiceMessage.choices?.map((choice, ci) => (
+              <button key={ci} type="button" className="stage-choice" disabled={choicesDisabled} onClick={() => onChoice(choice)}>
+                <span>{choice}</span>
+              </button>
+            ))}
+        </div>
+      )}
+
         {actionInput}
       </div>
     </div>
