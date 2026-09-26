@@ -17,7 +17,7 @@ export interface SideviewBattleProps {
   onAbandon?: () => void | Promise<void>;
 }
 type Phase = 'ready' | 'playing' | 'paused' | 'finished';
-interface Hud { hp: number; kills: number; seconds: number; skill: number; dash: number; support: number; progress: number; chain: number; combo: number; elite: { name: string; hp: number; max: number } | null }
+interface Hud { prop: 'canister' | 'lamp' | null; hp: number; kills: number; seconds: number; skill: number; dash: number; support: number; progress: number; chain: number; combo: number; elite: { name: string; hp: number; max: number } | null }
 const keyActions: Record<string, Action> = { KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right', Space: 'jump', KeyW: 'jump', ArrowUp: 'jump', ShiftLeft: 'dash', ShiftRight: 'dash', KeyJ: 'attack', KeyK: 'skill', KeyL: 'support' };
 /** Nearby elites get a named bar in the HUD once they are this close. */
 const ELITE_HUD_RANGE = 560;
@@ -46,7 +46,7 @@ export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = D
   const callbacks = useRef({ onSnapshot, onComplete, onExit }); callbacks.current = { onSnapshot, onComplete, onExit };
   const phaseRef = useRef<Phase>('ready');
   const [phase, setPhase] = useState<Phase>('ready');
-  const [hud, setHud] = useState<Hud>({ hp: initialSnapshot?.player.hp ?? operator.maxHp, kills: 0, seconds: 0, skill: 0, dash: 0, support: 0, progress: 0, chain: 0, combo: 0, elite: null });
+  const [hud, setHud] = useState<Hud>({ prop: null, hp: initialSnapshot?.player.hp ?? operator.maxHp, kills: 0, seconds: 0, skill: 0, dash: 0, support: 0, progress: 0, chain: 0, combo: 0, elite: null });
   const [error, setError] = useState('');
   const [assets, setAssets] = useState('');
   const [help, setHelp] = useState(false);
@@ -97,7 +97,9 @@ export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = D
           const distance = Math.abs(e.x - p.x);
           if (distance < nearest && Math.abs(e.y - p.y) < 220) { nearest = distance; elite = { name: names.get(e.id) || '重装守卫', hp: e.hp, max: spec.hp }; }
         }
-        setHud({ hp: p.hp, kills: state.kills, seconds: Math.floor(state.elapsed), skill: p.skillCooldown, dash: p.dashCooldown, support: p.supportCooldown, progress: Math.max(0, Math.min(100, p.x / Math.max(1, level.width - 120) * 100)), chain: state.chain, combo: p.combo, elite });
+        const nearbyProp = state.props.find(prop => !prop.broken && Math.abs(prop.x - p.x) < 125 && Math.abs(prop.y + prop.height - p.y - p.height) < 45);
+        const fighting = state.enemies.some(e => e.hp > 0 && Math.abs(e.x - p.x) < 180 && Math.abs(e.y - p.y) < 100);
+        setHud({ prop: fighting ? null : nearbyProp?.kind ?? null, hp: p.hp, kills: state.kills, seconds: Math.floor(state.elapsed), skill: p.skillCooldown, dash: p.dashCooldown, support: p.supportCooldown, progress: Math.max(0, Math.min(100, p.x / Math.max(1, level.width - 120) * 100)), chain: state.chain, combo: p.combo, elite });
       }
       renderer.render(state); frame = requestAnimationFrame(loop);
     };
@@ -153,6 +155,7 @@ export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = D
         </div>
       </div>
       {hud.elite && phase === 'playing' && <div className="sv-elite" role="group" aria-label={`${hud.elite.name} 生命 ${Math.ceil(hud.elite.hp)} / ${hud.elite.max}`}><span>{hud.elite.name}<small>霸体 · 蓄力后突进</small></span><div><i style={{ transform: `scaleX(${hud.elite.hp / hud.elite.max})` }} /></div></div>}
+      {phase === 'playing' && hud.prop && !assets && <p className="sv-environment-hint">{hud.prop === 'lamp' ? '警示灯可打灭' : '废弃罐体可击碎'}<span>近战 · 技能 · 闪避冲撞</span></p>}
       {assets && <p className="sv-asset-status" role="status">{assets}</p>}
       <div className="sv-route" aria-label={`关卡进度 ${Math.round(hud.progress)}%`}><i style={{ transform: `scaleX(${hud.progress / 100})` }} /></div>
       {(phase !== 'playing' || error) && <div className="sv-curtain">
@@ -176,7 +179,7 @@ export default function SideviewBattle({ runId, level = DEMO_LEVEL, operator = D
       </div>
       <button type="button" className="sv-help-toggle" onClick={() => { pause(); setHelp(v => !v); }} aria-expanded={help}>操作说明</button>
     </footer>
-    {help && <div className="sv-help"><p><strong>移动与战斗</strong>：A / D 或方向键移动，Space / W / ↑ 跳跃；短按小跳，长按高跳。Shift 闪避（{COOLDOWNS.dash} 秒），J 近战：连按打出三段连击，第三击击退并打断普通敌人的蓄力；K 范围技能（{COOLDOWNS.skill} 秒），L 呼叫{supportLabel}（{COOLDOWNS.support} 秒，恢复 30 生命并打击附近敌人）。Esc 暂停。</p><p><strong>预警与反击</strong>：橙色地面条是守卫的斩击范围，虚线是弩手的瞄准线，红色通道是重装守卫的突进路线；重装守卫有霸体，只有技能和援护能打断。在攻击命中前闪避触发「极限闪避」，技能冷却缩短 1.5 秒。坠落会扣除生命并回到最近的安全落脚点。</p><p>支持手柄（标准布局）。移动设备可同时按住方向与动作按钮。{clearRequired ? '出口前的空气墙会阻止通行；清除全部守卫后解除封锁。' : '抵达最右侧撤离点即可完成行动，无需清除全部守卫。'}进度每 5 秒保存；{practice ? '“保存演练并返回大厅”会在本机保留进度。' : '“保存并离开”会挂起当前行动。'}</p></div>}
+    {help && <div className="sv-help"><p><strong>移动与战斗</strong>：A / D 或方向键移动，Space / W / ↑ 跳跃；短按小跳，长按高跳。Shift 闪避（{COOLDOWNS.dash} 秒），J 近战：连按打出三段连击，第三击击退并打断普通敌人的蓄力；K 范围技能（{COOLDOWNS.skill} 秒），L 呼叫{supportLabel}（{COOLDOWNS.support} 秒，恢复 30 生命并打击附近敌人）。Esc 暂停。</p><p><strong>预警与反击</strong>：橙色地面条是守卫的斩击范围，虚线是弩手的瞄准线，红色通道是重装守卫的突进路线；重装守卫有霸体，只有技能和援护能打断。在攻击命中前闪避触发「极限闪避」，技能冷却缩短 1.5 秒。坠落会扣除生命并回到最近的安全落脚点。</p><p><strong>街区互动</strong>：近战、技能和闪避冲撞能击碎路边罐体、打灭警示灯；碎片不会伤人，也不会掉落物品。重新进入关卡时这些场景物件会复原。</p><p>支持手柄（标准布局）。移动设备可同时按住方向与动作按钮。{clearRequired ? '出口前的空气墙会阻止通行；清除全部守卫后解除封锁。' : '抵达最右侧撤离点即可完成行动，无需清除全部守卫。'}进度每 5 秒保存；{practice ? '“保存演练并返回大厅”会在本机保留进度。' : '“保存并离开”会挂起当前行动。'}</p></div>}
     <span className="sv-sr-only" aria-live="polite">{phase === 'finished' ? (sim.current?.outcome === 'victory' ? '撤离成功' : '行动失败') : clearRequired && hud.kills === level.enemies.length ? '全部守卫已清除，出口封锁解除，前往最右侧撤离点。' : ''}</span>
   </section>;
 }

@@ -82,5 +82,31 @@ export function makeSideviewSpine(data: Awaited<ReturnType<typeof loadSideviewSp
   if (spec.idle) spine.state.setAnimation(0, spec.idle, true);
   spine.update(0);
   const bounds = spine.getLocalBounds();
-  return { spine, spec, bottom: bounds.y + bounds.height, move: names.find(n => /^(move|walk|run)/i.test(n)), action: '', attacking: false, attackPlaying: false, dead: false };
+  // Begin/Down/Up are transitions, not gait cycles (shield and soldier assets contain both).
+  const move = names.find(n => /^(move|walk)_loop$/i.test(n)) ?? names.find(n => /^(move|walk|run)$/i.test(n));
+  const run = names.find(n => /^run_loop$/i.test(n)) ?? names.find(n => /^run$/i.test(n)) ?? move;
+  const pose = { stride: 0, amount: 0 };
+  // Battle skins often have no locomotion clip in either Front or Back. Keep the
+  // selected outfit: offset existing leg IK targets, never splice incompatible rigs.
+  const feet = ['Ik_F_L_Leg', 'Ik_F_R_Leg'].map(n => spine.skeleton.findBone(n));
+  const saved = feet.map(() => ({ x: 0, y: 0 }));
+  const worldTransform = spine.skeleton.updateWorldTransform.bind(spine.skeleton);
+  spine.skeleton.updateWorldTransform = () => {
+    worldTransform();
+    if (!pose.amount) return;
+    feet.forEach((bone, i) => {
+      if (!bone?.parent) return;
+      saved[i].x = bone.x; saved[i].y = bone.y;
+      const step = Math.sin(pose.stride + i * Math.PI);
+      const dx = step * 28 * pose.amount, dy = -Math.max(0, Math.cos(pose.stride + i * Math.PI)) * 24 * pose.amount;
+      const { a, b, c, d } = bone.parent.matrix, det = a * d - b * c;
+      if (Math.abs(det) < 0.0001) return;
+      bone.x += (d * dx - c * dy) / det;
+      bone.y += (a * dy - b * dx) / det;
+    });
+    worldTransform();
+    // Local offsets must not accumulate when an animation omits an IK timeline.
+    feet.forEach((bone, i) => { if (bone?.parent) { bone.x = saved[i].x; bone.y = saved[i].y; } });
+  };
+  return { spine, spec, bottom: bounds.y + bounds.height, move, run, pose, stride: 0, land: 0, grounded: true, action: '', attacking: false, attackPlaying: false, dead: false };
 }

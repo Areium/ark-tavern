@@ -12,6 +12,8 @@ export interface SimulationLevel {
 export interface SideviewOperator { name: string; maxHp: number; attack: number; skillPower: number }
 export type SideviewOutcome = 'victory' | 'defeat';
 export interface Body extends Rect { vx: number; vy: number; grounded: boolean; facing: -1 | 1 }
+/** Cosmetic street fixtures: no collision, damage, drops, or settlement state. */
+export interface SceneProp extends Rect { id: string; kind: 'canister' | 'lamp'; broken: boolean }
 export interface PlayerState extends Body {
   hp: number; invulnerable: number; attackCooldown: number; skillCooldown: number;
   dashCooldown: number; supportCooldown: number; dashTime: number; attackTime: number;
@@ -24,6 +26,8 @@ export interface PlayerState extends Body {
   dashPerfect: boolean;
   /** Last solid footing; pits return the player here instead of the level start. */
   safeX: number; safeY: number;
+  /** Distance travelled on foot since the last footfall; transient presentation only. */
+  stepDistance: number;
 }
 export interface EnemyState extends Body {
   id: string; hp: number; cooldown: number; windup: number; hurt: number;
@@ -44,7 +48,7 @@ export interface SideviewResult {
 }
 export type Action = 'left' | 'right' | 'jump' | 'dash' | 'attack' | 'skill' | 'support';
 export type SideviewInput = Record<Action, boolean>;
-export type EffectKind = 'hit' | 'slash' | 'finisher' | 'skill' | 'support' | 'dash' | 'perfect' | 'damage' | 'lunge';
+export type EffectKind = 'hit' | 'slash' | 'finisher' | 'skill' | 'support' | 'dash' | 'perfect' | 'damage' | 'lunge' | 'step' | 'land' | 'jump' | 'debris' | 'spark';
 export interface Effect {
   x: number; y: number; kind: EffectKind; life: number; facing: number;
   /** Floating numbers: amount and who received it. */
@@ -52,6 +56,7 @@ export interface Effect {
 }
 export interface Projectile extends Rect { vx: number; vy: number; life: number; damage: number }
 export interface Simulation extends SimulationSnapshot {
+  props: SceneProp[];
   effects: Effect[]; projectiles: Projectile[]; previous: SideviewInput;
   /** Rising edges pressed during hitstop, applied on the next live step. */
   queued: Partial<SideviewInput>;

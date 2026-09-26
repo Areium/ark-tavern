@@ -1,4 +1,5 @@
 import type { Action, EnemyState, Rect, SideviewEnemyKind, SideviewEnemySpec, SideviewInput, SimulationLevel, SideviewOperator, SideviewSnapshot, Simulation } from './types';
+import { createSceneProps } from './environment';
 
 export const FIXED_STEP = 1 / 60;
 /** Ability cooldowns in seconds; the HUD reads these to fill cooldown meters. */
@@ -44,9 +45,9 @@ export function levelTables(level: SimulationLevel) {
 export function createSimulation(level: SimulationLevel, operator: SideviewOperator, saved?: SideviewSnapshot): Simulation {
   const s: Simulation = {
     version: 1, levelId: level.id, elapsed: 0, kills: 0, damageTaken: 0, outcome: null,
-    player: { ...level.spawn, width: 32, height: 58, vx: 0, vy: 0, grounded: false, facing: 1, hp: operator.maxHp, invulnerable: 0, attackCooldown: 0, skillCooldown: 0, dashCooldown: 0, supportCooldown: 0, dashTime: 0, attackTime: 0, attackBuffer: 0, coyote: 0, jumpBuffer: 0, combo: 0, comboTime: 0, dashPerfect: false, safeX: level.spawn.x, safeY: level.spawn.y },
+    player: { ...level.spawn, width: 32, height: 58, vx: 0, vy: 0, grounded: false, facing: 1, hp: operator.maxHp, invulnerable: 0, attackCooldown: 0, skillCooldown: 0, dashCooldown: 0, supportCooldown: 0, dashTime: 0, attackTime: 0, attackBuffer: 0, coyote: 0, jumpBuffer: 0, combo: 0, comboTime: 0, dashPerfect: false, safeX: level.spawn.x, safeY: level.spawn.y, stepDistance: 0 },
     enemies: level.enemies.map(e => ({ id: e.id, x: e.x, y: e.y, width: e.kind === 'elite' ? 48 : 34, height: e.kind === 'elite' ? 72 : 58, vx: 0, vy: 0, grounded: false, facing: -1, hp: e.hp, cooldown: 1, windup: 0, hurt: 0, stagger: 0, knock: 0, lunge: 0 })),
-    effects: [], projectiles: [], previous: emptyInput(), queued: {},
+    props: createSceneProps(level), effects: [], projectiles: [], previous: emptyInput(), queued: {},
     hitstop: 0, shake: 0, hurtFlash: 0, chain: 0, chainTime: 0, bestChain: 0,
   };
   if (saved?.version === 1) {
@@ -90,6 +91,17 @@ function move(body: EnemyState | Simulation['player'], solids: Rect[], oneWay: S
 function pushEffect(s: Simulation, effect: Simulation['effects'][number]) {
   s.effects.push(effect);
   if (s.effects.length > MAX_EFFECTS) s.effects.splice(0, s.effects.length - MAX_EFFECTS);
+}
+
+/** Street fixtures are visual interactions only, so old version-1 saves remain valid. */
+function breakProps(s: Simulation, area: Rect) {
+  for (const prop of s.props) {
+    if (prop.broken || !overlaps(area, prop)) continue;
+    prop.broken = true;
+    const x = prop.x + prop.width / 2, y = prop.y + prop.height / 2;
+    pushEffect(s, { x, y, kind: 'debris', life: 0.65, facing: s.player.facing, value: Number(prop.kind === 'lamp') });
+    if (prop.kind === 'lamp') pushEffect(s, { x, y: prop.y + 10, kind: 'spark', life: 0.5, facing: s.player.facing });
+  }
 }
 
 /** A dodge that passes through an enemy attack refunds skill time once per dash. */
@@ -145,6 +157,7 @@ export function stepSimulation(s: Simulation, input: SideviewInput, level: Simul
   if (s.hitstop > 0) { s.hitstop = Math.max(0, s.hitstop - dt); s.effects = s.effects.filter(e => (e.life -= dt) > 0); return; }
   const p = s.player;
   const { solids, oneWay, specs } = levelTables(level);
+  const wasGrounded = p.grounded, beforeX = p.x, beforeY = p.y;
   const pressed = (key: Action) => !!s.queued[key];
   for (const key of ['invulnerable', 'attackCooldown', 'skillCooldown', 'dashCooldown', 'supportCooldown', 'dashTime', 'attackTime', 'attackBuffer', 'jumpBuffer', 'comboTime'] as const) p[key] = Math.max(0, p[key] - dt);
   if (!p.comboTime) p.combo = 0;
@@ -152,7 +165,10 @@ export function stepSimulation(s: Simulation, input: SideviewInput, level: Simul
   p.coyote = p.grounded ? 0.12 : Math.max(0, p.coyote - dt);
   if (pressed('jump')) p.jumpBuffer = 0.14;
   if (pressed('attack')) p.attackBuffer = 0.18;
-  if (p.jumpBuffer > 0 && p.coyote > 0) { p.vy = -650; p.jumpBuffer = 0; p.coyote = 0; p.grounded = false; }
+  if (p.jumpBuffer > 0 && p.coyote > 0) {
+    if (p.grounded) pushEffect(s, { x: p.x + p.width / 2, y: p.y + p.height, kind: 'jump', life: 0.3, facing: p.facing });
+    p.vy = -650; p.jumpBuffer = 0; p.coyote = 0; p.grounded = false; p.stepDistance = 0;
+  }
   if (!input.jump && p.vy < -260) p.vy += 2000 * dt;
   const dir = Number(input.right) - Number(input.left);
   if (dir) p.facing = dir > 0 ? 1 : -1;
@@ -161,10 +177,22 @@ export function stepSimulation(s: Simulation, input: SideviewInput, level: Simul
     p.vx = p.facing * 760; p.vy = -1750 * dt;
     if (Math.floor(s.elapsed * 60) % 3 === 0) pushEffect(s, { x: p.x, y: p.y, kind: 'dash', life: 0.22, facing: p.facing });
   } else p.vx += (dir * 285 - p.vx) * Math.min(1, dt * (p.grounded ? 18 : 9));
+  const landingSpeed = p.vy;
   move(p, solids, oneWay, dt, level.worldWidth);
   if (exitLocked(s, level) && p.x + p.width > exitBarrierX(level)) {
     p.x = exitBarrierX(level) - p.width; p.vx = 0;
   }
+  if (!wasGrounded && p.grounded && landingSpeed > 180) {
+    pushEffect(s, { x: p.x + p.width / 2, y: p.y + p.height, kind: 'land', life: 0.4, facing: p.facing, value: Math.min(1, landingSpeed / 850) });
+    p.stepDistance = 0;
+  } else if (wasGrounded && p.grounded && p.dashTime <= 0) {
+    p.stepDistance += Math.abs(p.x - beforeX);
+    if (p.stepDistance >= 44) {
+      p.stepDistance %= 44;
+      pushEffect(s, { x: p.x + p.width / 2 - p.facing * 7, y: p.y + p.height, kind: 'step', life: 0.28, facing: p.facing });
+    }
+  } else p.stepDistance = 0;
+  if (p.dashTime > 0) breakProps(s, { x: Math.min(beforeX, p.x), y: Math.min(beforeY, p.y), width: p.width + Math.abs(p.x - beforeX), height: p.height + Math.abs(p.y - beforeY) });
   if (p.grounded && p.hp > 0) {
     const foot = p.y + p.height + 2;
     const clearOfHazards = !level.hazards.some(h => overlaps({ x: p.x - 48, y: p.y, width: p.width + 96, height: p.height + 4 }, h));
@@ -176,12 +204,14 @@ export function stepSimulation(s: Simulation, input: SideviewInput, level: Simul
     p.combo = stage; p.attackCooldown = c.cooldown; p.attackTime = c.active; p.comboTime = c.cooldown + COMBO_WINDOW; p.attackBuffer = 0;
     if (p.grounded && p.dashTime <= 0) p.vx = p.facing * c.step;
     const attack = { x: p.facing > 0 ? p.x + p.width - 8 : p.x + 8 - c.reach, y: p.y - 12, width: c.reach, height: 85 };
+    breakProps(s, attack);
     for (const e of s.enemies) if (overlaps(attack, e)) damageEnemy(s, e, specs.get(e.id)!, operator.attack * c.mult, { knock: p.facing * c.knock, stagger: stage === 3 ? 0.45 : 0, hitstop: c.hitstop, heavy: stage === 3 });
     pushEffect(s, { x: p.x + p.width / 2, y: p.y + 22, kind: stage === 3 ? 'finisher' : 'slash', life: stage === 3 ? 0.3 : 0.22, facing: p.facing, value: stage });
   }
   if (pressed('skill') && p.skillCooldown <= 0) {
     p.skillCooldown = COOLDOWNS.skill; p.invulnerable = Math.max(p.invulnerable, 0.35);
     const area = { x: p.x - 210, y: p.y - 155, width: 452, height: 290 };
+    breakProps(s, area);
     for (const e of s.enemies) if (overlaps(area, e)) damageEnemy(s, e, specs.get(e.id)!, operator.skillPower, { knock: (e.x >= p.x ? 1 : -1) * 320, stagger: 0.6, hitstop: 0.1, heavy: true });
     s.shake = Math.max(s.shake, 0.4);
     pushEffect(s, { x: p.x + 16, y: p.y + 30, kind: 'skill', life: 0.65, facing: p.facing });

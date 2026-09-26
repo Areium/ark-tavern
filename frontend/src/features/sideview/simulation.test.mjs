@@ -204,3 +204,68 @@ test('an enemy with fractional HP from an old save still dies in a pit', () => {
   tick(s, 5);
   assert.equal(s.enemies[1].hp, 0); assert.equal(s.kills, 1); assert.ok(s.enemies[1].y <= level.worldHeight + 80);
 });
+
+test('street props are bounded, repeatable and clear of hazards, blockers and the exit', () => {
+  const s = createSimulation(level, DEMO_OPERATOR), again = createSimulation(level, DEMO_OPERATOR);
+  assert.deepEqual(s.props, again.props); assert.ok(s.props.length >= 4 && s.props.length <= 32);
+  const overlaps = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  for (const prop of s.props) {
+    assert.ok(prop.x >= 0 && prop.x + prop.width <= level.worldWidth);
+    assert.ok(prop.y >= 0 && prop.y + prop.height <= level.worldHeight);
+    assert.ok(![...level.hazards, ...level.obstacles, level.goal].some(r => overlaps(prop, r)));
+    assert.ok(level.platforms.some(f => prop.y + prop.height === f.y && prop.x >= f.x && prop.x + prop.width <= f.x + f.width));
+  }
+});
+const emptyStreet = () => ({ ...level, enemies: [], obstacles: [], hazards: [], platforms: [{ x: 0, y: 550, width: 3400, height: 130 }] });
+test('footsteps need actual ground travel; jumping and landing each emit one cue', () => {
+  const map = emptyStreet(), s = createSimulation(map, DEMO_OPERATOR); tick(s, 30, {}, map);
+  assert.equal(s.effects.length, 0);
+  tick(s, 25, { right: true }, map); assert.ok(s.effects.some(e => e.kind === 'step'));
+  tick(s, 60, {}, map); assert.equal(s.effects.length, 0);
+  tick(s, 1, { jump: true }, map); assert.equal(s.effects.filter(e => e.kind === 'jump').length, 1);
+  let landed = false;
+  for (let i = 0; i < 100; i++) {
+    tick(s, 1, { jump: true }, map);
+    assert.equal(s.effects.some(e => e.kind === 'step'), false);
+    if (s.player.grounded) { landed = true; break; }
+  }
+  assert.ok(landed); assert.equal(s.effects.filter(e => e.kind === 'land').length, 1);
+  tick(s, 60, {}, map); assert.equal(s.effects.length, 0);
+});
+test('walking through scenery neither blocks movement nor breaks a prop; dashing does', () => {
+  const map = emptyStreet(), s = createSimulation(map, DEMO_OPERATOR); tick(s, 10, {}, map);
+  const prop = s.props[0]; tick(s, 35, { right: true }, map);
+  assert.ok(s.player.x > prop.x + prop.width); assert.equal(prop.broken, false);
+  s.player.x = prop.x - 50; tick(s, 8, { right: true, dash: true }, map);
+  assert.equal(prop.broken, true); assert.equal(s.kills, 0); assert.equal(s.damageTaken, 0);
+  assert.equal(s.effects.filter(e => e.kind === 'debris').length, 1);
+});
+test('melee only breaks street props in the strike direction and cannot repeatedly shatter them', () => {
+  const map = emptyStreet(), s = createSimulation(map, DEMO_OPERATOR); tick(s, 10, {}, map);
+  const prop = s.props[0]; s.player.x = prop.x + prop.width + 10;
+  tick(s, 1, { attack: true }, map); assert.equal(prop.broken, false);
+  tick(s, 35, {}, map); s.player.facing = -1;
+  tick(s, 1, { attack: true }, map); assert.equal(prop.broken, true);
+  const hp = s.player.hp; tick(s, 120, { attack: true }, map);
+  assert.equal(s.player.hp, hp); assert.equal(s.kills, 0); assert.equal(s.effects.some(e => e.kind === 'debris'), false);
+});
+test('skills break nearby fixtures once, including lamp sparks, without changing combat or save contracts', () => {
+  const map = emptyStreet(), s = createSimulation(map, DEMO_OPERATOR); tick(s, 10, {}, map);
+  const lamp = s.props.find(p => p.kind === 'lamp'); s.player.x = lamp.x - 40;
+  tick(s, 1, { skill: true }, map);
+  assert.equal(lamp.broken, true); assert.equal(s.effects.filter(e => e.kind === 'spark').length, 1);
+  assert.equal(s.player.hp, DEMO_OPERATOR.maxHp); assert.equal(s.kills, 0);
+  const saved = snapshotSimulation(s); assert.equal(saved.version, 1); assert.ok(!('props' in saved));
+  const restored = createSimulation(map, DEMO_OPERATOR, saved);
+  assert.ok(restored.props.every(p => !p.broken)); assert.equal(restored.effects.length, 0);
+  assert.equal(restored.player.skillCooldown, s.player.skillCooldown);
+});
+test('presentation effects stay bounded across sustained movement and attacks', () => {
+  const map = emptyStreet(), a = createSimulation(map, DEMO_OPERATOR), b = createSimulation(map, DEMO_OPERATOR);
+  for (let i = 0; i < 3600; i++) {
+    const input = { right: i % 600 < 300, left: i % 600 >= 300, jump: i % 90 < 35, attack: true, dash: i % 100 === 0, skill: i % 400 === 0 };
+    tick(a, 1, input, map); tick(b, 1, input, map); assert.ok(a.effects.length <= 90);
+  }
+  assert.deepEqual(a.props, b.props); assert.deepEqual(a.effects, b.effects);
+  assert.deepEqual(snapshotSimulation(a), snapshotSimulation(b));
+});

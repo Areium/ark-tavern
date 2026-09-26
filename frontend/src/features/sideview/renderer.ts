@@ -3,6 +3,7 @@ import type { Body, Effect, Simulation, SimulationLevel, SideviewOperator } from
 import { hasSideviewSpine, loadSideviewSpine, makeSideviewSpine } from './spineActors';
 import { ELITE_LUNGE, ENEMY_WINDUP, eliteLungeBox, exitBarrierX, exitLocked, guardStrikeBox, levelTables } from './simulation';
 import { getBaseUrl } from '../../utils/baseUrl';
+import { drawContactEffect, drawStreetProps, drawStreetStructure, drawStreetSurface } from './scenePresentation';
 
 const C = { sky: 0x0b1722, stone: 0x243b43, cyan: 0x8ce5e0, orange: 0xf4a66b, red: 0xe77977, heal: 0xbde6a0, white: 0xe1ffff };
 /** A defeated enemy holds its death pose, then fades out. */
@@ -25,8 +26,10 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
   const telegraphs = new Graphics(); const tokens = new Graphics(); const figures = new Container();
   const bars = new Graphics(); const fx = new Graphics(); const labels = new Container();
   const foreground = new Graphics(); const overlay = new Graphics();
+  const architecture = new Graphics(), wetFloor = new Graphics(), props = new Graphics();
   app.stage.addChild(scenery, backdrop, world, foreground, overlay);
-  world.addChild(fallback.platforms, fallback.obstacles, fallback.hazards, surfaces, terrain, gate, telegraphs, tokens, figures, bars, fx, labels);
+  world.addChild(architecture, fallback.platforms, fallback.obstacles, fallback.hazards, surfaces, terrain, wetFloor, props, gate, telegraphs, tokens, figures, bars, fx, labels);
+  drawStreetStructure(architecture, level);
   let disposed = false, lastElapsed = 0, firstFrame = true;
   let city: Sprite | undefined, playerPortrait: Sprite | undefined, portraitFailed = false;
   const units = new Map<string, ReturnType<typeof makeSideviewSpine>>();
@@ -142,10 +145,23 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
     if (!unit) return false;
     const { spine, spec } = unit;
     const size = body.height * 1.35 / 420;
-    spine.scale.set(size * body.facing, size);
-    spine.position.set(body.x + body.width / 2, body.y + body.height - unit.bottom * size);
+    const speed = Math.abs(body.vx), moving = speed > 15 && body.grounded;
+    if (body.grounded && !unit.grounded) unit.land = 1;
+    unit.grounded = body.grounded;
+    unit.land = Math.max(0, unit.land - dt * 6);
+    unit.stride += dt * Math.min(21, speed / 15);
+    const gait = moving && !unit.attackPlaying && !attacking && deadFor === undefined;
+    const fallbackGait = gait && !unit.move && !reducedMotion;
+    unit.pose.stride = unit.stride;
+    unit.pose.amount = fallbackGait ? Math.min(1, speed / 150) : 0;
+    const squash = reducedMotion || unit.attackPlaying || attacking || deadFor !== undefined ? 0 : unit.land * 0.07;
+    const bob = fallbackGait ? Math.abs(Math.sin(unit.stride)) * 1.8 : 0;
+    spine.scale.set(size * body.facing * (1 + squash), size * (1 - squash));
+    spine.rotation = reducedMotion || unit.attackPlaying || attacking || deadFor !== undefined ? 0 : body.facing * (moving ? Math.min(0.11, speed / 4200) : !body.grounded ? Math.max(-0.055, Math.min(0.07, body.vy / 6500)) : 0);
+    spine.position.set(body.x + body.width / 2, body.y + body.height - unit.bottom * size * (1 - squash) - bob);
     if (deadFor !== undefined) {
-      const alpha = 1 - clamp01((deadFor - DEATH.hold) / DEATH.fade);
+      const hold = Math.max(DEATH.hold, spine.spineData.findAnimation(spec.die)?.duration ?? 0);
+      const alpha = 1 - clamp01((deadFor - hold) / DEATH.fade);
       spine.visible = alpha > 0; spine.alpha = alpha; spine.tint = 0xffffff;
       if (!unit.dead) {
         unit.dead = true; unit.attackPlaying = false;
@@ -167,11 +183,13 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
       if (spec.idle) spine.state.addAnimation(0, spec.idle, true, 0);
       unit.action = 'attack';
     } else if (!unit.attackPlaying) {
-      const action = Math.abs(body.vx) > 15 && unit.move ? unit.move : spec.idle;
+      const action = moving && unit.move ? (speed > 250 ? unit.run : unit.move) : spec.idle;
       if (action && unit.action !== action) { spine.state.setAnimation(0, action, true); unit.action = action; }
     }
     unit.attacking = attacking;
-    spine.update(dt);
+    // Scale only authored gait playback; attack and death timing remain untouched.
+    const locomotionRate = gait && unit.move ? Math.max(0.7, Math.min(1.8, speed / 140)) : 1;
+    spine.update(dt * locomotionRate);
     return true;
   }
 
@@ -221,6 +239,7 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
   }
 
   function drawEffect(e: Effect) {
+    if (drawContactEffect(fx, e, reducedMotion)) return;
     const alpha = Math.min(1, e.life * 3);
     if (e.kind === 'slash' && e.tone === 'enemy') {
       arcStroke(fx.lineStyle(4, C.orange, alpha), e.x, e.y, 56, e.facing > 0 ? -1 : 2.1, e.facing > 0 ? 1 : 4.1).lineStyle(0);
@@ -236,7 +255,12 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
       const r = e.kind === 'skill' ? (1 - e.life / 0.65) * 230 : (1 - e.life) * 390;
       fx.lineStyle(e.kind === 'skill' ? 5 : 2, e.kind === 'skill' ? C.cyan : C.heal, alpha).drawEllipse(e.x, e.y, r, r * 0.6).lineStyle(0);
       fx.beginFill(C.cyan, alpha * 0.05).drawCircle(e.x, e.y, r).endFill();
-    } else if (e.kind === 'dash') fx.beginFill(C.cyan, alpha * 0.25).drawRect(e.x, e.y + 10, 30, 45).endFill();
+    } else if (e.kind === 'dash') {
+      // Tapered wake stays behind the body and clear of enemy warning corridors.
+      const length = reducedMotion ? 20 : 65;
+      for (let n = 0; n < 3; n++) fx.lineStyle(3 - n * 0.6, C.cyan, alpha * (0.3 - n * 0.07))
+        .moveTo(e.x + 15, e.y + 22 + n * 12).lineTo(e.x + 15 - e.facing * length, e.y + 25 + n * 12).lineStyle(0);
+    }
     else if (e.kind === 'perfect') {
       const r = 26 + (0.6 - e.life) * 170;
       fx.lineStyle(3, C.white, alpha).drawCircle(e.x, e.y, r).lineStyle(0);
@@ -292,6 +316,8 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
     gate.lineStyle(3, unlocked ? C.cyan : 0x71858b).moveTo(goal.x + 30, goal.y + 45).lineTo(goal.x + 62, goal.y + 62).lineTo(goal.x + 30, goal.y + 80).lineStyle(0);
 
     telegraph(s);
+    drawStreetSurface(wetFloor, s, level, reducedMotion);
+    drawStreetProps(props, s);
     tokens.clear(); bars.clear();
     for (const e of s.enemies) {
       const spec = specs.get(e.id)!;
@@ -316,7 +342,7 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
         bars.beginFill(C.orange).drawCircle(e.x + e.width / 2, e.y - 28, 1.5).endFill();
       }
     }
-    const blink = p.invulnerable > 0 && Math.floor(s.elapsed * 16) % 2 === 1;
+    const blink = p.invulnerable > 0 && (reducedMotion || Math.floor(s.elapsed * 16) % 2 === 1);
     if (!drawUnit('player', p, dt, p.attackTime > 0, blink)) {
       if (playerPortrait) {
         const size = p.height * 1.5 / playerPortrait.texture.height;
