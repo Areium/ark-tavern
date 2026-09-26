@@ -14,7 +14,20 @@ import re
 
 STORY_SPECS = (
     {
+        "id": "grey-lantern", "name": "灰灯渡口", "plot_uid": "plots_grey_lantern_index",
+        "description": "卡牌战术剧情：在救人与取证之间选择，于末班渡桥汇合；胜利、败退和绕行都有完整尾声。",
+        "character_uids": {
+            "characters_博士_index", "characters_阿米娅_index", "characters_临光_index",
+            "characters_闪灵_index", "characters_砾_index",
+        },
+        "content_uids": {
+            "plots_grey_lantern_index", "world_灰灯渡口", "enemies_灰灯路障兵",
+            "enemies_灰灯雇佣哨兵", "enemies_灰灯仓库弩手", "enemies_灰灯渡桥护卫",
+        },
+    },
+    {
         "id": "near-light", "name": "长夜临光", "plot_uid": "plots_near-light_index",
+        "optional_content_uids": {"plot_graph_near-light"},
         "character_uids": {
             "characters_临光_index", "characters_瑕光_index", "characters_砾_index",
             "characters_玛恩纳·临光_index", "characters_焰尾_index", "characters_托兰_index",
@@ -205,7 +218,8 @@ def split_builtin_book(source: dict) -> tuple[dict, dict[str, dict]]:
     by_uid = {entry.get("uid"): entry for entry in source["entries"] if isinstance(entry, dict)}
     missing_by_story = {
         spec["id"]: sorted(
-            (set(spec["character_uids"]) | set(spec["content_uids"])) - set(by_uid)
+            (set(spec["character_uids"]) | set(spec["content_uids"]))
+            - set(spec.get("optional_content_uids", ())) - set(by_uid)
         )
         for spec in STORY_SPECS
     }

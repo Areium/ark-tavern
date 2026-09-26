@@ -709,6 +709,13 @@ class SessionOverlay:
         # 分支落点优先：玩家上轮选择的目标节拍
         pending = bs.get("pending_branch") if isinstance(bs, dict) else None
         target = (pending or {}).get("target_beat_id") or ""
+        decision = self.get_current_beat() or {}
+        if decision.get("choice_required") and ((pending or {}).get("label"), target) not in {
+            (branch.get("label"), branch.get("target_beat_id"))
+            for branch in decision.get("authored_branches", [])
+        }:
+            target = ""
+            bs.pop("pending_branch", None)
         if target and target in self._beat_index():
             if self.jump_to_beat(target):
                 self.clear_pending_branch()
@@ -722,6 +729,10 @@ class SessionOverlay:
 
         # 记录当前节拍为已完成
         current_beat = ch["beats"][bi] if bi < len(ch["beats"]) else None
+        # 显式决策点只能由上方 pending_branch 的有效落点离开；模型完成标记
+        # 和叙述超时都不能替玩家选择数组里的下一条路线。
+        if current_beat and current_beat.get("choice_required"):
+            return
         if current_beat and not force:
             min_rounds = int(current_beat.get("min_rounds") or 1)
             done_rounds = int(bs.get("narrations_on_beat", 0)) + 1
@@ -1299,6 +1310,7 @@ class SessionOverlay:
                 "label": label[:30],
                 "intent": (b.get("intent") or None),
                 "source": b.get("source") or "llm",
+                "target_beat_id": b.get("target_beat_id"),
                 "child_id": self._tree_node_id(node["id"], label),
             })
         node["branches"] = out

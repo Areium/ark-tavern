@@ -216,7 +216,6 @@ def test_final_beat_completion_has_a_terminal_state(ctx):
     require_acceptance(session.overlay.get_current_beat() is None, "Final beat remains current after completion")
 
 
-@pytest.mark.xfail(strict=True, raises=KnownProductGap, reason="QA-04: tree rollback loses branch target_beat_id")
 def test_tree_rollback_preserves_branch_destination(ctx):
     session = create_story(ctx)
     branches = [{"id": "gb_power", "label": "进入机房", "intent": "调查",

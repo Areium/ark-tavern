@@ -1,0 +1,690 @@
+{
+  "kind": "real configured LLM; combat approaches avoided, not real battle play",
+  "rounds": [
+    {
+      "round": 1,
+      "before": "beat_grey_arrival",
+      "after": "beat_grey_arrival",
+      "http_status": 200,
+      "elapsed_seconds": 2.75,
+      "action": {
+        "action": "查看两份名单，问苏禾医疗车为什么不能过闸。"
+      },
+      "response": {
+        "branches": [
+          {
+            "id": "br_1",
+            "intent": "情报",
+            "label": "追问苏禾泵房被困者",
+            "source": "llm",
+            "target_beat_id": "beat_grey_fork"
+          },
+          {
+            "id": "br_2",
+            "intent": "中立",
+            "label": "直接前往闸口查看车队",
+            "source": "llm",
+            "target_beat_id": "beat_grey_checkpoint"
+          }
+        ],
+        "choices": [
+          "继续推进剧情",
+          "追问苏禾泵房被困者",
+          "直接前往闸口查看车队"
+        ],
+        "env_updates": {
+          "atmosphere": [
+            "灰白压抑"
+          ],
+          "location": "候船厅"
+        },
+        "narrative": "候船厅的应急灯把一切染成灰白。苏禾站在检票台后，工牌翻着背面，袖口里露出半截作废票的边角。博士将两张名单并排放在台面上——一张是承包商提交的转运记录，一张是苏禾手写的候船登记。编号对不上，重复的、空白的、被划掉的，像被人用橡皮擦过一遍。\n\n「医疗车为什么不能过闸？」博士问。\n\n苏禾的视线在名单上停了一瞬，又移开。「闸口那边说……运力不够。」她语速很快，像怕自己中途停下，「可泵房里还有人没出来。他们不让我登记。」\n\n阿米娅的兔耳微微竖起，临光沉默地看向闸口方向，闪灵的目光则落在苏禾袖口那截票根上。",
+        "usage": {
+          "completion_tokens": 181,
+          "prompt_tokens": 23423,
+          "total_tokens": 23604
+        }
+      }
+    },
+    {
+      "round": 2,
+      "before": "beat_grey_arrival",
+      "after": "beat_grey_arrival",
+      "http_status": 200,
+      "elapsed_seconds": 3.12,
+      "action": {
+        "action": "按已确定的行动继续完成当前场景，再进入下一幕；保留真实战果和救援选择。"
+      },
+      "response": {
+        "branches": [
+          {
+            "id": "br_1",
+            "intent": "探索",
+            "label": "前往闸口查看情况",
+            "source": "llm",
+            "target_beat_id": "beat_grey_checkpoint"
+          },
+          {
+            "id": "br_2",
+            "intent": "情报",
+            "label": "追问苏禾泵房细节",
+            "source": "llm",
+            "target_beat_id": "beat_grey_fork"
+          }
+        ],
+        "choices": [
+          "继续推进剧情",
+          "前往闸口查看情况",
+          "追问苏禾泵房细节"
+        ],
+        "env_updates": {
+          "atmosphere": [
+            "应急灯忽明忽暗，闸口方向传来金属碰撞闷响"
+          ],
+          "location": "候船厅"
+        },
+        "narrative": "苏禾的手指在名单边缘停住，最终从袖口抽出那截作废票，票根上的编号与登记表上一处被划掉的名字完全吻合。\n\n「泵房的人……我登记过，可总部说他们『已经离站』。」她的声音低下去，「医疗车要过闸，得先让闸口那边确认运力。但泵房的人出不来，闸就不会开。」\n\n阿米娅的兔耳垂了垂，她看向博士，没有出声。临光将手按在腰侧，目光扫向通往闸口的通道。闪灵则走近苏禾，轻声问了一句：「泵房里，有伤者吗？」\n\n苏禾点头，又摇头，像是自己也说不清。\n\n应急灯忽明忽暗。闸口的方向传来金属碰撞的闷响——那里有人，而且不止一个。",
+        "usage": {
+          "completion_tokens": 176,
+          "prompt_tokens": 24101,
+          "total_tokens": 24277
+        }
+      }
+    },
+    {
+      "round": 3,
+      "before": "beat_grey_arrival",
+      "after": "beat_grey_arrival",
+      "http_status": 200,
+      "elapsed_seconds": 2.73,
+      "action": {
+        "action": "按已确定的行动继续完成当前场景，再进入下一幕；保留真实战果和救援选择。"
+      },
+      "response": {
+        "branches": [
+          {
+            "id": "br_1",
+            "intent": "社交",
+            "label": "先去闸口找闻铎交涉",
+            "source": "llm",
+            "target_beat_id": "beat_grey_checkpoint"
+          },
+          {
+            "id": "br_2",
+            "intent": "情报",
+            "label": "先去泵房确认伤者情况",
+            "source": "llm",
+            "target_beat_id": "beat_grey_fork"
+          }
+        ],
+        "choices": [
+          "继续推进剧情",
+          "先去闸口找闻铎交涉",
+          "先去泵房确认伤者情况"
+        ],
+        "env_updates": {
+          "atmosphere": [
+            "应急灯明灭，闸口闷响转为争执声"
+          ],
+          "location": "候船厅"
+        },
+        "narrative": "苏禾把那截票根按在台面上，指尖压着编号，像怕它飞走。\n\n「泵房在站台西侧，侧道能过去。闸口那边……闻铎守着，他不放人。」她顿了顿，「医疗车要过闸，得他点头。」\n\n临光已经转向通往闸口的通道，脚步沉稳。「金属声是从闸口来的。有人在堵门。」\n\n阿米娅看向博士，兔耳微微前倾：「博士，泵房的人出不来，闸就不会开。我们先去闸口，还是先确认泵房的情况？」\n\n闪灵合上随身的医疗包，声音轻而稳：「无论先去哪边，我都在。」\n\n应急灯又一次明灭。闸口的闷响停了，取而代之的是压低的争执声——不止一个人在说话。",
+        "usage": {
+          "completion_tokens": 165,
+          "prompt_tokens": 24409,
+          "total_tokens": 24574
+        }
+      }
+    },
+    {
+      "round": 4,
+      "before": "beat_grey_arrival",
+      "after": "beat_grey_arrival",
+      "http_status": 200,
+      "elapsed_seconds": 3.41,
+      "action": {
+        "action": "按已确定的行动继续完成当前场景，再进入下一幕；保留真实战果和救援选择。"
+      },
+      "response": {
+        "branches": [
+          {
+            "id": "br_1",
+            "intent": "战斗",
+            "label": "清开路障强行过闸",
+            "source": "llm",
+            "target_beat_id": "beat_grey_checkpoint"
+          },
+          {
+            "id": "br_2",
+            "intent": "中立",
+            "label": "让车队从检修道绕行",
+            "source": "llm",
+            "target_beat_id": null
+          }
+        ],
+        "choices": [
+          "继续推进剧情",
+          "清开路障强行过闸",
+          "让车队从检修道绕行"
+        ],
+        "env_updates": {
+          "atmosphere": [
+            "对峙",
+            "压抑"
+          ],
+          "location": "闸口通道"
+        },
+        "narrative": "博士收起名单，向闸口方向迈出一步。阿米娅和临光跟上，闪灵走在最后，脚步无声。\n\n闸口通道尽头，两名临时路障兵横着短棍挡在铁闸前，身后堆着几只空货柜。一个粗壮的中年男人站在闸门内侧——闻铎，工牌还挂在胸前，袖口卷到肘部。\n\n「罗德岛的？」他声音粗，但没有敌意，「医疗车可以过，孩子先走。但闸不能全开——总部说只运资产，不运人。我守的是这道闸，可闸里面的人……算不算也要守住？」\n\n路障兵没动，短棍握得更紧了些。临光的手按在腰侧，看向博士。\n\n「他们不放行。」阿米娅轻声说，兔耳前倾，「博士，要清开路障，还是让车队从检修道绕？」",
+        "usage": {
+          "completion_tokens": 190,
+          "prompt_tokens": 24715,
+          "total_tokens": 24905
+        }
+      }
+    },
+    {
+      "round": 5,
+      "before": "beat_grey_arrival",
+      "after": "beat_grey_arrival",
+      "http_status": 200,
+      "elapsed_seconds": 2.8,
+      "action": {
+        "action": "按已确定的行动继续完成当前场景，再进入下一幕；保留真实战果和救援选择。"
+      },
+      "response": {
+        "branches": [
+          {
+            "id": "br_1",
+            "intent": "战斗",
+            "label": "清开路障强行通过",
+            "source": "llm",
+            "target_beat_id": "beat_grey_checkpoint"
+          },
+          {
+            "id": "br_2",
+            "intent": "中立",
+            "label": "从检修道绕行",
+            "source": "llm",
+            "target_beat_id": null
+          }
+        ],
+        "choices": [
+          "继续推进剧情",
+          "清开路障强行通过",
+          "从检修道绕行"
+        ],
+        "env_updates": {},
+        "narrative": "闻铎的目光在博士的兜帽上停了一瞬，又移向那辆停在通道外的医疗车。\n\n「我不拦医生。」他侧了半步，让出闸门内侧一条窄缝，「但闸一开，货柜就得挪。总部只认资产，人不在账上。」\n\n路障兵没退，短棍仍横着。临光向前半步，将盾面斜挡在博士身前，声音平稳：「你守闸，我们过闸。谁先动，谁先说清楚。」\n\n阿米娅抬头看博士，兔耳前倾：「清路障要动手，绕检修道会慢，但不会伤人。您定。」",
+        "usage": {
+          "completion_tokens": 139,
+          "prompt_tokens": 25052,
+          "total_tokens": 25191
+        }
+      }
+    },
+    {
+      "round": 6,
+      "before": "beat_grey_arrival",
+      "after": "beat_grey_checkpoint",
+      "http_status": 200,
+      "elapsed_seconds": 2.95,
+      "action": {
+        "action": "按已确定的行动继续完成当前场景，再进入下一幕；保留真实战果和救援选择。"
+      },
+      "response": {
+        "branches": [
+          {
+            "id": "br_1",
+            "intent": "探索",
+            "label": "先进入货柜区查看",
+            "source": "llm",
+            "target_beat_id": "beat_grey_warehouse"
+          },
+          {
+            "id": "br_2",
+            "intent": "情报",
+            "label": "追问闻铎工资被扣的事",
+            "source": "llm",
+            "target_beat_id": "beat_grey_checkpoint"
+          }
+        ],
+        "choices": [
+          "继续推进剧情",
+          "先进入货柜区查看",
+          "追问闻铎工资被扣的事"
+        ],
+        "env_updates": {
+          "atmosphere": [
+            "紧张对峙转为放行"
+          ],
+          "location": "闸口通道"
+        },
+        "narrative": "博士没有出声，只抬起右手，两指并拢向前一压——一个干净利落的战术手势。\n\n临光会意，盾面一沉，重心前移，将两名路障兵逼向货柜一侧。阿米娅退后半步，掌心浮起细碎的蓝光，为前排压阵。闪灵立在后侧，目光始终锁着闻铎的双手。\n\n「让开。」临光的声音不高，却像铁闸落底。\n\n短棍与盾面撞出一声脆响。路障兵本就无心死战，被逼退两步后，其中一个松了手，短棍滚落在地。另一人看了看闻铎，也慢慢把棍子横放下。\n\n闻铎没动，只把闸门内侧的窄缝又让开了些。「货柜我来挪。」他粗声说，「你们的人，进去吧。」\n\n闸门缓缓升起。医疗车的引擎声从通道外传来，压过了应急灯的嗡鸣。",
+        "usage": {
+          "completion_tokens": 204,
+          "prompt_tokens": 25337,
+          "total_tokens": 25541
+        }
+      }
+    },
+    {
+      "round": 7,
+      "before": "beat_grey_checkpoint",
+      "after": "beat_grey_fork",
+      "http_status": 200,
+      "elapsed_seconds": 2.88,
+      "action": {
+        "action": "按已确定的行动继续完成当前场景，再进入下一幕；保留真实战果和救援选择。"
+      },
+      "response": {
+        "branches": [
+          {
+            "id": "br_1",
+            "intent": "救援",
+            "label": "去泵房救求救的人",
+            "source": "llm",
+            "target_beat_id": "beat_grey_rendezvous"
+          },
+          {
+            "id": "br_2",
+            "intent": "情报",
+            "label": "去档案仓阻止销毁",
+            "source": "llm",
+            "target_beat_id": "beat_grey_warehouse"
+          },
+          {
+            "id": "au_3",
+            "intent": "救援",
+            "label": "先救泵房工人",
+            "source": "author",
+            "target_beat_id": "beat_grey_rendezvous"
+          },
+          {
+            "id": "au_4",
+            "intent": "取证",
+            "label": "先取注销原册",
+            "source": "author",
+            "target_beat_id": "beat_grey_warehouse"
+          }
+        ],
+        "choices": [
+          "继续推进剧情",
+          "去泵房救求救的人",
+          "去档案仓阻止销毁"
+        ],
+        "combat_briefing": {
+          "approaches": [
+            {
+              "hint": "正面清除两名阻路者，学习掩体与移动。",
+              "id": "attack",
+              "kind": "combat",
+              "label": "突破闸口"
+            },
+            {
+              "hint": "保存线索并撤离战场，不获取战斗奖励。",
+              "id": "retreat",
+              "kind": "avoid",
+              "label": "撤出"
+            }
+          ],
+          "encounter_id": "enc_grey_checkpoint",
+          "name": "闸口阻路",
+          "session_id": "sess_2_1a0db6fbcdd",
+          "stream_id": ""
+        },
+        "env_updates": {
+          "atmosphere": [
+            "紧张",
+            "双灯同亮的危机感"
+          ],
+          "location": "候船区闸口"
+        },
+        "narrative": "闸门升到一半，闻铎已经弯下腰去推最外侧的空货柜。铁皮刮过地面，发出刺耳的摩擦声。医疗车缓缓驶入候船区，车灯把灰白的应急灯衬得更暗。\n\n「过了闸，别停。」闻铎喘着气，没抬头，「泵房那边……你们自己看着办。」\n\n阿米娅快步走到闸门内侧，兔耳突然转向站台西侧：「博士，泵房方向有灯在闪——求救灯。」\n\n几乎同时，通道另一头也亮起一簇红光。闪灵抬眼望去：「档案仓那边，销毁灯。」\n\n临光将盾收回身侧，声音沉稳：「两边同时亮，不是巧合。」\n\n苏禾从候船厅方向追过来，手里还攥着那截票根，脸色发白。",
+        "usage": {
+          "completion_tokens": 174,
+          "prompt_tokens": 25682,
+          "total_tokens": 25856
+        }
+      },
+      "combat_avoid": {
+        "status": 200,
+        "result": {
+          "encounter_id": "enc_grey_checkpoint",
+          "hint": "保存线索并撤离战场，不获取战斗奖励。",
+          "kind": "avoid",
+          "label": "撤出",
+          "ok": true
+        }
+      }
+    },
+    {
+      "round": 8,
+      "before": "beat_grey_fork",
+      "after": "beat_grey_rendezvous",
+      "http_status": 200,
+      "elapsed_seconds": 3.44,
+      "action": {
+        "action": "我选择先救泵房工人，放弃抢原册；明确走救援路线。",
+        "branch_label": "先救泵房工人",
+        "branch_id": "au_3"
+      },
+      "response": {
+        "branches": [
+          {
+            "id": "br_1",
+            "intent": "救援",
+            "label": "护送伤者撤往渡桥",
+            "source": "llm",
+            "target_beat_id": "beat_grey_bridge"
+          },
+          {
+            "id": "br_2",
+            "intent": "情报",
+            "label": "折返档案仓夺回原册",
+            "source": "llm",
+            "target_beat_id": null
+          }
+        ],
+        "choices": [
+          "继续推进剧情",
+          "护送伤者撤往渡桥",
+          "折返档案仓夺回原册"
+        ],
+        "env_updates": {
+          "atmosphere": [
+            "紧张压抑"
+          ],
+          "location": "站台西侧泵房侧道"
+        },
+        "narrative": "博士抬手，指向站台西侧——泵房的方向。苏禾攥着票根的手松了一下，像是终于有人替她做了那个决定。\n\n「原册……不取了？」她声音发颤。\n\n「先救人。」博士的声音透过面罩，沉稳而短。\n\n临光已经转身，盾面朝西侧侧道一压：「我开路。」\n\n侧道狭窄，扶梯锈迹斑斑。泵房里蜷着七八个工人，两个伤者被同伴半扶半架着。闪灵快步上前，左手托住一人的手腕，指尖泛起极淡的金色光晕。\n\n「能走。慢一点，别颠。」\n\n阿米娅在扶梯口压阵，兔耳始终朝着泵房深处。担架一具具抬上扶梯，铁架吱呀作响。\n\n苏禾站在侧道口，把票根攥进掌心，没敢看被抬出来的工人。",
+        "usage": {
+          "completion_tokens": 193,
+          "prompt_tokens": 26097,
+          "total_tokens": 26290
+        }
+      }
+    },
+    {
+      "round": 9,
+      "before": "beat_grey_rendezvous",
+      "after": "beat_grey_rendezvous",
+      "http_status": 200,
+      "elapsed_seconds": 3.44,
+      "action": {
+        "action": "按已确定的行动继续完成当前场景，再进入下一幕；保留真实战果和救援选择。"
+      },
+      "response": {
+        "branches": [
+          {
+            "id": "br_1",
+            "intent": "中立",
+            "label": "清点人数，确认撤离名单",
+            "source": "llm",
+            "target_beat_id": null
+          },
+          {
+            "id": "br_2",
+            "intent": "战斗",
+            "label": "去渡桥接应医疗车撤退",
+            "source": "llm",
+            "target_beat_id": "beat_grey_bridge"
+          },
+          {
+            "id": "br_3",
+            "intent": "社交",
+            "label": "留下接应，盯住闻铎货柜",
+            "source": "llm",
+            "target_beat_id": "beat_grey_ending"
+          }
+        ],
+        "choices": [
+          "继续推进剧情",
+          "清点人数，确认撤离名单",
+          "去渡桥接应医疗车撤退",
+          "留下接应，盯住闻铎货柜"
+        ],
+        "env_updates": {
+          "atmosphere": [
+            "疲惫与不安"
+          ],
+          "location": "回灯广场"
+        },
+        "narrative": "最后一具担架抬上侧道时，扶梯的铁架发出一声长响，随后安静下来。七八个工人挤在回灯广场的灯下，有人瘫坐，有人抱着膝盖发抖。闪灵蹲在伤者身边，指尖的金光一点点收拢。\n\n苏禾从侧道口走过来，票根还攥在掌心。她在一名被划掉名字的工人面前停住，张了张嘴，没说出话。\n\n阿米娅轻轻碰了碰博士的手肘：「博士，人都到了。可档案仓那边……原册怕是保不住了。」\n\n临光立在广场边缘，盾面朝外，声音沉稳：「先清点人数，再谈下一步。」\n\n广场另一头，闻铎推着货柜的身影正朝这边挪来。",
+        "usage": {
+          "completion_tokens": 162,
+          "prompt_tokens": 26378,
+          "total_tokens": 26540
+        }
+      }
+    },
+    {
+      "round": 10,
+      "before": "beat_grey_rendezvous",
+      "after": "beat_grey_bridge",
+      "http_status": 200,
+      "elapsed_seconds": 3.08,
+      "action": {
+        "action": "按已确定的行动继续完成当前场景，再进入下一幕；保留真实战果和救援选择。"
+      },
+      "response": {
+        "branches": [
+          {
+            "id": "br_1",
+            "intent": "战斗",
+            "label": "抢渡桥，护住医疗车",
+            "source": "llm",
+            "target_beat_id": "beat_grey_bridge"
+          },
+          {
+            "id": "br_2",
+            "intent": "中立",
+            "label": "先撤工人，再谈签章",
+            "source": "llm",
+            "target_beat_id": "beat_grey_ending"
+          }
+        ],
+        "choices": [
+          "继续推进剧情",
+          "抢渡桥，护住医疗车",
+          "先撤工人，再谈签章"
+        ],
+        "env_updates": {},
+        "narrative": "闻铎把货柜推到广场边，喘着粗气直起身。他看了看瘫坐的工人，又看了看博士。\n\n「总部命令只运资产，不运人。」他粗声说，「我守闸，守的是这道令。可闸里面的人……你自己看见了。」\n\n苏禾站在被划掉名字的工人面前，终于开口：「那张单子上是我的字。可我签的时候，上面还没有他们的名字。」\n\n阿米娅的兔耳垂了垂，看向博士。闪灵正给一名伤者缠绷带，头也不抬：「他还需要人接。这里不止这些。」\n\n临光立在广场边缘，盾面朝外：「渡桥那边有动静。收账队，怕是冲着医疗车和签章来的。」\n\n闻铎沉默片刻，把工牌从胸前摘下来，握在手里。\n\n「船上的空货柜，我来挪。」他说，「你们要走的，得快点。」",
+        "usage": {
+          "completion_tokens": 192,
+          "prompt_tokens": 26606,
+          "total_tokens": 26798
+        }
+      }
+    },
+    {
+      "round": 11,
+      "before": "beat_grey_bridge",
+      "after": "beat_grey_ending",
+      "http_status": 200,
+      "elapsed_seconds": 3.48,
+      "action": {
+        "action": "按已确定的行动继续完成当前场景，再进入下一幕；保留真实战果和救援选择。"
+      },
+      "response": {
+        "branches": [
+          {
+            "id": "br_1",
+            "intent": "战斗",
+            "label": "走主桥，护车硬闯",
+            "source": "llm",
+            "target_beat_id": "beat_grey_ending"
+          },
+          {
+            "id": "br_2",
+            "intent": "撤退",
+            "label": "走检修道，弃货柜撤离",
+            "source": "llm",
+            "target_beat_id": "beat_grey_ending"
+          }
+        ],
+        "choices": [
+          "继续推进剧情",
+          "走主桥，护车硬闯",
+          "走检修道，弃货柜撤离"
+        ],
+        "combat_briefing": {
+          "approaches": [
+            {
+              "hint": "击退两拨护卫，护送队伍通过渡桥。",
+              "id": "attack",
+              "kind": "combat",
+              "label": "强行通过"
+            },
+            {
+              "hint": "保存线索并撤离战场，不获取战斗奖励。",
+              "id": "retreat",
+              "kind": "avoid",
+              "label": "撤出"
+            }
+          ],
+          "encounter_id": "enc_grey_bridge",
+          "name": "末班渡桥",
+          "session_id": "sess_2_1a0db6fbcdd",
+          "stream_id": ""
+        },
+        "env_updates": {
+          "atmosphere": [
+            "对峙",
+            "紧迫"
+          ],
+          "location": "渡桥桥口"
+        },
+        "narrative": "收账队的脚步声从渡桥方向压过来，铁靴踩在桥板上，一声接一声。前排哨兵横着长棍，身后弩手已经架起弩臂，箭头对准医疗车的车头。\n\n临光将盾面转向桥口，声音沉稳：「他们要扣车，也要扣签章。」\n\n阿米娅快步走到博士身侧，兔耳前倾：「博士，桥面不是绝路——两边检修道能撤。可要是撤了，重型货柜就运不走。」\n\n闪灵把最后一名伤者的绷带系紧，站起身：「伤者不能颠簸。走主桥，还是走检修道，您定。」\n\n闻铎攥着工牌，粗声补了一句：「空货柜我挪开了。船在桥那头等，就看你们能不能过。」",
+        "usage": {
+          "completion_tokens": 169,
+          "prompt_tokens": 26965,
+          "total_tokens": 27134
+        }
+      },
+      "combat_avoid": {
+        "status": 200,
+        "result": {
+          "encounter_id": "enc_grey_bridge",
+          "hint": "保存线索并撤离战场，不获取战斗奖励。",
+          "kind": "avoid",
+          "label": "撤出",
+          "ok": true
+        }
+      }
+    },
+    {
+      "round": 12,
+      "before": "beat_grey_ending",
+      "after": "beat_grey_ending",
+      "http_status": 200,
+      "elapsed_seconds": 3.67,
+      "action": {
+        "action": "我选择撤出，已绕开末班渡桥，并没有取得战斗胜利。请承接代价和下一场景，不要重复触发这场战斗。"
+      },
+      "response": {
+        "branches": [
+          {
+            "id": "br_1",
+            "intent": "情报",
+            "label": "追上苏禾问票根来历",
+            "source": "llm",
+            "target_beat_id": "beat_grey_ending"
+          },
+          {
+            "id": "br_2",
+            "intent": "社交",
+            "label": "登船前回望闻铎一眼",
+            "source": "llm",
+            "target_beat_id": "beat_grey_ending"
+          }
+        ],
+        "choices": [
+          "继续推进剧情",
+          "追上苏禾问票根来历",
+          "登船前回望闻铎一眼"
+        ],
+        "env_updates": {
+          "atmosphere": [
+            "仓促撤离"
+          ],
+          "location": "检修道口",
+          "time": "暮色"
+        },
+        "narrative": "博士抬手，两指朝检修道方向一划——撤。\n\n临光会意，盾面斜挡在医疗车侧翼，压着收账队的视线往检修道口退。阿米娅退到车尾，掌心蓝光未散，替车队断后。闪灵扶着最后一名伤者，脚步无声地跟上。\n\n主桥那头，收账队的弩手没有追进检修道——桥面才是他们要守的。重型货柜被留在原地，铁皮在暮色里泛着冷光。\n\n「设备……运不走了。」阿米娅的兔耳垂着，声音低。\n\n「人先走。」临光收盾，回头看了一眼桥口。\n\n闻铎攥着工牌站在广场边，没跟上来。苏禾却追到检修道口，把票根塞进博士手里：「这个……比原册轻。您拿着。」\n\n小型救援车的引擎在检修道尽头亮起。灰灯渡口的最后一班船，正缓缓离岸。",
+        "usage": {
+          "completion_tokens": 212,
+          "prompt_tokens": 26915,
+          "total_tokens": 27127
+        }
+      }
+    },
+    {
+      "round": 13,
+      "before": "beat_grey_ending",
+      "after": "beat_grey_ending",
+      "http_status": 200,
+      "elapsed_seconds": 3.51,
+      "action": {
+        "action": "我带队从检修道分批撤离，抛下空货柜，核对所有已找到的工人和伤者去向，把口述证词交给罗德岛。我告诉苏禾先救人，责任由后续调查核实。请完成安置、承诺交接与纸船回声，明确灰灯渡口本次任务结束，不再开启新危机。"
+      },
+      "response": {
+        "branches": [
+          {
+            "id": "br_1",
+            "intent": "社交",
+            "label": "蹲下告诉孩子可以写",
+            "source": "llm",
+            "target_beat_id": "beat_grey_ending"
+          },
+          {
+            "id": "br_2",
+            "intent": "中立",
+            "label": "沉默片刻后点头答应",
+            "source": "llm",
+            "target_beat_id": "beat_grey_ending"
+          },
+          {
+            "id": "br_3",
+            "intent": "社交",
+            "label": "把名单递给苏禾让她写",
+            "source": "llm",
+            "target_beat_id": "beat_grey_ending"
+          }
+        ],
+        "choices": [
+          "继续推进剧情",
+          "蹲下告诉孩子可以写",
+          "沉默片刻后点头答应",
+          "把名单递给苏禾让她写"
+        ],
+        "env_updates": {
+          "atmosphere": [
+            "撤离收尾的沉静"
+          ],
+          "location": "检修道尽头",
+          "time": "暮色"
+        },
+        "narrative": "小型救援车在检修道尽头排成两列。闪灵逐个核对伤者，把需要回接的三人名单写在绷带包装背面，递给博士。阿米娅清点人数，兔耳一直垂着。\n\n苏禾站在车边，攥着空了的掌心：「那张单子上是我的字。可我签的时候，上面还没有他们的名字。证词……我留。」\n\n「先救人，责任后续核实。」博士的声音透过面罩。\n\n临光收盾，朝主桥方向看了一眼：「闻铎没跟来。他留下担责。」\n\n车灯亮起，分两批驶离。一个孩子从搪瓷盆里捞起那只纸船，仰头问：「叔叔，新的名单上……能写我的名字吗？」\n\n灰灯渡口的撤离任务到此结束。",
+        "usage": {
+          "completion_tokens": 167,
+          "prompt_tokens": 26859,
+          "total_tokens": 27026
+        }
+      }
+    }
+  ],
+  "last_beat": "beat_grey_ending",
+  "verification_scope": {
+    "route": "rescue",
+    "combat": "real avoid endpoints, no manual/AI combat play",
+    "narration": "real configured model, no scripted narrative or markers",
+    "completed_round": 13,
+    "ending_quote": "灰灯渡口的撤离任务到此结束。",
+    "limits": [
+      "Only one route exercised with a real model",
+      "Free-text confirmation and route whitelist were tightened after this run",
+      "Model sometimes spoke for the player and repeated opening exposition"
+    ]
+  }
+}

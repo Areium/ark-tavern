@@ -28,7 +28,7 @@ _ROOT = os.path.join(_HERE, "..")
 if os.path.join(_ROOT, "src") not in sys.path:
     sys.path.insert(0, os.path.join(_ROOT, "src"))
 
-from combat_data_loader import CombatDataLoader            # noqa: E402
+from combat_data_loader import CombatDataLoader, apply_enemy_overrides  # noqa: E402
 from combat_engine.card_data import get_starting_deck      # noqa: E402
 from combat_engine.engine import CombatEngine              # noqa: E402
 from combat_engine.entity import CombatUnit                # noqa: E402
@@ -117,6 +117,7 @@ def build_engine(node: dict, team_kind: str, loader: CombatDataLoader) -> Combat
 
     fallback_cells = list(battle_map.deploy_zone("enemy"))
     scale = enemy_scale_of(node)
+    inline_enemies = node.get("enemies_def") or {}
     waves = []
     for wave in node.get("waves", []) or []:
         built = []
@@ -125,7 +126,14 @@ def build_engine(node: dict, team_kind: str, loader: CombatDataLoader) -> Combat
             count = int(entry.get("count", 1) or 1)
             positions = entry.get("positions") or []
             for i in range(count):
-                unit = loader.load_enemy(name, stat_overrides=entry.get("stats"))
+                overrides = entry.get("stats") or entry.get("combat_stats")
+                if name in inline_enemies:
+                    unit = CombatDataLoader.load_enemy_from_meta(inline_enemies[name])
+                    if unit is not None:
+                        unit.name = name
+                        unit = apply_enemy_overrides(unit, overrides)
+                else:
+                    unit = loader.load_enemy(name, stat_overrides=overrides)
                 if unit is None:
                     continue
                 unit.unit_id = f"{name}#{len(built)}"

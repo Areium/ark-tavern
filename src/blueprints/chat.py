@@ -197,7 +197,14 @@ def _build_branches(session, inline_branches: list[dict] | None) -> list[dict]:
     if overlay is not None and hasattr(overlay, "get_authored_branches"):
         for b in overlay.get_authored_branches():
             label = str(b.get("label") or "").strip()
-            if not label or label in seen:
+            if not label:
+                continue
+            if label in seen:
+                # 模型经常复述作者选项但漏掉落点；不能让同名文本抹掉作者路由。
+                if b.get("target_beat_id"):
+                    existing = next(item for item in merged if item["label"] == label)
+                    existing.update(target_beat_id=b["target_beat_id"], source="author",
+                                    intent=b.get("intent") or existing.get("intent"))
                 continue
             seen.add(label)
             merged.append({
@@ -207,6 +214,13 @@ def _build_branches(session, inline_branches: list[dict] | None) -> list[dict]:
                 "target_beat_id": b.get("target_beat_id"),
                 "source": "author",
             })
+    current = overlay.get_current_beat() if overlay and hasattr(overlay, "get_current_beat") else None
+    if current and current.get("choice_required"):
+        allowed = {(b.get("label"), b.get("target_beat_id"))
+                   for b in current.get("authored_branches", [])}
+        for branch in merged:
+            if (branch.get("label"), branch.get("target_beat_id")) not in allowed:
+                branch["target_beat_id"] = None
     return merged
 
 
@@ -676,10 +690,12 @@ def register(app, managers):
                     # 节拍确定性战斗目标：推进节拍前读取当前节拍的 [COMBAT:enc_id]
                     beat_combat_id = _beat_combat_target(session)
                     combat_due = bool(markers.get("combat")) or bool(markers.get("beat_complete"))
-                    _apply_beat_complete(session, markers.get("beat_complete", False))
+                    _apply_beat_complete(session, markers.get("beat_complete", False)
+                                         or bool(beat_combat_id and combat_due))
                     # 节点级世界书：combat: 绑定键只在本轮确实触发战斗时激活
                     lore_combat_hint = beat_combat_id if combat_due else ""
-                    combat_data = _resolve_combat_scene(session, markers, config) or markers.get("combat")
+                    combat_data = (markers.get("combat") if beat_combat_id else
+                                   _resolve_combat_scene(session, markers, config) or markers.get("combat"))
                     briefing = _apply_combat_briefing(
                         session, combat_data, stream_id,
                         beat_combat_id=beat_combat_id if combat_due else "",
@@ -899,10 +915,12 @@ def register(app, managers):
                 # 节拍确定性战斗目标：推进节拍前读取当前节拍的 [COMBAT:enc_id]
                 beat_combat_id = _beat_combat_target(session)
                 combat_due = bool(markers.get("combat")) or bool(markers.get("beat_complete"))
-                _apply_beat_complete(session, markers.get("beat_complete", False))
+                _apply_beat_complete(session, markers.get("beat_complete", False)
+                                     or bool(beat_combat_id and combat_due))
                 # 节点级世界书：combat: 绑定键只在本轮确实触发战斗时激活
                 lore_combat_hint = beat_combat_id if combat_due else ""
-                combat_data = _resolve_combat_scene(session, markers, config) or markers.get("combat")
+                combat_data = (markers.get("combat") if beat_combat_id else
+                               _resolve_combat_scene(session, markers, config) or markers.get("combat"))
                 combat_briefing = _apply_combat_briefing(
                     session, combat_data, "",
                     beat_combat_id=beat_combat_id if combat_due else "",

@@ -26,6 +26,7 @@ PLOT_BOOKS = {
     "near-light": "near-light",
     # 6d967c6 新增剧情（frontmatter worldbook_id: beyond-twin）时漏登记，导致本用例 KeyError
     "beyond_twin": "beyond-twin",
+    "grey_lantern": "grey-lantern",
 }
 
 
@@ -152,7 +153,10 @@ def test_node_overview_filters_foreign_book():
 
 def test_node_overview_unfiltered_returns_all():
     unfiltered, _ = node_overview()
-    assert len(unfiltered) == 16
+    assert len(unfiltered) == 19
+    assert {n["node_id"] for n in unfiltered if n.get("worldbook_id") == "grey-lantern"} == {
+        "enc_grey_checkpoint", "enc_grey_warehouse", "enc_grey_bridge",
+    }
 
 
 def test_node_graph_includes_referenced_plots():

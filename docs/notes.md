@@ -389,6 +389,14 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
 - **验证**：`tests/test_node_graph_worldbook.py`（启发式回落、保存的 LLM 大纲优先、`bind` 节点挂上、combat-test
   不误切、正文骨架剧情形状不变）。
 
+## 卡牌剧情内容：灰灯渡口（2026-09-26）
+
+- 内容源在 `data/worldbooks/content/plots/grey_lantern/index.md`、`world/灰灯渡口.md` 和三个 `enc_grey_*` 节点，专属敌人是 `enemies/灰灯*.md`；定向重建用 `python scripts/generate_grey_lantern.py`。15 条预装书需要与这些源文件一同分发。
+- 确定性选路需结构化大纲 `branches[].target_beat_id`。本书一章一节拍，分叉 `choice_required=true`；模型完成标记和超时均不能替玩家选择，也不能通过模型生成的其它落点跳过分叉。回档需保留树分支的 `target_beat_id`。
+- 固定战斗节拍使用 `min_rounds=1`，声明了节点就不再现场生成第二个节点。合流用三轮，结局只用一个尾声节拍，避免互斥结局顺序串播。
+- 模拟器曾忽略内联敌人造成空场假胜，本次补齐；生产会话仍依赖注册敌人文件，本书已提供。战前绕行缺结构化结算，结局事实仍受模型一致性限制。
+- 设计、问题复现、已修项、未修体验及验证边界见 [灰灯渡口开发记录](grey-lantern-development.md)；不要把接口脚本化验收、180 场策略模拟、13 轮真实模型绕行线当成同一种验证。
+
 ## 横版战斗
 
 ### 横版关卡与表现层的几个口径（2026-09-26，`feat/sideview-combat-polish`）

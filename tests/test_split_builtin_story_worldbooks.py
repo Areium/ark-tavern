@@ -43,7 +43,7 @@ def test_split_moves_story_content_but_keeps_characters_in_reference():
     assert "plots_near-light_index" not in base_uids
     assert "characters_临光_index" in base_uids
     assert "world_shared" in base_uids
-    assert set(stories) == {"near-light", "fengxue-guojing", "combat-test", "beyond-twin"}
+    assert set(stories) == {"near-light", "fengxue-guojing", "combat-test", "beyond-twin", "grey-lantern"}
 
 
 def test_story_entries_default_to_static_and_dynamic_requires_opt_in():

@@ -1,0 +1,153 @@
+{
+  "worldbook_id": "grey-lantern",
+  "plot_id": "grey_lantern",
+  "seed_base": 20260912,
+  "runs_per_team": 30,
+  "teams": [
+    "standard",
+    "low"
+  ],
+  "validation": "All three node files passed tools/validate_battle_spec.py without warnings.",
+  "simulator_fix": "perf_tests/simulate_combat.py now gives node enemies_def priority over the global enemy catalog and applies per-instance stats. Before this fix, inline-only nodes produced false 100% wins in one round with zero cards, movement, and enemy actions.",
+  "balance_audit": "tools/balance_audit.py --report <temporary path> exited 0 after the XP change: 25 registered enemies (0 tier deviations), 19 nodes (1 budget/band warning), XP monotonicity 0. The warning belongs to existing enc_elite_hunt, not these nodes.",
+  "interpretation": "100% wins in some 30-seed groups reflect low-stakes story tuning and deterministic heuristic teams; they are not empty-field wins. Every final group has enemy actions and nonzero card/movement AP. Median rounds and movement AP show navigation and two-wave pacing. No live player UX run was performed.",
+  "nodes": {
+    "enc_grey_checkpoint": {
+      "intent": "两名路障兵守闸；T0 教学，允许撤出。",
+      "bind": {
+        "plot_id": "grey_lantern",
+        "chapter_id": "grey_checkpoint",
+        "beat_id": "beat_grey_checkpoint"
+      },
+      "threat_budget": 2.0,
+      "band": "T0",
+      "thresholds": {
+        "min_win_rate": 0.9,
+        "max_median_rounds": 5,
+        "max_hp_loss_rate": 0.2
+      },
+      "teams": {
+        "standard": {
+          "runs": 30,
+          "win_rate": 1.0,
+          "median_rounds": 3.0,
+          "p90_rounds": 4,
+          "hp_loss_rate": 0.013,
+          "first_round_kill_rate": 0.0,
+          "player_move_ap_per_round": 4.62,
+          "player_card_ap_per_round": 2.78,
+          "enemy_actions_per_round": 1.06,
+          "pass": true,
+          "verdict": []
+        },
+        "low": {
+          "runs": 30,
+          "win_rate": 1.0,
+          "median_rounds": 4.0,
+          "p90_rounds": 5,
+          "hp_loss_rate": 0.008,
+          "first_round_kill_rate": 0.0,
+          "player_move_ap_per_round": 2.7,
+          "player_card_ap_per_round": 2.65,
+          "enemy_actions_per_round": 1.18,
+          "pass": true,
+          "verdict": []
+        }
+      }
+    },
+    "enc_grey_warehouse": {
+      "intent": "隔墙和货箱使双方绕行；三名守卫，T1 取证战。",
+      "bind": {
+        "plot_id": "grey_lantern",
+        "chapter_id": "grey_warehouse",
+        "beat_id": "beat_grey_warehouse"
+      },
+      "threat_budget": 4.8,
+      "band": "T1",
+      "thresholds": {
+        "min_win_rate": 0.6,
+        "max_median_rounds": 8,
+        "max_hp_loss_rate": 0.6
+      },
+      "teams": {
+        "standard": {
+          "runs": 30,
+          "win_rate": 1.0,
+          "median_rounds": 6.0,
+          "p90_rounds": 7,
+          "hp_loss_rate": 0.036,
+          "first_round_kill_rate": 0.0,
+          "player_move_ap_per_round": 5.31,
+          "player_card_ap_per_round": 2.53,
+          "enemy_actions_per_round": 1.04,
+          "pass": true,
+          "verdict": []
+        },
+        "low": {
+          "runs": 30,
+          "win_rate": 0.867,
+          "median_rounds": 8.0,
+          "p90_rounds": 9,
+          "hp_loss_rate": 0.102,
+          "first_round_kill_rate": 0.0,
+          "player_move_ap_per_round": 2.81,
+          "player_card_ap_per_round": 2.6,
+          "enemy_actions_per_round": 0.99,
+          "pass": true,
+          "verdict": []
+        }
+      }
+    },
+    "enc_grey_bridge": {
+      "intent": "两波各两人；前波护卫、后波路障兵，T1 普通终局。",
+      "bind": {
+        "plot_id": "grey_lantern",
+        "chapter_id": "grey_bridge",
+        "beat_id": "beat_grey_bridge"
+      },
+      "threat_budget": 5.2,
+      "band": "T1",
+      "thresholds": {
+        "min_win_rate": 0.6,
+        "max_median_rounds": 8,
+        "max_hp_loss_rate": 0.6
+      },
+      "teams": {
+        "standard": {
+          "runs": 30,
+          "win_rate": 1.0,
+          "median_rounds": 6.0,
+          "p90_rounds": 7,
+          "hp_loss_rate": 0.044,
+          "first_round_kill_rate": 0.0,
+          "player_move_ap_per_round": 3.54,
+          "player_card_ap_per_round": 3.49,
+          "enemy_actions_per_round": 0.9,
+          "pass": true,
+          "verdict": []
+        },
+        "low": {
+          "runs": 30,
+          "win_rate": 1.0,
+          "median_rounds": 8.0,
+          "p90_rounds": 9,
+          "hp_loss_rate": 0.119,
+          "first_round_kill_rate": 0.0,
+          "player_move_ap_per_round": 2.12,
+          "player_card_ap_per_round": 3.49,
+          "enemy_actions_per_round": 0.99,
+          "pass": true,
+          "verdict": []
+        }
+      }
+    }
+  },
+  "runtime_integration": "The source repository includes four registered enemy Markdown files referenced by all three nodes. CombatSession.start smoke test spawned 2, 3, and 2 first-wave enemies respectively; bridge retained one pending wave; escape was enabled. Standalone import of a node with only enemies_def remains unsupported by CombatSession.start because it does not merge node.enemies_def. This production limitation was not changed.",
+  "registered_enemy_names": [
+    "灰灯路障兵",
+    "灰灯雇佣哨兵",
+    "灰灯仓库弩手",
+    "灰灯渡桥护卫"
+  ],
+  "regression": "After setting checkpoint max_rounds to 6 and registered enemy XP to 10 for minion / 16 for standard, 33 focused pytest cases passed across perf_tests/test_combat_data_v1.py, tests/test_combat_golden.py, and tests/test_simulate_inline_enemies.py. The golden baseline only added the three new node keys; no existing snapshot changed. Six standard CLI simulations (30 seeds each) passed their thresholds."
+}

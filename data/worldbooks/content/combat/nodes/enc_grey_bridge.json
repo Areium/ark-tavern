@@ -1,0 +1,238 @@
+{
+  "schema_version": 1,
+  "node_id": "enc_grey_bridge",
+  "worldbook_id": "grey-lantern",
+  "name": "末班渡桥",
+  "summary": "末班渡桥两拨护卫接连压上；守住通路或撤离。",
+  "bind": {
+    "plot_id": "grey_lantern",
+    "chapter_id": "grey_bridge",
+    "beat_id": "beat_grey_bridge"
+  },
+  "rules": {
+    "range_metric": "manhattan",
+    "allow_corner_cut": false
+  },
+  "map": {
+    "rows": 7,
+    "cols": 8,
+    "tiles": [
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "cover",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "cover",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "cover",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "cover",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ]
+    ],
+    "deploy": {
+      "player": {
+        "rect": [
+          1,
+          2,
+          4,
+          3
+        ]
+      },
+      "enemy": {
+        "rect": [
+          1,
+          5,
+          5,
+          7
+        ]
+      },
+      "enemy_random_shift": false
+    }
+  },
+  "waves": [
+    {
+      "enemies": [
+        {
+          "enemy": "灰灯渡桥护卫",
+          "count": 2,
+          "positions": [
+            [
+              2,
+              4
+            ],
+            [
+              4,
+              4
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "enemies": [
+        {
+          "enemy": "灰灯路障兵",
+          "count": 2,
+          "positions": [
+            [
+              2,
+              5
+            ],
+            [
+              4,
+              5
+            ]
+          ],
+          "stats": {
+            "hp": 62
+          }
+        }
+      ]
+    }
+  ],
+  "enemies_def": {
+    "灰灯渡桥护卫": {
+      "name": "灰灯渡桥护卫",
+      "faction": "渡口临时武装",
+      "role": "standard",
+      "power_tier": "T2",
+      "threat_points": 1.6,
+      "action_slots": 1,
+      "ai_behavior": "aggressive",
+      "ai_skills": [],
+      "combat_stats": {
+        "hp": 100,
+        "patk": 22,
+        "matk": 8,
+        "defense": 7,
+        "resist": 4,
+        "spd": 8,
+        "hit": 5,
+        "eva": 3,
+        "max_ap": 3
+      },
+      "worldbook_id": "grey-lantern",
+      "xp_reward": 16
+    },
+    "灰灯路障兵": {
+      "name": "灰灯路障兵",
+      "faction": "渡口临时武装",
+      "role": "minion",
+      "power_tier": "T0",
+      "threat_points": 1,
+      "action_slots": 1,
+      "ai_behavior": "aggressive",
+      "ai_skills": [],
+      "combat_stats": {
+        "hp": 68,
+        "patk": 14,
+        "matk": 8,
+        "defense": 5,
+        "resist": 4,
+        "spd": 8,
+        "hit": 5,
+        "eva": 3,
+        "max_ap": 3
+      },
+      "worldbook_id": "grey-lantern",
+      "xp_reward": 10
+    }
+  },
+  "conditions": {
+    "max_rounds": 10,
+    "escape_enabled": true
+  },
+  "rewards": {
+    "xp": 42,
+    "items": [],
+    "unlock": []
+  },
+  "difficulty": {
+    "category": "story",
+    "encounter_type": "normal",
+    "band": "T1",
+    "threat_budget": 5.2,
+    "target_rounds": 6,
+    "difficulty": 3
+  },
+  "balance_version": 1,
+  "approaches": [
+    {
+      "id": "attack",
+      "label": "强行通过",
+      "hint": "击退两拨护卫，护送队伍通过渡桥。",
+      "combat": {
+        "enemy_scale": 1.0,
+        "first_strike": false,
+        "player_effects": {},
+        "reward_mult": 1.0
+      }
+    },
+    {
+      "id": "retreat",
+      "label": "撤出",
+      "hint": "保存线索并撤离战场，不获取战斗奖励。",
+      "avoid": true,
+      "reward_mult": 0.0
+    }
+  ]
+}

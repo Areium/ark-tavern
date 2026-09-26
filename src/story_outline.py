@@ -375,6 +375,10 @@ def normalize_outline(doc: dict, *, plot_id: str = "", worldbook_id: str = "") -
             for br in b["branches"]:
                 if br["target_beat_id"] and br["target_beat_id"] not in seen_beat:
                     br["target_beat_id"] = None
+            if b.get("choice_required"):
+                if not any(br.get("target_beat_id") and br["target_beat_id"] != b["id"]
+                           for br in b["branches"]):
+                    raise OutlineError("choice_required 节拍必须有可离开的有效分支落点")
     out["chapters"] = norm_chapters
     return out
 
@@ -425,6 +429,7 @@ def outline_to_beats(outline: dict) -> list[dict]:
                 "stat_check": None,
                 "option_directions": [br["label"] for br in b.get("branches", [])],
                 "authored_branches": authored,
+                "choice_required": b.get("choice_required") is True,
                 "discovery_paths": [],
                 "combat": combat,
                 "min_rounds": int(b.get("min_rounds") or DEFAULT_MIN_ROUNDS),

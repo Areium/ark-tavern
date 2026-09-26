@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "node_id": "enc_grey_warehouse",
+  "worldbook_id": "grey-lantern",
+  "name": "档案仓取证",
+  "summary": "档案仓隔墙与货箱遮挡射线；绕行击退守卫后取证。",
+  "bind": {
+    "plot_id": "grey_lantern",
+    "chapter_id": "grey_warehouse",
+    "beat_id": "beat_grey_warehouse"
+  },
+  "rules": {
+    "range_metric": "manhattan",
+    "allow_corner_cut": false
+  },
+  "map": {
+    "rows": 7,
+    "cols": 8,
+    "tiles": [
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "wall",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "wall",
+        "ground",
+        "cover",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "wall",
+        "ground",
+        "cover",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "wall",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ]
+    ],
+    "deploy": {
+      "player": {
+        "rect": [
+          1,
+          1,
+          4,
+          2
+        ]
+      },
+      "enemy": {
+        "rect": [
+          1,
+          5,
+          5,
+          7
+        ]
+      },
+      "enemy_random_shift": false
+    }
+  },
+  "waves": [
+    {
+      "enemies": [
+        {
+          "enemy": "灰灯雇佣哨兵",
+          "count": 1,
+          "positions": [
+            [
+              3,
+              5
+            ]
+          ]
+        },
+        {
+          "enemy": "灰灯仓库弩手",
+          "count": 2,
+          "positions": [
+            [
+              2,
+              6
+            ],
+            [
+              4,
+              6
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "enemies_def": {
+    "灰灯雇佣哨兵": {
+      "name": "灰灯雇佣哨兵",
+      "faction": "渡口临时武装",
+      "role": "standard",
+      "power_tier": "T1",
+      "threat_points": 1.6,
+      "action_slots": 1,
+      "ai_behavior": "aggressive",
+      "ai_skills": [],
+      "combat_stats": {
+        "hp": 100,
+        "patk": 20,
+        "matk": 8,
+        "defense": 6,
+        "resist": 4,
+        "spd": 8,
+        "hit": 5,
+        "eva": 3,
+        "max_ap": 3
+      },
+      "worldbook_id": "grey-lantern",
+      "xp_reward": 16
+    },
+    "灰灯仓库弩手": {
+      "name": "灰灯仓库弩手",
+      "faction": "渡口临时武装",
+      "role": "standard",
+      "power_tier": "T1",
+      "threat_points": 1.6,
+      "action_slots": 1,
+      "ai_behavior": "defensive",
+      "ai_skills": [
+        "enemy_shot",
+        "enemy_barrage"
+      ],
+      "combat_stats": {
+        "hp": 90,
+        "patk": 21,
+        "matk": 8,
+        "defense": 4,
+        "resist": 4,
+        "spd": 8,
+        "hit": 5,
+        "eva": 3,
+        "max_ap": 3
+      },
+      "worldbook_id": "grey-lantern",
+      "class": "狙击",
+      "xp_reward": 16
+    }
+  },
+  "conditions": {
+    "max_rounds": 8,
+    "escape_enabled": true
+  },
+  "rewards": {
+    "xp": 28,
+    "items": [],
+    "unlock": []
+  },
+  "difficulty": {
+    "category": "story",
+    "encounter_type": "normal",
+    "band": "T1",
+    "threat_budget": 4.8,
+    "target_rounds": 5,
+    "difficulty": 2
+  },
+  "balance_version": 1,
+  "approaches": [
+    {
+      "id": "attack",
+      "label": "突入档案仓",
+      "hint": "绕过隔墙与货箱，击退仓库守卫。",
+      "combat": {
+        "enemy_scale": 1.0,
+        "first_strike": false,
+        "player_effects": {},
+        "reward_mult": 1.0
+      }
+    },
+    {
+      "id": "retreat",
+      "label": "撤出",
+      "hint": "保存线索并撤离战场，不获取战斗奖励。",
+      "avoid": true,
+      "reward_mult": 0.0
+    }
+  ]
+}

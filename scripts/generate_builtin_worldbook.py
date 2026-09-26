@@ -128,12 +128,27 @@ def category_entries(cat_dir: str, group: str, weight: int) -> list[dict]:
     return entries
 
 
-def main():
+def collect_entries():
     entries: list[dict] = []
     for cat_dir, group, weight in CATEGORIES:
         part = category_entries(cat_dir, group, weight)
-        print(f"  {cat_dir}: {len(part)} 条")
         entries.extend(part)
+    # 手工画布仅存在于分发包，不在 Markdown 内容目录；重建时保留必需的系统条目。
+    known = {entry["uid"] for entry in entries}
+    for spec in STORY_SPECS:
+        missing = {uid for uid in spec["content_uids"] - known if uid.startswith("plot_graph_")}
+        path = OUT.parent / f"{spec['id']}.json"
+        if missing and path.is_file():
+            previous = json.loads(path.read_text(encoding="utf-8"))
+            for entry in previous.get("entries", []):
+                if entry.get("uid") in missing:
+                    entries.append(entry)
+                    known.add(entry["uid"])
+    return entries
+
+
+def main():
+    entries = collect_entries()
 
     book = {
         "id": "arknights",
@@ -149,6 +164,8 @@ def main():
     generated_uids = {entry["uid"] for entry in entries}
     if all(spec["plot_uid"] in generated_uids for spec in STORY_SPECS):
         reference, stories = split_builtin_book(book)
+        from generate_grey_lantern import enrich_grey_lantern
+        enrich_grey_lantern(stories["grey-lantern"])
     else:
         # Small fixture/custom content roots may intentionally omit the built-in plots.
         reference, stories = book, {}
