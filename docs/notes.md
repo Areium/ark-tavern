@@ -10,20 +10,27 @@
 
 ## 会话
 
-### 新建向导：选中剧情即自动选中世界书与阵容（2026-09-27，`feat/plot-autoselect-roster`）
+### 新建向导：选中剧情即自动选中世界书与该书全部角色（2026-09-27，`feat/plot-autoselect-roster` / `feat/worldbook-roster-autoselect`）
 
 - **现象**：剧情自带的开场阵容在向导里几乎永远预选不出来 —— 预装角色卡里绝大多数（170 张中的 166 张）
   frontmatter 的 `worldbook_id` 记的是拆分前的来源书（`arknights`），而拆分出来的剧情书
   （`near-light` / `fengxue-guojing` / `combat-test`）自己一张角色卡都没有。向导候选原本只按角色卡的
-  来源书过滤，绑定这些书后候选为空，「点剧情自动预选」自然落空。
+  来源书过滤，绑定这些书后候选为空，「点剧情自动预选」自然落空；即便修好预选，也只有
+  `initial_characters` 那几名，书里其余角色（长夜临光 17 名里只列了 5 名）根本没被选上。
 - **现状口径**：
+  - **书内角色花名册的唯一来源是条目**：新增 `WorldBook.character_ids()`（启用且非系统条目的
+    `character_id`，去重保序），随 `/api/worldbook` 摘要返回 `character_ids`。角色的
+    `worldbook_id` 是「角色卡来源书」，拆分剧情书里它与绑定书不同，不能当书内名单用。
   - 剧情 frontmatter 新增可选字段 `player_identity`（默认主控），`worldbook_id` 也由 `/api/plots`
     一并返回。选中剧情即自动绑定这本书（书未安装时保留玩家当前选择）；主控取 `player_identity`，
-    缺省回退开场角色首位；其余开场角色自动入队并标「剧情预选」。规则只有一份实现：
-    `utils/characterCatalog.ts` 的 `resolvePlotDefaults`（`scripts/test_session_main_control_ui.cjs`
-    C 段钉住），向导的 `pickPlot` 与界面提示共用。
-  - **候选 = 已绑定世界书的角色 + 该剧情自带阵容**：剧情阵容即便角色卡来源书不同也一律可选中，
-    否则「自动选中」无从谈起；未绑定任何书时仍只有自建角色 + 剧情阵容。
+    缺省回退开场角色首位；**该书的角色花名册 + 剧情开场角色整批入队**并标「自动预选」。
+    规则只有一份实现：`utils/characterCatalog.ts` 的 `resolvePlotDefaults` /
+    `resolveLineupDefaults`（`scripts/test_session_main_control_ui.cjs` C 段钉住）。
+  - **候选 = 已绑定世界书的角色 + 各书花名册 + 剧情自带阵容**（`selectableCatalogItems`）；
+    未绑定任何书时仍只有自建角色 + 剧情阵容。
+  - **自动选中只吃「剧情声明的那本书」的花名册**（`resolveLineupDefaults` 的 `rosterBookIds`）：
+    手动再加一本可能是几百角色的大书时只扩候选，不静默把阵容塞满；要一并选上走队友区的显式按钮
+    「按绑定世界书全选角色」（`selectAllBookCharacters`）。
   - **开场角色口径统一**到 `session_overlay.plot_initial_characters`：`initial_characters` 优先，
     **没有该字段**时回退旧字段 `characters`（「灰灯渡口」「战斗功能测试」把阵容写在那里）；
     显式 `initial_characters: []` = 没有开场角色，不回退。服务端开场加载、`session_manager` 的重载
@@ -33,15 +40,17 @@
   `POST /scope-preview` 的指纹同口径，否则创建会被判「预览已过期」并 400。
 - **命名创建只报 token**：该步不再渲染整块 `WorldBookScopePreview`，只列每本书的「估算 token」——
   「候选规模减少 0 token（0%）」这种无信息量的行不再出现；候选条目明细在世界书工作台看。
+- **实测规模**：《长夜临光》自动选中 主控博士 + 17 名书内角色（`GET /api/plots` +
+  `/api/worldbook` 真实数据，创建 201、约 1.5–2.7s）；绑定大书时的阵容膨胀由上面的显式按钮挡住。
 - **已知边界**：会话大厅的「添加角色 / 换主控」候选仍是**按角色卡来源书**过滤
   （`SessionManagerView.tsx` 的 `candidateItems`），绑定拆分剧情书的会话里同样列不出该剧情的角色；
-  本次只改新建向导。要一并统一时，应把「绑定书 + 剧情阵容」的候选口径抽成 `characterCatalog` 里的
-  共用函数，两处都调它。
-- **证据**：`src/blueprints/sessions.py`（`/api/plots`）、`src/session_overlay.py`
-  （`plot_initial_characters`）、`src/session_manager.py::_plot_initial_characters`、
-  `frontend/src/utils/characterCatalog.ts::resolvePlotDefaults`、
-  `frontend/src/components/session/CreateSessionWizard.tsx`、
+  本次只改新建向导。要一并统一时，两处都调 `characterCatalog.selectableCatalogItems`。
+- **证据**：`src/world_book.py`（`character_ids` / `_summary`）、`src/blueprints/sessions.py`
+  （`/api/plots`）、`src/session_overlay.py`（`plot_initial_characters`）、
+  `src/session_manager.py::_plot_initial_characters`、
+  `frontend/src/utils/characterCatalog.ts`、`frontend/src/components/session/CreateSessionWizard.tsx`、
   `scripts/test_session_main_control_ui.cjs`（C 段）、
+  `tests/test_worldbook_system_layer.py`（花名册与摘要）、
   `tests/test_data_layout.py::test_plot_roster_prefers_initial_characters_and_falls_back_to_legacy_field`。
 
 ### 多本世界书绑定与首本书兼容口径（2026-09-26，`1f5668a`）

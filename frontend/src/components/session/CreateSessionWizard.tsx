@@ -4,8 +4,9 @@
  *
  * **点选剧情即自动选中剧情声明的默认配置**（`pickPlot` → `resolvePlotDefaults`）：
  * frontmatter 的 `worldbook_id` 自动绑定（书没装则保留玩家当前选择），`player_identity`
- * 自动选为主控（缺省回退 `initial_characters` 首位），其余开场角色自动入队并标
- * 「剧情预选」—— 它们已经处于入队状态，点一下磁贴是取消而非选中。
+ * 自动选为主控（缺省回退 `initial_characters` 首位），**该世界书的角色花名册**
+ * （各书 `character_ids`）与剧情开场角色整批入队并标「自动预选」—— 它们已经处于入队状态，
+ * 点一下磁贴是取消而非选中。
  *
  * **「主控与阵容」这一步只选角色**：候选范围、手动追加与全量兼容都不在这里调整
  * （按书配置在世界书工作台里做）。创建时仍与服务端同口径：预览指纹来自
@@ -25,8 +26,8 @@ import { useApi } from "../../hooks/useApi";
 import { useDialogMinimize } from "../../hooks/useDialogMinimize";
 import { useRosterScopePreview } from "../../hooks/useWorldbookDraft";
 import {
-  buildCharacterCatalog, buildLineup, mainControlError, resolvePlotDefaults,
-  summaryText, type CharacterDoc,
+  buildCharacterCatalog, buildLineup, mainControlError, resolveLineupDefaults,
+  resolvePlotDefaults, selectableCatalogItems, summaryText, type CharacterDoc,
 } from "../../utils/characterCatalog";
 import type { PlotInfo, WorldBookSummary, Session } from "../../types";
 import CharacterPicker from "./CharacterPicker";
@@ -68,9 +69,9 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
-  // 剧情预选：点选剧情时按剧情默认阵容自动勾选的队友名单。用于把「系统预选」和「玩家自选」
-  // 在界面上明确区分开——两者此前完全同款，玩家点一下已预选的磁贴其实是在取消。
-  const [plotPreset, setPlotPreset] = useState<string[]>([]);
+  // 自动预选：选中剧情 / 绑定世界书时按默认阵容自动勾选的队友名单。用于把「系统预选」和
+  // 「玩家自选」在界面上明确区分开——两者此前完全同款，玩家点一下已预选的磁贴其实是在取消。
+  const [autoPreset, setAutoPreset] = useState<string[]>([]);
 
   // ── 数据 ──
   const [plots, setPlots] = useState<PlotInfo[]>([]);
@@ -88,17 +89,14 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     () => resolvePlotDefaults(plot, books, catalog.items, worldbookIds),
     [plot, books, catalog.items, worldbookIds]);
   /**
-   * 候选 = 已绑定世界书的角色 + **该剧情自带阵容**；未绑书时 = 自建角色 + 剧情自带阵容。
-   *
-   * 剧情阵容必须能选：拆分出来的剧情书里，角色卡 frontmatter 的 `worldbook_id` 仍记着
-   * 来源书（如 `arknights`），只按来源书过滤会让整份开场阵容消失，「自动选中」也就无从谈起。
+   * 候选 = 已绑定世界书的角色（含**书内角色花名册**）+ 剧情自带阵容；未绑书时 = 自建角色 +
+   * 剧情自带阵容。花名册与剧情阵容必须能选：拆分出来的剧情书里，书内条目带 `character_id`，
+   * 而角色卡 frontmatter 的 `worldbook_id` 仍记着来源书（如 `arknights`），只按来源书过滤
+   * 会让「这本书的角色」整批消失，自动选中与手动挑选都无从谈起。
    */
-  const catalogItems = useMemo(() => {
-    const cast = new Set([plotDefaults.main, ...plotDefaults.teammates].filter(Boolean));
-    return catalog.items.filter((item) => (worldbookIds.length
-      ? worldbookIds.includes(item.bookId) || cast.has(item.key)
-      : item.source === "own" || cast.has(item.key)));
-  }, [catalog.items, plotDefaults, worldbookIds]);
+  const catalogItems = useMemo(
+    () => selectableCatalogItems(catalog.items, worldbookIds, plot, books),
+    [catalog.items, worldbookIds, plot, books]);
   // 阵容 = 主控 + 队友（去重，主控在前）；这就是提交给后端的入队名单
   const lineup = useMemo(() => buildLineup(mainControl, teammates), [mainControl, teammates]);
   const mainControlItem = catalogItems.find((item) => item.key === mainControl) || null;
@@ -129,7 +127,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     setTeammates([]);
     setName("");
     setError("");
-    setPlotPreset([]);
+    setAutoPreset([]);
     setLoading(true);
     let cancelled = false;
     Promise.allSettled([
@@ -162,24 +160,40 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
 
   const current = steps[step];
   const isLast = step === steps.length - 1;
-  // 当前阵容里仍保留的剧情预选角色（玩家取消掉的不再计入）
-  const presetSelected = lineup.filter((key) => plotPreset.includes(key));
+  // 当前阵容里仍保留的自动预选角色（玩家取消掉的不再计入）
+  const presetSelected = lineup.filter((key) => autoPreset.includes(key));
   const plotLabel = plots.find((p) => p.id === plotId)?.name || plotId;
   const itemName = (key: string) => catalogItems.find((item) => item.key === key)?.name || key;
 
   /**
-   * 改世界书绑定（世界书步骤里手动勾选）：候选随之收缩，已经不在候选里的主控 / 队友
-   * 必须一起退出，否则界面会出现「选了但列表里没有」的悬空选择。
-   * 剧情自带阵容不受书切换影响，与 `resolvePlotDefaults` 用同一套可用集合口径。
+   * 改世界书绑定（世界书步骤里手动勾选）。
+   *
+   * 只做「摘掉已经不在候选里的选择」，**不**替玩家重算阵容：自动选中发生在选中剧情那一刻
+   * （按剧情声明的那本书的花名册），手动再加一本可能是几百角色的大书时静默塞满阵容是灾难；
+   * 要按当前绑定书全选，走队友区那个显式按钮。
    */
   const applyBooks = (next: string[]) => {
-    const cast = new Set([plotDefaults.main, ...plotDefaults.teammates].filter(Boolean));
-    const allowed = new Set(catalog.items.filter((item) => (next.length
-      ? next.includes(item.bookId) || cast.has(item.key)
-      : item.source === "own" || cast.has(item.key))).map((item) => item.key));
+    const allowed = new Set(
+      selectableCatalogItems(catalog.items, next, plot, books).map((item) => item.key));
     setWorldbookIds(next);
     if (mainControl && !allowed.has(mainControl)) setMainControl("");
     setTeammates((current) => current.filter((key) => allowed.has(key)));
+    setAutoPreset((current) => current.filter((key) => allowed.has(key)));
+  };
+
+  /**
+   * 显式全选：把**当前绑定世界书**的角色花名册并进阵容（去重、不含主控）。
+   *
+   * 只有点这个按钮才按「全部绑定书」取花名册 —— 绑定大书时不会静默塞进几十个队友。
+   */
+  const selectAllBookCharacters = () => {
+    setError("");
+    const defaults = resolveLineupDefaults(worldbookIds, plot, books, catalog.items);
+    const main = mainControl || defaults.main;
+    if (!mainControl && defaults.main) setMainControl(defaults.main);
+    setTeammates((current) =>
+      [...new Set([...current, ...defaults.teammates])].filter((key) => key !== main));
+    setAutoPreset((current) => [...new Set([...current, ...defaults.teammates])]);
   };
 
   /** 选定主控：同时把它从队友里摘掉（同一个角色不走两条入队路径）。 */
@@ -198,19 +212,20 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const clearTeammates = () => setTeammates([]);
 
   /**
-   * 点选剧情：按剧情声明自动绑定世界书、自动选主控并预选队友（见 `resolvePlotDefaults`）。
+   * 点选剧情：自动绑定剧情声明的世界书，并把**这本书的角色花名册 + 剧情开场角色**整批选中
+   * （主控取剧情 `player_identity`，见 `resolvePlotDefaults` / `resolveLineupDefaults`）。
    *
-   * 「不绑定」不清掉玩家自己挑的角色：只撤销剧情预选标记，并把已经不在候选里的
-   * 主控 / 队友摘掉（剧情阵容带来的角色可能随剧情一起失效）。
+   * 「不绑定」不清掉玩家自己挑的角色：只撤销自动预选标记，并把已经不在候选里的
+   * 主控 / 队友摘掉（花名册与剧情阵容带来的角色可能随剧情一起失效）。
    */
   const pickPlot = (id: string) => {
     setError("");
     setPlotId(id);
     const next = id ? plots.find((p) => p.id === id) || null : null;
     if (!next) {
-      const allowed = new Set(catalog.items.filter((item) => (worldbookIds.length
-        ? worldbookIds.includes(item.bookId) : item.source === "own")).map((item) => item.key));
-      setPlotPreset([]);
+      const allowed = new Set(
+        selectableCatalogItems(catalog.items, worldbookIds, null, books).map((item) => item.key));
+      setAutoPreset([]);
       if (mainControl && !allowed.has(mainControl)) setMainControl("");
       setTeammates((current) => current.filter((key) => allowed.has(key)));
       return;
@@ -219,7 +234,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     setWorldbookIds(defaults.books);
     setMainControl(defaults.main);
     setTeammates(defaults.teammates);
-    setPlotPreset(defaults.teammates);
+    setAutoPreset(defaults.teammates);
   };
 
   const goNext = () => {
@@ -426,11 +441,12 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                         </span>
                       </div>
                       <div className="text-[11px] text-gray-600 mt-1">{p.id}</div>
-                      {/* 自动选中的内容如实标注：绑定哪本书、默认主控是谁、几名开场角色 */}
+                      {/* 自动选中的内容如实标注：绑定哪本书（几名角色）、默认主控是谁 */}
                       {declaredBook && (
                         <div className={`text-[11px] mt-1 ${boundBook ? "text-amber-300" : "text-gray-500"}`}>
                           {boundBook
-                            ? `自动绑定世界书：${boundBook.name}`
+                            ? `自动绑定世界书：${boundBook.name}${boundBook.character_ids?.length
+                              ? `（${boundBook.character_ids.length} 名角色一并选中）` : ""}`
                             : `声明的世界书「${declaredBook}」未安装，绑定保留当前选择`}
                         </div>
                       )}
@@ -460,6 +476,9 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   已按《{plotLabel}》自动绑定：{books.find((b) => b.id === plotBookId)?.name || plotBookId}
                 </p>
               )}
+              {!!plot && <p className="text-[12px] text-gray-500">
+                已选剧情：自动选中的是剧情声明那本书的角色；这里再手动加书只扩候选，要一并选上走「按绑定世界书全选角色」。
+              </p>}
               <p className="text-xs text-amber-300" role="status">已选 {worldbookIds.length} 本{worldbookIds.length ? `：${worldbookIds.map((id) => books.find((b) => b.id === id)?.name || id).join("、")}` : " · 不使用世界书"}</p>
               {!!worldbookIds.length && <button type="button" className="text-xs text-blue-300 hover:underline" onClick={() => applyBooks([])}>清空选择</button>}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto lobby-scroll pr-1">
@@ -477,6 +496,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                     </div>
                     <div className="text-[11px] text-gray-600 mt-1">
                       {b.entry_count} 条目 · 预算 {b.budget_tokens} tokens · {b.source_format}
+                      {!!b.character_ids?.length && ` · ${b.character_ids.length} 名角色`}
                     </div>
                   </button>
                 ))}
@@ -555,20 +575,33 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
 
               {/* ② 队友入队：与主控共用同一份候选目录与选择逻辑 */}
               <section className="space-y-2 pt-1 border-t border-gray-700/60" aria-label="队友入队">
-                <p className="text-xs text-gray-400">
-                  <span className="text-gray-200 font-medium">队友入队（可选）</span>
-                  {" "}— 一起进入场景的其他角色
-                  {teammates.length > 0 && <span className="text-amber-300">
-                    {" "}— 已选 {teammates.length} 名
-                    {presetSelected.length > 0 && <span className="text-cyan-300">（其中剧情预选 {presetSelected.length} 名）</span>}
-                  </span>}
-                </p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-gray-400">
+                    <span className="text-gray-200 font-medium">队友入队（可选）</span>
+                    {" "}— 一起进入场景的其他角色
+                    {teammates.length > 0 && <span className="text-amber-300">
+                      {" "}— 已选 {teammates.length} 名
+                      {presetSelected.length > 0 && <span className="text-cyan-300">（其中自动预选 {presetSelected.length} 名）</span>}
+                    </span>}
+                  </p>
+                  {/* 手动全选：只有点它才按「全部已绑定世界书」取花名册，避免绑上大书就静默塞满阵容 */}
+                  {!!worldbookIds.length && (
+                    <button
+                      type="button"
+                      onClick={selectAllBookCharacters}
+                      title="把当前已绑定世界书的角色全部加入阵容（按各书内角色花名册，不含主控）"
+                      className="text-[12px] px-2 py-1 rounded bg-gray-700/60 text-gray-300 hover:bg-gray-700 transition-colors"
+                    >
+                      按绑定世界书全选角色
+                    </button>
+                  )}
+                </div>
 
-                {plotPreset.length > 0 && (
+                {autoPreset.length > 0 && (
                   <div className={`wbg-notice ${teammates.length === 0 ? "wbg-warn" : "wbg-ok"} rounded-md`} role="status">
                     <span>
-                      《{plotLabel}》已按剧情默认阵容自动选中开场角色 <b>{plotPreset.length}</b> 名，
-                      磁贴上标为「<span className="text-cyan-300">剧情预选</span>」。
+                      《{plotLabel}》已按剧情与绑定世界书自动选中 <b>{autoPreset.length}</b> 名队友
+                      （该书角色花名册 + 剧情开场角色），磁贴上标为「<span className="text-cyan-300">自动预选</span>」。
                       <b>它们已经处于入队状态</b>，点一下磁贴是取消而不是选中；不想要就逐个点掉，或直接清空队友。
                     </span>
                     {teammates.length > 0 && (
@@ -635,12 +668,12 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                     <>
                       <span className="badge badge-narrative">👥 阵容 {lineup.length} 名（含主控）</span>
                       {presetSelected.length > 0 && (
-                        <span className="badge badge-wb">🗺 剧情预选 {presetSelected.length} 名</span>
+                        <span className="badge badge-wb">✓ 自动预选 {presetSelected.length} 名</span>
                       )}
                       <p className="text-[12px] text-gray-400 w-full mt-1">
                         角色：{lineup.map((key) =>
                           itemName(key)
-                          + (key === mainControl ? "（主控）" : (plotPreset.includes(key) ? "（剧情预选）" : ""))
+                          + (key === mainControl ? "（主控）" : (autoPreset.includes(key) ? "（自动预选）" : ""))
                         ).join("、")}
                       </p>
                     </>

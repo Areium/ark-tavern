@@ -214,56 +214,119 @@ export function mainControlError(
   return null;
 }
 
-/** 剧情默认阵容：绑定的世界书 + 主控 + 队友 */
-export interface PlotDefaults {
+/** 阵容默认值：谁当主控、谁入队 */
+export interface LineupDefaults {
+  /** 默认主控（玩家身份）；空串 = 剧情没声明主控、或声明的角色不在角色库里 */
+  main: string;
+  /** 默认队友：绑定世界书的角色花名册 + 剧情开场角色，去掉主控、只留候选里存在的 */
+  teammates: string[];
+}
+
+/** 剧情默认阵容：先决定绑定哪本书，再算阵容默认值 */
+export interface PlotDefaults extends LineupDefaults {
   /** 本次要绑定的世界书 id（剧情声明的书未安装时原样保留当前选择） */
   books: string[];
-  /** 默认主控（玩家身份）；空串 = 剧情没声明、或声明的角色不在角色库里 */
-  main: string;
-  /** 默认队友（剧情开场角色里除主控外、且在候选里存在的角色） */
-  teammates: string[];
 }
 
 /** 剧情里用到的三个字段（`PlotInfo` 的子集，便于纯逻辑单测） */
 export type PlotRosterSource = Pick<PlotInfo, "worldbook_id" | "player_identity" | "initial_characters">;
 
+/** 能给出角色花名册的世界书（`/api/worldbook` 摘要的子集） */
+export type RosterBook = Pick<WorldBookSummary, "id" | "character_ids">;
+
+/** 绑定世界书的角色花名册：按绑定顺序拼接各书的 `character_ids`，去重保序 */
+export function bookRosterKeys(
+  bookIds: readonly string[],
+  books: readonly RosterBook[] = [],
+): string[] {
+  const keys: string[] = [];
+  for (const bookId of bookIds) {
+    const roster = books.find((book) => book.id === bookId)?.character_ids || [];
+    for (const key of roster) {
+      const name = trimmed(key);
+      if (name && !keys.includes(name)) keys.push(name);
+    }
+  }
+  return keys;
+}
+
 /**
- * 剧情默认阵容 —— 「点选剧情即自动选中」的唯一实现（新建向导与界面提示共用）。
+ * 可作为本次会话角色的候选：绑定世界书的角色 + 各书花名册 + 剧情自带阵容；
+ * 未绑书时 = 自建角色 + 剧情自带阵容。
  *
- * 只处理声明里**确实写着**的东西，不从名字或正文猜主控：
- *  - 世界书：剧情 `worldbook_id` 已安装时绑定它；未安装（未导 / 已删）时保留玩家当前选择，
- *    不静默清空；
- *  - 主控：优先 `player_identity`，缺省回退 `initial_characters` 首位，两者都只认候选里
+ * 花名册与剧情阵容必须能选：拆分出来的剧情书里，书内条目带 `character_id`，而角色卡
+ * frontmatter 的 `worldbook_id` 仍记着来源书（如 `arknights`），只按来源书过滤会让
+ * 「这本书的角色」整批消失，自动选中与手动挑选都无从谈起。
+ */
+export function selectableCatalogItems(
+  items: readonly CharacterCatalogItem[],
+  bookIds: readonly string[] = [],
+  plot: PlotRosterSource | null | undefined = null,
+  books: readonly RosterBook[] = [],
+): CharacterCatalogItem[] {
+  const cast = new Set([
+    ...bookRosterKeys(bookIds, books),
+    trimmed(plot?.player_identity),
+    ...(plot?.initial_characters || []).map(trimmed),
+  ].filter(Boolean));
+  return items.filter((item) => (bookIds.length
+    ? bookIds.includes(item.bookId) || cast.has(item.key)
+    : item.source === "own" || cast.has(item.key)));
+}
+
+/**
+ * 阵容默认值 —— 「选中剧情即自动选中」的**唯一**实现（向导与界面提示共用）。
+ *
+ * 只处理声明与花名册里**确实写着**的东西，不从名字或正文猜主控：
+ *  - 主控：剧情 `player_identity` 优先，缺省回退 `initial_characters` 首位；两者都只认候选里
  *    确实存在的键（角色库里没有的角色不能当主控）；
- *  - 队友：`initial_characters` 里除主控外的其余角色，同样只保留候选里存在的键。
+ *  - 队友：`rosterBookIds` 这些书的角色花名册 ∪ 剧情开场角色，去掉主控，同样只保留候选里
+ *    存在的键 —— 「这本书的角色」因此默认全部选中，不必逐个点。
  *
- * 候选口径与新建向导的候选列表一致：**绑定的世界书 + 该剧情自带阵容**。拆分出来的剧情书
- * 正是这种形态 —— 书内条目带 `character_id`，而角色卡 frontmatter 的 `worldbook_id` 仍记着
- * 来源书（如 `arknights`），只按来源书过滤会让整份开场阵容消失。
+ * `rosterBookIds` 默认等于 `bookIds`（手动全选时用）；**自动**选中只传剧情声明的那本书，
+ * 免得手动加上一本几百角色的大书就把阵容静默塞满。
+ */
+export function resolveLineupDefaults(
+  bookIds: readonly string[],
+  plot: PlotRosterSource | null | undefined,
+  books: readonly RosterBook[] = [],
+  catalogItems: readonly CharacterCatalogItem[] = [],
+  rosterBookIds: readonly string[] = bookIds,
+): LineupDefaults {
+  const initial = [...new Set((plot?.initial_characters || []).map(trimmed).filter(Boolean))];
+  const declaredMain = trimmed(plot?.player_identity);
+
+  const roster = bookRosterKeys(rosterBookIds, books);
+  const available = new Set(
+    selectableCatalogItems(catalogItems, bookIds, plot, books).map((item) => item.key));
+
+  const main = [declaredMain, ...initial].find((key) => available.has(key)) || "";
+  const teammates = [...new Set([...initial, ...roster])]
+    .filter((key) => key !== main && available.has(key));
+  return { main, teammates };
+}
+
+/**
+ * 选中剧情后的默认：先决定绑定哪本书，再按这本书与剧情声明算阵容默认值。
+ *
+ * 自动选中的花名册只取**剧情声明的那本书**（自动绑定的那本）：手动绑的其它书只进候选，
+ * 不静默塞进阵容（要全选走界面上的显式按钮）。
+ *
+ * 「不绑定」时返回空主控与空队友，调用方据此只做「摘掉已失效选择」的收尾
+ * （见 `CreateSessionWizard.pickPlot`），不拿它覆盖玩家自己挑的角色。
  */
 export function resolvePlotDefaults(
   plot: PlotRosterSource | null | undefined,
-  installedBooks: readonly Pick<WorldBookSummary, "id">[] = [],
+  installedBooks: readonly RosterBook[] = [],
   catalogItems: readonly CharacterCatalogItem[] = [],
   currentBooks: readonly string[] = [],
 ): PlotDefaults {
   if (!plot) return { books: [...currentBooks], main: "", teammates: [] };
 
   const declaredBook = trimmed(plot.worldbook_id);
-  const books = declaredBook && installedBooks.some((book) => book.id === declaredBook)
-    ? [declaredBook]
-    : [...currentBooks];
-
-  const initial = [...new Set((plot.initial_characters || []).map(trimmed).filter(Boolean))];
-  const cast = [...new Set([trimmed(plot.player_identity), ...initial].filter(Boolean))];
-  const castKeys = new Set(cast);
-  const available = new Set(catalogItems
-    .filter((item) => (books.length
-      ? books.includes(item.bookId) || castKeys.has(item.key)
-      : item.source === "own" || castKeys.has(item.key)))
-    .map((item) => item.key));
-
-  const main = cast.find((key) => available.has(key)) || "";
-  const teammates = initial.filter((key) => key !== main && available.has(key));
-  return { books, main, teammates };
+  const autoBound = !!declaredBook && installedBooks.some((book) => book.id === declaredBook);
+  const books = autoBound ? [declaredBook] : [...currentBooks];
+  // 自动选中的花名册只取自动绑定的那本书；剧情声明的书没装时不猜，只按开场角色选
+  const rosterBooks = autoBound ? [declaredBook] : [];
+  return { books, ...resolveLineupDefaults(books, plot, installedBooks, catalogItems, rosterBooks) };
 }

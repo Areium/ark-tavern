@@ -1179,6 +1179,24 @@ class WorldBook:
         """条目分层统计：总数 / 会注入的 / 停用的 / 系统层，以及展示 token。"""
         return book_entry_stats(self.entries)
 
+    def character_ids(self) -> list[str]:
+        """本书的角色花名册：**启用且非系统**条目上非空的 `character_id`，去重保序。
+
+        新建会话用它取「这本书的角色」做候选与自动选中。为什么不能拿角色卡的
+        `worldbook_id` 当书内角色名单：拆分出来的剧情书（`near-light` 等）里，条目带
+        `character_id`，而角色卡 frontmatter 的来源书仍记着拆分前的 `arknights` ——
+        按来源书取会得到空名单（见 docs/notes.md）。停用条目与系统层条目都不算，
+        与 `book_entry_stats` 同一套口径。
+        """
+        names: list[str] = []
+        for entry in self.entries:
+            if is_system_entry(entry) or not _entry_field(entry, "enabled", True):
+                continue
+            name = str(getattr(entry, "character_id", "") or "").strip()
+            if name and name not in names:
+                names.append(name)
+        return names
+
     def rules_snapshot(self, revision: int = None) -> dict:
         """返回可恢复的规则快照：优先取指定修订的不可变版本，否则用当前规则。"""
         if revision is not None:
@@ -2651,6 +2669,9 @@ class WorldBookManager:
             "enabled": book.enabled,
             "budget_tokens": book.budget_tokens,
             "estimated_tokens": stats.tokens,
+            # 书内角色花名册：新建会话按它取「这本书的角色」（候选 + 自动选中），
+            # 不能拿角色卡的来源书当名单（拆分剧情书的形态，见 character_ids 的说明）。
+            "character_ids": book.character_ids(),
             "injectable_entry_count": stats.injectable,
             "disabled_entry_count": stats.disabled,
             "system_entry_count": stats.system,

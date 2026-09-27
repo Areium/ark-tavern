@@ -122,6 +122,37 @@ def test_estimated_tokens_excludes_disabled_and_system_entries():
     assert book.entry_stats().system == 1
 
 
+def test_book_character_roster_reads_entry_character_ids():
+    """书内角色花名册 = 启用且非系统条目的 `character_id`（去重保序）。
+
+    新建会话按它取「这本书的角色」做候选与自动选中；角色卡 frontmatter 的来源书可能是
+    拆分前的 `arknights`，所以名单只能从条目上读。
+    """
+    book = WorldBook("book", "花名册测试书", [
+        WorldBookEntry("a", "临光设定。", name="临光", character_id="临光"),
+        WorldBookEntry("b", "瑕光设定。", name="瑕光", character_id="瑕光"),
+        WorldBookEntry("a2", "临光重复条目。", name="临光重复", character_id="临光"),
+        WorldBookEntry("off", "停用角色条目。", name="停用角色", character_id="停用角色", enabled=False),
+        WorldBookEntry("g", "```json plot-graph\n{\"plot_id\":\"p\"}\n```", name="节点图：P",
+                       trigger_keys=[], always_active=False),
+        WorldBookEntry("plain", "普通世界观条目。", name="世界观"),
+    ])
+
+    assert book.character_ids() == ["临光", "瑕光"], "停用条目、系统层条目与空 character_id 都不算"
+
+
+def test_summary_exposes_book_character_roster(tmp_path):
+    """摘要里带上花名册：前端靠它判断「这本书有哪些角色」，不必自己遍历条目。"""
+    manager = WorldBookManager(tmp_path)
+    manager.save(WorldBook("book", "花名册测试书", [
+        WorldBookEntry("a", "临光设定。", name="临光", character_id="临光"),
+        WorldBookEntry("b", "瑕光设定。", name="瑕光", character_id="瑕光"),
+    ], book_type="story"))
+
+    summary = next(book for book in manager.list_books() if book["id"] == "book")
+    assert summary["character_ids"] == ["临光", "瑕光"]
+
+
 def test_full_scope_compatibility_also_skips_system_entries():
     """「显式全量兼容」放宽的是候选，不是把永不注入的系统层条目也算进去。
 

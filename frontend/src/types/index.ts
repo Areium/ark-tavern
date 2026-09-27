@@ -714,6 +714,12 @@ export interface WorldBookSummary {
   system_entry_count?: number;
   edit_revision?: number;
   entry_count: number;
+  /**
+   * 书内角色花名册：**启用且非系统**条目上非空的 `character_id`（去重保序）。
+   * 新建会话按它取「这本书的角色」做候选与自动选中 —— 角色卡 frontmatter 的
+   * `worldbook_id` 可能仍记拆分前的来源书（如 `arknights`），不能当书内名单用。
+   */
+  character_ids?: string[];
   created_at: number;
   updated_at: number;
   is_default: boolean;

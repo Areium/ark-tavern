@@ -26,7 +26,8 @@ const { renderToStaticMarkup } = fromFrontend("react-dom/server");
 
 const {
   buildCharacterCatalog, catalogBooks, filterCharacterCatalog, sortCatalogForBook,
-  buildLineup, mainControlError, resolvePlotDefaults, summaryText, MISSING_SUMMARY_TEXT,
+  buildLineup, mainControlError, bookRosterKeys, resolveLineupDefaults, resolvePlotDefaults,
+  selectableCatalogItems, summaryText, MISSING_SUMMARY_TEXT,
 } = require(path.join(root, "frontend/src/utils/characterCatalog.ts"));
 const CharacterPicker = require(path.join(root, "frontend/src/components/session/CharacterPicker.tsx")).default;
 
@@ -154,13 +155,14 @@ assert.ok(singleHtml.includes("本次主控"), "单选模式显示选中角标")
 // 角标只挂在一个磁贴上（来源筛选按钮同样用 aria-pressed，所以按角标数断言选中唯一）
 assert.equal((singleHtml.match(/本次主控/g) || []).length, 1, "单选模式只有一个选中项");
 
-// ── C. 剧情默认阵容：点选剧情即自动选中（resolvePlotDefaults） ────────────────
+// ── C. 默认阵容：选中剧情 / 绑定世界书即自动选中（resolvePlotDefaults） ────────
+// 书摘要带 character_ids（书内角色花名册）—— 拆分剧情书的角色卡仍标注来源书 arknights，
+// 只按来源书过滤会整份阵容消失，花名册是「这本书的角色」的唯一来源
 const installedBooks = [
-  { id: "near-light", name: "长夜临光" },
-  { id: "arknights", name: "明日方舟" },
-  { id: "beyond-twin", name: "彼岸双生" },
+  { id: "near-light", name: "长夜临光", character_ids: ["临光", "瑕光", "砾"] },
+  { id: "arknights", name: "明日方舟", character_ids: ["博士"] },
+  { id: "beyond-twin", name: "彼岸双生", character_ids: ["程叙", "妮可"] },
 ];
-// 拆分剧情书里的角色卡仍标注来源书（arknights）—— 只按来源书过滤会整份阵容消失，这是核心回归点
 const item = (key, bookId, bookName) => ({
   key, name: key, summary: "", bookId, bookName,
   source: bookId ? "worldbook" : "own", missing: [],
@@ -168,23 +170,25 @@ const item = (key, bookId, bookName) => ({
 const candidateItems = [
   item("临光", "arknights", "明日方舟"),
   item("瑕光", "arknights", "明日方舟"),
+  item("砾", "arknights", "明日方舟"),
   item("博士", "arknights", "明日方舟"),
   item("程叙", "beyond-twin", "彼岸双生"),
   item("妮可", "beyond-twin", "彼岸双生"),
+  item("书外角色", "arknights", "明日方舟"),
   item("自建角色", "", ""),
 ];
 
-// C1. 声明了书与主控：绑定该书，主控取声明，其余开场角色入队（来源书不同照样可选中）
+// C1. 声明了书与主控：绑定该书，**该书花名册整批入选**，主控不重复出现在队友里
 assert.deepEqual(
   resolvePlotDefaults(
     { worldbook_id: "near-light", player_identity: "博士", initial_characters: ["临光", "瑕光"] },
     installedBooks, candidateItems, [],
   ),
-  { books: ["near-light"], main: "博士", teammates: ["临光", "瑕光"] },
-  "剧情声明的主控与开场角色应被自动选中",
+  { books: ["near-light"], main: "博士", teammates: ["临光", "瑕光", "砾"] },
+  "世界书的角色应全部自动选中，剧情开场角色排在最前",
 );
 
-// C2. 未声明主控 → 回退开场角色首位；主控不重复出现在队友里
+// C2. 未声明主控 → 回退开场角色首位；该书花名册同样整批入选
 assert.deepEqual(
   resolvePlotDefaults({ worldbook_id: "beyond-twin", initial_characters: ["程叙", "妮可"] },
     installedBooks, candidateItems, []),
@@ -192,12 +196,18 @@ assert.deepEqual(
   "缺 player_identity 时回退 initial_characters 首位",
 );
 
-// C3. 声明的书没安装 → 保留玩家当前选择，不静默清空
+// C3. 声明的书没安装 → 保留玩家当前选择，不静默清空；也**不猜**花名册（只按开场角色选）
 assert.deepEqual(
   resolvePlotDefaults({ worldbook_id: "grey-lantern", player_identity: "博士" },
     installedBooks, candidateItems, ["near-light"]),
   { books: ["near-light"], main: "博士", teammates: [] },
-  "剧情声明的书未安装时不动玩家的绑定",
+  "剧情声明的书未安装时不动玩家的绑定，也不按别家的花名册塞人",
+);
+// 手动全选（界面上「按绑定世界书全选角色」）才按全部绑定书取花名册
+assert.deepEqual(
+  resolveLineupDefaults(["near-light"], null, installedBooks, candidateItems),
+  { main: "", teammates: ["临光", "瑕光", "砾"] },
+  "显式全选按当前绑定书的角色花名册取人",
 );
 
 // C4. 声明的主控不在角色库 → 顺延到开场角色首位；都不在 → 空串交给玩家手选
@@ -209,5 +219,19 @@ assert.equal(resolvePlotDefaults({ player_identity: "查无此人", initial_char
 // C5. 没有剧情 / 空声明：不动世界书与阵容
 assert.deepEqual(resolvePlotDefaults(null, installedBooks, candidateItems, []),
   { books: [], main: "", teammates: [] }, "未选剧情时不做任何默认选中");
+
+// C6. 花名册：多本书按绑定顺序拼接去重；候选因此包含来源书不同的书内角色
+assert.deepEqual(bookRosterKeys(["near-light", "beyond-twin"], installedBooks),
+  ["临光", "瑕光", "砾", "程叙", "妮可"], "多本书的花名册按绑定顺序合并");
+assert.deepEqual(
+  selectableCatalogItems(candidateItems, ["near-light"], null, installedBooks).map((i) => i.key),
+  ["临光", "瑕光", "砾"],
+  "绑定世界书后，该书花名册里的角色即便角色卡来源书不同也进候选",
+);
+assert.deepEqual(
+  selectableCatalogItems(candidateItems, [], null, installedBooks).map((i) => i.key),
+  ["自建角色"],
+  "未绑书时只有自建角色（花名册不参与）",
+);
 
 console.log("PASS: 主控与阵容的候选目录 / 共用选择器断言全部通过");
