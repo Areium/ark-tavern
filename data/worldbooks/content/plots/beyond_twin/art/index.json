@@ -1,5 +1,6 @@
 [
   {"id":"act1","act":"第一幕","title":"门前的猫","caption":"台风夜，妮可第一次走进有灯的家。","image":"act1-nicole-rain.png"},
+  {"id":"fall-pov-nicole","act":"补充CG","title":"倒地后的仰望","caption":"程叙跌倒在走廊，顶灯晃过视野；妮可俯身望向他。","image":"cg-fall-pov-nicole.png"},
   {"id":"act2","act":"第二幕","title":"被浪费的下午","caption":"商场里的黑猫玩偶，让平凡的时间有了重量。","image":"act2-wasted-afternoon.png"},
   {"id":"act3","act":"第三幕","title":"您已欠费","caption":"额度与调用记录里出现无法用运气解释的尖峰。","image":"act3-credit-spike.png"},
   {"id":"act4","act":"第四幕","title":"与同行者见面","caption":"林奈的目光越过礼貌的寒暄，落在妮可身上。","image":"act4-linnai-recognition.png"},

@@ -21,7 +21,8 @@ def _png_size(path: Path) -> tuple[int, int]:
 
 def test_beyond_twin_art_catalog_covers_all_seven_acts():
     entries = json.loads((ART / "index.json").read_text(encoding="utf-8"))
-    assert {entry["act"] for entry in entries} == {f"第{i}幕" for i in "一二三四五六七"}
+    assert {f"第{i}幕" for i in "一二三四五六七"} <= {entry["act"] for entry in entries}
+    assert any(entry["id"] == "fall-pov-nicole" for entry in entries)
     assert len({entry["id"] for entry in entries}) == len(entries)
     for entry in entries:
         path = ART / entry["image"]
