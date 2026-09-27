@@ -1,0 +1,38 @@
+.wber-delete-dialog {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 26px;
+  border: 1px solid var(--wber-border-strong);
+  border-radius: 16px;
+  color: var(--wber-body);
+  background: var(--wber-card);
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, .85);
+}
+.wber-delete-dialog::backdrop { background: rgba(2, 6, 12, .62); backdrop-filter: blur(6px); }
+.wber-delete-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  color: var(--wber-danger);
+  background: color-mix(in srgb, var(--wber-danger) 12%, transparent);
+}
+.wber-delete-dialog h2 { margin: 0; font: 700 20px var(--wber-serif); color: var(--wber-text); }
+.wber-delete-dialog p { margin: 10px 0 0; font-size: 13.5px; line-height: 1.65; color: var(--wber-muted); overflow-wrap: anywhere; }
+.wber-delete-dialog strong { color: var(--wber-text); font-weight: 600; }
+.wber-delete-dialog .wber-dialog-actions { margin-top: 24px; }
+.wber-shell .wber-delete-dialog .wber-delete-confirm {
+  color: #fff;
+  border-color: color-mix(in srgb, var(--wber-danger) 80%, transparent);
+  background: color-mix(in srgb, var(--wber-danger) 72%, #1b1014);
+}
+.wber-shell .wber-delete-dialog .wber-delete-confirm:hover {
+  color: #fff;
+  background: color-mix(in srgb, var(--wber-danger) 88%, #1b1014);
+}
+.wber-delete-dialog :focus-visible { outline: 2px solid var(--wber-accent); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .wber-delete-dialog, .wber-delete-dialog::backdrop { animation: none; transition: none; }
+}

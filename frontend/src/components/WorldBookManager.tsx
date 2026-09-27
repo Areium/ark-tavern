@@ -13,6 +13,7 @@ import { LAYER_HINTS, LAYER_LABELS, bookEntryStats, entryLayer, entryTokens,
 import type { WorldBookPanelProps } from "./worldbook/panel";
 import SampleWorldbooks from "./worldbook/SampleWorldbooks";
 import CoverPicker from "./worldbook/CoverPicker";
+import DeleteConfirmDialog from "./worldbook/DeleteConfirmDialog";
 import StatFieldsEditor from "./worldbook/StatFieldsEditor";
 import EntryDependencyTree from "./worldbook/EntryDependencyTree";
 import PromptPreviewTab from "./worldbook/tabs/PromptPreviewTab";
@@ -116,6 +117,8 @@ function safeCover(value: string | undefined): string {
 }
 
 type SavePhase = { state: "idle" | "waiting" | "saving" | "saved" | "error"; message?: string };
+type DeleteTarget = { kind: "book"; bookId: string; name: string }
+  | { kind: "entry"; bookId: string; entry: WorldBookEntryDTO };
 type ApiLike = ReturnType<typeof useApi>;
 const AUTOSAVE_STORAGE = "arknights-tavern.worldbook.pending.v1";
 
@@ -212,6 +215,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const [dragUid, setDragUid] = useState<string | null>(null);
   const [savePhase, setSavePhase] = useState<SavePhase>({ state: "idle" });
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   // 统一数值字段编辑器（角色数值的 schema，随书保存与导出）
   const [statFieldsOpen, setStatFieldsOpen] = useState(false);
   const [statFieldsSaving, setStatFieldsSaving] = useState(false);
@@ -368,7 +372,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     setSelectedId(boundBookId);
     setWorldbookTab("index");
   }, [indexSessionId, sessions, setIndexSessionId, setWorldbookTab]);
-  useEffect(() => { setDetail(null); void loadDetail(selectedId); setExpanded(new Set()); setEditingUid(null); setEntryDraft(null); }, [selectedId, loadDetail]);
+  useEffect(() => { setDetail(null); void loadDetail(selectedId); setExpanded(new Set()); setEditingUid(null); setEntryDraft(null); setDeleteTarget(null); }, [selectedId, loadDetail]);
 
   useEffect(() => {
     if (worldbookJumpId) { setSelectedId(worldbookJumpId); setWorldbookTab("entries"); setWorldbookJumpId(null); }
@@ -799,9 +803,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   };
 
   const deleteBook = async () => {
-    if (!detail || !window.confirm(
-      `确定删除《${detail.name}》吗？\n\n此书导入时创建的私有角色资料和图片会一并删除。仍被其他世界书或会话使用的角色会阻止删除。`
-    )) return;
+    if (!detail) return;
     try {
       clearBookTasks(detail.id);
       const queued = queues.current.get(detail.id); if (queued) await queued.catch(() => undefined);
@@ -915,7 +917,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   };
 
   const deleteEntry = async (entry: WorldBookEntryDTO) => {
-    if (!detail || !window.confirm(`删除条目「${entry.name || entry.uid}」？`)) return;
+    if (!detail) return;
     const taskKey = `${detail.id}:${entry.uid}`;
     const generation = (generations.current.get(taskKey) || 0) + 1;
     generations.current.set(taskKey, generation);
@@ -1125,6 +1127,15 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         await loadBooks();
         if (id) { setSelectedId(id); setListFilter("all"); }
       }} /> : <>
+      {deleteTarget && detail?.id === deleteTarget.bookId && <DeleteConfirmDialog
+        kind={deleteTarget.kind}
+        name={deleteTarget.kind === "book" ? deleteTarget.name : deleteTarget.entry.name || deleteTarget.entry.uid}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          setDeleteTarget(null);
+          if (deleteTarget.kind === "book") void deleteBook();
+          else void deleteEntry(deleteTarget.entry);
+        }} />}
       {createOpen && <div className="wber-create" role="dialog" aria-label="新建世界书">
         <div className="wber-create-card">
           <h3>新建世界书</h3><p>先建立书籍资料，创建后即可添加条目。</p>
@@ -1210,7 +1221,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
               <button type="button" onClick={() => void updateBookOption({ book_type: isReference(detail) ? "story" : "reference" })}>
                 {isReference(detail) ? "改为剧情世界书" : "移入资料库"}</button>
               {detail.is_preinstalled && <button type="button" onClick={() => void reinstallBook()}>重装整合包</button>}
-              <button type="button" className="is-danger" onClick={() => void deleteBook()}><AppIcon name="trash" size={14} />删除</button>
+              <button type="button" className="is-danger" onClick={() => setDeleteTarget({ kind: "book", bookId: detail.id, name: detail.name })}><AppIcon name="trash" size={14} />删除</button>
             </div></details></div>
         </section>
 
@@ -1344,7 +1355,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
                   if (editing) { setEditingUid(null); setEntryDraft(null); return; }
                   setEditingUid(entry.uid); setEntryDraft(draftCache.current.get(`${detail.id}:${entry.uid}`) || entryToDraft(entry));
                 }}>{editing ? "返回阅读" : "编辑"}</button>
-                  <button type="button" className="is-sm is-danger" onClick={() => void deleteEntry(entry)}><AppIcon name="trash" size={13} />删除</button></div>
+                  <button type="button" className="is-sm is-danger" onClick={() => setDeleteTarget({ kind: "entry", bookId: detail.id, entry })}><AppIcon name="trash" size={13} />删除</button></div>
                 {editing && entryDraft ? <EntryEditor draft={entryDraft} detail={detail} onChange={changeDraft} /> : <>
                   <div className="wber-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.content || "_（正文为空）_"}</ReactMarkdown></div>
                   <div className="wber-entry-meta"><span>触发词：{entry.trigger_keys?.join("、") || "无"}</span>
