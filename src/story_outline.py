@@ -796,10 +796,13 @@ def delete_outline(book_mgr, book_id: str, plot_id: str) -> bool:
         if book is None:
             return False
         before = len(book.entries)
-        book.entries = [e for e in book.entries
-                        if not (e.uid == entry_uid(plot_id) or (is_outline_entry(e) and _outline_plot_id(e) == plot_id))]
+        removed_uids = {e.uid for e in book.entries
+                        if e.uid == entry_uid(plot_id) or (is_outline_entry(e) and _outline_plot_id(e) == plot_id)}
+        book.entries = [e for e in book.entries if e.uid not in removed_uids]
         if len(book.entries) == before:
             return False
+        for uid in removed_uids:
+            book.entry_group_map.pop(uid, None)
         if hasattr(book, "bump_edit_revision"):
             book.bump_edit_revision()
         book_mgr.save(book)

@@ -448,6 +448,15 @@ export function useApi() {
           method: "PUT",
           body: JSON.stringify({ entry_order: entryOrder, expected_revision: expectedRevision }),
         }),
+    updateWorldbookEntryGroups: (bookId: string, entryGroups: import("../types").WorldBookEntryGroupDTO[],
+      entryGroupMap: Record<string, string>, expectedRevision: number) =>
+      request<{ entry_groups: import("../types").WorldBookEntryGroupDTO[];
+        entry_group_map: Record<string, string>; edit_revision: number }>(
+        `/api/worldbook/${encodeURIComponent(bookId)}/entry-groups`, {
+          method: "PUT",
+          body: JSON.stringify({ entry_groups: entryGroups, entry_group_map: entryGroupMap,
+            expected_revision: expectedRevision }),
+        }),
     updateWorldbookTaxonomy: (bookId: string, categories: import("../types").WorldBookCategoryDTO[],
       entryMoves: Record<string, string> = {}, expectedRevision?: number) =>
       request<import("../types").WorldBookDetail>(`/api/worldbook/${encodeURIComponent(bookId)}/taxonomy`, {

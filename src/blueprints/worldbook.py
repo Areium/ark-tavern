@@ -38,7 +38,7 @@ from shared.helpers import json_error
 from world_book import (
     BOOK_TYPE_REFERENCE, RESOLVER_VERSION, WorldBook, WorldBookEntry,
     apply_auto_classification, auto_classification_patch, content_revision,
-    estimate_tokens, normalize_book_type,
+    estimate_tokens, normalize_book_type, validate_entry_groups,
 )
 from worldbook_classify import classify_entries
 from worldbook_media import owned_materialized_character_root
@@ -528,6 +528,8 @@ def register(app, managers):
             "system_entry_count": stats.system,
             "edit_revision": book.edit_revision,
             "entry_order": book.effective_entry_order(),
+            "entry_groups": copy.deepcopy(book.entry_groups),
+            "entry_group_map": dict(book.entry_group_map),
             "has_explicit_entry_order": book.entry_order is not None,
             "stat_fields": copy.deepcopy(book.stat_fields),
             "created_at": book.created_at,
@@ -873,6 +875,7 @@ def register(app, managers):
             for i, e in enumerate(book.entries):
                 if e.uid == entry_id:
                     book.entries.pop(i)
+                    book.entry_group_map.pop(entry_id, None)
                     if book.entry_order is not None:
                         book.entry_order = [uid for uid in book.entry_order if uid != entry_id]
                     affected = {"dependency_edges": sum(entry_id in (edge["from_uid"], edge["to_uid"]) for edge in book.dependency_edges),
@@ -905,6 +908,44 @@ def register(app, managers):
                     wb_mgr.save(book)
                     return jsonify({"message": "已删除", "affected": affected})
             return json_error("条目不存在", 404)
+
+    @bp.route("/api/worldbook/<book_id>/entry-groups", methods=["PUT"])
+    def update_entry_groups(book_id):
+        """Persist presentation folders without changing entry injection order."""
+        with _locked_book(book_id) as (book, err):
+            if err:
+                return err
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict):
+                return json_error("请求数据必须是对象", 400)
+            if "expected_revision" not in data:
+                return json_error("expected_revision 必须是整数", 400)
+            conflict = _revision_conflict(book, data)
+            if conflict:
+                return conflict
+            if "entry_groups" not in data or "entry_group_map" not in data:
+                return json_error("entry_groups 和 entry_group_map 均为必填", 400)
+            group_map = data["entry_group_map"]
+            groups = data["entry_groups"]
+            if isinstance(groups, list) and isinstance(group_map, dict):
+                unknown_uids = set(group_map) - {entry.uid for entry in book.entries}
+                if unknown_uids:
+                    return json_error(
+                        f"entry_group_map 引用了不存在的条目 UID: {sorted(unknown_uids)[0]}", 400)
+                requested_ids = {group.get("id") for group in groups
+                                 if isinstance(group, dict) and isinstance(group.get("id"), str)}
+                removed_ids = {group["id"] for group in book.entry_groups} - requested_ids
+                group_map = {uid: group_id for uid, group_id in group_map.items()
+                             if not (isinstance(group_id, str) and group_id in removed_ids)}
+            try:
+                book.entry_groups, book.entry_group_map = validate_entry_groups(
+                    groups, group_map, {entry.uid for entry in book.entries})
+            except ValueError as exc:
+                return json_error(str(exc), 400)
+            wb_mgr.save(book)
+            return jsonify({"entry_groups": copy.deepcopy(book.entry_groups),
+                            "entry_group_map": dict(book.entry_group_map),
+                            "edit_revision": book.edit_revision})
 
     @bp.route("/api/worldbook/<book_id>/entry-order", methods=["PUT"])
     def reorder_entries(book_id):

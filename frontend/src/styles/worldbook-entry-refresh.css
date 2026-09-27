@@ -253,12 +253,37 @@ html.light .wber-shell {
 
 /* ══ 条目页 ══ */
 .wber-entries-page { animation: wber-rise .35s var(--wber-ease) both; }
-.wber-entry-toolbar { display: flex; gap: 10px; margin-bottom: 12px; }
-.wber-search { position: relative; display: flex; flex: 1; align-items: center; }
+.wber-entry-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.wber-search { position: relative; display: flex; flex: 1 1 220px; align-items: center; min-width: 0; }
 .wber-search > svg { position: absolute; left: 12px; color: var(--wber-muted); pointer-events: none; }
 .wber-search input { padding-left: 34px; }
 .wber-order-note { margin: -2px 0 10px 4px; }
 .wber-entry-list { display: flex; flex-direction: column; gap: 8px; }
+.wber-group-create, .wber-group-inline { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.wber-group-create { margin: -2px 0 12px; padding: 10px 12px; border: 1px solid var(--wber-border); border-radius: 10px; background: var(--wber-soft); }
+.wber-group-create label, .wber-group-inline label { color: var(--wber-muted); font-size: 12px; }
+.wber-group-create input, .wber-group-inline input { flex: 1 1 180px; min-width: 0; min-height: 32px; padding: 5px 10px; border: 1px solid var(--wber-border-strong); border-radius: 7px; background: var(--wber-card); }
+.wber-group-note { margin: 0 0 12px 4px !important; color: var(--wber-muted); font-size: 12.5px; line-height: 1.5; }
+.wber-group { border: 1px solid var(--wber-border); border-radius: 10px; background: var(--wber-soft); transition: border-color .16s, background-color .16s; }
+.wber-group.is-folder { margin-left: 22px; background: color-mix(in srgb, var(--wber-accent) 5%, var(--wber-card)); }
+.wber-group.is-root { background: transparent; border-style: dashed; }
+.wber-group[draggable="true"] { cursor: grab; }
+.wber-group.is-drop-target { border-color: var(--wber-accent); background: var(--wber-accent-soft); }
+.wber-group-head { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; }
+.wber-group-handle { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 20px; color: var(--wber-accent); }
+.wber-group-root-label { flex: 1; color: var(--wber-text); font-size: 13.5px; font-weight: 600; }
+.wber-shell .wber-group-toggle { flex: 1; justify-content: flex-start; gap: 7px; min-width: 0; padding: 0 4px; border: 0; background: transparent; box-shadow: none; text-align: left; font-weight: 600; }
+.wber-shell .wber-group-toggle:hover:not(:disabled) { transform: none; box-shadow: none; color: var(--wber-accent); }
+.wber-group-toggle .wber-chevron { flex-shrink: 0; }
+.wber-group-toggle[aria-expanded="true"] .wber-chevron { transform: rotate(90deg); color: var(--wber-accent); }
+.wber-group-count { flex-shrink: 0; color: var(--wber-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.wber-group-actions { display: flex; align-items: center; gap: 2px; margin-left: 10px; }
+.wber-shell .wber-group-actions button { min-height: 28px; padding: 0 7px; }
+.wber-group-inline { padding: 2px 10px 10px 38px; }
+.wber-group-inline[role="alert"] span { flex: 1 1 220px; color: var(--wber-body); font-size: 12.5px; }
+.wber-group-empty { padding: 0 12px 10px 38px; color: var(--wber-muted); font-size: 12px; }
+.wber-entry.is-grouped { margin-left: 48px; }
+.wber-entry-group-select { max-width: 120px; min-width: 78px; height: 27px; padding: 1px 5px; border: 1px solid var(--wber-border); border-radius: 6px; background: var(--wber-soft); color: var(--wber-body); font-size: 11.5px !important; text-overflow: ellipsis; }
 .wber-entry {
   position: relative; border: 1px solid var(--wber-border); border-radius: 12px; background: var(--wber-card); overflow: hidden;
   transition: border-color .18s, box-shadow .25s, opacity .2s, transform .2s var(--wber-ease);
@@ -470,6 +495,11 @@ html.light .wber-shell {
   .wber-hero-cover { width: 66px; font-size: 26px; }
   .wber-tabs { overflow-x: auto; }
   .wber-entry-body { padding-left: 16px; }
+  .wber-group-head { flex-wrap: wrap; }
+  .wber-group-actions { justify-content: flex-end; flex: 1 1 100%; margin-left: 28px; }
+  .wber-group.is-folder { margin-left: 14px; }
+  .wber-entry.is-grouped { margin-left: 32px; }
+  .wber-entry-group-select { max-width: 86px; }
   .wber-layer { display: none; }
   .wber-editor { grid-template-columns: 1fr; }
   .wber-editor .is-wide, .wber-editor-note { grid-column: auto; }

@@ -940,6 +940,34 @@ def book_entry_stats(entries) -> WorldBookEntryStats:
                                disabled=disabled, system=system, tokens=tokens)
 
 
+def validate_entry_groups(groups, group_map, entry_uids: set[str]) -> tuple[list[dict], dict]:
+    """Validate display-only folders separately from entry trigger groups."""
+    if not isinstance(groups, list):
+        raise ValueError("entry_groups 必须是数组")
+    normalized = []
+    ids = set()
+    for group in groups:
+        if not isinstance(group, dict):
+            raise ValueError("entry_groups 的每项必须是对象")
+        group_id, name = group.get("id"), group.get("name")
+        if not isinstance(group_id, str) or not group_id.strip() or group_id != group_id.strip():
+            raise ValueError("分组 id 必须是非空且无首尾空格的字符串")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("分组 name 必须是非空字符串")
+        if group_id in ids:
+            raise ValueError("分组 id 不可重复")
+        ids.add(group_id)
+        normalized.append({"id": group_id, "name": name.strip()})
+    if not isinstance(group_map, dict):
+        raise ValueError("entry_group_map 必须是对象")
+    for uid, group_id in group_map.items():
+        if uid not in entry_uids:
+            raise ValueError(f"entry_group_map 引用了不存在的条目 UID: {uid}")
+        if not isinstance(group_id, str) or group_id not in ids:
+            raise ValueError(f"entry_group_map 引用了不存在的分组: {group_id}")
+    return normalized, dict(group_map)
+
+
 class WorldBook:
     """一本世界书：id + 元信息 + 条目集合 + 触发/格式化逻辑。
 
@@ -964,7 +992,8 @@ class WorldBook:
                  description: str = "", cover_image: str = "",
                  entry_order: list = None, edit_revision: int = 1,
                  stat_fields: list = None, character_media: dict = None,
-                 character_profiles: dict = None):
+                 character_profiles: dict = None,
+                 entry_groups: list = None, entry_group_map: dict = None):
         self.id = book_id
         self.name = name or book_id
         self.source_format = source_format
@@ -984,6 +1013,10 @@ class WorldBook:
         self.updated_at = time.time()
         self.pack_rev = str(pack_rev or "")
         self.entries: list[WorldBookEntry] = list(entries or [])
+        self.entry_groups, self.entry_group_map = validate_entry_groups(
+            entry_groups if entry_groups is not None else [],
+            entry_group_map if entry_group_map is not None else {},
+            {entry.uid for entry in self.entries})
         known_order = {entry.uid for entry in self.entries}
         if isinstance(entry_order, list):
             normalized_order = []
@@ -1214,6 +1247,8 @@ class WorldBook:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "entries": [e.to_dict() for e in self.entries],
+            "entry_groups": copy.deepcopy(self.entry_groups),
+            "entry_group_map": dict(self.entry_group_map),
             "schema_version": self.schema_version,
             "scope_mode": self.scope_mode,
             "categories": self.categories,
@@ -1244,15 +1279,25 @@ class WorldBook:
 
     @staticmethod
     def from_dict(data: dict) -> "WorldBook":
+        entries = [WorldBookEntry.from_dict(e) for e in data.get("entries", [])]
+        # Older writers may have removed an entry without updating display folders.
+        # Do not let such stale metadata make the entire worldbook unloadable.
+        group_map = data.get("entry_group_map")
+        if isinstance(group_map, dict):
+            known_uids = {entry.uid for entry in entries}
+            group_map = {uid: group_id for uid, group_id in group_map.items()
+                         if uid in known_uids}
         book = WorldBook(
             book_id=str(data.get("id", "")),
             name=str(data.get("name", "")),
-            entries=[WorldBookEntry.from_dict(e) for e in data.get("entries", [])],
+            entries=entries,
             source_format=str(data.get("source_format", SOURCE_MANUAL)),
             budget_tokens=int(data.get("budget_tokens", 0)),
             description=str(data.get("description", "") or ""),
             cover_image=str(data.get("cover_image", "") or ""),
             entry_order=data.get("entry_order"),
+            entry_groups=data.get("entry_groups"),
+            entry_group_map=group_map,
             edit_revision=data.get("edit_revision", 1),
             source=str(data.get("source", "imported")),
             enabled=bool(data.get("enabled", True)),
@@ -2151,6 +2196,8 @@ class WorldBook:
             "description": self.description,
             "cover_image": self.cover_image,
             "entry_order": list(self.entry_order) if self.entry_order is not None else None,
+            "entry_groups": copy.deepcopy(self.entry_groups),
+            "entry_group_map": dict(self.entry_group_map),
             "categories": copy.deepcopy(self.categories),
             "dependency_edges": copy.deepcopy(self.dependency_edges),
             "import_config": copy.deepcopy(self.import_config),
@@ -2632,6 +2679,14 @@ class WorldBookManager:
             book.character_profiles = normalize_character_profiles(extension.get("character_profiles"))
             book.stat_fields = normalize_stat_fields(extension.get("stat_fields"))
             requested_order = extension.get("entry_order")
+            imported_group_map = extension.get("entry_group_map", {})
+            if isinstance(imported_group_map, dict):
+                known_uids = {entry.uid for entry in entries}
+                imported_group_map = {uid: group_id for uid, group_id in imported_group_map.items()
+                                      if uid in known_uids}
+            book.entry_groups, book.entry_group_map = validate_entry_groups(
+                extension.get("entry_groups", []), imported_group_map,
+                {entry.uid for entry in entries})
             if isinstance(requested_order, list):
                 ordered = [str(uid) for uid in requested_order]
                 known = {entry.uid for entry in entries}
@@ -2711,6 +2766,8 @@ class WorldBookManager:
             description=book.description,
             cover_image=book.cover_image,
             entry_order=copy.deepcopy(book.entry_order),
+            entry_groups=copy.deepcopy(book.entry_groups),
+            entry_group_map=dict(book.entry_group_map),
             stat_fields=copy.deepcopy(book.stat_fields),
             character_media=copy.deepcopy(book.character_media),
             character_profiles=copy.deepcopy(book.character_profiles),

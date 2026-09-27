@@ -302,20 +302,20 @@ def save_graph(book_mgr, book_id: str, doc: dict, *,
         raise GraphError(errors)
 
     doc["updated_at"] = time.time()
-    book = book_mgr.load(book_id)
-    if book is None:
-        raise GraphError(f"世界书不存在: {book_id}")
-
     entry_data = encode_graph_for_worldbook(doc, display_name=display_name)
-    existing = _find_entry(book, plot_id)
     new_entry = WorldBookEntry.from_dict(entry_data)
-    if existing is not None:
-        # 条目由本模块独占管理：整条替换（保留原 uid 位置）
-        index = book.entries.index(existing)
-        book.entries[index] = new_entry
-    else:
-        book.entries.append(new_entry)
-    book_mgr.save(book)
+    with book_mgr.book_lock(book_id):
+        book = book_mgr.load(book_id)
+        if book is None:
+            raise GraphError(f"世界书不存在: {book_id}")
+        existing = _find_entry(book, plot_id)
+        if existing is not None:
+            # 条目由本模块独占管理：整条替换（保留原 uid 位置）
+            index = book.entries.index(existing)
+            book.entries[index] = new_entry
+        else:
+            book.entries.append(new_entry)
+        book_mgr.save(book)
     logger.info("剧情节点图已保存: %s → 世界书 %s（%d 节点 / %d 连线）",
                 plot_id, book_id, len(doc["nodes"]), len(doc["edges"]))
     return doc
@@ -323,14 +323,18 @@ def save_graph(book_mgr, book_id: str, doc: dict, *,
 
 def delete_graph(book_mgr, book_id: str, plot_id: str) -> bool:
     """删除某剧情的图条目（不影响剧情/战斗底层数据）。"""
-    book = book_mgr.load(book_id) if book_id else None
-    if book is None:
+    if not book_id:
         return False
-    entry = _find_entry(book, plot_id)
-    if entry is None:
-        return False
-    book.entries.remove(entry)
-    book_mgr.save(book)
+    with book_mgr.book_lock(book_id):
+        book = book_mgr.load(book_id)
+        if book is None:
+            return False
+        entry = _find_entry(book, plot_id)
+        if entry is None:
+            return False
+        book.entries.remove(entry)
+        book.entry_group_map.pop(entry.uid, None)
+        book_mgr.save(book)
     logger.info("剧情节点图已删除: %s ← 世界书 %s", plot_id, book_id)
     return True
 

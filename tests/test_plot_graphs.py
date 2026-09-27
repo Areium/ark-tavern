@@ -141,6 +141,47 @@ def test_save_load_delete_roundtrip(mgr):
     assert delete_graph(mgr, BOOK, "fengxue_guojing") is False
 
 
+def test_delete_graph_clears_display_folder_mapping(mgr):
+    manager, _ = mgr
+    save_graph(manager, BOOK, _doc())
+    book = manager.load(BOOK)
+    uid = entry_uid("fengxue_guojing")
+    book.entry_groups = [{"id": "g", "name": "图"}]
+    book.entry_group_map = {uid: "g"}
+    manager.save(book)
+
+    assert delete_graph(manager, BOOK, "fengxue_guojing") is True
+    reloaded = manager.load(BOOK)
+    assert reloaded.entry_groups == [{"id": "g", "name": "图"}]
+    assert reloaded.entry_group_map == {}
+    assert all(entry.uid != uid for entry in reloaded.entries)
+
+
+def test_graph_writes_hold_book_lock_through_load_and_save(mgr, monkeypatch):
+    manager, _ = mgr
+    lock = manager.book_lock(BOOK)
+    original_load, original_save = manager.load, manager.save
+    calls = []
+
+    def checked_load(book_id):
+        assert lock._is_owned()
+        calls.append("load")
+        return original_load(book_id)
+
+    def checked_save(book):
+        assert lock._is_owned()
+        calls.append("save")
+        return original_save(book)
+
+    monkeypatch.setattr(manager, "load", checked_load)
+    monkeypatch.setattr(manager, "save", checked_save)
+    save_graph(manager, BOOK, _doc())
+    assert calls == ["load", "save"]
+    calls.clear()
+    assert delete_graph(manager, BOOK, "fengxue_guojing") is True
+    assert calls == ["load", "save"]
+
+
 def test_save_rejects_dangling_edge(mgr):
     mgr, _ = mgr
     doc = _doc()

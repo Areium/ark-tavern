@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useApi } from "../hooks/useApi";
 import { useAppStore, type WorldBookTab } from "../stores/appStore";
-import type { StatFieldDTO, WorldBookDetail, WorldBookEntryDTO, WorldBookSearchHit, WorldBookSummary, WorldBookType } from "../types";
+import type { StatFieldDTO, WorldBookDetail, WorldBookEntryDTO, WorldBookEntryGroupDTO, WorldBookSearchHit, WorldBookSummary, WorldBookType } from "../types";
 import { useScopePreview, useWorldbookDraft } from "../hooks/useWorldbookDraft";
 import { BOOK_TYPE_LABELS, bookTypeOf, filterBooksByType, isReference,
   normalizeWorldbookTab, type BookTypeFilter } from "../utils/worldbookLibrary";
@@ -117,13 +117,16 @@ function safeCover(value: string | undefined): string {
 }
 
 type SavePhase = { state: "idle" | "waiting" | "saving" | "saved" | "error"; message?: string };
+type EntryGroupState = { entry_groups: WorldBookEntryGroupDTO[]; entry_group_map: Record<string, string> };
+type EntryListRow = { kind: "group"; group: WorldBookEntryGroupDTO | null; count: number }
+  | { kind: "entry"; entry: WorldBookEntryDTO; orderIndex: number; firstSystem: boolean };
 type DeleteTarget = { kind: "book"; bookId: string; name: string }
   | { kind: "entry"; bookId: string; entry: WorldBookEntryDTO };
 type ApiLike = ReturnType<typeof useApi>;
 const AUTOSAVE_STORAGE = "arknights-tavern.worldbook.pending.v1";
 
-type StoredTasks = Record<string, { bookId: string; uid?: string; kind: "entry" | "meta" | "order";
-  generation: number; payload: EntryDraft | { name: string; description: string; cover: string } | string[] }>;
+type StoredTasks = Record<string, { bookId: string; uid?: string; kind: "entry" | "meta" | "order" | "groups";
+  generation: number; payload: EntryDraft | { name: string; description: string; cover: string } | string[] | EntryGroupState }>;
 
 function readStoredTasks(): StoredTasks {
   try { return JSON.parse(sessionStorage.getItem(AUTOSAVE_STORAGE) || "{}"); }
@@ -154,6 +157,7 @@ const SHARED_SAVE = {
   metaCache: new Map<string, { name: string; description: string; cover: string }>(),
   draftCache: new Map<string, EntryDraft>(), persistedUids: new Set<string>(),
   retryTasks: new Map<string, () => void>(), pendingOrders: new Map<string, string[]>(),
+  pendingGroups: new Map<string, EntryGroupState>(),
   deletedEntries: new Set<string>(), inFlightEntries: new Set<string>(),
 };
 
@@ -164,9 +168,11 @@ type SharedSaveEvent =
       editRevision: number; book: WorldBookSummary }
   | { status: "success"; kind: "order"; bookId: string; key: string; generation: number;
       editRevision: number; order: string[] }
+  | { status: "success"; kind: "groups"; bookId: string; key: string; generation: number;
+      editRevision: number; groups: EntryGroupState }
   | { status: "success"; kind: "delete"; bookId: string; key: string; generation: number;
       editRevision: number; uid: string }
-  | { status: "error"; kind: "entry" | "meta" | "order" | "delete"; bookId: string;
+  | { status: "error"; kind: "entry" | "meta" | "order" | "groups" | "delete"; bookId: string;
       key: string; generation: number; message: string };
 
 const SHARED_SAVE_LISTENERS = new Set<(event: SharedSaveEvent) => void>();
@@ -213,6 +219,14 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const entryDialog = useRef<HTMLDialogElement>(null);
   const [dropTarget, setDropTarget] = useState<{ uid: string; side: "before" | "after" } | null>(null);
   const [dragUid, setDragUid] = useState<string | null>(null);
+  const [dragGroupId, setDragGroupId] = useState<string | null>(null);
+  const [dropGroupId, setDropGroupId] = useState<string | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [groupNameDraft, setGroupNameDraft] = useState("");
+  const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
   const [savePhase, setSavePhase] = useState<SavePhase>({ state: "idle" });
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
@@ -258,6 +272,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const persistedUids = useRef(SHARED_SAVE.persistedUids);
   const retryTasks = useRef(SHARED_SAVE.retryTasks);
   const pendingOrders = useRef(SHARED_SAVE.pendingOrders);
+  const pendingGroups = useRef(SHARED_SAVE.pendingGroups);
   const deletedEntries = useRef(SHARED_SAVE.deletedEntries);
   const inFlightEntries = useRef(SHARED_SAVE.inFlightEntries);
   const detailRequest = useRef(0);
@@ -277,6 +292,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       if (task.kind === "meta") metaCache.current.set(task.bookId,
         task.payload as { name: string; description: string; cover: string });
       if (task.kind === "order") pendingOrders.current.set(task.bookId, task.payload as string[]);
+      if (task.kind === "groups") pendingGroups.current.set(task.bookId, task.payload as EntryGroupState);
     }
   }
 
@@ -347,7 +363,9 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       }
       const cachedMeta = metaCache.current.get(bookId);
       const cachedOrder = pendingOrders.current.get(bookId);
+      const cachedGroups = pendingGroups.current.get(bookId);
       if (cachedOrder) { value.entry_order = cachedOrder; value.has_explicit_entry_order = true; }
+      if (cachedGroups) Object.assign(value, cachedGroups);
       if (cachedMeta) {
         value.name = cachedMeta.name; value.description = cachedMeta.description;
         value.cover_image = cachedMeta.cover;
@@ -372,7 +390,10 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     setSelectedId(boundBookId);
     setWorldbookTab("index");
   }, [indexSessionId, sessions, setIndexSessionId, setWorldbookTab]);
-  useEffect(() => { setDetail(null); void loadDetail(selectedId); setExpanded(new Set()); setEditingUid(null); setEntryDraft(null); setDeleteTarget(null); }, [selectedId, loadDetail]);
+  useEffect(() => { setDetail(null); void loadDetail(selectedId); setExpanded(new Set()); setCollapsedGroups(new Set());
+    setEditingUid(null); setEntryDraft(null); setDeleteTarget(null); setDeleteGroupId(null);
+    setEditingGroupId(null); setNewGroupOpen(false); setNewGroupName(""); setDragGroupId(null); setDropGroupId(null);
+  }, [selectedId, loadDetail]);
 
   useEffect(() => {
     if (worldbookJumpId) { setSelectedId(worldbookJumpId); setWorldbookTab("entries"); setWorldbookJumpId(null); }
@@ -460,6 +481,30 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     return byLayer.filter((entry) => [entry.name, entry.content, ...(entry.trigger_keys || [])]
       .some((value) => String(value || "").toLocaleLowerCase().includes(needle)));
   }, [orderedEntries, query, layerFilter]);
+  const entryRows = useMemo((): EntryListRow[] => {
+    const groups = detail?.entry_groups || [];
+    const groupIds = new Set(groups.map((group) => group.id));
+    const groupMap = detail?.entry_group_map || {};
+    const rows: EntryListRow[] = [];
+    const addEntries = (items: WorldBookEntryDTO[]) => {
+      let previousLayer: WorldBookEntryLayer | null = null;
+      for (const entry of items) {
+        const layer = entryLayer(entry);
+        rows.push({ kind: "entry", entry, orderIndex: orderedEntries.findIndex((item) => item.uid === entry.uid),
+          firstSystem: layer === "system" && previousLayer !== "system" });
+        previousLayer = layer;
+      }
+    };
+    const root = visibleEntries.filter((entry) => !groupIds.has(groupMap[entry.uid]));
+    if (groups.length) rows.push({ kind: "group", group: null, count: root.length });
+    addEntries(root);
+    for (const group of groups) {
+      const entries = visibleEntries.filter((entry) => groupMap[entry.uid] === group.id);
+      rows.push({ kind: "group", group, count: entries.length });
+      if (!collapsedGroups.has(group.id)) addEntries(entries);
+    }
+    return rows;
+  }, [detail, visibleEntries, orderedEntries, collapsedGroups]);
   /**
    * 实时统计：勾选 / 取消勾选、改正文都直接改 `detail.entries`，所以这里立刻跟着变。
    * 口径与后端 `book_entry_stats` 一致 —— 停用条目与系统层条目都不计入「条目 / token」。
@@ -513,11 +558,16 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       } else if (event.kind === "order") {
         setDetail((current) => current?.id === event.bookId ? { ...current,
           entry_order: event.order, has_explicit_entry_order: true, edit_revision: event.editRevision } : current);
+      } else if (event.kind === "groups") {
+        setDetail((current) => current?.id === event.bookId ? { ...current,
+          ...event.groups, edit_revision: event.editRevision } : current);
       } else {
         setDetail((current) => current?.id === event.bookId ? { ...current,
           entries: current.entries.filter((entry) => entry.uid !== event.uid),
           entry_count: current.entries.filter((entry) => entry.uid !== event.uid).length,
           entry_order: current.entry_order?.filter((uid) => uid !== event.uid),
+          entry_group_map: Object.fromEntries(Object.entries(current.entry_group_map || {})
+            .filter(([uid]) => uid !== event.uid)),
           edit_revision: event.editRevision } : current);
       }
       setSavePhase(retryTasks.current.size
@@ -665,6 +715,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     restoreRetriesWired.current = true;
     const tasks = readStoredTasks();
     for (const [key, task] of Object.entries(tasks)) {
+      if (task.kind === "groups") continue;
       retryTasks.current.set(key, () => {
         void api.getWorldbook(task.bookId).then((fresh) => {
           revisions.current.set(task.bookId, fresh.edit_revision || 0);
@@ -926,7 +977,18 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     entryTimers.current.delete(taskKey); draftCache.current.delete(taskKey);
     retryTasks.current.delete(taskKey); writeStoredTask(taskKey, null);
     setDetail({ ...detail, entries: detail.entries.filter((item) => item.uid !== entry.uid),
-      entry_count: Math.max(0, detail.entry_count - 1), entry_order: detail.entry_order?.filter((uid) => uid !== entry.uid) });
+      entry_count: Math.max(0, detail.entry_count - 1), entry_order: detail.entry_order?.filter((uid) => uid !== entry.uid),
+      entry_group_map: Object.fromEntries(Object.entries(detail.entry_group_map || {})
+        .filter(([uid]) => uid !== entry.uid)) });
+    const pendingGroupState = pendingGroups.current.get(detail.id);
+    if (pendingGroupState) {
+      const nextGroups = { ...pendingGroupState, entry_group_map: Object.fromEntries(
+        Object.entries(pendingGroupState.entry_group_map).filter(([uid]) => uid !== entry.uid)) };
+      pendingGroups.current.set(detail.id, nextGroups);
+      const groupKey = `${detail.id}:groups`;
+      writeStoredTask(groupKey, { bookId: detail.id, kind: "groups",
+        generation: generations.current.get(groupKey) || 1, payload: nextGroups });
+    }
     const bookId = detail.id;
     const attemptDelete = async (): Promise<void> => {
       try {
@@ -1016,11 +1078,125 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     }
   }, [api, persistOrder]);
 
+  const persistGroups = useCallback((bookId: string, groups: EntryGroupState, requestedGeneration?: number) => {
+    const key = `${bookId}:groups`;
+    const generation = requestedGeneration ?? ((generations.current.get(key) || 0) + 1);
+    generations.current.set(key, generation);
+    pendingGroups.current.set(bookId, groups);
+    writeStoredTask(key, { bookId, kind: "groups", generation, payload: groups });
+    setSavePhase({ state: "saving", message: "正在保存分组…" });
+    enqueue(bookId, async (revision) => {
+      const result = await api.updateWorldbookEntryGroups(bookId, groups.entry_groups, groups.entry_group_map, revision);
+      revisions.current.set(bookId, result.edit_revision);
+      if ((generations.current.get(key) || 0) === generation) {
+        pendingGroups.current.delete(bookId);
+        markTaskSuccess(key, generation, "分组已保存");
+        publishSaveEvent({ status: "success", kind: "groups", bookId, key, generation,
+          editRevision: result.edit_revision, groups: { entry_groups: result.entry_groups,
+            entry_group_map: result.entry_group_map } });
+      }
+      return result;
+    }).catch((reason: any) => {
+      const message = reason?.message || "分组保存失败，修改已保留";
+      setSavePhase({ state: "error", message });
+      retryTasks.current.set(key, () => {
+        void api.getWorldbook(bookId).then((fresh) => {
+          revisions.current.set(bookId, fresh.edit_revision || 0);
+          const pending = pendingGroups.current.get(bookId);
+          if (pending) persistGroups(bookId, pending, generations.current.get(key) || generation);
+        }).catch((failure: any) => setSavePhase({ state: "error", message: failure?.message || "重试失败" }));
+      });
+      if ((generations.current.get(key) || 0) === generation) publishSaveEvent({
+        status: "error", kind: "groups", bookId, key, generation, message,
+      });
+    });
+  }, [api, enqueue, markTaskSuccess]);
+
+  useEffect(() => {
+    for (const [key, task] of Object.entries(readStoredTasks())) {
+      if (task.kind !== "groups" || retryTasks.current.has(key)) continue;
+      retryTasks.current.set(key, () => {
+        void api.getWorldbook(task.bookId).then((fresh) => {
+          revisions.current.set(task.bookId, fresh.edit_revision || 0);
+          const pending = pendingGroups.current.get(task.bookId);
+          if (pending) persistGroups(task.bookId, pending, generations.current.get(key) || task.generation);
+        });
+      });
+    }
+  }, [api, persistGroups]);
+
+  const commitGroups = (next: EntryGroupState) => {
+    if (!detail) return;
+    setDetail({ ...detail, ...next });
+    persistGroups(detail.id, next);
+  };
+
+  const addGroup = () => {
+    if (!detail) return;
+    const name = newGroupName.trim();
+    if (!name) return;
+    if ((detail.entry_groups || []).some((group) => group.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+      showToast("已有同名分组，请换一个名称"); return;
+    }
+    const group = { id: crypto.randomUUID(), name };
+    commitGroups({ entry_groups: [...(detail.entry_groups || []), group],
+      entry_group_map: { ...(detail.entry_group_map || {}) } });
+    setNewGroupName(""); setNewGroupOpen(false);
+  };
+
+  const renameGroup = (groupId: string) => {
+    if (!detail) return;
+    const name = groupNameDraft.trim();
+    if (!name) return;
+    if ((detail.entry_groups || []).some((group) => group.id !== groupId && group.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+      showToast("已有同名分组，请换一个名称"); return;
+    }
+    commitGroups({ entry_groups: (detail.entry_groups || []).map((group) => group.id === groupId ? { ...group, name } : group),
+      entry_group_map: { ...(detail.entry_group_map || {}) } });
+    setEditingGroupId(null);
+  };
+
+  const removeGroup = (groupId: string) => {
+    if (!detail) return;
+    commitGroups({ entry_groups: (detail.entry_groups || []).filter((group) => group.id !== groupId),
+      entry_group_map: Object.fromEntries(Object.entries(detail.entry_group_map || {})
+        .filter(([, assigned]) => assigned !== groupId)) });
+    setDeleteGroupId(null);
+    showToast("分组已删除，条目已移至未分组");
+  };
+
+  const moveGroup = (sourceId: string, targetId: string, side: "before" | "after" = "before") => {
+    if (!detail || sourceId === targetId) return;
+    const next = [...(detail.entry_groups || [])];
+    const sourceIndex = next.findIndex((group) => group.id === sourceId);
+    const targetIndex = next.findIndex((group) => group.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const [group] = next.splice(sourceIndex, 1);
+    next.splice(next.findIndex((item) => item.id === targetId) + (side === "after" ? 1 : 0), 0, group);
+    commitGroups({ entry_groups: next, entry_group_map: { ...(detail.entry_group_map || {}) } });
+    setDragGroupId(null); setDropGroupId(null);
+  };
+
+  const moveEntryToGroup = (entryUid: string, groupId: string | null) => {
+    if (!detail || !detail.entries.some((entry) => entry.uid === entryUid)) return;
+    const currentGroup = detail.entry_group_map?.[entryUid] || null;
+    if (currentGroup === groupId) return;
+    if (groupId && !detail.entry_groups?.some((group) => group.id === groupId)) return;
+    const map = { ...(detail.entry_group_map || {}) };
+    if (groupId) map[entryUid] = groupId; else delete map[entryUid];
+    commitGroups({ entry_groups: [...(detail.entry_groups || [])], entry_group_map: map });
+    if (groupId) setCollapsedGroups((current) => { const next = new Set(current); next.delete(groupId); return next; });
+    setDragUid(null); setDropTarget(null); setDropGroupId(null);
+  };
+
   const reorder = (targetUid: string, side: "before" | "after" = "before", sourceUid = dragUid) => {
     if (!detail || !sourceUid || sourceUid === targetUid || query.trim() || layerFilter !== "all") return;
     const source = detail.entries.find((entry) => entry.uid === sourceUid);
     const target = detail.entries.find((entry) => entry.uid === targetUid);
     if (!source || !target) return;
+    const sourceGroup = detail.entry_group_map?.[sourceUid] || null;
+    const targetGroup = detail.entry_group_map?.[targetUid] || null;
+    if (sourceGroup !== targetGroup) { moveEntryToGroup(sourceUid, targetGroup); return; }
     // 系统层条目不参与排序：它们在列表里恒定沉底，拖它们没有可观察的结果。
     if (!isSortableEntry(source) || !isSortableEntry(target)) {
       showToast("系统层条目（节点图 / 节点绑定）不参与注入，也不参与排序：它们固定在列表最底端。");
@@ -1284,31 +1460,96 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
                 onClick={() => setLayerFilter(layerFilter === value ? "all" : value)}>
                 {LAYER_LABELS[value]} <span>{layerCounts[value]}</span></button>)}
             </div>
-            <button type="button" className="is-primary" onClick={createEntry}>＋ 新增条目</button></div>
+            <button type="button" className="is-primary" onClick={createEntry}>＋ 新增条目</button>
+            <button type="button" onClick={() => setNewGroupOpen((open) => !open)} aria-expanded={newGroupOpen}>
+              <AppIcon name="folder" size={14} />新建分组</button></div>
+          {newGroupOpen && <form className="wber-group-create" onSubmit={(event) => { event.preventDefault(); addGroup(); }}>
+            <label htmlFor="wber-new-group-name">分组名称</label>
+            <input id="wber-new-group-name" value={newGroupName} maxLength={60} autoFocus
+              onChange={(event) => setNewGroupName(event.target.value)} placeholder="例如：角色设定" />
+            <button type="submit" className="is-primary" disabled={!newGroupName.trim()}>创建</button>
+            <button type="button" className="is-ghost" onClick={() => { setNewGroupOpen(false); setNewGroupName(""); }}>取消</button>
+          </form>}
+          {!!detail.entry_groups?.length && <p className="wber-group-note">拖动条目到分组标题可归档；拖动分组标题可调整整组位置。分组仅整理列表，不改变 Prompt 插入顺序。</p>}
           {(query || layerFilter !== "all") && <p className="wber-order-note">
             {query ? "搜索结果" : `${LAYER_LABELS[layerFilter as WorldBookEntryLayer]}筛选中`}暂不拖动排序；
             清空搜索并回到「全部」可恢复完整插入顺序。
           </p>}
           {/* 系统层条目恒定沉底：分母行给出「附录」分界，免得读者以为它们是被排到后面的内容。 */}
-          <div className="wber-entry-list">{visibleEntries.map((entry, index) => {
+          <div className="wber-entry-list">{entryRows.map((row) => {
+            if (row.kind === "group") {
+              const group = row.group;
+              const groupId = group?.id || null;
+              const isCollapsed = !!group && collapsedGroups.has(group.id);
+              return <div key={groupId || "root"} className={`wber-group${group ? " is-folder" : " is-root"}${dropGroupId === (groupId || "root") ? " is-drop-target" : ""}`}
+                draggable={!!group && !query && layerFilter === "all"}
+                onDragStart={(event) => { if (!group) return; setDragGroupId(group.id); setDragUid(null);
+                  event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", `group:${group.id}`); }}
+                onDragEnd={() => { setDragGroupId(null); setDropGroupId(null); }}
+                onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropGroupId(null); }}
+                onDragOver={(event) => { if ((!dragUid && !dragGroupId) || (dragGroupId && (!group || dragGroupId === group.id))) return;
+                  event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropGroupId(groupId || "root"); }}
+                onDrop={(event) => { event.preventDefault(); if (dragUid) moveEntryToGroup(dragUid, groupId);
+                  else if (dragGroupId && group) moveGroup(dragGroupId, group.id); setDropGroupId(null); }}>
+                <div className="wber-group-head">
+                  <span className="wber-group-handle" aria-hidden="true"><AppIcon name="folder" size={16} /></span>
+                  {group ? <button type="button" className="wber-group-toggle" aria-expanded={!isCollapsed}
+                    onClick={() => setCollapsedGroups((current) => { const next = new Set(current);
+                      if (next.has(group.id)) next.delete(group.id); else next.add(group.id); return next; })}>
+                    <AppIcon name="forward" size={13} className="wber-chevron" />{group.name}</button>
+                    : <strong className="wber-group-root-label">未分组</strong>}
+                  <span className="wber-group-count">{row.count} 条</span>
+                  {group && <div className="wber-group-actions">
+                    <button type="button" className="is-sm is-ghost" aria-label={`上移分组 ${group.name}`}
+                      disabled={(detail.entry_groups || [])[0]?.id === group.id}
+                      onClick={() => { const groups = detail.entry_groups || []; const index = groups.findIndex((item) => item.id === group.id);
+                        if (index > 0) moveGroup(group.id, groups[index - 1].id); }}>上移</button>
+                    <button type="button" className="is-sm is-ghost" aria-label={`下移分组 ${group.name}`}
+                      disabled={detail.entry_groups?.[detail.entry_groups.length - 1]?.id === group.id}
+                      onClick={() => { const groups = detail.entry_groups || []; const index = groups.findIndex((item) => item.id === group.id);
+                        if (index >= 0 && index < groups.length - 1) moveGroup(group.id, groups[index + 1].id, "after"); }}>下移</button>
+                    <button type="button" className="is-sm is-ghost" onClick={() => { setEditingGroupId(group.id); setGroupNameDraft(group.name); setDeleteGroupId(null); }}>重命名</button>
+                    <button type="button" className="is-sm is-ghost is-danger" onClick={() => { setDeleteGroupId(group.id); setEditingGroupId(null); }}>删除</button>
+                  </div>}
+                </div>
+                {group && editingGroupId === group.id && <form className="wber-group-inline" onSubmit={(event) => { event.preventDefault(); renameGroup(group.id); }}>
+                  <label htmlFor={`wber-rename-${group.id}`}>新名称</label>
+                  <input id={`wber-rename-${group.id}`} value={groupNameDraft} maxLength={60} autoFocus onChange={(event) => setGroupNameDraft(event.target.value)} />
+                  <button type="submit" className="is-sm is-primary" disabled={!groupNameDraft.trim()}>保存</button>
+                  <button type="button" className="is-sm is-ghost" onClick={() => setEditingGroupId(null)}>取消</button>
+                </form>}
+                {group && deleteGroupId === group.id && <div className="wber-group-inline" role="alert">
+                  <span>删除「{group.name}」？组内条目会移至未分组。</span>
+                  <button type="button" className="is-sm is-danger" onClick={() => removeGroup(group.id)}>删除分组</button>
+                  <button type="button" className="is-sm is-ghost" onClick={() => setDeleteGroupId(null)}>取消</button>
+                </div>}
+                {group && !isCollapsed && row.count === 0 && <p className="wber-group-empty">暂无条目，可将条目拖到此分组标题。</p>}
+              </div>;
+            }
+            const entry = row.entry; const index = row.orderIndex;
             const open = expanded.has(entry.uid); const editing = editingUid === entry.uid;
             const layer = entryLayer(entry);
             const system = layer === "system";
             const sortable = isSortableEntry(entry);
-            const divider = system && index > 0 && entryLayer(visibleEntries[index - 1]) !== "system";
+            const sameFolder = (item: WorldBookEntryDTO) =>
+              (detail.entry_group_map?.[item.uid] || null) === (detail.entry_group_map?.[entry.uid] || null);
+            const divider = row.firstSystem && index > 0;
             return <Fragment key={entry.uid}>
               {divider && <p className="wber-entry-divider" role="separator">
                 <AppIcon name="lock" size={12} />系统层 · 不参与注入与排序
               </p>}
               <article
-              className={`wber-entry${entry.enabled ? "" : " is-disabled"}${system ? " is-system" : ""}${dropTarget?.uid === entry.uid ? ` is-drop-${dropTarget.side}` : ""}`}
+              className={`wber-entry${entry.enabled ? "" : " is-disabled"}${system ? " is-system" : ""}${detail.entry_group_map?.[entry.uid] ? " is-grouped" : ""}${dropTarget?.uid === entry.uid ? ` is-drop-${dropTarget.side}` : ""}`}
               draggable={!query && layerFilter === "all" && sortable}
-              onDragStart={(event) => { setDragUid(entry.uid); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", entry.uid); }}
+              onDragStart={(event) => { setDragUid(entry.uid); setDragGroupId(null); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", entry.uid); }}
               onDragEnd={() => { setDragUid(null); setDropTarget(null); }}
               onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null); }}
               onDragOver={(event) => {
                 const source = orderedEntries.find((item) => item.uid === dragUid);
-                if (!source || source.uid === entry.uid || !sortable || entryLayer(source) !== layer) { setDropTarget(null); return; }
+                if (!source || source.uid === entry.uid || !sortable ||
+                  ((detail.entry_group_map?.[source.uid] || null) === (detail.entry_group_map?.[entry.uid] || null) && entryLayer(source) !== layer)) {
+                  setDropTarget(null); return;
+                }
                 event.preventDefault(); event.dataTransfer.dropEffect = "move";
                 const rect = event.currentTarget.getBoundingClientRect();
                 setDropTarget({ uid: entry.uid, side: event.clientY < rect.top + rect.height / 2 ? "before" : "after" });
@@ -1335,14 +1576,18 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
                   <AppIcon name="forward" size={15} className="wber-chevron" /><strong>{entry.name || "未命名条目"}</strong>
                 </button>
                 <span className={`wber-layer is-${layer}`} title={LAYER_HINTS[layer]}>{LAYER_LABELS[layer]}</span>
+                {!!detail.entry_groups?.length && <select className="wber-entry-group-select" aria-label={`将 ${entry.name || "未命名条目"} 移至分组`}
+                  value={detail.entry_group_map?.[entry.uid] || ""} onChange={(event) => moveEntryToGroup(entry.uid, event.target.value || null)}>
+                  <option value="">未分组</option>{detail.entry_groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                </select>}
                 {system
                   ? <span className="wber-token is-system" title="系统层条目永不注入，不计入 token 统计与 Prompt 预览">不注入</span>
                   : <span className="wber-token">约 {entryTokens(entry)} token</span>}
                 {sortable && !query && layerFilter === "all" && <div className="wber-move-buttons">
-                  <button type="button" className="is-sm is-ghost" aria-label={`上移 ${entry.name}`} disabled={!orderedEntries.slice(0, index).some((item) => entryLayer(item) === layer)}
-                    onClick={() => { const previous = orderedEntries.slice(0, index).filter((item) => entryLayer(item) === layer).slice(-1)[0]; if (previous) reorder(previous.uid, "before", entry.uid); }}>上移</button>
-                  <button type="button" className="is-sm is-ghost" aria-label={`下移 ${entry.name}`} disabled={!orderedEntries.slice(index + 1).some((item) => entryLayer(item) === layer)}
-                    onClick={() => { const next = orderedEntries.slice(index + 1).find((item) => entryLayer(item) === layer); if (next) reorder(next.uid, "after", entry.uid); }}>下移</button>
+                  <button type="button" className="is-sm is-ghost" aria-label={`上移 ${entry.name}`} disabled={!orderedEntries.slice(0, index).some((item) => sameFolder(item) && entryLayer(item) === layer)}
+                    onClick={() => { const previous = orderedEntries.slice(0, index).filter((item) => sameFolder(item) && entryLayer(item) === layer).slice(-1)[0]; if (previous) reorder(previous.uid, "before", entry.uid); }}>上移</button>
+                  <button type="button" className="is-sm is-ghost" aria-label={`下移 ${entry.name}`} disabled={!orderedEntries.slice(index + 1).some((item) => sameFolder(item) && entryLayer(item) === layer)}
+                    onClick={() => { const next = orderedEntries.slice(index + 1).find((item) => sameFolder(item) && entryLayer(item) === layer); if (next) reorder(next.uid, "after", entry.uid); }}>下移</button>
                 </div>}
                 <span className="wber-seq">#{index + 1}</span>
               </header>
@@ -1359,7 +1604,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
                 {editing && entryDraft ? <EntryEditor draft={entryDraft} detail={detail} onChange={changeDraft} /> : <>
                   <div className="wber-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.content || "_（正文为空）_"}</ReactMarkdown></div>
                   <div className="wber-entry-meta"><span>触发词：{entry.trigger_keys?.join("、") || "无"}</span>
-                    <span>分组：{entry.group || "无"}</span><span>分类：{detail.categories?.find((item) => item.id === entry.category_id)?.name || "未分类"}</span>
+                    <span>触发互斥组：{entry.group || "无"}</span><span>分类：{detail.categories?.find((item) => item.id === entry.category_id)?.name || "未分类"}</span>
                     {system ? <span>{LAYER_LABELS.system}：由节点图 / 节点绑定维护，不注入</span>
                       : <span>{entry.always_active ? "常驻" : "关键词触发"}</span>}</div>
                   {configDraft && persistedUids.current.has(`${detail.id}:${entry.uid}`) && <EntryDependencyTree detail={detail} rootUids={[entry.uid]} draft={configDraft} />}
@@ -1395,7 +1640,7 @@ function EntryEditor({ draft, detail, onChange, autoSave = true }: { autoSave?: 
     <label>名称<input value={draft.name} onChange={(event) => onChange({ name: event.target.value })} /></label>
     <label className="is-wide">正文<textarea rows={10} value={draft.content} onChange={(event) => onChange({ content: event.target.value })} placeholder="支持 Markdown。写下这条设定的正文…" /></label>
     <label>触发词<input value={draft.triggerKeysText} onChange={(event) => onChange({ triggerKeysText: event.target.value })} placeholder="逗号分隔" /></label>
-    <label>分组<input value={draft.group} onChange={(event) => onChange({ group: event.target.value })} /></label>
+    <label title="触发互斥组属于条目规则；文件夹分组请在条目列表中设置">触发互斥组<input value={draft.group} onChange={(event) => onChange({ group: event.target.value })} /></label>
     <label>分类<select value={draft.categoryId} onChange={(event) => {
       const next = event.target.value;
       const kind = categories.find((item) => item.id === next)?.scope_type;

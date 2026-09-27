@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import story_outline as so  # noqa: E402
 from session_overlay import _read_plot_file  # noqa: E402
-from world_book import WorldBookEntry, entry_layer, is_system_entry  # noqa: E402
+from world_book import WorldBook, WorldBookEntry, WorldBookManager, entry_layer, is_system_entry  # noqa: E402
 
 PLOT_ID = "beyond_twin"
 
@@ -109,6 +109,26 @@ def test_worldbook_entry_roundtrip_is_system_layer(plot_doc):
     bare = {"uid": "u", "content": payload["content"], "raw": {}}
     assert so.is_outline_entry(bare) and is_system_entry(bare)
     assert so.decode_outline_entry({"uid": "u", "content": "普通条目", "raw": {}}) is None
+
+
+def test_delete_outline_clears_display_folder_mapping(tmp_path):
+    manager = WorldBookManager(tmp_path)
+    manager.save(WorldBook("book", "测试书"))
+    outline = {"plot_id": "plot", "title": "测试", "chapters": [
+        {"id": "ch", "title": "章节", "beats": [{"id": "beat", "title": "节拍", "content": "内容"}]},
+    ]}
+    so.save_outline(manager, "book", outline)
+    book = manager.load("book")
+    uid = so.entry_uid("plot")
+    book.entry_groups = [{"id": "g", "name": "大纲"}]
+    book.entry_group_map = {uid: "g"}
+    manager.save(book)
+
+    assert so.delete_outline(manager, "book", "plot") is True
+    reloaded = manager.load("book")
+    assert reloaded.entry_groups == [{"id": "g", "name": "大纲"}]
+    assert reloaded.entry_group_map == {}
+    assert all(entry.uid != uid for entry in reloaded.entries)
 
 
 class _ScriptedLLM:
