@@ -20,7 +20,7 @@ const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 // 窗口/任务栏图标：开发时读 public/，打包后读 dist/
 const LOGO_PATH = path.join(
   __dirname,
-  isDev ? "../public/ark-tavern.png" : "../dist/ark-tavern.png"
+  isDev ? "../public/logo.png" : "../dist/logo.png"
 );
 
 function createWindow() {

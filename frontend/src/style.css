@@ -1369,8 +1369,7 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
 .home-splash-logo {
   width: 96px;
   height: 96px;
-  border-radius: 20px;
-  box-shadow: 0 0 42px rgba(245, 158, 11, 0.35);
+  object-fit: contain;
   animation: home-logo-breathe 3.2s ease-in-out infinite;
 }
 .home-splash-title {
@@ -1431,8 +1430,8 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
   width: 68px;
   height: 68px;
   margin: 0 auto 12px;
-  border-radius: 16px;
-  box-shadow: 0 0 30px rgba(245, 158, 11, 0.28);
+  object-fit: contain;
+  filter: drop-shadow(0 0 12px rgba(247, 112, 155, 0.35));
 }
 .home-menu-title {
   font-size: 1.45rem;
@@ -1605,8 +1604,8 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
   to { opacity: 1; }
 }
 @keyframes home-logo-breathe {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 42px rgba(245, 158, 11, 0.3); }
-  50% { transform: scale(1.045); box-shadow: 0 0 60px rgba(245, 158, 11, 0.5); }
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 14px rgba(247, 112, 155, 0.3)); }
+  50% { transform: scale(1.045); filter: drop-shadow(0 0 24px rgba(247, 112, 155, 0.5)); }
 }
 @keyframes home-press-pulse {
   0%, 100% { opacity: 0.35; }
