@@ -61,10 +61,6 @@ _WORLDBOOKS_DIR = WORLDBOOKS_ROOT
 # 可选内容包分发源（随程序分发，git 跟踪）；只在用户显式导入时安装。
 _PACKS_DIR = PACKS_ROOT
 
-# 旧安装副本刷新前的留存后缀：`<id>.json.pre-refresh.bak`
-# （不以 .json 结尾，避免被 list_books 当成一本书；去掉后缀即可还原）
-_PACK_BACKUP_SUFFIX = ".pre-refresh.bak"
-
 # 支持探测的来源格式标签
 SOURCE_V1 = "sillytavern_v1"
 SOURCE_V2 = "sillytavern_v2"
@@ -2429,62 +2425,6 @@ class WorldBookManager:
             return lock
 
     # ── 整合包安装 ──
-
-    def _ensure_packs_installed(self):
-        """旧版内容包批量升级辅助方法；普通启动流程不调用。
-
-        按内容指纹（`pack_rev`）判断版本，而不是「存在就跳过」：
-
-        - 目标不存在 → 安装（source=preinstalled，写入指纹）
-        - 目标存在、source=preinstalled、指纹落后 → 刷新为新版本；
-          刷新前把旧副本留存为 `<id>.json.pre-refresh.bak`（用户对预装书的编辑可恢复）
-        - 目标存在、内容其实与分发源一致（旧副本只是缺 pack_rev 字段）→ 只补指纹，不动数据
-        - 目标存在但 source 非 preinstalled（用户导入/自建的同名书）→ 不动
-        """
-        if not self._packs_dir.is_dir():
-            return
-        for path in sorted(self._packs_dir.glob("*.json")):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                book_id = str(data.get("id", "")).strip()
-                if not book_id:
-                    continue
-                data["source"] = SOURCE_PREINSTALLED
-                data.setdefault("enabled", True)
-                rev = _pack_rev(data)
-                target = self._path(book_id)
-
-                if not target.is_file():
-                    self._write_pack(target, data, rev)
-                    logger.info("已安装预装整合包: %s (%s)", data.get("name", book_id), book_id)
-                    continue
-
-                old = self._read_json(target)
-                if old is None:
-                    self._write_pack(target, data, rev)
-                    logger.warning("预装整合包副本无法解析，已按分发源重装: %s", book_id)
-                    continue
-                if str(old.get("source") or "") not in (SOURCE_PREINSTALLED, "builtin"):
-                    continue  # 同名用户书，不覆盖
-                if str(old.get("pack_rev") or "") == rev:
-                    continue  # 已是最新
-                if _pack_rev(old) == rev:
-                    # 内容一致，只是旧副本没有指纹字段 → 补上即可，不改数据、不留备份
-                    self._write_pack(target, {**old, "source": SOURCE_PREINSTALLED}, rev)
-                    continue
-
-                backup = target.with_name(target.name + _PACK_BACKUP_SUFFIX)
-                try:
-                    backup.write_bytes(target.read_bytes())
-                except OSError as e:
-                    logger.warning("留存旧副本失败 %s: %s", backup.name, e)
-                self._write_pack(target, data, rev)
-                logger.info("已刷新预装整合包: %s (%s) → %d 条；旧副本留存于 %s",
-                            data.get("name", book_id), book_id,
-                            len(data.get("entries", [])), backup.name)
-            except Exception as e:
-                logger.warning("安装整合包 %s 失败: %s", path.name, e)
 
     @staticmethod
     def _read_json(path: Path) -> Optional[dict]:
