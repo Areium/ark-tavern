@@ -911,7 +911,7 @@ def register(app, managers):
 
     @bp.route("/api/worldbook/<book_id>/entry-groups", methods=["PUT"])
     def update_entry_groups(book_id):
-        """Persist presentation folders without changing entry injection order."""
+        """Persist folders and, when supplied, their injection order in one revision."""
         with _locked_book(book_id) as (book, err):
             if err:
                 return err
@@ -937,15 +937,28 @@ def register(app, managers):
                 removed_ids = {group["id"] for group in book.entry_groups} - requested_ids
                 group_map = {uid: group_id for uid, group_id in group_map.items()
                              if not (isinstance(group_id, str) and group_id in removed_ids)}
+            known_uids = [entry.uid for entry in book.entries]
             try:
-                book.entry_groups, book.entry_group_map = validate_entry_groups(
-                    groups, group_map, {entry.uid for entry in book.entries})
+                validated_groups, validated_map = validate_entry_groups(
+                    groups, group_map, set(known_uids))
             except ValueError as exc:
                 return json_error(str(exc), 400)
+            order = data.get("entry_order") if "entry_order" in data else None
+            if "entry_order" in data:
+                if not isinstance(order, list) or any(not isinstance(uid, str) for uid in order):
+                    return json_error("entry_order 必须是 UID 字符串数组", 400)
+                if len(order) != len(known_uids) or len(set(order)) != len(order) or set(order) != set(known_uids):
+                    return json_error("entry_order 必须完整且不重复地包含本书全部条目", 400)
+            book.entry_groups, book.entry_group_map = validated_groups, validated_map
+            if order is not None:
+                book.entry_order = list(order)
             wb_mgr.save(book)
-            return jsonify({"entry_groups": copy.deepcopy(book.entry_groups),
-                            "entry_group_map": dict(book.entry_group_map),
-                            "edit_revision": book.edit_revision})
+            result = {"entry_groups": copy.deepcopy(book.entry_groups),
+                      "entry_group_map": dict(book.entry_group_map),
+                      "edit_revision": book.edit_revision}
+            if order is not None:
+                result["entry_order"] = book.effective_entry_order()
+            return jsonify(result)
 
     @bp.route("/api/worldbook/<book_id>/entry-order", methods=["PUT"])
     def reorder_entries(book_id):

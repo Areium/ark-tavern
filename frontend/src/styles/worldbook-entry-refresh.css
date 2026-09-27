@@ -265,13 +265,12 @@ html.light .wber-shell {
 .wber-group-create input, .wber-group-inline input { flex: 1 1 180px; min-width: 0; min-height: 32px; padding: 5px 10px; border: 1px solid var(--wber-border-strong); border-radius: 7px; background: var(--wber-card); }
 .wber-group-note { margin: 0 0 12px 4px !important; color: var(--wber-muted); font-size: 12.5px; line-height: 1.5; }
 .wber-group { border: 1px solid var(--wber-border); border-radius: 10px; background: var(--wber-soft); transition: border-color .16s, background-color .16s; }
-.wber-group.is-folder { margin-left: 22px; background: color-mix(in srgb, var(--wber-accent) 5%, var(--wber-card)); }
-.wber-group.is-root { background: transparent; border-style: dashed; }
+.wber-group.is-folder, .wber-entry.is-root { margin-left: 22px; }
+.wber-group.is-folder { background: color-mix(in srgb, var(--wber-accent) 5%, var(--wber-card)); }
 .wber-group[draggable="true"] { cursor: grab; }
 .wber-group.is-drop-target { border-color: var(--wber-accent); background: var(--wber-accent-soft); }
 .wber-group-head { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; }
 .wber-group-handle { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 20px; color: var(--wber-accent); }
-.wber-group-root-label { flex: 1; color: var(--wber-text); font-size: 13.5px; font-weight: 600; }
 .wber-shell .wber-group-toggle { flex: 1; justify-content: flex-start; gap: 7px; min-width: 0; padding: 0 4px; border: 0; background: transparent; box-shadow: none; text-align: left; font-weight: 600; }
 .wber-shell .wber-group-toggle:hover:not(:disabled) { transform: none; box-shadow: none; color: var(--wber-accent); }
 .wber-group-toggle .wber-chevron { flex-shrink: 0; }
@@ -497,7 +496,7 @@ html.light .wber-shell {
   .wber-entry-body { padding-left: 16px; }
   .wber-group-head { flex-wrap: wrap; }
   .wber-group-actions { justify-content: flex-end; flex: 1 1 100%; margin-left: 28px; }
-  .wber-group.is-folder { margin-left: 14px; }
+  .wber-group.is-folder, .wber-entry.is-root { margin-left: 14px; }
   .wber-entry.is-grouped { margin-left: 32px; }
   .wber-entry-group-select { max-width: 86px; }
   .wber-layer { display: none; }

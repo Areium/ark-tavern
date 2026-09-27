@@ -167,8 +167,8 @@
 ### 条目文件夹与触发互斥组是两套概念（2026-09-27，`f59b9a8`）
 
 - **现象**：条目原有 `group` / `group_weight` 字段用于酒馆触发互斥；直接把它用作管理界面的文件夹会改变解析规则。
-- **现状口径**：书级 `entry_groups` 保留文件夹顺序，`entry_group_map` 保存条目 UID 到文件夹 ID 的归属；未分组条目与所有文件夹在同一列表展示，组内条目逐级缩进。移动文件夹只调整展示顺序，不改 `entry_order` 或 Prompt 注入顺序。删除文件夹只解绑条目，删除条目与系统节点时清理映射。
-- **证据**：`tests/test_worldbook_entry_groups.py` 验证持久化、CAS、复制、导入导出与注入顺序独立；`tests/test_plot_graphs.py` 和 `tests/test_story_outline.py` 覆盖系统条目删除与清理。
+- **现状口径**：书级 `entry_groups` 保留文件夹顺序，`entry_group_map` 保存条目 UID 到文件夹 ID 的归属；未分组条目与文件夹标题同级，组内条目再缩进。移动条目、移动或删除文件夹时，界面把归属和完整 `entry_order` 一次提交；Prompt 的稳定层与动态层分别依新顺序注入，跨层文件夹不会成为单个连续块。纯元数据客户端仍可不传 `entry_order`，保持旧接口语义。删除文件夹只解绑条目，删除条目与系统节点时清理映射。
+- **证据**：`tests/test_worldbook_entry_groups.py` 验证持久化、CAS、复制、导入导出、原子排序与分层注入；`tests/test_plot_graphs.py` 和 `tests/test_story_outline.py` 覆盖系统条目删除与清理。
 
 ### 条目摘录与角色资源副本（2026-09-27）
 
