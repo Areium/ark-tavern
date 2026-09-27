@@ -573,7 +573,7 @@ html.skin-tavern body {
     box-shadow: 0 3px 0 rgba(64, 52, 42, 0.08), 0 24px 70px -24px rgba(64, 52, 42, 0.45);
   }
   /* 衬线标题：Noto Serif SC 的拉丁字形比默认无衬线宽，必须收紧字距/字号，
-     否则「ARKNIGHTS TAVERN」会折成两行（实测 23.2px + 0.3em 字距 = 416px > 容器 358px）。 */
+     否则「ARK TAVERN」会折成两行（早期更长的品牌字样实测：23.2px + 0.3em 字距 = 416px > 容器 358px）。 */
   .home-menu-title {
     font-family: var(--t-serif);
     font-size: 1.28rem;

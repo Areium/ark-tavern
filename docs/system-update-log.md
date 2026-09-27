@@ -15,6 +15,20 @@
 ---
 
 ## 更新记录
+### 2026-09-27 — 项目更名 Ark Tavern（仓库 `ark-tavern`）
+
+> 仓库与产品名统一为 **Ark Tavern**：GitHub 仓库由 `arknights-tavern` 更名为 `ark-tavern`（旧地址自动重定向）。
+
+- **应用标识**：`frontend/package.json` 的 `build.appId` 由 `com.arknights-tavern.app` 改为 `com.ark-tavern.app`；
+  `name` / `productName` 仍为 `ark-tavern` / `Ark Tavern`。
+- **界面与预览稿**：`ui-styles/` 下 6 份风格预览稿的品牌字样统一为「Ark Tavern / ARK TAVERN」，
+  `frontend/src/styles/skin-tavern.css` 注释同步。
+- **保持不变（数据与存储契约，不随更名改动）**：世界书扩展命名空间 `extensions.arknights_tavern`、围栏
+  `arknights_tavern_lore_bindings`、`localStorage` 键 `arknights-tavern.worldbook.pending.v1`。
+- **历史归档不回改**：`docs/archive/` 保留当时的旧称与旧本机路径。
+- **历史重写**：本次 `main` 推送包含一次提交历史重写，提交哈希全部变化。既有 clone 请重新克隆，
+  或在确认无本地改动后 `git fetch origin && git reset --hard origin/main`。
+
 ### 2026-09-23 — 对话页：舞台视图、场景面板插件化、角色数值三层口径
 
 > 对话页多了一个像 galgame 的「舞台」布局；左侧面板改成图标栏 + 页签并对第三方开放；
