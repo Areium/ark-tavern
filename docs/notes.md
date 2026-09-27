@@ -164,6 +164,12 @@
 - **证据**：`tests/test_worldbook_entry_refresh.py` 覆盖元信息导出回读、完整排列与实际收集顺序、
   过期 revision 不落盘、隐藏字段部分更新；三个 `scripts/test_worldbook_*_ui.cjs` 覆盖工作台页签与真实组件 SSR。
 
+### 条目文件夹与触发互斥组是两套概念（2026-09-27，`f59b9a8`）
+
+- **现象**：条目原有 `group` / `group_weight` 字段用于酒馆触发互斥；直接把它用作管理界面的文件夹会改变解析规则。
+- **现状口径**：书级 `entry_groups` 保留文件夹顺序，`entry_group_map` 保存条目 UID 到文件夹 ID 的归属；未分组条目与所有文件夹在同一列表展示，组内条目逐级缩进。移动文件夹只调整展示顺序，不改 `entry_order` 或 Prompt 注入顺序。删除文件夹只解绑条目，删除条目与系统节点时清理映射。
+- **证据**：`tests/test_worldbook_entry_groups.py` 验证持久化、CAS、复制、导入导出与注入顺序独立；`tests/test_plot_graphs.py` 和 `tests/test_story_outline.py` 覆盖系统条目删除与清理。
+
 ### 条目摘录与角色资源副本（2026-09-27）
 
 - 从资料库多选摘录仍走 `POST /api/worldbook/<id>/excerpt` 的整批原子接口。带有效 `character_id` 的角色条目会把 `index.md` 与默认头像、立绘、卡面快照写入目标书的 `character_profiles` / `character_media`；角色条目改用目标书专属的 `<角色ID>__wb_<书ID>`，同时在角色目录生成可供现有互动与战斗链路读取的独立副本。来源目录不改动，保存书失败会删除本次新建的角色目录。
