@@ -211,3 +211,107 @@ def test_load_filters_stale_mapping_from_older_writer():
     restored = WorldBook.from_dict(raw)
     assert restored.entry_groups == [{"id": "g", "name": "文件夹"}]
     assert restored.entry_group_map == {}
+
+
+def test_legacy_layout_and_empty_group_can_precede_first_entry(api):
+    client, manager = api
+    before = manager.load("book")
+    default = [{"kind": "entry", "uid": uid} for uid in before.effective_entry_order()]
+    assert client.get("/api/worldbook/book").json["entry_layout"] == default
+    group = {"id": "empty", "name": "空组"}
+    layout = [{"kind": "group", "id": "empty"}, *default]
+    response = client.put("/api/worldbook/book/entry-groups", json={
+        "entry_groups": [group], "entry_group_map": {}, "entry_layout": layout,
+        "entry_order": before.effective_entry_order(),
+        "expected_revision": before.edit_revision,
+    })
+    assert response.status_code == 200, response.json
+    assert response.json["entry_layout"] == layout
+    assert manager.load("book").effective_entry_layout() == layout
+    assert client.get("/api/worldbook/book").json["entry_layout"] == layout
+
+
+def test_mixed_layout_round_trips_and_entry_deletion(api):
+    client, manager = api
+    before = manager.load("book")
+    groups = [{"id": "g", "name": "文件夹"}]
+    layout = [{"kind": "entry", "uid": "b"}, {"kind": "group", "id": "g"}]
+    response = client.put("/api/worldbook/book/entry-groups", json={
+        "entry_groups": groups, "entry_group_map": {"a": "g"},
+        "entry_order": ["b", "a"], "entry_layout": layout,
+        "expected_revision": before.edit_revision,
+    })
+    assert response.status_code == 200, response.json
+    assert manager.load("book").effective_entry_layout() == layout
+    duplicate = client.post("/api/worldbook/book/duplicate", json={})
+    assert duplicate.status_code == 201
+    assert manager.load(duplicate.json["book"]["id"]).effective_entry_layout() == layout
+    exported = client.get("/api/worldbook/book/export").json["data"]
+    assert exported["extensions"]["arknights_tavern"]["entry_layout"] == layout
+    imported = client.post("/api/worldbook/import", json={"name": "回读", "data": exported})
+    assert imported.status_code == 201, imported.json
+    assert manager.load(imported.json["book"]["id"]).effective_entry_layout() == layout
+    assert client.delete("/api/worldbook/book/entries/b").status_code == 200
+    assert manager.load("book").effective_entry_layout() == [{"kind": "group", "id": "g"}]
+
+
+@pytest.mark.parametrize("layout", [
+    None, {}, [],
+    [{"kind": "group", "id": "g"}],
+    [{"kind": "group", "id": "g"}, {"kind": "entry", "uid": "a"},
+     {"kind": "entry", "uid": "b"}],
+    [{"kind": "group", "id": "g"}, {"kind": "entry", "uid": "b"},
+     {"kind": "entry", "uid": "b"}],
+    [{"kind": "group", "id": "g", "extra": 1}, {"kind": "entry", "uid": "b"}],
+])
+def test_bad_layout_rejected_atomically(api, layout):
+    client, manager = api
+    before = manager._path("book").read_bytes()
+    response = client.put("/api/worldbook/book/entry-groups", json={
+        "entry_groups": [{"id": "g", "name": "组"}], "entry_group_map": {"a": "g"},
+        "entry_order": ["b", "a"], "entry_layout": layout,
+        "expected_revision": manager.load("book").edit_revision,
+    })
+    assert response.status_code == 400
+    assert manager._path("book").read_bytes() == before
+
+
+def test_stale_layout_normalized_after_entry_changes():
+    book = WorldBook("book", "测试书", [WorldBookEntry("a", "A"), WorldBookEntry("b", "B")],
+                     entry_order=["a", "b"],
+                     entry_groups=[{"id": "g", "name": "组"}],
+                     entry_layout=[{"kind": "entry", "uid": "a"},
+                                   {"kind": "group", "id": "g"},
+                                   {"kind": "entry", "uid": "b"}])
+    raw = book.to_dict()
+    raw["entries"] = [entry for entry in raw["entries"] if entry["uid"] != "a"]
+    raw["entries"].append(WorldBookEntry("c", "C").to_dict())
+    raw["entry_layout"].insert(0, {"kind": "entry", "uid": "missing"})
+    restored = WorldBook.from_dict(raw)
+    assert restored.effective_entry_layout() == [
+        {"kind": "group", "id": "g"}, {"kind": "entry", "uid": "b"},
+        {"kind": "entry", "uid": "c"}]
+
+
+def test_added_entry_and_legacy_group_edit_reconcile_layout(api):
+    client, manager = api
+    before = manager.load("book")
+    created = client.put("/api/worldbook/book/entry-groups", json={
+        "entry_groups": [{"id": "g", "name": "组"}], "entry_group_map": {"a": "g"},
+        "entry_layout": [{"kind": "group", "id": "g"},
+                         {"kind": "entry", "uid": "b"}],
+        "expected_revision": before.edit_revision,
+    })
+    assert created.status_code == 200
+    added = client.post("/api/worldbook/book/entries", json={"uid": "c", "content": "C"})
+    assert added.status_code == 201, added.json
+    assert manager.load("book").effective_entry_layout() == [
+        {"kind": "group", "id": "g"}, {"kind": "entry", "uid": "b"},
+        {"kind": "entry", "uid": "c"}]
+    legacy = put(client, [{"id": "g", "name": "组"}], {},
+                 manager.load("book").edit_revision)
+    assert legacy.status_code == 200, legacy.json
+    assert "entry_layout" not in legacy.json
+    assert manager.load("book").effective_entry_layout() == [
+        {"kind": "group", "id": "g"}, {"kind": "entry", "uid": "b"},
+        {"kind": "entry", "uid": "c"}, {"kind": "entry", "uid": "a"}]

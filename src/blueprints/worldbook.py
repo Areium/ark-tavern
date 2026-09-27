@@ -39,6 +39,7 @@ from world_book import (
     BOOK_TYPE_REFERENCE, RESOLVER_VERSION, WorldBook, WorldBookEntry,
     apply_auto_classification, auto_classification_patch, content_revision,
     estimate_tokens, normalize_book_type, validate_entry_groups,
+    validate_entry_layout, normalize_entry_layout,
 )
 from worldbook_classify import classify_entries
 from worldbook_media import owned_materialized_character_root
@@ -530,6 +531,7 @@ def register(app, managers):
             "entry_order": book.effective_entry_order(),
             "entry_groups": copy.deepcopy(book.entry_groups),
             "entry_group_map": dict(book.entry_group_map),
+            "entry_layout": book.effective_entry_layout(),
             "has_explicit_entry_order": book.entry_order is not None,
             "stat_fields": copy.deepcopy(book.stat_fields),
             "created_at": book.created_at,
@@ -949,15 +951,30 @@ def register(app, managers):
                     return json_error("entry_order 必须是 UID 字符串数组", 400)
                 if len(order) != len(known_uids) or len(set(order)) != len(order) or set(order) != set(known_uids):
                     return json_error("entry_order 必须完整且不重复地包含本书全部条目", 400)
+            effective_order = order if order is not None else book.effective_entry_order()
+            if "entry_layout" in data:
+                try:
+                    layout = validate_entry_layout(data["entry_layout"], validated_groups,
+                                                   validated_map, set(known_uids))
+                except ValueError as exc:
+                    return json_error(str(exc), 400)
+            elif book.entry_layout is not None:
+                layout = normalize_entry_layout(book.entry_layout, validated_groups,
+                                                validated_map, effective_order)
+            else:
+                layout = None
             book.entry_groups, book.entry_group_map = validated_groups, validated_map
             if order is not None:
                 book.entry_order = list(order)
+            book.entry_layout = layout
             wb_mgr.save(book)
             result = {"entry_groups": copy.deepcopy(book.entry_groups),
                       "entry_group_map": dict(book.entry_group_map),
                       "edit_revision": book.edit_revision}
             if order is not None:
                 result["entry_order"] = book.effective_entry_order()
+            if "entry_layout" in data:
+                result["entry_layout"] = book.effective_entry_layout()
             return jsonify(result)
 
     @bp.route("/api/worldbook/<book_id>/entry-order", methods=["PUT"])

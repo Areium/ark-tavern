@@ -786,10 +786,12 @@ export interface WorldBookExcerptResultDTO {
 /** 世界书详情（含条目） */
 export interface WorldBookDetail extends WorldBookSummary {
   entries: WorldBookEntryDTO[];
-  /** 条目管理视图的文件夹，按数组顺序显示；不影响注入顺序。 */
+  /** 条目管理视图的文件夹；触发互斥组另由条目 group 字段管理。 */
   entry_groups?: WorldBookEntryGroupDTO[];
   /** 条目 UID 到管理文件夹 ID 的映射；缺省条目显示在未分组。 */
   entry_group_map?: Record<string, string>;
+  /** 顶层文件夹与未分组条目的共同排序；组内条目由 entry_order 排序。 */
+  entry_layout?: WorldBookEntryLayoutItemDTO[];
   entry_order?: string[];
   has_explicit_entry_order?: boolean;
   schema_version?: number;
@@ -813,6 +815,8 @@ export interface WorldBookEntryGroupDTO {
   id: string;
   name: string;
 }
+
+export type WorldBookEntryLayoutItemDTO = { kind: "group"; id: string } | { kind: "entry"; uid: string };
 
 export type WorldBookScopeType = "worldview" | "character" | "other";
 export interface WorldBookCategoryDTO {

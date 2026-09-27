@@ -968,6 +968,58 @@ def validate_entry_groups(groups, group_map, entry_uids: set[str]) -> tuple[list
     return normalized, dict(group_map)
 
 
+def validate_entry_layout(layout, groups, group_map, entry_uids: set[str]) -> list[dict]:
+    """Require each top-level folder and ungrouped entry exactly once."""
+    if not isinstance(layout, list):
+        raise ValueError("entry_layout 必须是数组")
+    group_ids = {group["id"] for group in groups}
+    root_uids = entry_uids - set(group_map)
+    seen_groups, seen_entries = set(), set()
+    for item in layout:
+        if not isinstance(item, dict):
+            raise ValueError("entry_layout 的每项必须是对象")
+        if item.get("kind") == "group" and set(item) == {"kind", "id"}:
+            group_id = item["id"]
+            if not isinstance(group_id, str) or group_id not in group_ids or group_id in seen_groups:
+                raise ValueError("entry_layout 包含未知或重复的分组")
+            seen_groups.add(group_id)
+        elif item.get("kind") == "entry" and set(item) == {"kind", "uid"}:
+            uid = item["uid"]
+            if not isinstance(uid, str) or uid not in root_uids or uid in seen_entries:
+                raise ValueError("entry_layout 包含已分组、未知或重复的条目")
+            seen_entries.add(uid)
+        else:
+            raise ValueError("entry_layout 节点格式无效")
+    if seen_groups != group_ids or seen_entries != root_uids:
+        raise ValueError("entry_layout 必须完整且不重复地包含全部分组和未分组条目")
+    return copy.deepcopy(layout)
+
+
+def normalize_entry_layout(layout, groups, group_map, entry_order) -> list[dict]:
+    """Repair stale persisted layout, retaining the order of surviving nodes."""
+    group_ids = {group["id"] for group in groups}
+    root_uids = set(entry_order) - set(group_map)
+    result, seen_groups, seen_entries = [], set(), set()
+    for item in layout if isinstance(layout, list) else []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("kind") == "group" and set(item) == {"kind", "id"}:
+            group_id = item["id"]
+            if isinstance(group_id, str) and group_id in group_ids and group_id not in seen_groups:
+                result.append({"kind": "group", "id": group_id})
+                seen_groups.add(group_id)
+        elif item.get("kind") == "entry" and set(item) == {"kind", "uid"}:
+            uid = item["uid"]
+            if isinstance(uid, str) and uid in root_uids and uid not in seen_entries:
+                result.append({"kind": "entry", "uid": uid})
+                seen_entries.add(uid)
+    result.extend({"kind": "entry", "uid": uid} for uid in entry_order
+                  if uid in root_uids and uid not in seen_entries)
+    result.extend({"kind": "group", "id": group["id"]} for group in groups
+                  if group["id"] not in seen_groups)
+    return result
+
+
 class WorldBook:
     """一本世界书：id + 元信息 + 条目集合 + 触发/格式化逻辑。
 
@@ -993,7 +1045,8 @@ class WorldBook:
                  entry_order: list = None, edit_revision: int = 1,
                  stat_fields: list = None, character_media: dict = None,
                  character_profiles: dict = None,
-                 entry_groups: list = None, entry_group_map: dict = None):
+                 entry_groups: list = None, entry_group_map: dict = None,
+                 entry_layout: list = None):
         self.id = book_id
         self.name = name or book_id
         self.source_format = source_format
@@ -1028,6 +1081,9 @@ class WorldBook:
             self.entry_order = normalized_order if len(normalized_order) == len(self.entries) else None
         else:
             self.entry_order = None
+        self.entry_layout = (normalize_entry_layout(
+            entry_layout, self.entry_groups, self.entry_group_map,
+            self.effective_entry_order()) if entry_layout is not None else None)
         self.schema_version = 3 if dependency_rules else 2
         self.scope_mode = scope_mode or ("selective" if schema_version >= 2 and categories else "legacy")
         if self.scope_mode not in ("legacy", "selective"):
@@ -1105,6 +1161,10 @@ class WorldBook:
         if self.entry_order is not None:
             return list(self.entry_order)
         return [entry.uid for entry in sorted(self.entries, key=self.legacy_entry_sort_key)]
+
+    def effective_entry_layout(self) -> list[dict]:
+        return normalize_entry_layout(self.entry_layout, self.entry_groups,
+                                      self.entry_group_map, self.effective_entry_order())
 
     def estimated_tokens(self) -> int:
         """Fixed display estimate for the complete book; never changes budget_tokens.
@@ -1258,6 +1318,8 @@ class WorldBook:
         # Missing means legacy ordering. Persist only after an explicit reorder.
         if self.entry_order is not None:
             data["entry_order"] = list(self.entry_order)
+        if self.entry_layout is not None:
+            data["entry_layout"] = self.effective_entry_layout()
         # 数值字段：没定义过就不写，既有书的序列化形态保持不变
         if self.stat_fields:
             data["stat_fields"] = copy.deepcopy(self.stat_fields)
@@ -1298,6 +1360,7 @@ class WorldBook:
             entry_order=data.get("entry_order"),
             entry_groups=data.get("entry_groups"),
             entry_group_map=group_map,
+            entry_layout=data.get("entry_layout"),
             edit_revision=data.get("edit_revision", 1),
             source=str(data.get("source", "imported")),
             enabled=bool(data.get("enabled", True)),
@@ -2198,6 +2261,7 @@ class WorldBook:
             "entry_order": list(self.entry_order) if self.entry_order is not None else None,
             "entry_groups": copy.deepcopy(self.entry_groups),
             "entry_group_map": dict(self.entry_group_map),
+            "entry_layout": self.effective_entry_layout(),
             "categories": copy.deepcopy(self.categories),
             "dependency_edges": copy.deepcopy(self.dependency_edges),
             "import_config": copy.deepcopy(self.import_config),
@@ -2616,14 +2680,17 @@ class WorldBookManager:
         """统一保存（预装包安装副本与导入书同样可写）。"""
         book.bump_edit_revision()
         book.updated_at = time.time()
+        payload = book.to_dict()
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self._dir,
                                              prefix=".worldbook-", suffix=".tmp", delete=False) as f:
                 temporary = Path(f.name)
-                json.dump(book.to_dict(), f, ensure_ascii=False, indent=2)
+                json.dump(payload, f, ensure_ascii=False, indent=2)
                 f.write("\n")
             temporary.replace(self._path(book.id))
+            if book.entry_layout is not None:
+                book.entry_layout = payload["entry_layout"]
             self._cache[book.id] = book
         finally:
             if temporary and temporary.exists():
@@ -2693,6 +2760,12 @@ class WorldBookManager:
                 if (len(ordered) == len(known) and len(set(ordered)) == len(ordered)
                         and set(ordered) == known):
                     book.entry_order = ordered
+            if "entry_layout" in extension:
+                requested_layout = extension["entry_layout"]
+                if requested_layout is not None:
+                    book.entry_layout = normalize_entry_layout(
+                        requested_layout, book.entry_groups, book.entry_group_map,
+                        book.effective_entry_order())
             if not isinstance(extension.get("import_config", {}), dict):
                 raise ValueError("导入的 import_config 必须是对象")
             book.categories = validate_categories(extension.get("categories", []))
@@ -2768,6 +2841,7 @@ class WorldBookManager:
             entry_order=copy.deepcopy(book.entry_order),
             entry_groups=copy.deepcopy(book.entry_groups),
             entry_group_map=dict(book.entry_group_map),
+            entry_layout=copy.deepcopy(book.entry_layout),
             stat_fields=copy.deepcopy(book.stat_fields),
             character_media=copy.deepcopy(book.character_media),
             character_profiles=copy.deepcopy(book.character_profiles),
