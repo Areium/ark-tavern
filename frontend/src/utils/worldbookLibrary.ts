@@ -22,7 +22,7 @@ export const BOOK_TYPE_HINTS: Record<WorldBookType, string> = {
   story:
     "用于剧情：可被一个或多个会话绑定，条目会按触发词参与注入。",
   reference:
-    "存入资料库：只供浏览、检索与摘录，不参与会话解析或绑定。",
+    "存入资料库：只供浏览、检索与摘录，不参与任何会话解析或绑定。",
 };
 
 /** 顶层筛选：`all` 之外只留两种真实用途 */

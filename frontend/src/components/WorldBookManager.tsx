@@ -201,6 +201,12 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [editingUid, setEditingUid] = useState<string | null>(null);
   const [entryDraft, setEntryDraft] = useState<EntryDraft | null>(null);
+  const [newEntry, setNewEntry] = useState<{ bookId: string; uid: string; draft: EntryDraft } | null>(null);
+  const [newEntryBefore, setNewEntryBefore] = useState("");
+  const [newEntryBusy, setNewEntryBusy] = useState(false);
+  const [newEntryError, setNewEntryError] = useState("");
+  const entryDialog = useRef<HTMLDialogElement>(null);
+  const [dropTarget, setDropTarget] = useState<{ uid: string; side: "before" | "after" } | null>(null);
   const [dragUid, setDragUid] = useState<string | null>(null);
   const [savePhase, setSavePhase] = useState<SavePhase>({ state: "idle" });
   const [createOpen, setCreateOpen] = useState(false);
@@ -218,8 +224,13 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const [bookDescription, setBookDescription] = useState("");
   const [bookCover, setBookCover] = useState("");
   const [libraryQuery, setLibraryQuery] = useState("");
-  const [libraryResults, setLibraryResults] = useState<any[]>([]);
+  const [libraryResults, setLibraryResults] = useState<WorldBookSearchHit[]>([]);
   const [libraryBusy, setLibraryBusy] = useState(false);
+  const [librarySelected, setLibrarySelected] = useState<Set<string>>(new Set());
+  const [librarySearched, setLibrarySearched] = useState(false);
+  const [libraryError, setLibraryError] = useState("");
+  const [excerptBusy, setExcerptBusy] = useState(false);
+  const [pasteBusy, setPasteBusy] = useState(false);
   const [targetBookId, setTargetBookId] = useState("");
   const [pasteJson, setPasteJson] = useState("");
   // 统一检索（迁自原「内容中心」顶栏）：跨世界书条目检索 → 命中选中该书并预填条目筛选
@@ -824,13 +835,15 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   };
 
   const importPastedJson = async () => {
-    if (!pasteJson.trim()) return;
+    if (!pasteJson.trim() || pasteBusy) return;
+    setPasteBusy(true);
     try {
       const parsed = JSON.parse(pasteJson);
       const result = await api.importWorldbookJson("粘贴导入的世界书", parsed, newType);
       if (!result.book) throw new Error("导入结果缺少世界书");
       setPasteJson(""); await loadBooks(); setSelectedId(result.book.id); showToast("粘贴内容已导入");
     } catch (reason: any) { setError(reason?.message || "粘贴内容不是可导入的 JSON"); }
+    finally { setPasteBusy(false); }
   };
 
   const createEntry = () => {
@@ -841,10 +854,60 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       scan_depth: 4, probability: 100, group: "", group_weight: 100,
       case_sensitive: false, match_whole_words: false, category_id: "unclassified", raw: {},
     };
-    setExpanded((value) => new Set(value).add(entry.uid));
-    setEditingUid(entry.uid); setEntryDraft(entryToDraft(entry));
-    setDetail({ ...detail, entries: [...detail.entries, entry], entry_count: detail.entry_count + 1,
-      entry_order: [...(detail.entry_order || detail.entries.map((item) => item.uid)), entry.uid] });
+    setNewEntry({ bookId: detail.id, uid: entry.uid, draft: entryToDraft(entry) });
+    setNewEntryBefore(""); setNewEntryError("");
+  };
+
+  useEffect(() => {
+    if (newEntry && !entryDialog.current?.open) entryDialog.current?.showModal();
+  }, [newEntry]);
+
+  const closeNewEntry = () => {
+    if (newEntryBusy) return;
+    const bookId = newEntry?.bookId;
+    setNewEntry(null); entryDialog.current?.close();
+    // A previous save may have succeeded even if its response/reorder failed.
+    if (bookId && selectedRef.current === bookId) void loadDetail(bookId);
+  };
+
+  const confirmNewEntry = async () => {
+    if (!newEntry || newEntryBusy) return;
+    if (!newEntry.draft.name.trim()) { setNewEntryError("请填写条目名称"); return; }
+    if (!newEntry.draft.content.trim()) { setNewEntryError("请填写条目正文"); return; }
+    setNewEntryBusy(true); setNewEntryError("");
+    const { bookId, uid, draft } = newEntry;
+    try {
+      await flushBook(bookId);
+      await enqueue(bookId, async () => {
+        // Re-read on retry: creation may have succeeded even when its response was lost.
+        const fresh = await api.getWorldbook(bookId);
+        revisions.current.set(bookId, fresh.edit_revision || 0);
+        const payload = { ...draftToEntry(draft, true), expected_revision: fresh.edit_revision || 0 };
+        const result = fresh.entries.some((item) => item.uid === uid)
+          ? await api.updateWorldbookEntry(bookId, uid, payload)
+          : await api.createWorldbookEntry(bookId, { ...payload, uid });
+        revisions.current.set(bookId, result.edit_revision);
+        persistedUids.current.add(`${bookId}:${uid}`);
+        const entries = [...fresh.entries.filter((item) => item.uid !== uid), result.entry];
+        const rank = new Map((fresh.entry_order || fresh.entries.map((item) => item.uid)).map((id, index) => [id, index]));
+        const current = sortEntriesByLayer(entries.sort((a, b) => (rank.get(a.uid) ?? rank.size) - (rank.get(b.uid) ?? rank.size)));
+        const layer = entryLayer(result.entry);
+        const sameLayer = current.filter((item) => item.uid !== uid && entryLayer(item) === layer);
+        const ordered = current.filter((item) => item.uid !== uid).map((item) => item.uid);
+        const anchor = sameLayer.find((item) => item.uid === newEntryBefore);
+        const last = sameLayer.slice(-1)[0];
+        const index = anchor ? ordered.indexOf(anchor.uid) : last ? ordered.indexOf(last.uid) + 1
+          : current.filter((item) => item.uid !== uid && entryLayer(item) === "stable" && layer === "dynamic").length;
+        ordered.splice(index, 0, uid);
+        const sorted = await api.reorderWorldbookEntries(bookId, ordered, result.edit_revision);
+        revisions.current.set(bookId, sorted.edit_revision);
+      });
+      setNewEntry(null); entryDialog.current?.close();
+      await loadDetail(bookId); await loadBooks();
+      setExpanded((value) => new Set(value).add(uid)); showToast("条目已创建并放入指定位置");
+    } catch (reason: any) {
+      setNewEntryError(`${reason?.message || "保存失败"}。草稿已保留，请重试；已创建的条目不会重复新增。`);
+    } finally { setNewEntryBusy(false); }
   };
 
   const deleteEntry = async (entry: WorldBookEntryDTO) => {
@@ -947,9 +1010,9 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     }
   }, [api, persistOrder]);
 
-  const reorder = (targetUid: string) => {
-    if (!detail || !dragUid || dragUid === targetUid || query.trim() || layerFilter !== "all") return;
-    const source = detail.entries.find((entry) => entry.uid === dragUid);
+  const reorder = (targetUid: string, side: "before" | "after" = "before", sourceUid = dragUid) => {
+    if (!detail || !sourceUid || sourceUid === targetUid || query.trim() || layerFilter !== "all") return;
+    const source = detail.entries.find((entry) => entry.uid === sourceUid);
     const target = detail.entries.find((entry) => entry.uid === targetUid);
     if (!source || !target) return;
     // 系统层条目不参与排序：它们在列表里恒定沉底，拖它们没有可观察的结果。
@@ -962,27 +1025,41 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       setDragUid(null); return;
     }
     // 排列的是注入顺序；系统层条目保持在末尾（后端要求 entry_order 是完整排列）。
-    const previous = [...(detail.entry_order || orderedEntries.map((entry) => entry.uid))];
-    const next = previous.filter((uid) => uid !== dragUid);
-    next.splice(next.indexOf(targetUid), 0, dragUid);
-    setDetail({ ...detail, entry_order: next, has_explicit_entry_order: true }); setDragUid(null);
+    const previous = orderedEntries.map((entry) => entry.uid);
+    const next = previous.filter((uid) => uid !== sourceUid);
+    next.splice(next.indexOf(targetUid) + (side === "after" ? 1 : 0), 0, sourceUid);
+    setDetail({ ...detail, entry_order: next, has_explicit_entry_order: true }); setDragUid(null); setDropTarget(null);
     persistOrder(detail.id, next);
   };
 
   const searchLibrary = async () => {
-    if (!libraryQuery.trim()) return;
-    setLibraryBusy(true);
-    try { const result = await api.searchWorldbooks(libraryQuery.trim(), 40, "reference"); setLibraryResults(result.results); }
-    catch (reason: any) { setError(reason?.message || "资料库检索失败"); }
+    if (!libraryQuery.trim() || libraryBusy) return;
+    setLibraryBusy(true); setLibraryError(""); setLibrarySelected(new Set()); setLibraryResults([]);
+    setLibrarySearched(false);
+    try { const result = await api.searchWorldbooks(libraryQuery.trim(), 40, "reference"); setLibraryResults(result.results); setLibrarySearched(true); }
+    catch (reason: any) { setLibraryError(reason?.message || "资料库检索失败，请重试"); }
     finally { setLibraryBusy(false); }
   };
-  const excerpt = async (bookId: string, entry: WorldBookEntryDTO) => {
-    const target = !isReference(detail) ? detail?.id : targetBookId || storyBooks[0]?.id;
-    if (!target) { setError("请先选择一本剧情世界书作为摘录目标"); return; }
+  const excerpt = async () => {
+    const target = !isReference(detail) ? detail?.id : targetBookId;
+    if (!target || !librarySelected.size || excerptBusy) return;
+    setExcerptBusy(true); setLibraryError("");
+    const items = libraryResults.flatMap((result) => result.matches
+      .filter((entry: WorldBookEntryDTO) => librarySelected.has(`${result.book.id}:${entry.uid}`))
+      .map((entry: WorldBookEntryDTO) => ({ source_book_id: result.book.id, source_entry_uid: entry.uid })));
     try {
-      await api.excerptWorldbookEntries(target, [{ source_book_id: bookId, source_entry_uid: entry.uid }]);
-      if (selectedId === target) await loadDetail(target); await loadBooks(); showToast("已加入剧情世界书");
-    } catch (reason: any) { setError(reason?.message || "摘录失败"); }
+      await flushBook(target);
+      await enqueue(target, async () => {
+        const result = await api.excerptWorldbookEntries(target, items);
+        if (result.warnings?.length) setLibraryError(`摘录完成，部分资源需要处理：${result.warnings.join("；")}`);
+        const fresh = await api.getWorldbook(target);
+        revisions.current.set(target, fresh.edit_revision || 0);
+      });
+      setLibrarySelected(new Set());
+      if (selectedId === target) await loadDetail(target);
+      await loadBooks(); showToast(`已将 ${items.length} 条加入剧情世界书`);
+    } catch (reason: any) { setLibraryError(reason?.message || "摘录失败，选中条目已保留，请重试"); }
+    finally { setExcerptBusy(false); }
   };
 
   return <main className={"wber-shell" + (effectiveTab === "graph" ? " is-graph" : "")}>
@@ -1054,6 +1131,26 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         </div>
       </div>}
 
+      {newEntry && detail?.id === newEntry.bookId && <dialog ref={entryDialog} className="wber-new-entry-dialog" aria-labelledby="new-entry-title"
+        onCancel={(event) => { event.preventDefault(); closeNewEntry(); }}>
+        <div className="wber-new-entry-heading"><h2 id="new-entry-title">新增条目</h2><p>填写内容并选择位置，确认后加入《{detail.name}》。</p></div>
+        <fieldset disabled={newEntryBusy} className="wber-new-entry-fields">
+          <EntryEditor draft={newEntry.draft} detail={detail} autoSave={false} onChange={(changes) => {
+            setNewEntry({ ...newEntry, draft: { ...newEntry.draft, ...changes } });
+            if ("alwaysActive" in changes || "position" in changes) setNewEntryBefore("");
+          }} />
+          <label className="wber-insert-position">{newEntry.draft.alwaysActive && newEntry.draft.position === 0 ? "稳定层" : "动态层"}插入位置
+            <select value={newEntryBefore} onChange={(event) => setNewEntryBefore(event.target.value)}>
+              {orderedEntries.filter((item) => item.uid !== newEntry.uid && entryLayer(item) === (newEntry.draft.alwaysActive && newEntry.draft.position === 0 ? "stable" : "dynamic"))
+                .map((item, index) => <option key={item.uid} value={item.uid}>{index === 0 ? "层首 · " : ""}在「{item.name || "未命名条目"}」之前</option>)}
+              <option value="">层末 · 放在最后</option>
+            </select>
+          </label>
+        </fieldset>
+        {newEntryError && <p className="wber-alert" role="alert">{newEntryError}</p>}
+        <div className="wber-dialog-actions"><button type="button" disabled={newEntryBusy} onClick={closeNewEntry}>取消</button>
+          <button type="button" className="is-primary" disabled={newEntryBusy} onClick={() => void confirmNewEntry()}>{newEntryBusy ? "正在保存…" : "确认新增"}</button></div>
+      </dialog>}
       {detail && statFieldsOpen && <StatFieldsEditor fields={detail.stat_fields || []} saving={statFieldsSaving}
         onSave={saveStatFields} onClose={() => setStatFieldsOpen(false)} />}
       {!detail && <div className="wber-blank">{loading ? "正在读取…" : "从左侧书架选一本世界书"}</div>}
@@ -1122,6 +1219,37 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         {toast && <div className="wber-toast" role="status">{toast}</div>}
 
         {effectiveTab === "entries" && <div className="wber-entries-page">
+          <div className="wber-entry-sources">
+          <details className="wber-library-search">
+            <summary><strong>资料库检索与摘录</strong><span>多选条目，一次加入剧情世界书</span></summary>
+            <div className="wber-library-controls"><input value={libraryQuery} disabled={excerptBusy}
+              aria-label="搜索资料库" onChange={(event) => setLibraryQuery(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") void searchLibrary(); }} placeholder="搜索资料库，包括角色条目" />
+              <button type="button" onClick={() => void searchLibrary()} disabled={libraryBusy || excerptBusy || !libraryQuery.trim()}>{libraryBusy ? "检索中…" : "检索"}</button></div>
+            {libraryError && <p className="wber-alert" role="alert">{libraryError}</p>}
+            {librarySearched && !libraryResults.some((result) => result.matches.length) && <p className="wber-empty" role="status">没有匹配条目，试试角色名或其他关键词。</p>}
+            <div className="wber-library-results" aria-busy={libraryBusy}>
+            {libraryResults.map((result) => <div className="wber-library-result" key={result.book.id}><strong>{result.book.name}</strong>
+              {result.matches.map((entry: WorldBookEntryDTO) => <label className="wber-library-item" key={entry.uid}>
+                <input type="checkbox" disabled={excerptBusy} checked={librarySelected.has(`${result.book.id}:${entry.uid}`)}
+                  onChange={(event) => setLibrarySelected((current) => { const next = new Set(current); const key = `${result.book.id}:${entry.uid}`;
+                    if (event.target.checked) next.add(key); else next.delete(key); return next; })} />
+                <span>{entry.name || entry.content.slice(0, 60)}{entry.character_id && <small>角色条目</small>}</span>
+              </label>)}</div>)}
+            </div>
+            {!!libraryResults.length && <div className="wber-library-controls wber-excerpt-actions">
+              <span role="status">已选 {librarySelected.size} 条</span>
+              {isReference(detail) && <select aria-label="摘录目标剧情世界书" value={targetBookId} disabled={excerptBusy} onChange={(event) => setTargetBookId(event.target.value)}>
+                <option value="">选择目标剧情世界书…</option>{storyBooks.map((book) => <option key={book.id} value={book.id}>{book.name}</option>)}</select>}
+              <button type="button" className="is-primary" disabled={excerptBusy || !librarySelected.size || (isReference(detail) && !targetBookId)} onClick={() => void excerpt()}>
+                {excerptBusy ? "正在摘录…" : `加入${isReference(detail) ? "目标剧情书" : "当前剧情书"}`}</button>
+            </div>}
+          </details>
+          <details className="wber-paste-import"><summary>粘贴 JSON 导入世界书</summary>
+            <textarea rows={5} aria-label="世界书 JSON" value={pasteJson} disabled={pasteBusy} onChange={(event) => setPasteJson(event.target.value)} placeholder="粘贴世界书 JSON，将导入为另一本世界书" />
+            <button type="button" className="is-sm is-primary" disabled={pasteBusy || !pasteJson.trim()} onClick={() => void importPastedJson()}><AppIcon name="upload" size={13} />{pasteBusy ? "导入中…" : "导入"}</button>
+          </details>
+          </div>
           <div className="wber-entry-toolbar">
             <label className="wber-search"><AppIcon name="search" size={15} />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、正文或触发词" aria-label="搜索条目" /></label>
@@ -1151,10 +1279,22 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
                 <AppIcon name="lock" size={12} />系统层 · 不参与注入与排序
               </p>}
               <article
-              className={`wber-entry${entry.enabled ? "" : " is-disabled"}${system ? " is-system" : ""}`}
+              className={`wber-entry${entry.enabled ? "" : " is-disabled"}${system ? " is-system" : ""}${dropTarget?.uid === entry.uid ? ` is-drop-${dropTarget.side}` : ""}`}
               draggable={!query && layerFilter === "all" && sortable}
-              onDragStart={() => setDragUid(entry.uid)}
-              onDragOver={(event) => event.preventDefault()} onDrop={() => reorder(entry.uid)}>
+              onDragStart={(event) => { setDragUid(entry.uid); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", entry.uid); }}
+              onDragEnd={() => { setDragUid(null); setDropTarget(null); }}
+              onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null); }}
+              onDragOver={(event) => {
+                const source = orderedEntries.find((item) => item.uid === dragUid);
+                if (!source || source.uid === entry.uid || !sortable || entryLayer(source) !== layer) { setDropTarget(null); return; }
+                event.preventDefault(); event.dataTransfer.dropEffect = "move";
+                const rect = event.currentTarget.getBoundingClientRect();
+                setDropTarget({ uid: entry.uid, side: event.clientY < rect.top + rect.height / 2 ? "before" : "after" });
+              }} onDrop={(event) => { event.preventDefault();
+                const rect = event.currentTarget.getBoundingClientRect();
+                reorder(entry.uid, event.clientY < rect.top + rect.height / 2 ? "before" : "after");
+                setDropTarget(null);
+              }}>
               <header className="wber-entry-head">
                 {/* 系统层条目不参与排序：给它一个拖不动的手柄比给个假手柄诚实。 */}
                 {sortable
@@ -1176,6 +1316,12 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
                 {system
                   ? <span className="wber-token is-system" title="系统层条目永不注入，不计入 token 统计与 Prompt 预览">不注入</span>
                   : <span className="wber-token">约 {entryTokens(entry)} token</span>}
+                {sortable && !query && layerFilter === "all" && <div className="wber-move-buttons">
+                  <button type="button" className="is-sm is-ghost" aria-label={`上移 ${entry.name}`} disabled={!orderedEntries.slice(0, index).some((item) => entryLayer(item) === layer)}
+                    onClick={() => { const previous = orderedEntries.slice(0, index).filter((item) => entryLayer(item) === layer).slice(-1)[0]; if (previous) reorder(previous.uid, "before", entry.uid); }}>上移</button>
+                  <button type="button" className="is-sm is-ghost" aria-label={`下移 ${entry.name}`} disabled={!orderedEntries.slice(index + 1).some((item) => entryLayer(item) === layer)}
+                    onClick={() => { const next = orderedEntries.slice(index + 1).find((item) => entryLayer(item) === layer); if (next) reorder(next.uid, "after", entry.uid); }}>下移</button>
+                </div>}
                 <span className="wber-seq">#{index + 1}</span>
               </header>
               {open && <div className="wber-entry-body">
@@ -1202,21 +1348,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
           })}</div>
           {!visibleEntries.length && <p className="wber-empty">没有匹配的条目。</p>}
 
-          <details className="wber-library-search" open={isReference(detail)}>
-            <summary><strong>资料库检索与摘录</strong><span>从资料库查找并加入剧情世界书</span></summary>
-            <div className="wber-library-controls"><input value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)}
-              onKeyDown={(event) => { if (event.key === "Enter") void searchLibrary(); }} placeholder="搜索资料库" />
-              {isReference(detail) && <select value={targetBookId} onChange={(event) => setTargetBookId(event.target.value)}>
-                <option value="">选择摘录目标…</option>{storyBooks.map((book) => <option key={book.id} value={book.id}>{book.name}</option>)}</select>}
-              <button type="button" onClick={() => void searchLibrary()} disabled={libraryBusy}>{libraryBusy ? "检索中…" : "检索"}</button></div>
-            {libraryResults.map((result) => <div className="wber-library-result" key={result.book.id}><strong>{result.book.name}</strong>
-              {result.matches.map((entry: WorldBookEntryDTO) => <div key={entry.uid}><span>{entry.name || entry.content.slice(0, 30)}</span>
-                <button type="button" className="is-sm" onClick={() => void excerpt(result.book.id, entry)}>加入剧情书</button></div>)}</div>)}
-          </details>
-          <details className="wber-paste-import"><summary>从剪贴板 JSON 导入另一本世界书</summary>
-            <textarea rows={5} value={pasteJson} onChange={(event) => setPasteJson(event.target.value)} placeholder="粘贴世界书 JSON" />
-            <button type="button" className="is-sm is-primary" onClick={() => void importPastedJson()}><AppIcon name="upload" size={13} />导入</button>
-          </details>
+
         </div>}
 
         {effectiveTab === "prompt" && panelProps && <PromptPreviewTab ctx={panelProps} onNotice={showToast} onReload={() => loadDetail(detail.id)} />}
@@ -1233,7 +1365,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   </main>;
 }
 
-function EntryEditor({ draft, detail, onChange }: { draft: EntryDraft; detail: WorldBookDetail; onChange: (changes: Partial<EntryDraft>) => void }) {
+function EntryEditor({ draft, detail, onChange, autoSave = true }: { autoSave?: boolean; draft: EntryDraft; detail: WorldBookDetail; onChange: (changes: Partial<EntryDraft>) => void }) {
   const categories = detail.categories || [];
   const currentKind = categories.find((item) => item.id === draft.categoryId)?.scope_type;
   return <div className="wber-editor">
@@ -1254,6 +1386,6 @@ function EntryEditor({ draft, detail, onChange }: { draft: EntryDraft; detail: W
       checked={!draft.alwaysActive || draft.position !== 0}
       onChange={(event) => onChange({ alwaysActive: !event.target.checked, position: event.target.checked ? 1 : 0 })} />动态插入</label>
     <small>默认常驻静态层；勾选后改为按触发条件进入动态层。</small>
-    <p className="wber-editor-note">修改会即时自动保存。</p>
+    <p className="wber-editor-note">{autoSave ? "修改会即时自动保存。" : "草稿尚未保存，确认新增后才会加入条目列表。"}</p>
   </div>;
 }

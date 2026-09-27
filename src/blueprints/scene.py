@@ -4,12 +4,13 @@ Scene blueprint — 场景角色/物品/覆盖管理。
 
 import logging
 import os
-from flask import Blueprint, jsonify, request, send_from_directory, abort
+from flask import Blueprint, Response, jsonify, request, send_from_directory, abort
 
 from shared.helpers import json_error
 from shared.cache import invalidate_all_caches
 from document_manager import DocumentNotFoundError, ConflictError
 from avatar_color import find_avatar_path, get_theme_color, ensure_theme_color
+from worldbook_media import decode_media_url
 
 
 def _get_session(session_mgr, session_id):
@@ -354,12 +355,27 @@ def register(app, managers):
             return None
         return os.path.dirname(override), os.path.basename(override)
 
+    def _session_book_media(session_id, name: str, media_type: str):
+        if not session_id:
+            return None
+        session = _get_session(session_mgr, session_id)
+        if not session:
+            return None
+        data_url = wb_mgr.character_media_for_session(session.overlay, name, media_type)
+        if not data_url:
+            return None
+        image, mime = decode_media_url(data_url)
+        return Response(image, mimetype=mime)
+
     # 角色头像
     @bp.route("/api/characters/<name>/avatar")
     def character_avatar(name: str):
         override = _session_media_override(request.args.get("session_id"), name, "avatar")
         if override:
             return send_from_directory(override[0], override[1])
+        copied = _session_book_media(request.args.get("session_id"), name, "avatar")
+        if copied:
+            return copied
         path = find_avatar_path(name)
         if not path:
             abort(404)
@@ -374,6 +390,9 @@ def register(app, managers):
         override = _session_media_override(request.args.get("session_id"), name, "skin")
         if override:
             return send_from_directory(override[0], override[1])
+        copied = _session_book_media(request.args.get("session_id"), name, "skin")
+        if copied:
+            return copied
         path = find_skin_path(name)
         if not path:
             abort(404)
@@ -388,6 +407,9 @@ def register(app, managers):
         override = _session_media_override(request.args.get("session_id"), name, "card_face")
         if override:
             return send_from_directory(override[0], override[1])
+        copied = _session_book_media(request.args.get("session_id"), name, "card_face")
+        if copied:
+            return copied
         path = find_card_face_path(name)
         if not path:
             abort(404)

@@ -126,12 +126,19 @@ def register(app, managers):
 
         from session_resources import find_session_media_path
         player = session.player_identity or "博士"
+        def has_media(name: str, kind: str) -> bool:
+            if find_session_media_path(session_dir, name, kind):
+                return True
+            if wb_mgr.character_media_for_session(session.overlay, name, kind):
+                return True
+            return _skin_exists(name) if kind == "skin" else _avatar_exists(name)
+
         characters = []
         for name in session.scene_manager.get_scene_characters():
             if name == player:
                 continue
-            has_skin = bool(find_session_media_path(session_dir, name, "skin")) or _skin_exists(name)
-            has_avatar = bool(find_session_media_path(session_dir, name, "avatar")) or _avatar_exists(name)
+            has_skin = has_media(name, "skin")
+            has_avatar = has_media(name, "avatar")
             characters.append({
                 "name": name,
                 "skin_url": media(name, "skin") if has_skin else None,
@@ -139,10 +146,8 @@ def register(app, managers):
                 "color": get_theme_color(name),
                 "active": session.scene_manager.active == name,
             })
-        player_has_skin = (bool(find_session_media_path(session_dir, player, "skin"))
-                           or _skin_exists(player))
-        player_has_avatar = (bool(find_session_media_path(session_dir, player, "avatar"))
-                             or _avatar_exists(player))
+        player_has_skin = has_media(player, "skin")
+        player_has_avatar = has_media(player, "avatar")
         return jsonify({
             "session_id": session_id,
             "location": location,

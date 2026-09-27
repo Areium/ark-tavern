@@ -55,8 +55,8 @@ export const LAYER_HINTS: Record<WorldBookEntryLayer, string> = {
  * `SYSTEM_ENTRY_FENCES` 保持一致；`scripts/test_worldbook_layer_ui.cjs`
  * 会比对两张表，任何一侧新增类型而另一侧没跟上都会失败。
  */
-export const SYSTEM_ENTRY_TYPES: readonly string[] = ["plot_graph", "lore_bindings"];
-export const SYSTEM_ENTRY_FENCES: readonly string[] = ["plot-graph", "arknights_tavern_lore_bindings"];
+export const SYSTEM_ENTRY_TYPES: readonly string[] = ["plot_graph", "lore_bindings", "story_outline"];
+export const SYSTEM_ENTRY_FENCES: readonly string[] = ["plot-graph", "arknights_tavern_lore_bindings", "story-outline"];
 const SYSTEM_EXT_NAMESPACE = "arknights_tavern";
 
 const SYSTEM_FENCE_RE = new RegExp(

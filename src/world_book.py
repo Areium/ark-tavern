@@ -28,6 +28,7 @@ import json
 import logging
 import random
 import re
+import shutil
 import threading
 import time
 import uuid
@@ -47,6 +48,10 @@ from worldbook_scope import (
 )
 from worldbook_classify import classify_entries, needs_classification
 from character_stats import normalize_stat_fields
+from worldbook_media import (
+    copied_character_id, materialize_character, normalize_character_media,
+    normalize_character_profiles, snapshot_character_media, snapshot_character_profile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -963,13 +968,16 @@ class WorldBook:
                  policy_revisions: list = None, book_type: str = DEFAULT_BOOK_TYPE,
                  description: str = "", cover_image: str = "",
                  entry_order: list = None, edit_revision: int = 1,
-                 stat_fields: list = None):
+                 stat_fields: list = None, character_media: dict = None,
+                 character_profiles: dict = None):
         self.id = book_id
         self.name = name or book_id
         self.source_format = source_format
         self.budget_tokens = budget_tokens  # 0 = 不限制
         self.description = str(description or "")
         self.cover_image = str(cover_image or "")
+        self.character_media = normalize_character_media(character_media)
+        self.character_profiles = normalize_character_profiles(character_profiles)
         # 统一数值字段（角色数值的 schema）：同一本书下的角色共用，见 character_stats.py
         self.stat_fields: list[dict] = normalize_stat_fields(stat_fields)
         self.edit_revision = max(0, _to_int(edit_revision, 0))
@@ -1223,6 +1231,10 @@ class WorldBook:
         # 数值字段：没定义过就不写，既有书的序列化形态保持不变
         if self.stat_fields:
             data["stat_fields"] = copy.deepcopy(self.stat_fields)
+        if self.character_media:
+            data["character_media"] = copy.deepcopy(self.character_media)
+        if self.character_profiles:
+            data["character_profiles"] = copy.deepcopy(self.character_profiles)
         if self.dependency_rules is not None:
             data["dependency_rules"] = self.dependency_rules
         # related_edges 独立持久化：v3 书与「已配置关联补充但尚未启用 v3」的书都要能往返
@@ -1261,6 +1273,8 @@ class WorldBook:
             # 缺字段 → story（既有世界书 / 会话快照 / 导出全部照旧）
             book_type=data.get("book_type"),
             stat_fields=data.get("stat_fields"),
+            character_media=data.get("character_media"),
+            character_profiles=data.get("character_profiles"),
         )
         book.created_at = float(data.get("created_at", time.time()))
         book.updated_at = float(data.get("updated_at", time.time()))
@@ -2148,6 +2162,10 @@ class WorldBook:
         }}
         if self.stat_fields:
             extension[EXTENSION_KEY]["stat_fields"] = copy.deepcopy(self.stat_fields)
+        if self.character_media:
+            extension[EXTENSION_KEY]["character_media"] = copy.deepcopy(self.character_media)
+        if self.character_profiles:
+            extension[EXTENSION_KEY]["character_profiles"] = copy.deepcopy(self.character_profiles)
         if self.dependency_rules is not None:
             extension[EXTENSION_KEY]["dependency_rules"] = copy.deepcopy(self.dependency_rules)
             extension[EXTENSION_KEY]["related_edges"] = copy.deepcopy(self.related_edges)
@@ -2667,6 +2685,8 @@ class WorldBookManager:
         if extension:
             book.description = str(extension.get("description", "") or "")
             book.cover_image = str(extension.get("cover_image", "") or "")
+            book.character_media = normalize_character_media(extension.get("character_media"))
+            book.character_profiles = normalize_character_profiles(extension.get("character_profiles"))
             book.stat_fields = normalize_stat_fields(extension.get("stat_fields"))
             requested_order = extension.get("entry_order")
             if isinstance(requested_order, list):
@@ -2698,7 +2718,29 @@ class WorldBookManager:
                     }))
                 book.schema_version = 3
                 book.policy_revisions = book._normalize_revisions(extension.get("policy_revisions"))
-        self.save(book)
+        # Imported books receive new IDs; give bundled characters matching new
+        # private IDs too, so an existing global character is never overwritten.
+        replacements = {old_id: copied_character_id(old_id, book.id)
+                        for old_id in book.character_profiles}
+        if len(set(replacements.values())) != len(replacements):
+            raise ValueError("导入的角色副本 ID 冲突")
+        book.character_profiles = {replacements[key]: value
+                                   for key, value in book.character_profiles.items()}
+        book.character_media = normalize_character_media({
+            replacements.get(key, key): value for key, value in book.character_media.items()})
+        for entry in book.entries:
+            entry.character_id = replacements.get(entry.character_id, entry.character_id)
+        created_paths = []
+        try:
+            for character_id, profile in book.character_profiles.items():
+                created_paths.append(materialize_character(
+                    character_id, book.id, profile,
+                    book.character_media.get(character_id, {})))
+            self.save(book)
+        except Exception:
+            for path in created_paths:
+                shutil.rmtree(path)
+            raise
         return book, report
 
     def duplicate_book(self, book_id: str, new_name: str = None) -> WorldBook:
@@ -2727,10 +2769,30 @@ class WorldBookManager:
             cover_image=book.cover_image,
             entry_order=copy.deepcopy(book.entry_order),
             stat_fields=copy.deepcopy(book.stat_fields),
+            character_media=copy.deepcopy(book.character_media),
+            character_profiles=copy.deepcopy(book.character_profiles),
         )
         new_book.created_at = time.time()
         new_book.updated_at = time.time()
-        self.save(new_book)
+        replacements = {old_id: copied_character_id(old_id, new_id)
+                        for old_id in new_book.character_profiles}
+        new_book.character_profiles = {replacements[key]: value
+                                       for key, value in new_book.character_profiles.items()}
+        new_book.character_media = normalize_character_media({
+            replacements.get(key, key): value for key, value in new_book.character_media.items()})
+        for entry in new_book.entries:
+            entry.character_id = replacements.get(entry.character_id, entry.character_id)
+        created_paths = []
+        try:
+            for character_id, profile in new_book.character_profiles.items():
+                created_paths.append(materialize_character(
+                    character_id, new_id, profile,
+                    new_book.character_media.get(character_id, {})))
+            self.save(new_book)
+        except Exception:
+            for path in created_paths:
+                shutil.rmtree(path)
+            raise
         return new_book
 
     def reinstall_book(self, book_id: str) -> WorldBook:
@@ -2846,7 +2908,10 @@ class WorldBookManager:
 
         # 来源书按 id 缓存，避免一本多摘时重复读盘；全部解析完再动手，保证「要么全成」
         source_cache: dict[str, WorldBook] = {}
-        prepared: list[dict] = []
+        prepared: list[WorldBookEntry] = []
+        media_to_copy: dict[str, dict[str, str]] = {}
+        profiles_to_copy: dict[str, str] = {}
+        warnings: list[str] = []
 
         for index, raw in enumerate(items):
             if not isinstance(raw, dict):
@@ -2866,8 +2931,36 @@ class WorldBookManager:
             if source_entry is None:
                 raise LookupError(
                     f"来源条目不存在：{source_book_id} / {source_entry_uid}")
-            prepared.append(
-                _build_excerpt_entry(target, source_book, source_entry, raw, index))
+            built = _build_excerpt_entry(target, source_book, source_entry, raw, index)
+            prepared.append(built)
+            if built.character_id:
+                source_character_id = built.character_id
+                copied = (source_book.character_media.get(source_character_id)
+                          or snapshot_character_media(source_character_id))
+                profile = (source_book.character_profiles.get(source_character_id)
+                           or snapshot_character_profile(source_character_id))
+                if profile:
+                    built.character_id = copied_character_id(source_character_id, target.id)
+                    existing_profile = target.character_profiles.get(built.character_id)
+                    if existing_profile is not None and existing_profile != profile:
+                        raise ValueError(f"角色「{source_character_id}」在目标书已有不同的角色资料")
+                    if (built.character_id in profiles_to_copy
+                            and profiles_to_copy[built.character_id] != profile):
+                        raise ValueError(f"本批次角色「{source_character_id}」的角色资料不一致")
+                    profiles_to_copy[built.character_id] = profile
+                else:
+                    warnings.append(f"角色「{source_character_id}」没有可复制的角色资料，仍引用原角色")
+                if not copied:
+                    warnings.append(f"角色「{source_character_id}」没有可复制的头像或立绘")
+                elif (built.character_id in target.character_media
+                      and target.character_media[built.character_id] != copied):
+                    raise ValueError(f"角色「{source_character_id}」在目标书已有不同的形象资源，请先处理冲突")
+                elif (built.character_id in media_to_copy
+                      and media_to_copy[built.character_id] != copied):
+                    raise ValueError(f"本批次角色「{source_character_id}」的形象资源不一致")
+                else:
+                    if copied:
+                        media_to_copy[built.character_id] = copied
 
         # ── 到这里为止都还没写盘：任一条不合法都已抛出 ──
         #
@@ -2876,6 +2969,10 @@ class WorldBookManager:
         # 却已经多了条目、revision 也更了 —— 不满足「失败不留半成品」。所以在副本上
         # 组装，`save()` 成功之后才让缓存指向新对象；失败则缓存与磁盘都保持原值。
         staged = copy.deepcopy(target)
+        staged.character_media = normalize_character_media(
+            {**staged.character_media, **media_to_copy})
+        staged.character_profiles = normalize_character_profiles(
+            {**staged.character_profiles, **profiles_to_copy})
         created = []
         for built in prepared:
             staged.entries.append(built)
@@ -2883,13 +2980,24 @@ class WorldBookManager:
                 staged.entry_order.append(built.uid)
             created.append(built)
         staged.import_config["revision"] = staged.import_config.get("revision", 1) + 1
-        self.save(staged)
+        created_paths = []
+        try:
+            for character_id, profile in profiles_to_copy.items():
+                if character_id not in target.character_profiles:
+                    created_paths.append(materialize_character(
+                        character_id, target.id, profile,
+                        staged.character_media.get(character_id, {})))
+            self.save(staged)
+        except Exception:
+            for path in created_paths:
+                shutil.rmtree(path)
+            raise
 
         return {
             "entries": [e.to_dict() for e in created],
             "target": self._summary(staged, self.get_default_book_id()),
             "revision": staged.import_config["revision"],
-            "warnings": [],
+            "warnings": warnings,
         }
 
     # ── 会话绑定解析 ──
@@ -2920,6 +3028,24 @@ class WorldBookManager:
             if book and book.enabled and not book.is_reference:
                 books.append(book)
         return WorldBookBundle(books) if len(books) > 1 else (books[0] if books else None)
+
+    def character_media_for_session(self, overlay, character_id: str,
+                                    kind: str) -> str | None:
+        """Find a copied image in bound books, honoring their binding order."""
+        if not overlay or kind not in ("avatar", "skin", "card_face"):
+            return None
+        ids = (overlay.get_worldbook_ids() if hasattr(overlay, "get_worldbook_ids")
+               else [overlay.get_worldbook_id()] if overlay.get_worldbook_id() else [])
+        for book_id in ids:
+            book = self.load(book_id)
+            if book and book.enabled and not book.is_reference:
+                images = book.character_media.get(character_id, {})
+                image = images.get(kind)
+                if not image and kind == "card_face":
+                    image = images.get("skin") or images.get("avatar")
+                if image:
+                    return image
+        return None
 
     def _fallback_preinstalled(self) -> Optional[WorldBook]:
         for bid in _PACK_FALLBACK_IDS:

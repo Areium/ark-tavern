@@ -492,3 +492,40 @@ html.light .wber-shell {
 .wber-sf-add { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
 .wber-sf-add small { color: var(--wber-muted); font-size: 12px; line-height: 1.5; }
 @media (max-width: 720px) { .wber-sf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Entry drafting and precise insertion share the workbench palette. */
+.wber-new-entry-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); margin: auto; padding: 24px; overflow-y: auto; border: 1px solid var(--wber-border-strong); border-radius: 14px; background: var(--wber-card); color: var(--wber-text); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+.wber-new-entry-dialog::backdrop { background: rgba(2,6,12,.7); }
+.wber-new-entry-heading h2 { font-size: 22px; font-family: var(--wber-serif); }
+.wber-new-entry-heading p { color: var(--wber-muted); margin: 6px 0 20px; line-height: 1.6; }
+.wber-new-entry-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.wber-new-entry-fields:disabled { opacity: .65; }
+.wber-new-entry-dialog .wber-dialog-actions { position: sticky; bottom: -24px; background: var(--wber-card); padding: 16px 0; margin-top: 16px; border-top: 1px solid var(--wber-border); }
+.wber-insert-position { display: flex; flex-direction: column; gap: 8px; color: var(--wber-muted); font-size: 13px; margin-top: 12px; }
+.wber-insert-position select { width: 100%; min-width: 0; min-height: 40px; padding: 8px; border: 1px solid var(--wber-border); border-radius: 7px; background: var(--wber-soft); color: var(--wber-text); }
+.wber-entry-sources { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.wber-entry-sources > details { margin: 0; }
+.wber-library-results { max-height: 360px; overflow-y: auto; }
+.wber-library-item { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 10px 4px; cursor: pointer; color: var(--wber-body); line-height: 1.5; }
+.wber-library-item:hover { background: var(--wber-soft); }
+.wber-library-item input { margin-top: 4px; flex-shrink: 0; accent-color: var(--wber-accent); }
+.wber-library-item span { min-width: 0; overflow-wrap: anywhere; }
+.wber-library-item small { display: block; color: var(--wber-muted); }
+.wber-excerpt-actions { border-top: 1px solid var(--wber-border); padding-top: 12px; flex-wrap: wrap; }
+.wber-excerpt-actions > span { color: var(--wber-muted); font-size: 13px; }
+.wber-entry { position: relative; }
+.wber-entry.is-drop-before, .wber-entry.is-drop-after { overflow: visible; }
+.wber-entry.is-drop-before::after, .wber-entry.is-drop-after::after { content: ""; position: absolute; z-index: 2; left: 0; right: 0; height: 3px; background: var(--wber-accent); border-radius: 2px; pointer-events: none; }
+.wber-entry.is-drop-before::after { top: -6px; }
+.wber-entry.is-drop-after::after { bottom: -6px; }
+.wber-move-buttons { display: flex; flex-shrink: 0; gap: 2px; }
+.wber-shell .wber-move-buttons button { padding: 0 6px; }
+.wber-new-entry-dialog :focus-visible, .wber-library-item:focus-within { outline: 2px solid var(--wber-accent); outline-offset: 3px; }
+@media (max-width: 560px) {
+  .wber-new-entry-dialog { padding: 16px; max-height: calc(100dvh - 24px); }
+  .wber-new-entry-dialog .wber-dialog-actions { bottom: -16px; }
+  .wber-move-buttons { flex-direction: column; }
+  .wber-shell .wber-move-buttons button { min-height: 30px; }
+  .wber-entry-head .wber-seq { display: none; }
+  .wber-entry-sources summary span { display: none; }
+}

@@ -164,6 +164,12 @@
 - **证据**：`tests/test_worldbook_entry_refresh.py` 覆盖元信息导出回读、完整排列与实际收集顺序、
   过期 revision 不落盘、隐藏字段部分更新；三个 `scripts/test_worldbook_*_ui.cjs` 覆盖工作台页签与真实组件 SSR。
 
+### 条目摘录与角色资源副本（2026-09-27）
+
+- 从资料库多选摘录仍走 `POST /api/worldbook/<id>/excerpt` 的整批原子接口。带有效 `character_id` 的角色条目会把 `index.md` 与默认头像、立绘、卡面快照写入目标书的 `character_profiles` / `character_media`；角色条目改用目标书专属的 `<角色ID>__wb_<书ID>`，同时在角色目录生成可供现有互动与战斗链路读取的独立副本。来源目录不改动，保存书失败会删除本次新建的角色目录。
+- 书内资源随酒馆 JSON 扩展导出、导入和整书复制；导入/复制时重新生成目标书专属角色 ID 与角色目录。会话中的形象解析顺序为会话覆盖 → 按绑定顺序查书内快照 → 全局角色目录；没有角色资料或图片时摘录结果会带可见警告。每张图片上限 20 MB，整书图片总量上限 80 MB，单份角色资料上限 2 MB、整书角色资料总量上限 16 MB；只快照当前默认图片，不打包同目录的其它造型变体。
+- `tests/test_worldbook_character_media.py` 覆盖资源副本、导出导入、保存失败回滚、绑定顺序和舞台取图。
+
 ### 本机跑测试的等价命令（2026-09-19）
 
 本机（Windows + conda python）**没有可用的 bash**：`bash scripts/run_tests.sh` 里的 `bash` 实际落到
