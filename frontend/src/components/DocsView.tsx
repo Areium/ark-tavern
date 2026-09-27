@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import tutorialMd from "../../../docs/tutorial.md?raw";
 import AppIcon from "./AppIcon";
+import ResizeHandle from "./common/ResizeHandle";
+import { useResizableWidth } from "../hooks/useResizableWidth";
 
 // 文档中的相对图片路径（images/xxx.jpg）→ Vite 打包后的资源 URL
 const imageUrls = import.meta.glob("../../../docs/images/*", {
@@ -46,6 +48,13 @@ export default function DocsView() {
   const content = useMemo(() => resolveImages(tutorialMd), []);
   const toc = useMemo(() => extractToc(content), []);
   const [active, setActive] = useState<string>("");
+  // 左侧目录宽度可拖拽调整
+  const tocWidth = useResizableWidth({
+    storageKey: "ark.docsToc.width",
+    defaultWidth: 240,
+    min: 180,
+    max: 420,
+  });
 
   const scrollTo = (id: string, text: string) => {
     setActive(text);
@@ -55,7 +64,10 @@ export default function DocsView() {
   return (
     <div className="flex h-full bg-gray-900">
       {/* 左侧目录 */}
-      <aside className="w-60 border-r border-gray-700 flex flex-col shrink-0 bg-gray-850">
+      <aside
+        className="border-r border-gray-700 flex flex-col shrink-0 bg-gray-850"
+        style={{ width: tocWidth.width }}
+      >
         <div className="px-4 py-3 border-b border-gray-700">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-400"><AppIcon name="docs" size={16} />使用教程</h2>
           <p className="text-xs text-gray-500 mt-0.5">目录</p>
@@ -78,6 +90,7 @@ export default function DocsView() {
           ))}
         </nav>
       </aside>
+      <ResizeHandle resize={tocWidth} label="调整目录宽度" />
 
       {/* 右侧正文 */}
       <div className="flex-1 overflow-y-auto">

@@ -2266,3 +2266,41 @@ html.light .ng-menu-item.danger { color: #b91c1c; }
 /* 拖拽调宽期间：全局保持 col-resize 光标并禁掉文本选择 */
 body.ng-resizing,
 body.ng-resizing * { cursor: col-resize !important; user-select: none !important; }
+
+/* ── 通用侧栏宽度拖拽把手（ResizeHandle + useResizableWidth） ─────────────
+   负外边距让把手覆盖在面板边缘上：命中区 10px，但不挤占布局宽度。      */
+.resize-handle {
+  flex: 0 0 auto;
+  width: 10px;
+  margin: 0 -5px;
+  align-self: stretch;
+  position: relative;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+}
+.resize-handle::after {
+  content: "";
+  width: 3px;
+  height: 30px;
+  border-radius: 2px;
+  background: var(--ng-muted, #8b93a1);
+  opacity: .3;
+  transition: opacity .18s ease, background-color .18s ease;
+}
+.resize-handle:hover::after,
+.resize-handle:active::after {
+  opacity: 1;
+  background: var(--ng-edge-color-hl, #dfa945);
+}
+.resize-handle:focus-visible {
+  outline: 2px solid var(--ng-edge-color-hl, #dfa945);
+  outline-offset: 1px;
+}
+.resize-handle:focus-visible::after { opacity: 1; }
+/* 拖拽期间：全局保持 col-resize 光标并禁掉文本选择 */
+body.is-col-resizing,
+body.is-col-resizing * { cursor: col-resize !important; user-select: none !important; }

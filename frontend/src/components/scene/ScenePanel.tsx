@@ -5,15 +5,17 @@
  * 收起时只剩图标栏，点任一图标即展开到该页。面板内容包在 ErrorBoundary 里，
  * 第三方面板抛错不会拖垮整个对话页。
  */
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi } from "../../hooks/useApi";
+import { useResizableWidth } from "../../hooks/useResizableWidth";
 import {
   resolveScenePanelTab, useScenePanels, visibleScenePanels,
   type ScenePanelContext, type ScenePanelDefinition,
 } from "../../plugins/scenePanels";
 import AppIcon, { type AppIconName } from "../AppIcon";
 import ErrorBoundary from "../ErrorBoundary";
+import ResizeHandle from "../common/ResizeHandle";
 
 function PanelIcon({ panel, size = 19 }: { panel: ScenePanelDefinition; size?: number }) {
   if (typeof panel.icon === "string") return <AppIcon name={panel.icon as AppIconName} size={size} />;
@@ -82,8 +84,20 @@ export default function ScenePanel() {
     if (!scenePanelOpen) setScenePanelOpen(true);
   };
 
+  // 面板内容区宽度可拖拽调整（CSS 变量 --scene-panel-w，移动端由媒体查询接管）
+  const panelWidth = useResizableWidth({
+    storageKey: "ark.scenePanel.width",
+    defaultWidth: 288,
+    min: 220,
+    max: 560,
+  });
+
   return (
-    <aside className={`scene-panel ${scenePanelOpen ? "is-open" : "is-collapsed"}`} aria-label="场景面板">
+    <aside
+      className={`scene-panel ${scenePanelOpen ? "is-open" : "is-collapsed"}`}
+      aria-label="场景面板"
+      style={scenePanelOpen ? ({ "--scene-panel-w": `${panelWidth.width}px` } as CSSProperties) : undefined}
+    >
       <nav className="scene-rail" aria-label="场景面板页签">
         {visible.map((panel) => (
           <button
@@ -131,6 +145,10 @@ export default function ScenePanel() {
             )}
           </div>
         </div>
+      )}
+
+      {scenePanelOpen && (
+        <ResizeHandle resize={panelWidth} label="调整场景面板宽度" />
       )}
     </aside>
   );

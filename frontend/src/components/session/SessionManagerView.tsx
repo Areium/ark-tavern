@@ -19,6 +19,8 @@ import CharacterPicker from "./CharacterPicker";
 import CreateSessionWizard from "./CreateSessionWizard";
 import { SessionWorldbookDependencies } from "./SessionWorldbookDependencies";
 import { useDialogMinimize } from "../../hooks/useDialogMinimize";
+import { useResizableWidth } from "../../hooks/useResizableWidth";
+import ResizeHandle from "../common/ResizeHandle";
 import { ArrowRight, Swords, X } from "lucide-react";
 
 const AVATAR_URL = (name: string) => `/api/characters/${encodeURIComponent(name)}/avatar`;
@@ -56,6 +58,23 @@ export default function SessionManagerView() {
   const [selectedId, setSelectedId] = useState<string | null>(activeSessionId);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [practiceOpen, setPracticeOpen] = useState(false);
+
+  // ── 左侧会话列表宽度：桌面端可拖拽调整（移动端仍为整行宽） ──
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  const listWidth = useResizableWidth({
+    storageKey: "ark.sessionList.width",
+    defaultWidth: 320,
+    min: 260,
+    max: 640,
+  });
 
   // ── 批量管理 ──
   const [batchMode, setBatchMode] = useState(false);
@@ -430,7 +449,10 @@ export default function SessionManagerView() {
 
       <div className="flex flex-1 min-h-0 flex-col md:flex-row overflow-y-auto md:overflow-hidden lobby-scroll">
         {/* ═══ 左侧：会话列表 ═══ */}
-        <aside className="w-full md:w-80 xl:w-96 max-h-[42vh] md:max-h-none border-b md:border-b-0 md:border-r border-gray-700/60 flex flex-col shrink-0">
+        <aside
+          className="w-full md:w-80 xl:w-96 max-h-[42vh] md:max-h-none border-b md:border-b-0 md:border-r border-gray-700/60 flex flex-col shrink-0"
+          style={isDesktop ? { width: listWidth.width } : undefined}
+        >
           <div className="px-4 pt-4 pb-2 space-y-2 shrink-0">
             {/* 模式 Tab */}
             <div className="flex gap-1 p-1 rounded-lg bg-gray-800/80 border border-gray-700/70">
@@ -619,6 +641,7 @@ export default function SessionManagerView() {
             ))}
           </div>
         </aside>
+        {isDesktop && <ResizeHandle resize={listWidth} label="调整会话列表宽度" />}
 
         {/* ═══ 右侧：会话详情与管理 ═══ */}
         <section ref={detailRef} className="w-full md:w-auto min-w-0 flex-1 md:overflow-y-auto lobby-scroll p-4 md:p-6">
