@@ -16,14 +16,13 @@ Worldbook blueprint — 世界书（酒馆 Lorebook 兼容）管理 API。
     GET    /api/worldbook/<book_id>/export     导出酒馆 v1 格式（回灌用）
     PUT    /api/worldbook/<book_id>/taxonomy   更新分类树与条目归属
     POST   /api/worldbook/<book_id>/auto-classify  按条目元数据自动分类（预览 / 应用）
-    POST   /api/worldbook/<book_id>/default    设为/取消全局默认书（资料库禁止设为默认）
     POST   /api/worldbook/<book_id>/bind       绑定到会话（或解绑；资料库禁止绑定）
     POST   /api/worldbook/<book_id>/excerpt    从来源书摘录条目到本书（仅 story，整批原子）
     POST   /api/worldbook/<book_id>/prompt-preview     单轮实际注入预览（只读，A-2）
     GET    /api/worldbook/<book_id>/dependency-tree    条目依赖子树（只读，A-3）
     GET    /api/worldbook/resolve              查询会话当前生效的书
 
-用途（`book_type`）：`story` 剧情世界书可绑定会话、设为默认并参与解析；
+用途（`book_type`）：`story` 剧情世界书可绑定会话并参与解析；
 `reference` 资料库只供浏览、检索与摘录。缺字段的旧数据按 `story` 读取。
 """
 
@@ -42,6 +41,7 @@ from world_book import (
     estimate_tokens, normalize_book_type,
 )
 from worldbook_classify import classify_entries
+from worldbook_media import owned_materialized_character_root
 from character_stats import validate_stat_fields
 from worldbook_scope import (
     ACTIVATION_ALWAYS, ACTIVATION_MANUAL, ACTIVATION_ROSTER_ANY,
@@ -401,7 +401,10 @@ def register(app, managers):
             lock.release()
 
     def _get_book_or_404(book_id):
-        book = wb_mgr.load(book_id)
+        try:
+            book = wb_mgr.load(book_id)
+        except ValueError:
+            book = None
         if not book:
             return None, json_error("世界书不存在", 404)
         return copy.deepcopy(book), None
@@ -415,7 +418,10 @@ def register(app, managers):
         （例如先改了条目、再保存起点，起点保存会把条目改动回滚）。
         """
         with wb_mgr.book_lock(book_id):
-            book = wb_mgr.load(book_id)
+            try:
+                book = wb_mgr.load(book_id)
+            except ValueError:
+                book = None
             if not book:
                 yield None, json_error("世界书不存在", 404)
                 return
@@ -552,6 +558,20 @@ def register(app, managers):
     @bp.route("/api/worldbook", methods=["GET"])
     def list_books():
         return jsonify({"books": wb_mgr.list_books()})
+
+    @bp.route("/api/worldbook/available-packs", methods=["GET"])
+    def list_available_packs():
+        return jsonify({"packs": wb_mgr.list_available_packs()})
+
+    @bp.route("/api/worldbook/available-packs/<book_id>/install", methods=["POST"])
+    def install_available_pack(book_id):
+        with wb_mgr.book_lock(book_id):
+            try:
+                book = wb_mgr.install_pack(book_id)
+            except ValueError as exc:
+                status = 409 if "已经安装" in str(exc) else 404
+                return json_error(str(exc), status)
+        return jsonify({"book": _book_detail(book, include_entries=False)}), 201
 
     @bp.route("/api/worldbook", methods=["POST"])
     def create_book():
@@ -725,11 +745,38 @@ def register(app, managers):
 
     @bp.route("/api/worldbook/<book_id>", methods=["DELETE"])
     def delete_book(book_id):
-        """统一删除。预装包删除后可通过 /reinstall 从分发源一键重装还原。"""
+        """卸载世界书；在用会话需先解除绑定。"""
         book, err = _get_book_or_404(book_id)
         if err:
             return err
-        wb_mgr.delete_book(book_id)
+        try:
+            sessions = _sessions_bound_to(book_id)
+        except SessionOccupancyUnknown as exc:
+            return json_error(str(exc), 503)
+        if sessions:
+            return json_error(f"世界书正被 {len(sessions)} 个会话使用，请先解除绑定", 409)
+        private_ids = {
+            character_id for character_id in book.character_profiles
+            if owned_materialized_character_root(character_id, book_id) is not None
+        }
+        if private_ids and session_mgr is not None:
+            try:
+                summaries = session_mgr.list_sessions()
+            except Exception as exc:
+                logger.exception("列举会话失败，无法确认角色副本占用状态")
+                return json_error("暂时无法确认会话角色占用状态，请稍后重试", 503)
+            if not isinstance(summaries, (list, tuple)) or any(not isinstance(item, dict) for item in summaries):
+                return json_error("暂时无法确认会话角色占用状态，请稍后重试", 503)
+            users = [str(item.get("id")) for item in summaries
+                     if private_ids.intersection(
+                         (item.get("roster") or []) + (item.get("characters") or [])
+                         + [item.get("player_identity")])]
+            if users:
+                return json_error(f"世界书角色仍被 {len(users)} 个会话使用，请先更换角色", 409)
+        try:
+            wb_mgr.delete_book(book_id)
+        except ValueError as exc:
+            return json_error(str(exc), 409)
         return jsonify({"message": "已删除"})
 
     @bp.route("/api/worldbook/<book_id>/duplicate", methods=["POST"])
@@ -1129,7 +1176,7 @@ def register(app, managers):
                 raise ValueError("lore_scope 必须是对象（形状同会话节点作用域）")
             identity = data.get("identity")
             if not isinstance(identity, str) or not identity:
-                identity = "博士"
+                identity = "玩家"
             active_char = data.get("active_char")
             if not isinstance(active_char, str):
                 active_char = None

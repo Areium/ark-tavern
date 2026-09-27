@@ -38,7 +38,7 @@ def read_imports_from_file(filepath: str) -> list:
     """从单个文档 frontmatter 提取 imports 依赖路径列表。
 
     支持格式：
-    - imports: [characters/博士, factions/罗德岛]
+    - imports: [characters/旅人, factions/行会]
     """
     try:
         with open(filepath, "r", encoding="utf-8") as f:

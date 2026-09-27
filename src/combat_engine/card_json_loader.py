@@ -15,6 +15,7 @@ from pathlib import Path
 
 from combat_engine.card import Card
 from data_paths import CONTENT_ROOT
+from content_scope import is_content_visible
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +33,26 @@ def clear_cache() -> None:
 
 def load_class_cards(char_class: str, data_dir: str | Path | None = None) -> list[Card]:
     """读取某职业的 cards.json 并转换为 Card 列表（未找到返回 []）。"""
+    if (not char_class or char_class in (".", "..")
+            or "/" in char_class or "\\" in char_class
+            or Path(char_class).name != char_class):
+        return []
+    base = Path(data_dir) if data_dir is not None else _CLASS_DIR
+    path = base / char_class / "cards.json"
+    try:
+        if path.resolve() != path.absolute() or not path.resolve().is_relative_to(base.resolve()):
+            return []
+    except (OSError, ValueError):
+        return []
+    if (data_dir is None or base.resolve() == _CLASS_DIR.resolve()) and not is_content_visible(path, content_base=base.parent):
+        with _cache_lock:
+            _cache.pop(char_class, None)
+        return []
+
     with _cache_lock:
         if char_class in _cache and data_dir is None:
             return list(_cache[char_class])
 
-    base = Path(data_dir) if data_dir else _CLASS_DIR
-    path = base / char_class / "cards.json"
     if not path.is_file():
         logger.warning("cards.json not found: %s", path)
         return []
@@ -59,10 +74,12 @@ def load_class_cards(char_class: str, data_dir: str | Path | None = None) -> lis
 def load_all_class_cards(data_dir: str | Path | None = None) -> dict[str, list[Card]]:
     """读取全部职业卡表 {职业名: [Card]}。"""
     base = Path(data_dir) if data_dir else _CLASS_DIR
+    scoped = data_dir is None or base.resolve() == _CLASS_DIR.resolve()
     result: dict[str, list[Card]] = {}
     if not base.is_dir():
         return result
     for subdir in sorted(base.iterdir()):
-        if (subdir / "cards.json").is_file():
+        path = subdir / "cards.json"
+        if path.is_file() and (not scoped or is_content_visible(path, content_base=base.parent)):
             result[subdir.name] = load_class_cards(subdir.name, data_dir)
     return result

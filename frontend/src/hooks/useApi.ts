@@ -77,7 +77,7 @@ export function useApi() {
     listSessions: () => request<any[]>("/api/sessions"),
     listPlots: () => request<any[]>("/api/plots"),
     createSession: (mode: "free" | "story" = "free", name = "", plotId = "",
-      combatMode: "narrative" | "tactical" | "sideview" = "narrative", identity = "博士",
+      combatMode: "narrative" | "tactical" | "sideview" = "narrative", identity = "玩家",
       worldbookIds: string[] = [], rosterCharacterIds: string[] = [],
       manualEntryUids: string[] = [], expectedDraftHashes: Record<string, string> = {}, fullScope = false) =>
       request<any>("/api/sessions", {
@@ -160,12 +160,12 @@ export function useApi() {
       }),
 
     // ── 对话 ──
-    groupChat: (sessionId: string, input: string, identity = "博士") =>
+    groupChat: (sessionId: string, input: string, identity = "玩家") =>
       request<any>(`/api/sessions/${sessionId}/group-chat`, {
         method: "POST",
         body: JSON.stringify({ input, identity }),
       }),
-    narrateVariant: (sessionId: string, prompt: string, identity = "博士") =>
+    narrateVariant: (sessionId: string, prompt: string, identity = "玩家") =>
       request<any>(`/api/sessions/${sessionId}/narrate-variant`, {
         method: "POST",
         body: JSON.stringify({ identity, prompt }),
@@ -374,6 +374,10 @@ export function useApi() {
     // ── 世界书（酒馆 Lorebook 兼容） ──
     listWorldbooks: () =>
       request<{ books: import("../types").WorldBookSummary[] }>("/api/worldbook"),
+    listAvailableWorldbookPacks: () =>
+      request<{ packs: { id: string; name: string; description: string; book_type: string; entry_count: number; installed: boolean }[] }>("/api/worldbook/available-packs"),
+    installWorldbookPack: (id: string) =>
+      request<{ book: import("../types").WorldBookSummary }>(`/api/worldbook/available-packs/${encodeURIComponent(id)}/install`, { method: "POST" }),
     createWorldbook: (name: string, budgetTokens = 0, bookType?: import("../types").WorldBookType,
       meta?: { description?: string; cover_image?: string }) =>
       request<{ book: import("../types").WorldBookSummary }>("/api/worldbook", {

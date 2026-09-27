@@ -24,6 +24,7 @@ from session_context import SessionContext
 from combat_resume import read_resume, session_resume_path, summarize as _summarize_resume
 from combat_engine.engine import CombatEvent
 from data_paths import MEMORY_ROOT
+from constants import DEFAULT_PLAYER_IDENTITY
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class Session:
 
     def __init__(self, session_id: str, llm_backend_manager: LLMBackendManager,
                  name: str = "", mode: str = "free", combat_mode: str = "narrative",
-                 player_identity: str = "博士",
+                 player_identity: str = DEFAULT_PLAYER_IDENTITY,
                  wiki_manager=None, worldbook_manager=None,
                  empty_environment: bool | None = None):
         self.id = session_id
@@ -67,8 +68,8 @@ class Session:
         self.name = name or f"{mode_label}对话"
         self.mode = mode  # "free" | "story"
         self.combat_mode = combat_mode  # "narrative" | "tactical" | "sideview"，创建时选定，不可更改
-        # 玩家身份角色（用户自身）：默认"博士"，创建时可选择其他角色卡
-        self.player_identity = (player_identity or "").strip() or "博士"
+        # 玩家身份角色（用户自身）：默认"玩家"，创建时可选择其他角色卡
+        self.player_identity = (player_identity or "").strip() or DEFAULT_PLAYER_IDENTITY
         self.created_at = time.time()
         self._llm_backend = llm_backend_manager
 
@@ -773,13 +774,13 @@ class SessionManager:
 
     def create_session(self, name: str = "", mode: str = "free", plot_name: str = "",
                         combat_mode: str = "narrative", worldbook_id: str = "",
-                        player_identity: str = "博士", plot_id: str = "",
+                        player_identity: str = DEFAULT_PLAYER_IDENTITY, plot_id: str = "",
                         initializer: Callable[[Session], None] | None = None) -> Session:
         """创建新会话。
 
         Args:
             worldbook_id: 可选，创建时绑定世界书（未绑定则回落全局默认书）。
-            player_identity: 玩家身份角色名（用户自身，默认"博士"）。
+            player_identity: 玩家身份角色名（用户自身，默认"玩家"）。
             plot_id: 可选，创建时绑定的剧情 ID；用于决定无剧情会话是否留空初始场景。
         """
         session_id = self._generate_id()
@@ -886,7 +887,7 @@ class SessionManager:
                 return (data["id"], data.get("mode", mode),
                         data.get("name", ""), data.get("created_at", 0),
                         data.get("combat_mode", "narrative"),
-                        data.get("player_identity", "博士"))
+                        data.get("player_identity", DEFAULT_PLAYER_IDENTITY))
             except Exception:
                 pass
 
@@ -909,13 +910,13 @@ class SessionManager:
             self._save_session_meta_raw(sid, mode, name, created_at)
 
             logger.info("从 overrides.json 推断并补写 session.json: %s/%s", mode, sid)
-            return (sid, mode, name, created_at, "narrative", "博士")
+            return (sid, mode, name, created_at, "narrative", DEFAULT_PLAYER_IDENTITY)
 
         return None
 
     def _save_session_meta_raw(self, sid: str, mode: str, name: str, created_at: float,
                                 combat_mode: str = "narrative",
-                                player_identity: str = "博士"):
+                                player_identity: str = DEFAULT_PLAYER_IDENTITY):
         """直接写入 session.json（不依赖 Session 对象）。"""
         session_file = _SESSIONS_DIR / mode / sid / "session.json"
         session_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1044,7 +1045,7 @@ class SessionManager:
         主控同时是阵容成员：它的世界书条目按 roster 规则载入，因此换主控要顺带
         重算候选范围（由 `SceneManager.set_player_identity` 负责）。
         """
-        identity = (identity or "").strip() or "博士"
+        identity = (identity or "").strip() or DEFAULT_PLAYER_IDENTITY
         with self._lock:
             session = self._sessions.get(session_id)
             if not session:

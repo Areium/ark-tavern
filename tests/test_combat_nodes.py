@@ -26,6 +26,20 @@ def client():
     return app.test_client()
 
 
+@pytest.fixture
+def isolated_node_client(tmp_path, monkeypatch):
+    """Route node and imported-book writes into this test's temporary root."""
+    import combat_nodes
+    import world_book
+
+    node_dir = tmp_path / "combat" / "nodes"
+    monkeypatch.setattr(combat_nodes, "NODE_DIR", node_dir)
+    monkeypatch.setattr(world_book, "_WORLDBOOKS_DIR", tmp_path / "worldbooks")
+    app = create_app()
+    app.config.update(TESTING=True)
+    return app.test_client(), node_dir
+
+
 def _small_node(**overrides) -> dict:
     node = {
         "schema_version": 1,
@@ -106,7 +120,8 @@ def test_illegal_node_id_rejected():
 
 # ── CRUD ──
 
-def test_create_save_conflict_and_delete(client):
+def test_create_save_conflict_and_delete(isolated_node_client):
+    client, _ = isolated_node_client
     node_id = "enc_crud_test"
     try:
         assert client.post("/api/combat/nodes", json={"node_id": node_id, "name": "CRUD"}).status_code == 201
@@ -224,7 +239,8 @@ def test_decode_broken_entry_raises():
         decode_worldbook_entry(entry)
 
 
-def test_invalid_entry_is_rejected_without_writing(client):
+def test_invalid_entry_is_rejected_without_writing(isolated_node_client):
+    client, node_dir = isolated_node_client
     entry = {
         "uid": "bad", "name": "非法节点",
         "content": '```json combat-node\n{"node_id":"enc_bad_import","name":"坏",'
@@ -236,11 +252,12 @@ def test_invalid_entry_is_rejected_without_writing(client):
     res = client.post("/api/combat/nodes/import-worldbook", json={"entries": [entry]})
     assert res.status_code == 207
     assert res.get_json()["errors"]
-    assert not (NODE_DIR / "enc_bad_import.json").exists()
+    assert not (node_dir / "enc_bad_import.json").exists()
 
 
-def test_import_nodes_through_worldbook_book_import(client):
+def test_import_nodes_through_worldbook_book_import(isolated_node_client):
     """整本书导入：条目里的战斗节点自动落地为节点文件。"""
+    client, node_dir = isolated_node_client
     node = _small_node(node_id="enc_book_import")
     entry = encode_node_for_worldbook(node)
     entry["uid"] = "combat_node_enc_book_import"
@@ -252,14 +269,14 @@ def test_import_nodes_through_worldbook_book_import(client):
     assert body["combat_nodes"]["imported"], body["combat_nodes"]
     book_id = body["book"]["id"]
     try:
-        assert (NODE_DIR / "enc_book_import.json").is_file()
+        assert (node_dir / "enc_book_import.json").is_file()
         exported = client.get(f"/api/worldbook/{book_id}/export").get_json()
         assert exported["combat_nodes_refreshed"] == 1
         content = json.dumps(exported["data"], ensure_ascii=False)
         assert "enc_book_import" in content
     finally:
         client.delete(f"/api/worldbook/{book_id}")
-        (NODE_DIR / "enc_book_import.json").unlink(missing_ok=True)
+        (node_dir / "enc_book_import.json").unlink(missing_ok=True)
 
 
 def test_node_overview_reports_missing_node_from_plot(client):
@@ -273,12 +290,20 @@ def test_node_overview_reports_missing_node_from_plot(client):
     assert fake["beat_id"]
 
 
-def test_empty_node_cannot_start_battle(client):
+def test_empty_node_cannot_start_battle(client, tmp_path, monkeypatch):
     """新建的空节点（无敌人）可保存，但开战必须被拒绝并给出可读原因。"""
+    import combat_data_loader
+    import combat_nodes
+
+    node_dir = tmp_path / "combat" / "nodes"
+    monkeypatch.setattr(combat_nodes, "NODE_DIR", node_dir)
+    monkeypatch.setattr(combat_data_loader, "_DATA_DIR", node_dir.parent)
+    monkeypatch.setattr(combat_data_loader, "is_content_visible",
+                        lambda path: Path(path).is_relative_to(tmp_path))
     node_id = "enc_empty_test"
     try:
         assert client.post("/api/combat/nodes", json={"node_id": node_id}).status_code == 201
-        res = client.post("/api/combat/test/start", json={"node_id": node_id})
+        res = client.post("/api/combat/test/start", json={"node_id": node_id, "characters": ["临光"]})
         assert res.status_code == 400
         assert "没有可出场的敌人" in res.get_json()["error"]
     finally:

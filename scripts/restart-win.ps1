@@ -1,6 +1,6 @@
 ﻿#Requires -Version 5.1
 <#
-  Arknights Tavern — Windows 一键重启（单窗口版）
+  Ark Tavern — Windows 一键重启（单窗口版）
 
   与旧版 scripts/restart-win.bat 的唯一差异在「启动/清理逻辑」，启动参数、端口、
   工作目录、环境变量、日志去处全部保持一致：
@@ -259,7 +259,7 @@ function Repair-ElectronDist {
 # ══════════════════════════════════════════════════════════
 Write-Host ''
 Write-Head '  ═══════════════════════════════════════'
-Write-Head '    Arknights Tavern — 重启前后端'
+Write-Head '    Ark Tavern — 重启前后端'
 Write-Head '  ═══════════════════════════════════════'
 Write-Host ''
 

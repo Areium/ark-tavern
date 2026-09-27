@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ═══════════════════════════════════════════════════════════
-#  Arknights Tavern — macOS 一键重启脚本
+#  Ark Tavern — macOS 一键重启脚本
 #  1. 检查依赖（Python 包 / Node 模块）
 #  2. 停止旧进程（Flask + Vite）
 #  3. 启动 Flask 后端 + Vite 前端（Electron 游戏窗口由 vite-plugin-electron 拉起）
@@ -99,7 +99,7 @@ trap cleanup EXIT INT TERM
 
 echo ""
 echo -e "  ${CYAN}═══════════════════════════════════════${NC}"
-echo -e "  ${CYAN}  Arknights Tavern — 重启前后端${NC}"
+echo -e "  ${CYAN}  Ark Tavern — 重启前后端${NC}"
 echo -e "  ${CYAN}═══════════════════════════════════════${NC}"
 echo ""
 

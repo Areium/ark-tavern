@@ -59,6 +59,25 @@ def copied_character_id(character_id: str, book_id: str) -> str:
     return f"{base}__wb_{book_id}"
 
 
+def owned_materialized_character_root(character_id: str, book_id: str) -> Path | None:
+    """Return only an imported character copy provably owned by this book."""
+    if not re.fullmatch(r"[a-f0-9]{12}", book_id):
+        return None
+    if not character_id.endswith(f"__wb_{book_id}"):
+        return None
+    root = _character_root(character_id)
+    if root is None or not root.is_dir() or root.is_symlink():
+        return None
+    profile = root / "index.md"
+    if not profile.is_file() or profile.is_symlink():
+        return None
+    try:
+        metadata = frontmatter.loads(profile.read_text(encoding="utf-8")).metadata
+    except (OSError, ValueError):
+        return None
+    return root if metadata.get("worldbook_id") == book_id else None
+
+
 def materialize_character(character_id: str, book_id: str, profile: str,
                           media: dict[str, str]) -> Path:
     """Create a private global character copy used by existing role systems.

@@ -2,9 +2,27 @@
 Assets blueprint — 静态资源服务。
 """
 
+import json
+from pathlib import Path
 from urllib.parse import quote
 from flask import Blueprint, jsonify, request, send_from_directory
-from data_paths import CONTENT_ROOT
+from data_paths import CONTENT_ROOT, content_root
+from content_scope import is_content_visible
+
+
+def _visible_category_path(cat, filename, *, project_root=None):
+    """Validate a client path against its category before manifest lookup."""
+    from pathlib import Path
+
+    base = Path(cat.directory).resolve()
+    candidate = Path(cat.directory) / filename
+    try:
+        candidate.resolve().relative_to(base)
+    except ValueError:
+        return None
+    if not is_content_visible(candidate, project_root=project_root):
+        return None
+    return candidate
 
 def register(app, managers):
     bp = Blueprint("assets", __name__)
@@ -18,14 +36,39 @@ def register(app, managers):
     def get_data_dir():
         return jsonify({"path": str(CONTENT_ROOT)})
 
+    @bp.route("/api/assets/spine-variants", methods=["GET"])
+    def spine_variants():
+        """Expose optional content-pack animation mappings for visible actors only."""
+        root = content_root(doc_mgr._root)
+        catalog = root / "spine_variants.json"
+        if not catalog.is_file() or not is_content_visible(catalog, project_root=doc_mgr._root):
+            return jsonify({"variants": {}})
+        try:
+            raw = json.loads(catalog.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return jsonify({"variants": {}})
+        if not isinstance(raw, dict):
+            return jsonify({"variants": {}})
+        visible = {}
+        for name, variant in raw.items():
+            if (not isinstance(name, str) or not name or Path(name).name != name
+                    or not isinstance(variant, str) or not variant
+                    or any(part in ("", ".", "..") for part in variant.split("/"))
+                    or "\\" in variant):
+                continue
+            character = root / "characters" / name
+            if character.is_dir() and is_content_visible(character, project_root=doc_mgr._root):
+                visible[name] = variant
+        return jsonify({"variants": visible})
+
     @bp.route("/api/assets/<category>/<path:filename>", methods=["GET"])
     def serve_asset(category, filename):
         import os as _os
         cat = doc_mgr.get_category(category)
         if not cat:
             return jsonify({"error": f"未知类别: {category}"}), 404
-        filepath = _os.path.join(cat.directory, filename)
-        if not _os.path.isfile(filepath):
+        filepath = _visible_category_path(cat, filename, project_root=doc_mgr._root)
+        if filepath is None or not filepath.is_file():
             return jsonify({"error": "文件不存在"}), 404
         directory = _os.path.dirname(filepath)
         basename = _os.path.basename(filepath)
@@ -55,7 +98,12 @@ def register(app, managers):
         if ".." in subdir or subdir.startswith("/") or subdir.startswith("\\"):
             return jsonify({"error": "无效的子目录路径"}), 400
 
+        if _os.path.basename(file.filename) != file.filename:
+            return jsonify({"error": "无效的文件名"}), 400
+
         target_dir = _os.path.join(cat.directory, subdir) if subdir else cat.directory
+        if _visible_category_path(cat, _os.path.join(subdir, file.filename), project_root=doc_mgr._root) is None:
+            return jsonify({"error": "目标路径不可用"}), 403
         _os.makedirs(target_dir, exist_ok=True)
 
         filepath = _os.path.join(target_dir, file.filename)
@@ -93,6 +141,8 @@ def register(app, managers):
 
         if not _os.path.isfile(filepath):
             return jsonify({"error": "文件不存在"}), 404
+        if not is_content_visible(filepath, project_root=doc_mgr._root):
+            return jsonify({"error": "文件不存在"}), 404
 
         ext = _os.path.splitext(filepath)[1].lower()
         if ext not in _IMAGE_EXTS:
@@ -112,7 +162,7 @@ def register(app, managers):
             return jsonify({"error": f"未知类别: {category}"}), 404
 
         index_md = _os.path.join(cat.directory, entity, "index.md")
-        if not _os.path.isfile(index_md):
+        if not _os.path.isfile(index_md) or _visible_category_path(cat, _os.path.join(entity, "index.md"), project_root=doc_mgr._root) is None:
             return jsonify({"error": "实体不存在"}), 404
 
         try:
@@ -150,7 +200,7 @@ def register(app, managers):
             return jsonify({"error": f"未知类别: {category}"}), 404
 
         index_md = _os.path.join(cat.directory, entity, "index.md")
-        if not _os.path.isfile(index_md):
+        if not _os.path.isfile(index_md) or _visible_category_path(cat, _os.path.join(entity, "index.md"), project_root=doc_mgr._root) is None:
             return jsonify({"error": "实体不存在"}), 404
 
         data = request.json or {}
@@ -224,7 +274,7 @@ def register(app, managers):
             return jsonify({"error": f"未知类别: {category}"}), 404
 
         index_md = _os.path.join(cat.directory, entity.replace("\\", "/"), "index.md")
-        if not _os.path.isfile(index_md):
+        if not _os.path.isfile(index_md) or _visible_category_path(cat, _os.path.join(entity, "index.md"), project_root=doc_mgr._root) is None:
             return jsonify({"error": "实体不存在"}), 404
 
         data = request.json or {}
@@ -271,9 +321,9 @@ def _list_entity_images(doc_mgr):
         entity_dirs: dict[str, str] = {}  # dir_path -> entity_name
         entity_books: dict[str, str] = {}  # dir_path -> worldbook_id
         for root, dirs, _files in os.walk(cat_dir):
-            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            dirs[:] = [d for d in dirs if not d.startswith(".") and is_content_visible(os.path.join(root, d), project_root=doc_mgr._root)]
             index_md = os.path.join(root, "index.md")
-            if os.path.isfile(index_md):
+            if os.path.isfile(index_md) and is_content_visible(index_md, project_root=doc_mgr._root):
                 entity_name = os.path.basename(root)
                 book_id = ""
                 try:
@@ -290,12 +340,14 @@ def _list_entity_images(doc_mgr):
         for entity_root, entity_name in entity_dirs.items():
             images = []
             for walk_root, walk_dirs, walk_files in os.walk(entity_root):
-                walk_dirs[:] = [d for d in walk_dirs if not d.startswith(".") and d != "spine"]
+                walk_dirs[:] = [d for d in walk_dirs if not d.startswith(".") and d != "spine" and is_content_visible(os.path.join(walk_root, d), project_root=doc_mgr._root)]
                 for f in sorted(walk_files):
                     ext = os.path.splitext(f)[1].lower()
                     if ext not in _IMAGE_EXTS:
                         continue
                     filepath = os.path.join(walk_root, f)
+                    if not is_content_visible(filepath, project_root=doc_mgr._root):
+                        continue
                     file_stat = os.stat(filepath)
                     inner_rel = os.path.relpath(walk_root, entity_root).replace("\\", "/")
                     entity_rel = os.path.relpath(entity_root, cat_dir).replace("\\", "/")

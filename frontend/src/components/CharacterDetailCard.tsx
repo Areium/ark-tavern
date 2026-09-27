@@ -29,7 +29,7 @@ const ATTR_LABELS: Record<string, string> = {
   intelligence: "智力",
   emotional_stability: "情绪",
   combat_skill: "战斗",
-  originium_arts: "源石",
+  originium_arts: "特殊技艺",
   charisma: "魅力",
   endurance: "耐力",
   agility: "敏捷",

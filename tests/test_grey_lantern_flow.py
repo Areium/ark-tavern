@@ -24,8 +24,8 @@ STAGES = ("arrival", "checkpoint", "fork", "warehouse", "rendezvous", "bridge", 
 
 @pytest.fixture()
 def flow(tmp_path, monkeypatch):
-    # create_app installs packs into its default runtime directory. Redirect both
-    # locations before construction so even a failed test cannot touch user data.
+    # Install this story pack explicitly into isolated runtime paths; app startup
+    # no longer installs any pack, and even a failed test cannot touch user data.
     pack = ROOT / "data/worldbooks/packs/grey-lantern.json"
     assert pack.is_file(), "先生成真实 grey-lantern pack 再运行流程测试"
     packs_dir = tmp_path / "packs"
@@ -42,6 +42,9 @@ def flow(tmp_path, monkeypatch):
     app = create_app()
     app.config.update(TESTING=True)
     client = app.test_client()
+    assert all(book["id"] != BOOK_ID for book in client.get("/api/worldbook").get_json()["books"])
+    installed = client.post(f"/api/worldbook/available-packs/{BOOK_ID}/install")
+    assert installed.status_code == 201, installed.get_json()
     app._managers["llm_backend"].get_config = lambda: {
         "auto_generate_choices": True, "choice_count": 2,
         "word_limit": 300, "dialogue_bubble_mode": False,

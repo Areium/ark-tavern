@@ -6,7 +6,7 @@ rem with multi-byte characters in the same file (comment fragments get
 rem executed as commands).
 chcp 65001 >nul
 rem ============================================================
-rem  Arknights Tavern - one-window restart launcher
+rem  Ark Tavern - one-window restart launcher
 rem
 rem  KEEP THIS FILE ASCII-ONLY (English comments and messages).
 rem

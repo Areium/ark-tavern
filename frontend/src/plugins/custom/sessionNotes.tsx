@@ -50,7 +50,7 @@ function SessionNotesPanel({ ctx }: ScenePanelProps) {
       <textarea
         className="input text-xs min-h-[160px] resize-y leading-relaxed"
         value={text}
-        placeholder="例如：答应过瑕光去看比赛；临光的剑还没修好……"
+        placeholder="例如：约好明天在旅店碰面；出发前记得修理装备……"
         onChange={(e) => save(e.target.value)}
       />
       <div className="flex items-center justify-between text-[11px] text-gray-500">

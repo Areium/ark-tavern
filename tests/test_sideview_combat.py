@@ -29,7 +29,9 @@ def client():
 
 @pytest.fixture
 def battle(client):
-    created = client.post("/api/sessions", json={"mode": "free", "combat_mode": "sideview"})
+    created = client.post("/api/sessions", json={
+        "mode": "free", "combat_mode": "sideview", "identity": "临光",
+    })
     assert created.status_code == 201, created.get_json()
     sid = created.get_json()["id"]
     assert client.post(f"/api/sessions/{sid}/characters/load",
@@ -72,6 +74,19 @@ def _result(state, snapshot, outcome="victory"):
             "kills": sum(e["hp"] == 0 for e in snapshot["enemies"]),
             "damageTaken": snapshot.get("damageTaken", 0),
             "hpRemaining": snapshot["player"]["hp"], "snapshot": snapshot}
+
+
+def test_start_without_available_character_returns_400(client):
+    created = client.post("/api/sessions", json={"mode": "free", "combat_mode": "sideview"})
+    assert created.status_code == 201, created.get_json()
+    sid = created.get_json()["id"]
+    try:
+        response = client.post(f"/api/sessions/{sid}/sideview/start",
+                               json={"encounter_id": ENCOUNTER})
+        assert response.status_code == 400, response.get_json()
+        assert "没有可用角色" in response.get_json()["error"]
+    finally:
+        client.delete(f"/api/sessions/{sid}")
 
 
 def test_victory_condition_controls_enemy_clear_requirement():

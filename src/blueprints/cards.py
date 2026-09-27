@@ -24,6 +24,7 @@ from flask import Blueprint, jsonify, request
 
 from shared.json_hash import compute_json_hash
 from data_paths import CONTENT_ROOT
+from content_scope import is_content_visible
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,21 @@ def _invalidate_card_cache() -> None:
 
 CHAR_DIR = CONTENT_ROOT / "characters"
 CLASS_DIR = CONTENT_ROOT / "classes"
+
+
+def _card_path(base: Path, entity_name: str, filename: str) -> Path | None:
+    """Resolve a card file only within its category and visible content scope."""
+    if (not entity_name or entity_name in (".", "..")
+            or "/" in entity_name or "\\" in entity_name
+            or Path(entity_name).name != entity_name):
+        return None
+    path = base / entity_name / filename
+    try:
+        if path.resolve() != path.absolute() or not path.resolve().is_relative_to(base.resolve()):
+            return None
+    except (OSError, ValueError):
+        return None
+    return path if is_content_visible(path, content_base=base.parent) else None
 
 
 def _compute_hash(data: dict) -> str:
@@ -71,8 +87,8 @@ def register(app, managers):
     @bp.route("/api/cards/classes/<class_name>", methods=["GET"])
     def get_class_cards(class_name: str):
         """Get a class's card pool."""
-        path = CLASS_DIR / class_name / "cards.json"
-        if not path.exists():
+        path = _card_path(CLASS_DIR, class_name, "cards.json")
+        if path is None or not path.is_file():
             return json_error(f"Class cards not found: {class_name}", 404)
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -87,7 +103,9 @@ def register(app, managers):
         data = request.json or {}
         expected_hash = data.get("_hash", "")
 
-        path = CLASS_DIR / class_name / "cards.json"
+        path = _card_path(CLASS_DIR, class_name, "cards.json")
+        if path is None:
+            return json_error(f"Class cards not found: {class_name}", 404)
         if path.exists():
             with open(path, "r", encoding="utf-8") as f:
                 current = json.load(f)
@@ -115,8 +133,8 @@ def register(app, managers):
     @bp.route("/api/cards/<character_name>", methods=["GET"])
     def get_character_cards(character_name: str):
         """Get a character's combat.json."""
-        path = CHAR_DIR / character_name / "combat.json"
-        if not path.exists():
+        path = _card_path(CHAR_DIR, character_name, "combat.json")
+        if path is None or not path.is_file():
             return json_error(f"Character cards not found: {character_name}", 404)
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -131,7 +149,9 @@ def register(app, managers):
         data = request.json or {}
         expected_hash = data.get("_hash", "")
 
-        path = CHAR_DIR / character_name / "combat.json"
+        path = _card_path(CHAR_DIR, character_name, "combat.json")
+        if path is None:
+            return json_error(f"Character cards not found: {character_name}", 404)
         if path.exists():
             with open(path, "r", encoding="utf-8") as f:
                 current = json.load(f)
@@ -162,7 +182,7 @@ def register(app, managers):
         if CHAR_DIR.exists():
             for name in sorted(os.listdir(str(CHAR_DIR))):
                 subdir = CHAR_DIR / name
-                if subdir.is_dir() and (subdir / "combat.json").exists():
+                if _card_path(CHAR_DIR, name, "combat.json") is not None and (subdir / "combat.json").is_file():
                     chars.append(name)
         return jsonify({"characters": chars})
 
@@ -173,7 +193,7 @@ def register(app, managers):
         if CLASS_DIR.exists():
             for name in sorted(os.listdir(str(CLASS_DIR))):
                 subdir = CLASS_DIR / name
-                if subdir.is_dir() and (subdir / "cards.json").exists():
+                if _card_path(CLASS_DIR, name, "cards.json") is not None and (subdir / "cards.json").is_file():
                     classes.append(name)
         return jsonify({"classes": classes})
 
@@ -193,7 +213,7 @@ def register(app, managers):
 
         def _read_worldbook_id(directory: Path) -> str:
             index_md = directory / "index.md"
-            if not index_md.is_file():
+            if not index_md.is_file() or not is_content_visible(index_md, content_base=directory.parent.parent):
                 return ""
             try:
                 return str(frontmatter.load(index_md).metadata.get("worldbook_id") or "")
@@ -203,7 +223,7 @@ def register(app, managers):
         if CHAR_DIR.exists():
             for name in sorted(os.listdir(str(CHAR_DIR))):
                 subdir = CHAR_DIR / name
-                if subdir.is_dir() and (subdir / "combat.json").exists():
+                if _card_path(CHAR_DIR, name, "combat.json") is not None and (subdir / "combat.json").is_file():
                     characters.append(name)
                     worldbook_map["characters"][name] = _read_worldbook_id(subdir)
                     try:
@@ -216,7 +236,7 @@ def register(app, managers):
         if CLASS_DIR.exists():
             for name in sorted(os.listdir(str(CLASS_DIR))):
                 subdir = CLASS_DIR / name
-                if subdir.is_dir() and (subdir / "cards.json").exists():
+                if _card_path(CLASS_DIR, name, "cards.json") is not None and (subdir / "cards.json").is_file():
                     classes.append(name)
                     worldbook_map["classes"][name] = _read_worldbook_id(subdir)
 
@@ -232,8 +252,8 @@ def register(app, managers):
     @bp.route("/api/cards/<character_name>/cards", methods=["POST"])
     def create_character_card(character_name: str):
         """Create a new card for a character's combat.json."""
-        path = CHAR_DIR / character_name / "combat.json"
-        if not path.exists():
+        path = _card_path(CHAR_DIR, character_name, "combat.json")
+        if path is None or not path.is_file():
             return json_error(f"Character cards not found: {character_name}", 404)
 
         new_card = request.json or {}
@@ -259,8 +279,8 @@ def register(app, managers):
     @bp.route("/api/cards/<character_name>/cards/<card_id>", methods=["DELETE"])
     def delete_character_card(character_name: str, card_id: str):
         """Delete a single card from a character's combat.json."""
-        path = CHAR_DIR / character_name / "combat.json"
-        if not path.exists():
+        path = _card_path(CHAR_DIR, character_name, "combat.json")
+        if path is None or not path.is_file():
             return json_error(f"Character cards not found: {character_name}", 404)
 
         with open(path, "r", encoding="utf-8") as f:
@@ -292,8 +312,8 @@ def register(app, managers):
     @bp.route("/api/cards/classes/<class_name>/cards", methods=["POST"])
     def create_class_card(class_name: str):
         """Create a new card for a class's cards.json."""
-        path = CLASS_DIR / class_name / "cards.json"
-        if not path.exists():
+        path = _card_path(CLASS_DIR, class_name, "cards.json")
+        if path is None or not path.is_file():
             return json_error(f"Class cards not found: {class_name}", 404)
 
         new_card = request.json or {}
@@ -315,8 +335,8 @@ def register(app, managers):
     @bp.route("/api/cards/classes/<class_name>/cards/<card_id>", methods=["DELETE"])
     def delete_class_card(class_name: str, card_id: str):
         """Delete a single card from a class's cards.json."""
-        path = CLASS_DIR / class_name / "cards.json"
-        if not path.exists():
+        path = _card_path(CLASS_DIR, class_name, "cards.json")
+        if path is None or not path.is_file():
             return json_error(f"Class cards not found: {class_name}", 404)
 
         with open(path, "r", encoding="utf-8") as f:

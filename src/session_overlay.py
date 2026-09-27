@@ -21,6 +21,7 @@ from pathlib import Path
 
 import frontmatter
 from data_paths import PROJECT_ROOT, content_root, memory_root
+from content_scope import is_content_visible
 
 logger = logging.getLogger(__name__)
 
@@ -2417,12 +2418,13 @@ def _resolve_plot_dir(plot_id: str) -> str | None:
     base = content_root(_PROJECT_ROOT) / "plots"
     if not base.is_dir():
         return None
-    if (base / plot_id / "index.md").is_file():
+    if ((base / plot_id / "index.md").is_file()
+            and is_content_visible(base / plot_id / "index.md", project_root=_PROJECT_ROOT)):
         return plot_id
     for entry in sorted(base.iterdir()):
         if entry.is_dir():
             md = entry / "index.md"
-            if md.is_file():
+            if md.is_file() and is_content_visible(md, project_root=_PROJECT_ROOT):
                 try:
                     with open(md, "r", encoding="utf-8") as f:
                         fm = frontmatter.load(f)
@@ -2439,7 +2441,7 @@ def _read_plot_file(plot_id: str) -> tuple[dict, str] | None:
     if not resolved:
         return None
     md = content_root(_PROJECT_ROOT) / "plots" / resolved / "index.md"
-    if md.is_file():
+    if md.is_file() and is_content_visible(md, project_root=_PROJECT_ROOT):
         with open(md, "r", encoding="utf-8") as f:
             post = frontmatter.load(f)
         return (dict(post.metadata), post.content)
@@ -2733,7 +2735,7 @@ def _parse_narrative_beats(text: str) -> list[dict]:
 def _derive_authored_branches(option_directions: list[str]) -> list[dict]:
     """把剧情里手写的「玩家选项方向」条目转成结构化作者分支。
 
-    条目形如「接受银灰的"证人"邀请，明确表示罗德岛只记录事实（中立取向）」。
+    条目形如「接受向导的邀请，明确表示只记录事实（中立取向）」。
     括号尾的内容作为 intent 方向标签（截断到首个分句，≤20 字），其余作为 label。
 
     Returns:

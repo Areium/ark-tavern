@@ -1,11 +1,11 @@
 /**
  * Spine 动画规格 — 把角色的战斗变体 skel 动画名解析为统一动作。
  *
- * 战斗变体（如 char_002_amiya/char_002_amiya_test_1）的动画名带角色专属后缀
+ * 战斗变体的动画名可能带角色专属后缀
  * （IdleM / AttackTO / DieLK），且攻击可能是多段链（Attack_Begin→Attack→Attack_End）。
  * 这里用「前缀匹配 + 多段链识别」把任意变体归一为 AnimSpec。
  *
- * 玛恩纳·临光无 Attack 动画，用 Skill_1_Start→Loop→End 链兜底。
+ * 缺少 Attack 动画的变体可用 Skill_1_Start→Loop→End 链兜底。
  */
 
 export interface AnimSpec {

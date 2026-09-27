@@ -6,6 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 from data_paths import CONTENT_ROOT
+from content_scope import is_content_visible
 
 import frontmatter
 from PIL import Image
@@ -13,6 +14,10 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 _CHARS_ROOT = CONTENT_ROOT / "characters"
+
+
+def _visible(path: Path) -> bool:
+    return is_content_visible(path, content_base=_CHARS_ROOT.parent)
 
 
 def extract_theme_color(image_path: str | Path) -> str:
@@ -66,7 +71,7 @@ def extract_theme_color(image_path: str | Path) -> str:
 def _read_index_meta(name: str) -> dict:
     """读取角色 index.md 的 frontmatter 元数据。"""
     index_path = _CHARS_ROOT / name / "index.md"
-    if not index_path.exists():
+    if not index_path.exists() or not _visible(index_path):
         return {}
     try:
         return frontmatter.loads(index_path.read_text(encoding="utf-8")).metadata
@@ -77,16 +82,16 @@ def _read_index_meta(name: str) -> dict:
 def find_avatar_path(name: str) -> str | None:
     """在角色目录下查找默认头像文件。优先读 index.md 的 default_avatar，否则取最短文件名。"""
     avatar_dir = _CHARS_ROOT / name / "avatar"
-    if not avatar_dir.is_dir():
+    if not avatar_dir.is_dir() or not _visible(avatar_dir):
         return None
     meta = _read_index_meta(name)
     default = meta.get("default_avatar", "").strip()
     if default:
         path = avatar_dir / default
-        if path.is_file():
+        if path.is_file() and _visible(path):
             return str(path)
     pngs = sorted(
-        [f for f in os.listdir(avatar_dir) if f.lower().endswith(".png")],
+        [f for f in os.listdir(avatar_dir) if f.lower().endswith(".png") and _visible(avatar_dir / f)],
         key=lambda f: len(f),
     )
     return str(avatar_dir / pngs[0]) if pngs else None
@@ -95,16 +100,16 @@ def find_avatar_path(name: str) -> str | None:
 def find_skin_path(name: str) -> str | None:
     """在角色目录下查找默认立绘文件。优先读 index.md 的 default_skin，否则取最短文件名。"""
     skin_dir = _CHARS_ROOT / name / "skin"
-    if not skin_dir.is_dir():
+    if not skin_dir.is_dir() or not _visible(skin_dir):
         return None
     meta = _read_index_meta(name)
     default = meta.get("default_skin", "").strip()
     if default:
         path = skin_dir / default
-        if path.is_file():
+        if path.is_file() and _visible(path):
             return str(path)
     pngs = sorted(
-        [f for f in os.listdir(skin_dir) if f.lower().endswith(".png")],
+        [f for f in os.listdir(skin_dir) if f.lower().endswith(".png") and _visible(skin_dir / f)],
         key=lambda f: len(f),
     )
     return str(skin_dir / pngs[0]) if pngs else None
@@ -116,9 +121,9 @@ def find_card_face_path(name: str) -> str | None:
     card_face = meta.get("card_face", "").strip()
     if card_face:
         card_face_dir = _CHARS_ROOT / name / "card_face"
-        if card_face_dir.is_dir():
+        if card_face_dir.is_dir() and _visible(card_face_dir):
             path = card_face_dir / card_face
-            if path.is_file():
+            if path.is_file() and _visible(path):
                 return str(path)
     skin = find_skin_path(name)
     if skin:
@@ -146,7 +151,7 @@ def get_card_face_crop(name: str) -> dict | None:
 def get_theme_color(name: str) -> str | None:
     """读取角色文档中已保存的 theme_color（不自动提取）。"""
     index_path = _CHARS_ROOT / name / "index.md"
-    if not index_path.exists():
+    if not index_path.exists() or not _visible(index_path):
         return None
     try:
         with open(index_path, "r", encoding="utf-8") as f:
@@ -164,7 +169,7 @@ def ensure_theme_color(name: str) -> str | None:
     无法处理时返回 None。
     """
     index_path = _CHARS_ROOT / name / "index.md"
-    if not index_path.exists():
+    if not index_path.exists() or not _visible(index_path):
         return None
 
     try:

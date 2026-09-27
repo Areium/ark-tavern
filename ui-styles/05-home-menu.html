@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Arknights Tavern · 主页设计台（HomeMenu 现状基线）</title>
+<title>Ark Tavern · 主页设计台（HomeMenu 现状基线）</title>
 
 <!--
   ═══════════════════════════════════════════════════════════════════════════
@@ -26,7 +26,7 @@
     应用矮一截，量出来的面板高度就不作数了。
 
   【怎么用】
-  · 双击打开即可。资源用相对路径 ../frontend/public/{menu_bg.jpg,logo.png}，
+  · 双击打开即可。资源用相对路径 ../frontend/public/{menu_bg.jpg,ark-tavern.png}，
     所以请保持 ui-styles/ 与 frontend/ 的相对位置（移动文件会丢背景图，届时回落到渐变底）。
   · 右下角「设计台」按钮（或按 D）→ 切皮肤 / 模拟状态 / 调版式 / 试强调色 / 换画布尺寸。
   · 快捷键：D 开关设计台 · 1/2/3 切皮肤 · R 重置 · Esc 关闭设计台。
@@ -101,7 +101,7 @@
   --hm-panel-shadow: 0 24px 80px -24px rgba(0, 0, 0, 0.85);
   --hm-panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 
-  /* ── 主标题 ARKNIGHTS TAVERN ── */
+  /* ── 主标题 ARK TAVERN ── */
   --hm-title-font: var(--hm-font-display);
   --hm-title-size: 1.45rem;
   --hm-title-ls: 0.3em;
@@ -726,8 +726,8 @@ body.canvas-fixed::before {
 
   <!-- ═══ 点击进入闸门 ═══ -->
   <div class="home-splash" id="splash" role="button" tabindex="0" aria-label="点击进入">
-    <img src="../frontend/public/logo.png" alt="logo" class="home-splash-logo" draggable="false" id="splashLogo">
-    <div class="home-splash-title">ARKNIGHTS&nbsp;TAVERN</div>
+    <img src="../frontend/public/ark-tavern.png" alt="logo" class="home-splash-logo" draggable="false" id="splashLogo">
+    <div class="home-splash-title">ARK&nbsp;TAVERN</div>
     <div class="home-splash-press">— 点 击 进 入 —</div>
   </div>
 
@@ -737,9 +737,9 @@ body.canvas-fixed::before {
 
       <!-- 标题 -->
       <div class="home-menu-head">
-        <img src="../frontend/public/logo.png" alt="logo" class="home-menu-logo" draggable="false">
-        <h1 class="home-menu-title">ARKNIGHTS TAVERN</h1>
-        <p class="home-menu-sub">明 日 方 舟 · 文 字 酒 馆</p>
+        <img src="../frontend/public/ark-tavern.png" alt="logo" class="home-menu-logo" draggable="false">
+        <h1 class="home-menu-title">ARK TAVERN</h1>
+        <p class="home-menu-sub">万 千 世 界 · 文 字 酒 馆</p>
         <div class="home-menu-divider"><span></span></div>
       </div>
 
@@ -1206,7 +1206,7 @@ body.canvas-fixed::before {
   });
 
   /* 资源缺失时优雅降级（保持 ui-styles/ 与 frontend/ 的相对位置） */
-  Array.prototype.forEach.call(document.querySelectorAll('img[src*="logo.png"]'), function (img) {
+  Array.prototype.forEach.call(document.querySelectorAll('img[src*="ark-tavern.png"]'), function (img) {
     img.addEventListener("error", function () {
       var ph = document.createElement("div");
       ph.className = img.className;

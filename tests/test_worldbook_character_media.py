@@ -10,6 +10,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import avatar_color
+import world_book
 import worldbook_media
 from world_book import WorldBookEntry, WorldBookManager
 
@@ -20,6 +21,7 @@ def setup(tmp_path, monkeypatch):
     chars = content / "characters"
     chars.mkdir(parents=True)
     monkeypatch.setattr(worldbook_media, "CONTENT_ROOT", content)
+    monkeypatch.setattr(world_book, "CONTENT_ROOT", content)
     monkeypatch.setattr(avatar_color, "_CHARS_ROOT", chars)
     source = chars / "amiya"
     (source / "avatar").mkdir(parents=True)
@@ -80,6 +82,54 @@ def test_duplicate_book_recreates_private_character_copy(setup):
     copied_id = duplicate.entries[0].character_id
     assert copied_id == f"amiya__wb_{duplicate.id}"
     assert copied_id in duplicate.character_profiles
+    assert (chars / copied_id / "index.md").exists()
+
+
+def test_uninstall_removes_only_owned_character_copy(setup):
+    manager, reference, story, chars = setup
+    excerpt(manager, reference, story)
+    copied_id = manager.load(story.id).entries[0].character_id
+    assert (chars / copied_id / "index.md").exists()
+
+    assert manager.delete_book(story.id)
+    assert manager.load(story.id) is None
+    assert not (chars / copied_id).exists()
+    assert (chars / "amiya" / "index.md").exists()
+    assert manager.load(reference.id) is not None
+
+
+def test_uninstall_rejects_copy_used_by_another_book(setup):
+    manager, reference, story, chars = setup
+    excerpt(manager, reference, story)
+    copied_id = manager.load(story.id).entries[0].character_id
+    other = manager.create_book("共享角色副本")
+    other.entries.append(WorldBookEntry("shared", content="共享", character_id=copied_id))
+    manager.save(other)
+
+    with pytest.raises(ValueError, match="仍被世界书"):
+        manager.delete_book(story.id)
+    assert manager.load(story.id) is not None
+    assert (chars / copied_id / "index.md").exists()
+
+
+def test_uninstall_api_rejects_copy_used_by_unbound_session(setup):
+    from blueprints.worldbook import register as register_worldbook
+
+    manager, reference, story, chars = setup
+    excerpt(manager, reference, story)
+    copied_id = manager.load(story.id).entries[0].character_id
+
+    class Sessions:
+        def list_sessions(self):
+            return [{"id": "session-1", "worldbook_ids": [],
+                     "roster": [copied_id], "characters": [],
+                     "player_identity": copied_id}]
+
+    app = Flask(__name__)
+    register_worldbook(app, {"worldbook": manager, "session": Sessions()})
+    response = app.test_client().delete(f"/api/worldbook/{story.id}")
+    assert response.status_code == 409
+    assert manager.load(story.id) is not None
     assert (chars / copied_id / "index.md").exists()
 
 

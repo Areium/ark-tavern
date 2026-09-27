@@ -15,6 +15,7 @@ from combat_data_loader import CombatDataLoader
 from combat_resume import session_resume_path
 from combat_settlement import (SettlementApplyError, apply_settlement, append_history,
                                compute_character_growth)
+from document_manager import DocumentNotFoundError
 from shared.helpers import build_character_metas, json_error
 from sideview_combat import (apply_combat_params, initial_snapshot, load_level,
                              minimum_victory_ms, validate_snapshot, victory_satisfied)
@@ -127,10 +128,13 @@ def register(app, managers):
             return json_error("已有旧战斗或挂起存档，不能启动侧卷轴战斗", 409)
         if session.overlay.get_pending_settlement() is not None:
             return json_error("存在未完成的战斗结算，请先重试结算", 409)
-        encounter_id = data.get("encounter_id", "初遇整合运动")
-        if not isinstance(encounter_id, str) or not encounter_id or len(encounter_id) > 120:
+        encounter_id = data.get("encounter_id")
+        if not isinstance(encounter_id, str) or not encounter_id.strip() or len(encounter_id) > 120:
             return json_error("encounter_id 无效", 400)
-        encounter = CombatDataLoader().load_node(encounter_id) or {}
+        encounter_id = encounter_id.strip()
+        encounter = CombatDataLoader().load_node(encounter_id)
+        if encounter is None:
+            return json_error("遭遇节点不存在或未启用", 404)
         metas = build_character_metas(session, doc_mgr)
         known_names = {meta.get("name") for meta in metas}
         # Scene characters are NPC teammates; the chosen player identity is a
@@ -142,7 +146,7 @@ def register(app, managers):
                 document = doc_mgr.read_document("characters", name)
                 metadata, _ = session.overlay.apply_character_overrides(
                     name, document["metadata"], document.get("content", ""))
-            except (OSError, KeyError, TypeError, ValueError):
+            except (DocumentNotFoundError, OSError, KeyError, TypeError, ValueError):
                 logger.warning("Sideview roster character unavailable: %s", name)
                 continue
             metas.append(metadata)
@@ -187,13 +191,16 @@ def register(app, managers):
         attrs = operator.get("attributes") or {}
         def attribute(key):
             try:
-                return max(1, min(10, int(attrs.get(key, 5))))
+                value = attrs.get(key)
+                if value is None and key == "特殊技艺":
+                    value = attrs.get("源石技艺适应性")  # 旧角色资料兼容
+                return max(1, min(10, int(value if value is not None else 5)))
             except (TypeError, ValueError):
                 return 5
         hp = 80 + attribute("生理耐受") * 12
         public_operator = {"name": operator["name"], "maxHp": hp,
                            "attack": 12 + attribute("物理强度") * 2,
-                           "skillPower": 20 + attribute("源石技艺适应性") * 3}
+                           "skillPower": 20 + attribute("特殊技艺") * 3}
         params = (resolved["fail_combat_params"] if kind == "check"
                   else resolved["combat_params"])
         level, applied = apply_combat_params(level, params, operator["name"])

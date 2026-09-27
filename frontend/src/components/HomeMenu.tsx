@@ -14,6 +14,7 @@ import { useApi } from "../hooks/useApi";
 import { useCombatResume } from "../hooks/useCombatResume";
 import { audioManager } from "../audio/audioManager";
 import type { CombatResumesDTO } from "../types";
+import TavernMark from "./TavernMark";
 import AppIcon, { type AppIconName } from "./AppIcon";
 
 const asset = (p: string) => import.meta.env.BASE_URL + p;
@@ -148,21 +149,21 @@ export default function HomeMenu() {
 
       {/* ═══ 点击进入闸门 ═══ */}
       {!entered && (
-        <div className="home-splash" onClick={enter} role="button" aria-label="点击进入">
-          <img src={asset("logo.png")} alt="logo" className="home-splash-logo" draggable={false} />
-          <div className="home-splash-title font-display">ARKNIGHTS&nbsp;TAVERN</div>
+        <button type="button" className="home-splash" onClick={enter} aria-label="进入 Ark Tavern">
+          <TavernMark className="home-splash-logo" />
+          <div className="home-splash-title font-display">ARK&nbsp;TAVERN</div>
           <div className="home-splash-press">— 点 击 进 入 —</div>
-        </div>
+        </button>
       )}
 
       {/* ═══ 主菜单栏目 ═══ */}
-      <div className={"home-menu-stage" + (entered ? " entered" : "") }>
+      <div className={"home-menu-stage" + (entered ? " entered" : "") } aria-hidden={!entered} style={!entered ? { visibility: "hidden" } : undefined}>
         <div className="home-menu-column">
           {/* 标题 */}
           <div className="home-menu-head">
-            <img src={asset("logo.png")} alt="logo" className="home-menu-logo" draggable={false} />
-            <h1 className="home-menu-title font-display">ARKNIGHTS TAVERN</h1>
-            <p className="home-menu-sub">明 日 方 舟 · 文 字 酒 馆</p>
+            <TavernMark className="home-menu-logo" />
+            <h1 className="home-menu-title font-display">ARK TAVERN</h1>
+            <p className="home-menu-sub">万 千 世 界 · 文 字 酒 馆</p>
             <div className="home-menu-divider"><span /></div>
           </div>
 

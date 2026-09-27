@@ -339,7 +339,7 @@ export default function SessionManagerView() {
       <header className="session-hero px-6 md:px-10 py-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="session-hero-title text-2xl md:text-3xl">会话大厅</h1>
-          <p className="session-hero-sub text-[12px] mt-1.5">ARKNIGHTS TAVERN · 选择或创建你的故事</p>
+          <p className="session-hero-sub text-[12px] mt-1.5">ARK TAVERN · 选择或创建你的故事</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 md:gap-3">
           <div className="hidden lg:flex items-center gap-2">
@@ -711,7 +711,7 @@ export default function SessionManagerView() {
                 >
                   <div className="text-[11px] text-gray-500">玩家身份</div>
                   <div className="text-xs text-gray-200 mt-0.5">
-                    🎭 {selected.player_identity || "博士"}
+                    🎭 {selected.player_identity || "玩家"}
                     <span className="text-[11px] text-amber-500/80 ml-1">✎</span>
                   </div>
                 </div>
@@ -793,7 +793,7 @@ export default function SessionManagerView() {
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {lineup.map((name) => {
-                      const isMainControl = name === (selected.player_identity || "博士");
+                      const isMainControl = name === (selected.player_identity || "玩家");
                       return (
                         <div
                           key={name}
@@ -961,7 +961,7 @@ export default function SessionManagerView() {
               <div>
                 <h2 className="text-base font-semibold">选择主控角色（玩家身份）</h2>
                 <p className="text-[12px] text-gray-500 mt-0.5">
-                  当前：{selected.player_identity || "博士"} · 换主控会同时换掉阵容里的那个角色，候选条目随之重算
+                  当前：{selected.player_identity || "玩家"} · 换主控会同时换掉阵容里的那个角色，候选条目随之重算
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -987,7 +987,7 @@ export default function SessionManagerView() {
               <CharacterPicker
                 items={candidateItems}
                 mode="single"
-                selected={[selected.player_identity || "博士"]}
+                selected={[selected.player_identity || "玩家"]}
                 onSelect={(key) => { if (!busyAction) void setIdentity(key); }}
                 preferredBookId={selected.worldbook_id || null}
                 skippedCount={catalog.skipped}

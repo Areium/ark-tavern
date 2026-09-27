@@ -25,12 +25,12 @@
   ],
   "spawn": {"x": 110, "y": 490},
   "enemies": [
-    {"id": "raider-1", "name": "整合运动士兵", "kind": "guard", "x": 660, "y": 490, "patrolMin": 480, "patrolMax": 780, "hp": 60, "damage": 12, "speed": 100, "range": 82},
-    {"id": "raider-2", "name": "整合运动狙击手", "kind": "ranger", "x": 1020, "y": 330, "patrolMin": 960, "patrolMax": 1100, "hp": 45, "damage": 10, "speed": 90, "range": 480},
-    {"id": "raider-3", "name": "整合运动士兵", "kind": "guard", "x": 1840, "y": 490, "patrolMin": 1660, "patrolMax": 2010, "hp": 75, "damage": 14, "speed": 105, "range": 82},
-    {"id": "raider-4", "name": "整合运动狙击手", "kind": "ranger", "x": 2350, "y": 335, "patrolMin": 2250, "patrolMax": 2420, "hp": 50, "damage": 10, "speed": 90, "range": 480},
-    {"id": "raider-5", "name": "整合运动盾卫", "kind": "elite", "x": 2940, "y": 478, "patrolMin": 2710, "patrolMax": 3110, "hp": 160, "damage": 22, "speed": 95, "range": 130},
-    {"id": "raider-6", "name": "整合运动士兵", "kind": "guard", "x": 3100, "y": 490, "patrolMin": 2900, "patrolMax": 3150, "hp": 60, "damage": 12, "speed": 100, "range": 82}
+    {"id": "raider-1", "name": "巡逻兵", "kind": "guard", "x": 660, "y": 490, "patrolMin": 480, "patrolMax": 780, "hp": 60, "damage": 12, "speed": 100, "range": 82},
+    {"id": "raider-2", "name": "弩手", "kind": "ranger", "x": 1020, "y": 330, "patrolMin": 960, "patrolMax": 1100, "hp": 45, "damage": 10, "speed": 90, "range": 480},
+    {"id": "raider-3", "name": "巡逻兵", "kind": "guard", "x": 1840, "y": 490, "patrolMin": 1660, "patrolMax": 2010, "hp": 75, "damage": 14, "speed": 105, "range": 82},
+    {"id": "raider-4", "name": "弩手", "kind": "ranger", "x": 2350, "y": 335, "patrolMin": 2250, "patrolMax": 2420, "hp": 50, "damage": 10, "speed": 90, "range": 480},
+    {"id": "raider-5", "name": "重装守卫", "kind": "elite", "x": 2940, "y": 478, "patrolMin": 2710, "patrolMax": 3110, "hp": 160, "damage": 22, "speed": 95, "range": 130},
+    {"id": "raider-6", "name": "巡逻兵", "kind": "guard", "x": 3100, "y": 490, "patrolMin": 2900, "patrolMax": 3150, "hp": 60, "damage": 12, "speed": 100, "range": 82}
   ],
   "exit": {"x": 3230, "y": 426, "width": 100, "height": 124},
   "victoryCondition": "clear_and_exit",

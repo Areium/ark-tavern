@@ -16,6 +16,7 @@ from typing import Optional
 import frontmatter
 import yaml
 from data_paths import categories_path
+from content_scope import is_content_visible
 
 logger = logging.getLogger(__name__)
 
@@ -183,13 +184,13 @@ class DocumentManager:
         entity_dirs: set[str] = set()  # 已识别为实体的目录绝对路径
 
         for root, dirs, _files in os.walk(base):
-            dirs.sort()
+            dirs[:] = sorted(d for d in dirs if is_content_visible(os.path.join(root, d), project_root=self._root))
 
             # 1. 识别实体文件夹（含 index.md 的目录）
             for d in dirs:
                 d_full = os.path.join(root, d)
                 index_md = os.path.join(d_full, "index.md")
-                if os.path.isfile(index_md):
+                if os.path.isfile(index_md) and is_content_visible(index_md, project_root=self._root):
                     entity_dirs.add(d_full)
                     doc_rel = os.path.relpath(d_full, base).replace("\\", "/")
                     stat = os.stat(index_md)
@@ -225,6 +226,7 @@ class DocumentManager:
                     ).to_dict())
 
         for root, _dirs, files in os.walk(base):
+            _dirs[:] = [d for d in _dirs if is_content_visible(os.path.join(root, d), project_root=self._root)]
             for f in sorted(files):
                 if not f.endswith(".md"):
                     continue
@@ -233,6 +235,8 @@ class DocumentManager:
                     continue
 
                 filepath = os.path.join(root, f)
+                if not is_content_visible(filepath, project_root=self._root):
+                    continue
 
                 # 跳过已在实体文件夹内的 .md 文件（由第三遍扫描作为子文档处理）
                 file_dir = os.path.dirname(filepath)
@@ -277,6 +281,7 @@ class DocumentManager:
         for entity_dir in entity_dirs:
             entity_name = os.path.basename(entity_dir)
             for sub_root, _sub_dirs, sub_files in os.walk(entity_dir):
+                _sub_dirs[:] = [d for d in _sub_dirs if is_content_visible(os.path.join(sub_root, d), project_root=self._root)]
                 for f in sorted(sub_files):
                     if not f.endswith(".md"):
                         continue
@@ -285,6 +290,8 @@ class DocumentManager:
                         continue
 
                     filepath = os.path.join(sub_root, f)
+                    if not is_content_visible(filepath, project_root=self._root):
+                        continue
                     sub_rel = os.path.relpath(filepath, entity_dir).replace("\\", "/")
                     # 复合 doc_id: "entity_name/sub_name"
                     doc_id = f"{entity_name}/{os.path.splitext(sub_rel)[0]}"
@@ -404,7 +411,7 @@ class DocumentManager:
              "filepath": "...", "frontmatter_raw": "..."}
         """
         filepath = self._resolve_path(category_id, doc_path)
-        if not filepath or not os.path.isfile(filepath):
+        if not filepath or not os.path.isfile(filepath) or not is_content_visible(filepath, project_root=self._root):
             raise DocumentNotFoundError(
                 f"文档不存在: {category_id}/{doc_path}"
             )
@@ -454,7 +461,7 @@ class DocumentManager:
             {"hash": "...", "path": "..."}
         """
         filepath = self._resolve_path(category_id, doc_path)
-        if not filepath:
+        if not filepath or not is_content_visible(filepath, project_root=self._root):
             raise DocumentNotFoundError(
                 f"文档不存在: {category_id}/{doc_path}"
             )
@@ -524,6 +531,8 @@ class DocumentManager:
             if category_id not in self._categories:
                 raise ValueError(f"未知文档类别: {category_id}")
             raise ValueError(f"非法文档路径: {doc_id}")
+        if not is_content_visible(filepath, project_root=self._root):
+            raise ValueError(f"文档路径不可用: {doc_id}")
 
         if os.path.isfile(filepath):
             raise FileExistsError(f"文档已存在: {doc_id}")
@@ -552,7 +561,7 @@ class DocumentManager:
         传统文件模式：仅删除 .md 文件。
         """
         filepath = self._resolve_path(category_id, doc_path)
-        if not filepath or not os.path.isfile(filepath):
+        if not filepath or not os.path.isfile(filepath) or not is_content_visible(filepath, project_root=self._root):
             raise DocumentNotFoundError(
                 f"文档不存在: {category_id}/{doc_path}"
             )
@@ -605,7 +614,7 @@ class DocumentManager:
         new_path 为新的相对路径（相对于类别目录，不含 .md）。
         """
         old_filepath = self._resolve_path(category_id, doc_path)
-        if not old_filepath or not os.path.isfile(old_filepath):
+        if not old_filepath or not os.path.isfile(old_filepath) or not is_content_visible(old_filepath, project_root=self._root):
             raise DocumentNotFoundError(f"文档不存在: {category_id}/{doc_path}")
 
         target_rel = new_path or doc_path
@@ -614,6 +623,8 @@ class DocumentManager:
         if not target_candidates:
             raise ValueError(f"非法目标路径: {target_rel}")
         target_entity_file, target_flat_file = target_candidates
+        if not is_content_visible(target_entity_file, project_root=self._root) or not is_content_visible(target_flat_file, project_root=self._root):
+            raise ValueError(f"目标路径不可用: {target_rel}")
         existing_target = self._resolve_path(category_id, target_rel)
         if existing_target and os.path.isfile(existing_target):
             raise FileExistsError(f"目标已存在: {target_rel}")
@@ -711,11 +722,14 @@ class DocumentManager:
 
         relative = doc_path.strip().replace("\\", os.sep).replace("/", os.sep)
         base = os.path.realpath(cat.directory)
-        entity_path = os.path.realpath(os.path.join(base, relative, "index.md"))
-        flat_path = os.path.realpath(os.path.join(base, f"{relative}.md"))
+        entity_raw = os.path.abspath(os.path.join(base, relative, "index.md"))
+        flat_raw = os.path.abspath(os.path.join(base, f"{relative}.md"))
+        entity_path = os.path.realpath(entity_raw)
+        flat_path = os.path.realpath(flat_raw)
         try:
             if (os.path.commonpath((base, entity_path)) != base
-                    or os.path.commonpath((base, flat_path)) != base):
+                    or os.path.commonpath((base, flat_path)) != base
+                    or entity_raw != entity_path or flat_raw != flat_path):
                 return None
         except ValueError:
             return None

@@ -14,73 +14,19 @@ import { TextureAtlas } from "@pixi-spine/base";
 import type { CombatUnitDTO } from "../../types";
 import { getCellCenter } from "./gridUtils";
 import { resolveAnimSpec, type AnimSpec } from "./spineAnimSpecs";
+import { loadSpineVariants, hasSpineVariant, type SpineVariants } from "../../utils/spineVariants";
 import { makeFallbackToken } from "./fallbackToken";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-// 战斗变体（含 Idle/Attack/Die/Skill 动画）。基础/大厅变体（char_148_nearl 等）
-// 只有 Relax/Default，无战斗动画，故切换到这里。
-// 玛恩纳·临光用 iteration_3（动画名干净，Skill_1_* 兜底攻击）。
-const SPINE_VARIANT: Record<string, string> = {
-  "临光": "char_148_nearl_summer_2",
-  "佐菲娅": "char_265_sophia_epoque_11",
-  "德克萨斯": "char_1028_texas2_epoque_36",
-  "玛恩纳·临光": "char_4064_mlynar/char_4064_mlynar_iteration_3",
-  "瑕光": "char_423_blemsh/char_423_blemsh_witch_2",
-  "砾": "char_237_gravel/char_237_gravel_winter_2",
-  "银灰": "char_172_svrash/char_172_svrash_snow_1",
-  "闪灵": "char_147_shining/char_147_shining_summer_1",
-  "阿米娅": "char_002_amiya/char_002_amiya_test_1",
-  "陈": "char_010_chen/char_010_chen_nian_2",
-  "灵知": "char_206_gnosis",
-  "初雪": "char_174_slbell",
-  "崖心": "char_173_slchan",
-  "锏": "char_4116_blkkgt",
-  // 红松骑士团 / 卡西米尔线（fexli/ArknightsResource main，含 Idle/Attack/Die）
-  "焰尾": "char_420_flamtl",
-  "灰毫": "char_431_ashlok",
-  "野鬃": "char_496_wildmn",
-  "远牙": "char_430_fartth",
-  "薇薇安娜": "char_4098_vvana",
-  // 使徒 / 罗德岛线
-  "白金": "char_204_platnm",
-  "暴行": "char_230_savage",
-  "耶拉": "char_4013_kjera",
-  "凯尔希": "char_003_kalts",
-};
-
-// 敌人 Spine 变体 — 约定与角色一致：文件放 data/worldbooks/content/characters/<敌名>/spine/<变体>/Front|Back/，
-// 在此注册敌名即可启用；未注册或加载失败的敌人自动回退 fallback token。
-// 来源 Ark-Models models_enemies（tools/import_spine.py enemies），均含 Idle/Attack/Die。
-const ENEMY_SPINE_VARIANT: Record<string, string> = {
-  "整合运动士兵": "enemy_1002_nsabr",
-  "整合运动术师": "enemy_1011_wizard",
-  "整合运动狙击手": "enemy_1003_ncbow",
-  "整合运动盾卫": "enemy_1006_shield",
-  "冰原战士": "enemy_1189_krgaxe",
-  "冰原猎人": "enemy_1190_krgbow",
-  "冰原术师": "enemy_1192_krgscr",
-  "冰原狂战士": "enemy_1193_krgbsk",
-  "山雪鬼": "enemy_1194_krgmtr",
-  "山雪鬼队长": "enemy_1194_krgmtr_2",
-  "雪原爪兽": "enemy_1187_krghd",
-};
-
-const SPINE_VARIANT_ALL: Record<string, string> = { ...SPINE_VARIANT, ...ENEMY_SPINE_VARIANT };
-
 /**
  * 战斗小人统一比例基准。
  *
- * Arknights 战斗模型本身共用同一美术尺度（各角色头部 region 高度稳定在 ~124px，
- * 无装备的干净模型整体高 ~350–460px），因此**不能**逐角色按包围盒归一化：
- * 包围盒是「所有可见 slot 的并集」，武器 / 披风 / 技能特效会被算进去，于是
- *   锏（C_EX_Skill 把 setup 包围盒撑到 1176）被缩到 1/3 大小、
- *   野鬃（三把武器 394px 竖举）偏小、雪原爪兽（本就矮小）反被放大到人形高度。
- * 实测 34 个已注册变体的 idle 包围盒高度中位数 = 418，故取 420 作为
- * 「标准战斗小人在骨骼空间的像素高度」，全阵容共用同一 scale，只保留模型自身的
- * 比例差异（矮小的兽类依旧矮小、体型差异依旧存在），从而得到一致的视觉尺寸。
+ * 导入模型的包围盒可能包含武器、披风和技能特效，直接按包围盒归一化会
+ * 错误缩小这些角色。这里使用统一的骨骼空间参考高度，保留素材自身的体型差异。
+ * 内容包如需微调比例，可扩展 SPINE_SCALE_OVERRIDE。
  */
 const REF_MODEL_H = 420;
 
@@ -122,13 +68,13 @@ export interface PixiCombatSceneProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function hasSpine(name: string): boolean { return name in SPINE_VARIANT_ALL; }
-function spineFileName(name: string): string {
+function hasSpine(name: string, variants: SpineVariants): boolean { return hasSpineVariant(name, variants); }
+function spineFileName(name: string, variants: SpineVariants): string {
   // 变体可能是嵌套路径（如 char_4064_mlynar/char_4064_mlynar_iteration_3），文件名取 basename
-  return SPINE_VARIANT_ALL[name].split("/").pop()!;
+  return variants[name].split("/").pop()!;
 }
-function spineAssetUrl(name: string, dir: "Front" | "Back"): string {
-  return `/api/assets/characters/${encodeURIComponent(name)}/spine/${SPINE_VARIANT_ALL[name]}/${dir}`;
+function spineAssetUrl(name: string, dir: "Front" | "Back", variants: SpineVariants): string {
+  return `/api/assets/characters/${encodeURIComponent(name)}/spine/${variants[name]}/${dir}`;
 }
 
 interface UnitEntry {
@@ -246,6 +192,26 @@ function playChain(spine: Spine, names: string[], finalIdle: string) {
 const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(function PixiCombatScene(
   { units, gridEl, containerEl, resizeTick, cellSize = 64, enemyScale = 1 }, ref,
 ) {
+  const [variants, setVariants] = useState<SpineVariants>({});
+  useEffect(() => {
+    let cancelled = false;
+    void loadSpineVariants().then(registry => {
+      if (cancelled) return;
+      // Replace loading-time tokens only when an installed model actually exists.
+      for (const [id, entry] of unitMapRef.current) {
+        const unit = latestUnitsRef.current.find(item => item.unit_id === id);
+        if (!entry.isSpine && unit && hasSpineVariant(unit.name, registry)) {
+          entry.cancelTween?.();
+          if (entry.killTimeout) clearTimeout(entry.killTimeout);
+          unitLayerRef.current?.removeChild(entry.displayObject);
+          entry.displayObject.destroy({ children: true });
+          unitMapRef.current.delete(id);
+        }
+      }
+      setVariants(registry);
+    }).catch(error => { if (!cancelled) console.warn("模型目录不可用，使用几何棋子", error); });
+    return () => { cancelled = true; };
+  }, []);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
   const unitLayerRef = useRef<Container | null>(null);
@@ -423,15 +389,15 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
         if (exists.displayObject.zIndex !== zIndex) {
           exists.displayObject.zIndex = zIndex;
         }
-      } else if (hasSpine(u.name)) {
+      } else if (hasSpine(u.name, variants)) {
         // Guard: skip if this unit is already being loaded (prevents duplicate on re-render)
         if (loadingUnitsRef.current.has(u.unit_id)) continue;
         loadingUnitsRef.current.add(u.unit_id);
 
         const dir: "Front" | "Back" = u.team === "player" ? "Front" : "Back";
-        const baseUrl = spineAssetUrl(u.name, dir);
-        const fn = spineFileName(u.name);
-        const cacheKey = `${fn}_${dir}`;
+        const baseUrl = spineAssetUrl(u.name, dir, variants);
+        const fn = spineFileName(u.name, variants);
+        const cacheKey = baseUrl;
 
         // 曾加载失败的资产（负缓存）直接走 fallback，不再重复请求
         if (failedRef.current.has(cacheKey)) {
@@ -568,7 +534,7 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
         if (unitLayerRef.current === ul && !ul.destroyed) setPosTick((t) => t + 1);
       });
     }
-  }, [ready, units, getCanvasPos, gridReady, posTick, enemyScale]);
+  }, [ready, units, getCanvasPos, gridReady, posTick, enemyScale, variants]);
 
   // ── Reposition units on resize ─────────────────────────────────────
   useEffect(() => {

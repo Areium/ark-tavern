@@ -20,6 +20,7 @@ import logging
 import yaml
 import frontmatter
 from data_paths import categories_path, data_root
+from content_scope import is_content_visible
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +80,12 @@ class WikiManager:
 
         for item in sorted(os.listdir(dir_path)):
             item_path = os.path.join(dir_path, item)
-            if not os.path.isdir(item_path):
+            if not os.path.isdir(item_path) or not is_content_visible(item_path, project_root=self._root):
                 continue
 
             # 实体文件夹 (item/index.md) — 一级
             index_md = os.path.join(item_path, "index.md")
-            if os.path.isfile(index_md):
+            if os.path.isfile(index_md) and is_content_visible(index_md, project_root=self._root):
                 entry = self._parse_doc(cat_name, item, index_md)
                 if entry:
                     self._catalog[f"{cat_name}/{item}"] = entry
@@ -94,10 +95,10 @@ class WikiManager:
             # 没有 index.md 但有子目录 → 递归扫描二级 (Region/Location/index.md)
             for sub_item in sorted(os.listdir(item_path)):
                 sub_path = os.path.join(item_path, sub_item)
-                if not os.path.isdir(sub_path):
+                if not os.path.isdir(sub_path) or not is_content_visible(sub_path, project_root=self._root):
                     continue
                 sub_index = os.path.join(sub_path, "index.md")
-                if os.path.isfile(sub_index):
+                if os.path.isfile(sub_index) and is_content_visible(sub_index, project_root=self._root):
                     combined_id = f"{item}/{sub_item}"
                     entry = self._parse_doc(cat_name, combined_id, sub_index)
                     if entry:
@@ -111,7 +112,7 @@ class WikiManager:
             if fn in ("_index.md", "_INDEX.md", "README.md", "TEMPLATE.md"):
                 continue
             filepath = os.path.join(dir_path, fn)
-            if not os.path.isfile(filepath):
+            if not os.path.isfile(filepath) or not is_content_visible(filepath, project_root=self._root):
                 continue
             doc_id = os.path.splitext(fn)[0]
             path_key = f"{cat_name}/{doc_id}"
@@ -127,6 +128,8 @@ class WikiManager:
 
     def _parse_doc(self, category: str, doc_id: str, filepath: str) -> dict | None:
         """解析单个文档的 frontmatter，返回 catalog entry。"""
+        if not is_content_visible(filepath, project_root=self._root):
+            return None
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 post = frontmatter.load(f)
@@ -187,7 +190,7 @@ class WikiManager:
         while queue:
             path, depth = queue.pop(0)
             entry = self._catalog.get(path)
-            if not entry:
+            if not entry or not is_content_visible(entry["path"], project_root=self._root):
                 continue
 
             content = ""
@@ -233,12 +236,14 @@ class WikiManager:
 
         # 精确 path 匹配
         exact = self._normalize_path(query_str)
-        if exact and exact in self._catalog:
+        if exact and exact in self._catalog and is_content_visible(self._catalog[exact]["path"], project_root=self._root):
             return self._format_doc_full(exact)
 
         # 按 name/id 匹配
         matches: list[str] = []
         for path_key, entry in self._catalog.items():
+            if not is_content_visible(entry["path"], project_root=self._root):
+                continue
             score = 0
             if q == entry["name"].lower():
                 score = 100
@@ -273,7 +278,7 @@ class WikiManager:
         """精确获取指定文档内容。"""
         path_key = f"{category}/{doc_id}"
         entry = self._catalog.get(path_key)
-        if not entry:
+        if not entry or not is_content_visible(entry["path"], project_root=self._root):
             return ""
         if depth == "summary":
             return entry["summary"]
@@ -413,6 +418,8 @@ class WikiManager:
     def _format_doc_full(self, path_key: str) -> str:
         """格式化返回文档全文。"""
         entry = self._catalog[path_key]
+        if not is_content_visible(entry["path"], project_root=self._root):
+            return ""
         content = self._read_content(entry["path"])
         header = f"【{entry['category']}/{entry['id']}】{entry['name']}"
         if entry["summary"]:
@@ -454,7 +461,7 @@ class WikiManager:
             entries = []
             for doc_id in ids:
                 entry = self._catalog.get(f"{cat_name}/{doc_id}")
-                if entry:
+                if entry and is_content_visible(entry["path"], project_root=self._root):
                     entries.append((entry["name"], entry["summary"][:50]))
             if entries:
                 lines.append(f"\n## {cat_label}")
@@ -468,6 +475,8 @@ class WikiManager:
     # ── 内容读取辅助 ──
 
     def _read_content(self, filepath: str) -> str:
+        if not is_content_visible(filepath, project_root=self._root):
+            return ""
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 post = frontmatter.load(f)

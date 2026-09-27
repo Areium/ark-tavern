@@ -17,6 +17,7 @@ import logging
 from pathlib import Path
 
 from data_paths import CONTENT_ROOT
+from content_scope import is_content_visible
 
 import frontmatter
 
@@ -102,6 +103,9 @@ class CombatDataLoader:
         self._node_index_cache: dict | None = None
         self._enemy_cache: dict[str, dict] = {}
 
+    def _visible(self, path: Path) -> bool:
+        return self._root != _DATA_DIR or is_content_visible(path)
+
     # ── Enemy loading ──
 
     def enemy_path(self, name: str) -> Path:
@@ -117,9 +121,11 @@ class CombatDataLoader:
         return self.load_enemy_from_meta(meta, stat_overrides=stat_overrides)
 
     def _read_enemy_meta(self, name: str) -> dict | None:
+        path = self.enemy_path(name)
+        if not self._visible(path):
+            return None
         if name in self._enemy_cache:
             return self._enemy_cache[name]
-        path = self.enemy_path(name)
         if not path.exists():
             return None
         try:
@@ -199,7 +205,7 @@ class CombatDataLoader:
         if not self._enemy_dir.is_dir():
             return []
         return sorted(p.stem for p in self._enemy_dir.glob("*.md")
-                      if p.stem != "TEMPLATE")
+                      if p.stem != "TEMPLATE" and self._visible(p))
 
     def list_enemy_catalog(self) -> list[dict]:
         """敌人图鉴（编辑器/选择器用）：叙事字段 + 战斗数值 + 是否纯派生。"""
@@ -246,7 +252,7 @@ class CombatDataLoader:
         """Load an item's frontmatter (name, category, combat_effect) from data/items/."""
         base = self._root.parent / "items"
         for path in (base / name / "index.md", base / f"{name}.md"):
-            if path.exists():
+            if path.exists() and self._visible(path):
                 try:
                     with open(path, "r", encoding="utf-8") as f:
                         return dict(frontmatter.load(f).metadata)
@@ -265,7 +271,7 @@ class CombatDataLoader:
         index: dict = {}
         if self._node_dir.is_dir():
             for path in sorted(self._node_dir.glob("*.json")):
-                if path.stem.upper().startswith("TEMPLATE"):
+                if path.stem.upper().startswith("TEMPLATE") or not self._visible(path):
                     continue
                 index.setdefault(path.stem, path)
                 try:
@@ -284,9 +290,10 @@ class CombatDataLoader:
         if not node_id:
             return None
         direct = self._node_dir / f"{node_id}.json"
-        if direct.exists():
+        if direct.exists() and self._visible(direct):
             return direct
-        return self._node_index().get(str(node_id).strip())
+        indexed = self._node_index().get(str(node_id).strip())
+        return indexed if indexed is not None and self._visible(indexed) else None
 
     def load_node(self, node_id: str) -> dict | None:
         """加载战斗节点（id / 文件名 / 中文名均可）。"""
@@ -308,7 +315,7 @@ class CombatDataLoader:
         if not self._node_dir.is_dir():
             return summaries
         for path in sorted(self._node_dir.glob("*.json")):
-            if path.stem.upper().startswith("TEMPLATE"):
+            if path.stem.upper().startswith("TEMPLATE") or not self._visible(path):
                 continue
             data = self.load_node(path.stem)
             if not data:
@@ -357,7 +364,7 @@ class CombatDataLoader:
     def load_background(self, bg_id: str) -> dict | None:
         """Load background metadata from data/combat/backgrounds/<bg_id>/index.md."""
         path = self._root / "backgrounds" / bg_id / "index.md"
-        if not path.exists():
+        if not path.exists() or not self._visible(path):
             return None
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -373,7 +380,7 @@ class CombatDataLoader:
             return []
         return sorted(
             p.name for p in root.iterdir()
-            if p.is_dir() and (p / "index.md").is_file()
+            if p.is_dir() and (p / "index.md").is_file() and self._visible(p / "index.md")
         )
 
     def background_image_url(self, bg_id: str) -> str | None:
@@ -383,7 +390,7 @@ class CombatDataLoader:
         first image file found in the background directory.
         """
         bg_dir = self._root / "backgrounds" / bg_id
-        if not bg_dir.is_dir():
+        if not bg_dir.is_dir() or not self._visible(bg_dir / "index.md"):
             return None
 
         candidates: list[str] = []
@@ -393,13 +400,13 @@ class CombatDataLoader:
         try:
             candidates += sorted(
                 p.name for p in bg_dir.iterdir()
-                if p.is_file() and p.suffix.lower() in self._BG_IMAGE_EXTS
+                if p.is_file() and p.suffix.lower() in self._BG_IMAGE_EXTS and self._visible(p)
             )
         except OSError:
             return None
 
         for name in candidates:
-            if (bg_dir / name).is_file():
+            if (bg_dir / name).is_file() and self._visible(bg_dir / name):
                 return f"/api/assets/combat_backgrounds/{bg_id}/{name}"
         return None
 
@@ -454,6 +461,8 @@ class CombatDataLoader:
             return ""
         location_docs = sorted([*loc_base.rglob("index.md"), *loc_base.glob("*.md")])
         for location_md in location_docs:
+            if not self._visible(location_md):
+                continue
             try:
                 with open(location_md, "r", encoding="utf-8") as f:
                     meta = frontmatter.load(f).metadata

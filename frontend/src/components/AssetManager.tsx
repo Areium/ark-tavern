@@ -144,8 +144,8 @@ export default function AssetManager() {
   };
 
   const handleImageDelete = async (category: string, fullPath: string) => {
-    // fullPath example: "characters/阿米娅/avatar/char_002_amiya.png"
-    // The API expects path relative to category dir: "阿米娅/avatar/char_002_amiya.png"
+    // fullPath example: "characters/旅人/avatar/portrait.png"
+    // The API expects path relative to category dir: "旅人/avatar/portrait.png"
     const relativePath = fullPath.startsWith(category + "/")
       ? fullPath.slice(category.length + 1)
       : fullPath;

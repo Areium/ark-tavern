@@ -148,7 +148,7 @@ def roll_check(character_metas: list[dict], check: dict,
             best_level = level
             best_name = meta.get("name", "")
     if not best_name:
-        best_name = "博士"
+        best_name = "玩家"
         best_level = 5
 
     modifier = AttributeLoader.get_modifier(attr, best_level)

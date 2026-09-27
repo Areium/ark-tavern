@@ -597,7 +597,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
                              })} />
                     </FormField>
                     <FormField label="Formula">
-                      <input className="input text-sm w-full" placeholder="e.g. 源石技艺适应性"
+                      <input className="input text-sm w-full" placeholder="例如：特殊技艺适应性"
                              value={(editingCard as CombatCardDTO).base_value_formula || ""}
                              onChange={(e) => setEditingCard({
                                ...editingCard,

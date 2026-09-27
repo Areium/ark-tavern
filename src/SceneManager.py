@@ -510,7 +510,7 @@ class SceneManager:
             return "场景中没有可对话的角色。", {}, None
 
         agent = self._agents[self.active]
-        identity = (player_info or {}).get("identity", "博士")
+        identity = (player_info or {}).get("identity", "玩家")
 
         # 世界书：解析 + 扫描最近场景动态（先解析，场景上下文里的角色数值要按它的字段渲染）
         worldbook = self._resolve_worldbook()
@@ -553,14 +553,14 @@ class SceneManager:
 
         Returns:
             list[dict]: [
-                {"character": "阿米娅", "response": "...", "env_updates": {}},
+                {"character": "旅人", "response": "...", "env_updates": {}},
                 {"character": "银灰", "response": "...", "env_updates": {}},
             ]
         """
         if not self._agents:
             return [{"character": "", "response": "场景中没有角色。", "env_updates": {}}]
 
-        identity = (player_info or {}).get("identity", "博士")
+        identity = (player_info or {}).get("identity", "玩家")
         # 世界书：解析 + 扫描最近场景动态（先解析，场景上下文里的角色数值要按它的字段渲染）
         worldbook = self._resolve_worldbook()
         recent_text = self._recent_scene_text()
@@ -1073,7 +1073,7 @@ branch 非 null 时格式：
 
         branch_hint：玩家上一轮所选分支的落点提示（软引导，注入动态层）。
         """
-        identity = (player_info or {}).get("identity", "博士") if player_info else "博士"
+        identity = (player_info or {}).get("identity", "玩家") if player_info else "玩家"
 
         char_summaries = []
         for name, agent in self._agents.items():

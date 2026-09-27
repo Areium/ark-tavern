@@ -1,6 +1,7 @@
 # 系统更新设计与维护文档
 
 > 本文件是**变更历史**：按时间倒序记录架构演进与关键修改。
+> 旧条目提到的方舟包自动安装、全局默认书与预装回退已于 2026-09-27 移除；现状以 `architecture.md` 为准。
 > 现状与目标态不在本文件维护——架构见 `architecture.md`、战斗机制见 `docs/design/combat/combat-design.md`、
 > 数值见 `docs/design/combat/combat-numerical-design.md`、节点字段见 `docs/design/combat/battle-spec.md`、工程细节见 `notes.md`。
 

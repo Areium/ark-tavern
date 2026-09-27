@@ -2,6 +2,9 @@
 共享常量 — 供 wiki_manager 等模块使用。
 """
 
+# 无世界书时的中性玩家称谓；具体身份由会话或世界书角色卡决定。
+DEFAULT_PLAYER_IDENTITY = "玩家"
+
 # ── 核心章节提取规则 ──
 # 每个类别定义一组 (章节名, 段落数) 规则，None 表示取该章节全文。
 # 优先级从高到低：先匹配到的先提取。
@@ -49,7 +52,8 @@ ATTR_ENG_TO_CN: dict[str, str] = {
     "tactical_planning": "战术规划",
     "emotional_stability": "情绪稳定性",
     "combat_skill": "战斗技巧",
-    "originium_arts_assimilation": "源石技艺适应性",
+    "originium_arts_assimilation": "特殊技艺",  # 旧世界书属性键
+    "special_ability": "特殊技艺",
     "charisma": "魅力",
     "physiological_tolerance": "生理耐受",
     "mobility": "战场机动",

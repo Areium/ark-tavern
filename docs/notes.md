@@ -25,7 +25,7 @@
   `tests/legacy/player_identity_opening.py` 钉住「玩家身份不得出现在场景角色里」。
   同一角色只出现一次：主控经 `identity` 声明、队友经 `roster_character_ids` 入队，两边都不重复。
 - **创建契约**：`POST /api/sessions` 的 `identity` **显式传空 = 明确没选主控 → 400**
-  （前端向导也先拦一次）；**完全不传**该字段才回落默认「博士」，只服务不使用新流程的调用方
+  （前端向导也先拦一次）；**完全不传**该字段才回落通用称谓「玩家」，只服务不使用新流程的调用方
   （集成脚本 / 老用例）。见 `tests/test_session_main_control.py`。
 - **预览与创建必须同口径**：候选范围的 roster 取 `get_roster()`，因此向导的 `scope-preview`
   必须传**含主控的完整阵容**（`useRosterScopePreview(bookId, lineup, …)`），否则创建时的
@@ -430,3 +430,10 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
 - 选中角色的可移动范围由服务器计算；切换角色必须请求该角色并核对响应仍属于当前选择。动作开始递增版本，防止更早发出的 GET 覆盖播放投影。
 - 护盾 status.value 是新增量；burn.value 是每回合伤害，duration 才是持续时间。净化清理负面状态，最终快照仍是权威来源。
 - 定向检查 `node scripts/test_combat_presentation.cjs` 与 `tests/test_combat_presentation.py`。完整验收和未解决的窄屏/专属演出差距见 [第一轮验收](card-combat-presentation-qa.md)。
+
+## Ark Tavern 通用化与可选内容包（2026-09-27）
+
+- 启动时不安装或刷新任何离线世界书包。会话未显式绑定剧情世界书时不注入书内容；新会话主控称谓为「玩家」，环境为空。已有本地安装副本保留给用户管理，不自动删除。
+- 分发源仍存于 `data/worldbooks/packs/` 和 `data/worldbooks/content/`。`content_manifest.json` 标记仓库资源的归属；仅当至少一本归属书已安装且启用时，其角色、剧情、战斗节点和素材才可见。停用或删除已安装书使其独占内容退出运行时目录及直达 URL，分发源仍可供再次安装。改动离线资源后运行 `python scripts/generate_content_manifest.py` 并检查 `tests/test_distributed_content_manifest.py`。
+- 战斗 Spine 变体映射作为 `content/spine_variants.json` 分发，经 `/api/assets/spine-variants` 只返回当前可见角色；无模型的角色使用通用几何标记。导入的世界书角色私有副本在卸载时清理，被其他书引用则拒绝卸载。
+- 本机 `tests/legacy/main_control_flow.py` 仍需实际角色库同时有自建角色与世界书角色；若缺其一，该脚本报告“角色库数据不足”并退出失败。这是旧脚本的外部数据前提，不代表主控新默认失败；对应独立 pytest 使用临时夹具验证。

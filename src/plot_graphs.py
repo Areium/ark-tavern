@@ -17,9 +17,9 @@
 图文档结构（schema_version=1）：
     {
       "schema_version": 1,
-      "plot_id": "fengxue_guojing",
-      "title": "风雪过境",              # 冗余展示名，读取时以剧情文档为准
-      "worldbook_id": "arknights",      # 归属书（保存时后端强制回填）
+      "plot_id": "sample_story",
+      "title": "示例剧情",              # 冗余展示名，读取时以剧情文档为准
+      "worldbook_id": "sample_book",   # 归属书（保存时后端强制回填）
       "nodes": [{
         "id": "n_k3x9q2",              # 图内唯一（n_ + base36）
         "type": "plot|chapter|beat|combat|note",

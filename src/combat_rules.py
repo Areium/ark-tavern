@@ -13,11 +13,13 @@ import json
 import logging
 
 from data_paths import CONTENT_ROOT
+from content_scope import is_content_visible
 
 logger = logging.getLogger(__name__)
 
 # 放在 content/combat/rules/（引擎数据），不是 content/rules/（叙事规则文档目录）
 RULES_DIR = CONTENT_ROOT / "combat" / "rules"
+_DEFAULT_RULES_DIR = RULES_DIR
 
 DEFAULT_GROWTH: dict = {
     "attribute_points_per_level": 1,
@@ -47,6 +49,10 @@ _cache: dict[str, tuple[float, dict]] = {}
 
 def _load(name: str, defaults: dict) -> dict:
     path = RULES_DIR / f"{name}.json"
+    # Pack rules are optional content. Keep an explicit test/custom rules dir usable.
+    if RULES_DIR == _DEFAULT_RULES_DIR and not is_content_visible(path):
+        _cache.pop(name, None)
+        return dict(defaults)
     try:
         mtime = path.stat().st_mtime
     except OSError:

@@ -11,7 +11,7 @@ const ATTR_LABELS: Record<string, string> = {
   physiological_tolerance: "生理耐受",
   tactical_planning: "战术规划",
   combat_skill: "战斗技巧",
-  originium_arts_assimilation: "源石技艺",
+  originium_arts_assimilation: "特殊技艺",
   emotional_stability: "情绪稳定",
   charisma: "魅力",
 };

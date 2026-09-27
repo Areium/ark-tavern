@@ -7,6 +7,7 @@ import logging
 import frontmatter
 from flask import Blueprint, jsonify, request
 from data_paths import PROJECT_ROOT, content_root
+from content_scope import is_content_visible
 
 from shared.helpers import json_error
 from session_overlay import _resolve_plot_dir, _parse_quests_md
@@ -89,6 +90,8 @@ def register(app, managers):
         loc_dir = env_root / "Location"
         if loc_dir.is_dir():
             for index_md in sorted(loc_dir.rglob("index.md")):
+                if not is_content_visible(index_md, project_root=_REPO_ROOT):
+                    continue
                 relative_id = index_md.parent.relative_to(loc_dir).as_posix()
                 if relative_id == ".":
                     continue
@@ -104,6 +107,8 @@ def register(app, managers):
                     locations.append({"id": relative_id, "name": fallback_name})
 
             for item in sorted(loc_dir.rglob("*.md")):
+                if not is_content_visible(item, project_root=_REPO_ROOT):
+                    continue
                 stem = item.stem
                 if stem in ("_index", "_INDEX", "README", "TEMPLATE", "index"):
                     continue
@@ -125,7 +130,7 @@ def register(app, managers):
             for item in sorted(weather_dir.iterdir()):
                 if item.is_dir():
                     index_md = item / "index.md"
-                    if index_md.is_file():
+                    if index_md.is_file() and is_content_visible(index_md, project_root=_REPO_ROOT):
                         try:
                             with open(index_md, "r", encoding="utf-8") as f:
                                 fm = frontmatter.load(f)
@@ -136,7 +141,7 @@ def register(app, managers):
                             })
                         except Exception:
                             weathers.append({"id": item.name, "name": item.name})
-                elif item.is_file() and item.suffix == ".md":
+                elif item.is_file() and item.suffix == ".md" and is_content_visible(item, project_root=_REPO_ROOT):
                     stem = item.stem
                     if stem in ("_index", "_INDEX", "README", "TEMPLATE", "index"):
                         continue
@@ -167,6 +172,9 @@ def register(app, managers):
 
         plot_id = session.overlay.get_plot_id()
         if not plot_id:
+            return jsonify({"plot_id": None, "quests": []})
+        resolved = _resolve_plot_dir(plot_id) or plot_id
+        if not is_content_visible(content_root(_REPO_ROOT) / "plots" / resolved, project_root=_REPO_ROOT):
             return jsonify({"plot_id": None, "quests": []})
 
         # 解析剧情任务定义
@@ -204,7 +212,7 @@ def register(app, managers):
         # 验证剧情目录存在
         resolved = _resolve_plot_dir(plot_id) or plot_id
         plot_dir = content_root(_REPO_ROOT) / "plots" / resolved
-        if not plot_dir.is_dir():
+        if not plot_dir.is_dir() or not is_content_visible(plot_dir, project_root=_REPO_ROOT):
             return json_error(f"剧情不存在: {plot_id}", 404)
 
         # 加载任务

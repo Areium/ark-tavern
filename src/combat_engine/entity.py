@@ -30,6 +30,7 @@ _ATTR_KEY_MAP = {
     "生理耐受": "physiological_tolerance",
     "战术规划": "tactical_planning",
     "战斗技巧": "combat_skill",
+    "特殊技艺": "originium_arts_assimilation",
     "源石技艺适应性": "originium_arts_assimilation",
     "情绪稳定性": "emotional_stability",
     "魅力": "charisma",

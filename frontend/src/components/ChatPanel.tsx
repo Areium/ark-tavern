@@ -24,11 +24,11 @@ export function bubbleClass(msg: ChatMessage, bubbleMode: boolean): string {
   return "is-other";
 }
 
-function filterSceneLog(log: string[]): string[] {
+function filterSceneLog(log: string[], playerIdentity: string): string[] {
   return log.filter(
     (entry) =>
-      !entry.includes("博士加入了场景") &&
-      !entry.includes("博士切换")
+      !entry.includes(`${playerIdentity}加入了场景`) &&
+      !entry.includes(`${playerIdentity}切换`)
   );
 }
 
@@ -54,7 +54,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
       c
     );
     // 玩家身份也参与说话人推断，避免玩家台词被误判给场景角色
-    const player = session.player_identity || "博士";
+    const player = session.player_identity || "玩家";
     if (player && !chars.includes(player)) chars.push(player);
     return chars;
   })();
@@ -201,7 +201,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
         useAppStore.getState().setSessionNarrationCount(sid, session.narration_count || 0);
 
         const initialMessages: ChatMessage[] = [];
-        const log = filterSceneLog(session.scene_log || []);
+        const log = filterSceneLog(session.scene_log || [], session.player_identity || "玩家");
         if (log.length > 0) {
           initialMessages.push({ role: "system", content: `【场景记录】\n${log.join("\n")}` });
         }
@@ -725,7 +725,8 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                 onClick={async () => {
                   const encounterId = activeSession.combat_mode === "sideview"
                     ? "enc_quick_test_1"
-                    : prompt("输入遭遇 ID（可选）\n可用：初遇整合运动, enc_defense, enc_elite_hunt, enc_mixed_assault, enc_training") || "初遇整合运动";
+                    : prompt("输入世界书中的战斗节点 ID（可在节点图查看）")?.trim();
+                  if (!encounterId) return;
                   try {
                     let response: any;
                     if (activeSession.combat_mode === "sideview") {
@@ -784,7 +785,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
           onPlaybackChange={onPlaybackChange}
           messages={messages}
           sceneCharacters={sceneCharacters}
-          playerName={activeSession?.player_identity || "博士"}
+          playerName={activeSession?.player_identity || "玩家"}
           characterColors={characterColors}
           fontSize={chatFontSize}
           waiting={sending || streaming}
@@ -882,7 +883,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                   )}
                   {msg.role === "user" && !dialogueBubbleMode && (
                     <div className="chat-msg-name">
-                      {activeSession?.player_identity || "博士"}
+                      {activeSession?.player_identity || "玩家"}
                     </div>
                   )}
 
@@ -1276,7 +1277,7 @@ function triggerNarrate(
 
   // 玩家身份：优先使用会话创建时选择的身份角色
   const session = store.sessions.find((s) => s.id === sessionId);
-  const identity = session?.player_identity || "博士";
+  const identity = session?.player_identity || "玩家";
 
   // 与组件内 sceneCharacters 一致：流式结束后用完整叙述解析气泡说话人
   const sceneChars: string[] = (session?.characters || [])

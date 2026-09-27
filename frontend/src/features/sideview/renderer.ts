@@ -2,7 +2,7 @@ import { Application, Container, Graphics, Rectangle, SCALE_MODES, Sprite, Text,
 import type { Body, Effect, Simulation, SimulationLevel, SideviewOperator } from './types';
 import { hasSideviewSpine, loadSideviewSpine, makeSideviewSpine } from './spineActors';
 import { ELITE_LUNGE, ENEMY_WINDUP, eliteLungeBox, exitBarrierX, exitLocked, guardStrikeBox, levelTables } from './simulation';
-import { getBaseUrl } from '../../utils/baseUrl';
+import { loadSpineVariants } from '../../utils/spineVariants';
 import { drawContactEffect, drawStreetProps, drawStreetStructure, drawStreetSurface } from './scenePresentation';
 
 const C = { sky: 0x0b1722, stone: 0x243b43, cyan: 0x8ce5e0, orange: 0xf4a66b, red: 0xe77977, heal: 0xbde6a0, white: 0xe1ffff };
@@ -31,11 +31,11 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
   world.addChild(architecture, fallback.platforms, fallback.obstacles, fallback.hazards, surfaces, terrain, wetFloor, props, gate, telegraphs, tokens, figures, bars, fx, labels);
   drawStreetStructure(architecture, level);
   let disposed = false, lastElapsed = 0, firstFrame = true;
-  let city: Sprite | undefined, playerPortrait: Sprite | undefined, portraitFailed = false;
+  let city: Sprite | undefined;
   const units = new Map<string, ReturnType<typeof makeSideviewSpine>>();
   const failures = new Set<string>();
   const { specs } = levelTables(level);
-  let pendingAssets = 5 + Number(operatorName === '临光'); // Scenery, models, and the demo portrait fallback.
+  let pendingAssets = 5; // Four scenery assets and the content-owned model registry.
   const report = () => onAssets([
     pendingAssets ? '正在装载场景与战斗模型…' : '',
     failures.size ? `简化显示：${[...failures].join('、')}；操作不受影响。` : '',
@@ -80,33 +80,21 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
     }
     fallback.hazards.visible = false;
   });
-  if (operatorName === '临光') void (async () => {
-    try {
-      const texture = await Texture.fromURL(`${await getBaseUrl()}/api/characters/${encodeURIComponent(operatorName)}/skin`);
-      if (disposed) return;
-      texture.baseTexture.scaleMode = SCALE_MODES.LINEAR;
-      playerPortrait = new Sprite(texture);
-      playerPortrait.anchor.set(0.5, 1);
-      figures.addChild(playerPortrait);
-    } catch {
-      portraitFailed = true;
-      if (!disposed && !units.has('player')) failures.add(operatorName);
-    } finally { if (!disposed) { pendingAssets--; report(); } }
-  })();
-  // Authored enemy names with a registered model win; otherwise the role picks a stand-in model.
-  const kindModel = { ranger: '整合运动狙击手', elite: '整合运动盾卫', guard: '整合运动士兵' } as const;
-  const names = [{ id: 'player', name: operatorName }, ...level.enemies.map(e => ({ id: e.id, name: e.name && hasSideviewSpine(e.name) ? e.name : kindModel[e.kind] }))];
+  const names = [{ id: 'player', name: operatorName }, ...level.enemies.map(e => ({ id: e.id, name: e.name ?? '' }))];
   const cache = new Map<string, ReturnType<typeof loadSideviewSpine>>();
   report();
-  Promise.all(names.map(async ({ id, name }) => {
-    try {
-      if (!cache.has(name)) cache.set(name, loadSideviewSpine(name));
-      const data = await cache.get(name)!;
-      if (disposed) return;
-      const unit = makeSideviewSpine(data); units.set(id, unit); figures.addChild(unit.spine);
-      if (id === 'player') failures.delete(name);
-    } catch { if (!disposed && (id !== 'player' || operatorName !== '临光' || portraitFailed)) failures.add(name); }
-  })).then(() => { if (!disposed) { pendingAssets--; report(); } });
+  void loadSpineVariants().then(async variants => {
+    if (disposed) return;
+    await Promise.all(names.filter(actor => hasSideviewSpine(actor.name, variants)).map(async ({ id, name }) => {
+      try {
+        if (!cache.has(name)) cache.set(name, loadSideviewSpine(name, variants[name]));
+        const data = await cache.get(name)!;
+        if (disposed) return;
+        const unit = makeSideviewSpine(data); units.set(id, unit); figures.addChild(unit.spine);
+      } catch { if (!disposed) failures.add(name); }
+    }));
+  }).catch(() => { if (!disposed) failures.add('模型目录不可用'); })
+    .finally(() => { if (!disposed) { pendingAssets--; report(); } });
 
   // Level geometry never changes during a run: draw fallbacks and edge markings once.
   for (const p of level.platforms) fallback.platforms.beginFill(C.stone).drawRect(p.x, p.y, p.width, p.height).endFill();
@@ -344,14 +332,8 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
     }
     const blink = p.invulnerable > 0 && (reducedMotion || Math.floor(s.elapsed * 16) % 2 === 1);
     if (!drawUnit('player', p, dt, p.attackTime > 0, blink)) {
-      if (playerPortrait) {
-        const size = p.height * 1.5 / playerPortrait.texture.height;
-        playerPortrait.visible = true;
-        playerPortrait.scale.set(size * p.facing, size);
-        playerPortrait.position.set(p.x + p.width / 2, p.y + p.height + 2);
-        playerPortrait.tint = blink ? 0xffd5a9 : 0xffffff;
-      } else if (operatorName !== '临光' || portraitFailed) token(tokens, p.x, p.y, p.width, p.height, p.facing, C.cyan, blink);
-    } else if (playerPortrait) playerPortrait.visible = false;
+      token(tokens, p.x, p.y, p.width, p.height, p.facing, C.cyan, blink);
+    }
     fx.clear();
     for (const b of s.projectiles) {
       const tail = 0.05;

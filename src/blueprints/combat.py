@@ -7,8 +7,6 @@ import uuid
 import time
 import logging
 
-from data_paths import CONTENT_ROOT
-
 from flask import Blueprint, jsonify, request
 
 from shared.helpers import json_error, make_sse_response, build_character_metas
@@ -40,17 +38,6 @@ def _get_session(session_mgr, session_id):
     if not session:
         return None
     return session
-
-
-def _load_combat_test_config() -> dict:
-    """Load the combat test plot config from data/plots/combat-test/index.md."""
-    import frontmatter
-
-    plot_path = CONTENT_ROOT / "plots" / "combat-test" / "index.md"
-    if not plot_path.exists():
-        raise ValueError("战斗测试配置文件不存在: data/plots/combat-test/index.md")
-    with open(plot_path, "r", encoding="utf-8") as f:
-        return dict(frontmatter.load(f).metadata)
 
 
 # ── 战斗挂起 / 恢复（临时返回后继续打） ──
@@ -324,12 +311,17 @@ def register(app, managers):
             return json_error("横版动作会话请使用 sideview/start", 409)
 
         data = request.json or {}
-        encounter_id = data.get("encounter_id", "初遇整合运动")
+        encounter_id = data.get("encounter_id")
+        if not isinstance(encounter_id, str) or not encounter_id.strip():
+            return json_error("请选择战斗节点", 400)
+        encounter_id = encounter_id.strip()
         enemy_overrides = data.get("enemy_overrides")
         approach_id = data.get("approach_id")
 
         from combat_data_loader import CombatDataLoader
-        encounter = CombatDataLoader().load_node(encounter_id) or {}
+        encounter = CombatDataLoader().load_node(encounter_id)
+        if encounter is None:
+            return json_error("战斗节点不存在或所属世界书未安装", 404)
 
         # Build character metas with overlay merge
         character_metas = build_character_metas(session, doc_mgr)
@@ -782,20 +774,14 @@ def register(app, managers):
 
         data = request.json or {}
         node_id = data.get("node_id") or data.get("encounter_id") or ""
-        if not node_id:
-            try:
-                config = _load_combat_test_config()
-                node_id = config.get("default_encounter", "enc_training")
-            except ValueError:
-                node_id = "enc_training"
-        # 默认队伍：三人均有 Spine 战斗小人（博士/霜星无骨骼，故不作为默认出战单位）
+        if not isinstance(node_id, str) or not node_id.strip():
+            return json_error("请选择战斗节点", 400)
+        node_id = node_id.strip()
         character_names = data.get("characters")
-        if not character_names:
-            try:
-                character_names = _load_combat_test_config().get("characters")
-            except ValueError:
-                character_names = None
-        character_names = character_names or ["阿米娅", "银灰", "灵知"]
+        if (not isinstance(character_names, list) or not character_names
+                or any(not isinstance(name, str) or not name.strip()
+                       for name in character_names)):
+            return json_error("请选择参战角色", 400)
 
         test_id = uuid.uuid4().hex[:12]
         try:

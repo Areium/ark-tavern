@@ -583,7 +583,7 @@ export default function WorldBookScopeManager(props: WorldBookScopeManagerProps)
           </> : <>
             {categoryDraft && <fieldset className="wbg-form">
               <p className="wbg-eyebrow">CATEGORY</p><h4>{categories.some((category) => category.id === categoryDraft.id) ? categoryDraft.name : "新建分类"}</h4>
-              <label className="wbg-form-label">名称<input className="wbg-field" value={categoryDraft.name} placeholder="例如：罗德岛 / 地区设定"
+              <label className="wbg-form-label">名称<input className="wbg-field" value={categoryDraft.name} placeholder="例如：探索者协会 / 地区设定"
                 onChange={(event) => setCategoryDraft({ ...categoryDraft, name: event.target.value })} /></label>
               <label className="wbg-form-label">父分类<select className="wbg-field" value={categoryDraft.parent_id || ""} onChange={(event) => {
                 const parent = categories.find((category) => category.id === event.target.value);

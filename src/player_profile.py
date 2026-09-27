@@ -1,18 +1,19 @@
 """
 玩家身份角色档案 — 让用户以自身身份角色参与对话。
 
-"博士"等玩家身份在 data/characters/<identity>/index.md 中有完整设定
+"玩家"等玩家身份在 data/characters/<identity>/index.md 中有完整设定
 （frontmatter summary/tags + 正文背景），但对话/叙述 prompt 过去只注入
-一行"身份：博士"，缺乏角色感。本模块把玩家角色的设定读取为结构化文本，
+一行"身份：玩家"，缺乏角色感。本模块把玩家角色的设定读取为结构化文本，
 注入叙述与角色对话 prompt，让 LLM 以玩家角色视角推进剧情。
 
-- 会话创建时可选择玩家身份（默认"博士"），见 session_manager.player_identity
+- 会话创建时可选择玩家身份（默认"玩家"），见 session_manager.player_identity
 - 档案按 identity 进程内缓存（会话内设定不变）
 """
 
 import logging
 
 from data_paths import CONTENT_ROOT
+from content_scope import is_content_visible
 
 import frontmatter
 
@@ -36,11 +37,13 @@ def load_player_profile(identity: str) -> str | None:
         身份标签：<tags>
         身份背景：<正文第一段>
     """
-    identity = (identity or "").strip() or "博士"
+    identity = (identity or "").strip() or "玩家"
+    path = _CHARS_DIR / identity / "index.md"
+    if not is_content_visible(path):
+        _profile_cache.pop(identity, None)
+        return None
     if identity in _profile_cache:
         return _profile_cache[identity]
-
-    path = _CHARS_DIR / identity / "index.md"
     if not path.is_file():
         _profile_cache[identity] = None
         return None

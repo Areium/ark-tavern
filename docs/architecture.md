@@ -7,7 +7,7 @@
 
 ## 1. 系统概述
 
-明日方舟主题文字 RPG：
+Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世界观来自用户选择的世界书与角色内容；《明日方舟》是可选导入内容，不是运行前提。新会话默认空白环境、主控称谓为「玩家」；没有会话绑定世界书时，世界书解析为空，启动时不自动安装内容包（旧版已安装副本保留给用户管理）。主要能力：
 
 - **剧情模式** — LLM 驱动叙事 + 选项 + 记忆 + 环境
 - **自由模式** — 沙盒角色交互
@@ -55,7 +55,7 @@
   **注入纪律：常驻 position-0 条目进稳定层，触发型条目一律进动态层（前缀缓存稳定）。**
   **另有第三类「系统层」**：节点图 / 节点绑定这类编辑器与运行时元数据条目（`is_system_entry`）按设计永不注入，不与前两层并列计入 token，也不进 Prompt 预览的 order / dropped；判定必须先系统层再按位置分层。详见 `docs/notes.md`「条目分层是三层，不是两层」。
   `eligible_uids_for` 返回 `EligibleSet`（候选集 + `forced_uids`/`position_overrides` 元数据随集合传递，注入调用点零改动）。
-  **书用途 `book_type`**：`story`（剧情世界书，可绑定会话/设为默认/参与解析）| `reference`（资料库，只供浏览、检索与摘录）。缺字段的旧数据按 `story` 读取；`resolve()` 与预装回退无条件排除 `reference`；`excerpt_entries()` 提供整批原子摘录（新 UID、来源不被修改、保留 `excerpt_source` 可追溯来源）。详见 `docs/design/worldbook/worldbook-library.md`。
+  **书用途 `book_type`**：`story`（剧情世界书，可绑定会话并参与解析）| `reference`（资料库，只供浏览、检索与摘录）。缺字段的旧数据按 `story` 读取；`resolve()` 排除 `reference`，未绑定会话不注入；`excerpt_entries()` 提供整批原子摘录（新 UID、来源不被修改、保留 `excerpt_source` 可追溯来源）。详见 `docs/design/worldbook/worldbook-library.md`。
 - `node_lore_scope.py` — 节点级世界书动态载入：书内一条永不注入的 `lore_bindings` 条目（围栏 JSON + extensions 标记）声明「目标 → 条目」绑定；`resolve_scope` 在剧情树节点落盘时把作用域冻结进 `story_tree.nodes[].state.lore_scope`（随回档走），注入时 `eligible_uids_for` 做「会话范围 ∩ 节点作用域」窄化白名单。书内无绑定条目 / 自由模式 / 老会话一律关闭，行为与旧版一致。详见 `docs/design/worldbook/node-scoped-worldbook-loading.md`。
 - `worldbook_scope.py` — 多级分类、角色关联与导入策略校验，有向依赖深度遍历。**v2 与 v3 并存**：v2 语义（世界观 / 阵容 / 固定 / 依赖四源去重）逐字保留；v3 把「分类」与「载入」分开——全书一张有向图，起点由 `activation`（always / roster_any / manual）× `expansion`（none / requires_closure / legacy_depth）描述，`requires` 参与闭包遍历、`related` 只浏览，环可终止并回报交叉引用，闭包超限报错而非静默截断。`world_book.py` 提供估算预览、旧书/旧会话快照兼容与**不可变规则版本历史**（`policy_revisions`，会话绑定完整规则版本而不只是版本号），两个 prompt 入口均过滤候选。详见 `docs/design/worldbook/worldbook-on-demand.md`。
 - `worldbook_classify.py` — 条目自动分类：只认 uid 生成器前缀 / `group` 字段 / 名称括号后缀三类显式线索（取值为白名单，识别不出就不分类），产出分类树、条目归属与 `characters_<角色目录名>_index` → 角色关联。**不改变载入模式**：`from_dict` 只在分类形同未分类时对预装包自动补齐，其余走用户显式的「自动分类」。详见 `docs/design/worldbook/worldbook-on-demand.md`。
@@ -167,8 +167,8 @@
 
 ## 4. 内容工具与脚本
 
-数据布局见 `data/README.md`：内容与资源在 `data/worldbooks/content/`，预装包在
-`data/worldbooks/packs/`；统一路径由 `src/data_paths.py` 定义。升级本地素材运行
+数据布局见 `data/README.md`：内容与资源在 `data/worldbooks/content/`，可选离线包在
+`data/worldbooks/packs/`，其归属清单为 `data/worldbooks/content_manifest.json`；统一路径由 `src/data_paths.py` 定义。升级本地素材运行
 `scripts/migrate_data_layout.py` 预览后加 `--apply` 执行。用户书与会话不迁移。
 
 

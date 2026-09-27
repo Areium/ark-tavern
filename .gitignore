@@ -7,6 +7,7 @@ data/worldbooks/*
 !data/worldbooks/content/
 !data/worldbooks/packs/
 !data/worldbooks/README.md
+!data/worldbooks/content_manifest.json
 data/worldbook_jobs/
 data/worldbook_analysis/
 config/llm_config.json

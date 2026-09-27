@@ -3,7 +3,7 @@
 契约（`blueprints/sessions.py` + `SceneManager.get_roster()`）：
 
 1. 走新流程的客户端**总是**显式带 `identity`；显式传空 = 明确没选 → 400，不允许
-   建出一个没有主控的会话。完全不传该字段仍回落默认「博士」，只服务于不使用该流程的
+   建出一个没有主控的会话。完全不传该字段仍回落中性身份「玩家」，只服务于不使用该流程的
    调用方（集成脚本 / 老用例），这部分行为在本文件里被钉住，避免以后被顺手改掉。
 2. 主控是**阵容成员**：它进 `worldbook_scope.roster_character_ids`，属于它的世界书
    条目按 roster 规则载入。
@@ -147,12 +147,12 @@ def test_any_blank_identity_is_rejected(session_api, blank):
 
 
 def test_absent_identity_still_falls_back_for_other_callers(session_api):
-    """不传该字段的调用方（集成脚本 / 老用例）仍回落默认「博士」。"""
+    """不传该字段的调用方（集成脚本 / 老用例）仍回落中性身份「玩家」。"""
     client, _, _, _, _ = session_api
     response = client.post("/api/sessions", json={
         "worldbook_id": "book", "roster_character_ids": ["A"]})
     assert response.status_code == 201, response.json
-    assert response.json["player_identity"] == "博士"
+    assert response.json["player_identity"] == "玩家"
 
 
 # ── 2. 主控 = 阵容成员，且只算一次 ───────────────────────────────────────────

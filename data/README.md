@@ -1,7 +1,8 @@
 # Data 目录
 
-世界设定、角色、剧情及配套资源集中在世界书目录。物理目录与逻辑引用分开：
-`characters/博士`、剧情 ID、节点 ID、素材 API URL 保持不变，归属仍由 `worldbook_id` 标注。
+世界设定、角色、剧情及配套资源集中在世界书目录。平台本体不预设世界观；
+《明日方舟》资料是可选的离线内容包。旧内容的物理路径和 ID 保持兼容，
+运行时由 `content_manifest.json` 及已安装、已启用的书决定其可见性。
 
 ```text
 data/
@@ -21,26 +22,30 @@ data/
 │   │   ├── rules/         叙事机制说明
 │   │   ├── combat/        nodes/、backgrounds/、tiles/、rules/
 │   │   └── audio/         音乐及音效
-│   ├── packs/             预装书分发 JSON，受版本控制
+│   ├── packs/             可选离线内容包 JSON，受版本控制
+│   ├── content_manifest.json  离线内容的世界书归属清单，受版本控制
 │   ├── <book_id>.json     用户书及已安装副本，本地数据
-│   ├── settings.json      默认书设置，本地数据
-│   └── *.bak              预装刷新前的恢复副本，本地数据
+│   ├── settings.json      旧版本世界书设置，本地数据
+│   └── *.bak              旧版内容刷新前的恢复副本，本地数据
 ├── memory/                运行时创建的会话、向量记忆、战斗恢复（本地数据）
 └── archive/               迁移时按需创建，保留已下线 AI 构建缓存
 ```
 
 ## 管理与读取
 
-- `src/data_paths.py` 定义内容根目录和预装包位置。Document/Wiki/资产管理使用
+- `src/data_paths.py` 定义内容根目录和离线内容包位置。Document/Wiki/资产管理使用
   `categories.yaml`；角色、环境、剧情、卡牌、战斗加载器使用同一内容根目录。
 - 世界书工作台编辑书条目；节点图编辑关联剧情和战斗节点；资产与卡牌管理按
-  `worldbook_id` 展示归属。`content/` 是共享实体目录，不保证不同书的同名实体物理隔离。
+  `worldbook_id` 展示归属。仓库内的离线内容须显式安装相应内容包才可读取；
+  停用或删除书后，其角色、剧情、战斗数据和素材从运行时目录与直达 URL 隐藏。
+  分发源仍留在仓库，方便之后重新安装，不属于已安装的运行时内容。
 - Markdown 是结构化实体来源，书 JSON 是可独立编辑的注入内容；两者不会在编辑时自动互相覆盖。
-  `scripts/generate_builtin_worldbook.py` 显式生成预装包。升级预装包会按既有规则刷新已安装副本，
-  因此移动目录不自动重新生成包。
+  `scripts/generate_builtin_worldbook.py` 显式生成离线内容包，
+  `scripts/generate_content_manifest.py` 更新其资源归属清单；启动不自动安装或刷新已安装副本。
+  用户可在世界书工作台显式安装、删除或重装内容包，重装会覆盖该书当前安装副本。
 - `combat/nodes/*.json`、职业 `cards.json`、`combat/rules/*.json` 与 `combat/tiles/*.json`
   继续由引擎读取，不转换成自然语言世界书条目。战斗配置的唯一真相源不变。
-- `imports` 继续使用 `类别/文档ID`，例如 `classes/术师`，不写物理目录。
+- `imports` 继续使用 `类别/文档ID`，例如 `classes/向导`，不写物理目录。
 
 ## 从旧布局升级
 

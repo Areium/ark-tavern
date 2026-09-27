@@ -13,12 +13,21 @@ def test_sideview_session_routes_and_resume_summary():
     app = create_app()
     app.config.update(TESTING=True)
     client = app.test_client()
-    created = client.post("/api/sessions", json={"mode": "free", "combat_mode": "sideview"})
+    created = client.post("/api/sessions", json={
+        "mode": "free", "combat_mode": "sideview", "identity": "临光",
+    })
     assert created.status_code == 201
     session_id = created.get_json()["id"]
     base = f"/api/sessions/{session_id}"
     try:
         assert client.post(f"{base}/characters/load", json={"character": "临光"}).status_code == 200
+        missing_encounter = client.post(f"{base}/sideview/start", json={})
+        assert missing_encounter.status_code == 400
+        assert "encounter_id" in missing_encounter.get_json()["error"]
+
+        hidden_encounter = client.post(f"{base}/sideview/start", json={"encounter_id": "enc_not_installed"})
+        assert hidden_encounter.status_code == 404
+
         started = client.post(f"{base}/sideview/start", json={"encounter_id": "enc_quick_test_1"})
         assert started.status_code == 200, started.get_json()
         state = started.get_json()["state"]

@@ -28,6 +28,7 @@ import re
 from pathlib import Path
 
 from data_paths import CONTENT_ROOT
+from content_scope import is_content_visible
 
 from combat_map import MapError, resolve_map
 from shared.json_hash import compute_json_hash
@@ -37,6 +38,16 @@ logger = logging.getLogger(__name__)
 NODE_DIR = CONTENT_ROOT / "combat" / "nodes"
 TILES_DIR = CONTENT_ROOT / "combat" / "tiles"
 PLOT_DIR = CONTENT_ROOT / "plots"
+_DEFAULT_NODE_DIR = NODE_DIR
+_DEFAULT_PLOT_DIR = PLOT_DIR
+
+
+def _visible(path: Path) -> bool:
+    """Use the manifest for runtime content, not isolated test registries."""
+    if ((NODE_DIR != _DEFAULT_NODE_DIR and path.is_relative_to(NODE_DIR))
+            or (PLOT_DIR != _DEFAULT_PLOT_DIR and path.is_relative_to(PLOT_DIR))):
+        return True
+    return is_content_visible(path)
 
 TEMPLATE_STEM = "TEMPLATE_node"
 
@@ -73,13 +84,14 @@ def node_path(node_id: str) -> Path:
 
 
 def node_exists(node_id: str) -> bool:
-    return node_path(node_id).is_file()
+    path = node_path(node_id)
+    return path.is_file() and _visible(path)
 
 
 def load_node_file(node_id: str) -> dict | None:
     """直接读节点文件（不经过 loader 的别名索引，编辑器保存前校验用）。"""
     path = node_path(node_id)
-    if not path.is_file():
+    if not path.is_file() or not _visible(path):
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -93,7 +105,7 @@ def list_node_files() -> list[Path]:
     if not NODE_DIR.is_dir():
         return []
     return sorted(p for p in NODE_DIR.glob("*.json")
-                  if not p.stem.upper().startswith("TEMPLATE"))
+                  if not p.stem.upper().startswith("TEMPLATE") and _visible(p))
 
 
 def template_data() -> dict:
@@ -275,6 +287,8 @@ def save_node(data: dict, expected_hash: str = "",
         raise NodeError(report["errors"])
 
     path = node_path(node_id)
+    if path.is_file() and not _visible(path):
+        raise NodeError("节点所属世界书未安装或已停用")
     if path.is_file():
         current = json.loads(path.read_text(encoding="utf-8"))
         current_hash = str(current.get("_hash") or "")
@@ -304,7 +318,7 @@ def create_node(node_id: str, name: str = "", *, from_template: bool = True,
         raise NodeError("缺少 node_id")
     if not re.fullmatch(r"[A-Za-z0-9_\u4e00-\u9fff-]{1,64}", node_id):
         raise NodeError(f"node_id '{node_id}' 含非法字符（允许中英文/数字/下划线/连字符）")
-    if node_exists(node_id):
+    if node_path(node_id).is_file():
         raise NodeError(f"节点已存在: {node_id}")
     data = template_data() if from_template else {}
     data.update({"node_id": node_id, "name": name or node_id,
@@ -324,7 +338,7 @@ def delete_node(node_id: str, *, force: bool = False,
                 bindings: dict | None = None) -> dict:
     """删除节点。被剧情节拍引用时默认拒绝（避免剧情打不开战斗）。"""
     path = node_path(node_id)
-    if not path.is_file():
+    if not path.is_file() or not _visible(path):
         raise NodeError(f"节点不存在: {node_id}")
     refs = (bindings or node_bindings()).get(node_id, [])
     if refs and not force:
@@ -343,6 +357,8 @@ def node_bindings() -> dict[str, list[dict]]:
     if not PLOT_DIR.is_dir():
         return bindings
     for path in sorted(PLOT_DIR.glob("*/index.md")):
+        if not _visible(path):
+            continue
         plot_id = path.parent.name
         chapter_id = ""
         beat_id = ""
@@ -528,6 +544,8 @@ def plot_flows(book_mgr=None) -> list[dict]:
     if not PLOT_DIR.is_dir():
         return flows
     for path in sorted(PLOT_DIR.glob("*/index.md")):
+        if not _visible(path):
+            continue
         plot_id = path.parent.name
         try:
             md = frontmatter.load(path)

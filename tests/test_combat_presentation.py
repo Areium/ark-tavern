@@ -55,7 +55,7 @@ def test_suspended_stream_exits_without_draining():
 
 
 def test_practice_batches_are_scoped_and_match_sse_queue(client):
-    started = client.post("/api/combat/test/start", json={"node_id": "enc_training"})
+    started = client.post("/api/combat/test/start", json={"node_id": "enc_training", "characters": ["临光"]})
     assert started.status_code == 200, started.get_json()
     test_id = started.get_json()["test_id"]
     combat = client.application._managers["combat_test"].get(test_id)
@@ -88,7 +88,7 @@ def test_practice_batches_are_scoped_and_match_sse_queue(client):
 
 
 def test_legacy_and_presentation_route_shapes(client):
-    started = client.post("/api/combat/test/start", json={"node_id": "enc_training"})
+    started = client.post("/api/combat/test/start", json={"node_id": "enc_training", "characters": ["临光"]})
     test_id = started.get_json()["test_id"]
     base = f"/api/combat/test/{test_id}"
     try:

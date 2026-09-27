@@ -1,8 +1,8 @@
 {
-  "name": "arknights-tavern",
+  "name": "ark-tavern",
   "version": "0.1.0",
   "private": true,
-  "description": "Arknights Tavern - Electron Frontend",
+  "description": "Ark Tavern - LLM story and game interaction platform",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -38,7 +38,7 @@
   },
   "build": {
     "appId": "com.arknights-tavern.app",
-    "productName": "Arknights Tavern",
+    "productName": "Ark Tavern",
     "directories": {
       "output": "release"
     },

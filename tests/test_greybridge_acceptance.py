@@ -14,7 +14,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from story_audit_support import candidate_app, create_story, scripted_round  # noqa: E402
+from story_audit_support import candidate_app, scripted_round  # noqa: E402
 
 
 class KnownProductGap(AssertionError):
@@ -27,9 +27,29 @@ def require_acceptance(condition, detail):
 
 
 @pytest.fixture
-def ctx():
+def ctx(monkeypatch):
     with candidate_app() as value:
+        from combat_data_loader import is_content_visible as content_visible
+        import combat_data_loader
+
+        # candidate_app copies authored content into an isolated root. Resolve
+        # node and enemy visibility against that root, not the live checkout.
+        content_base = value["root"] / "data/worldbooks/content"
+        monkeypatch.setattr(combat_data_loader, "is_content_visible",
+                            lambda path: content_visible(path, content_base=content_base))
         yield value
+
+
+def create_story(ctx, *, combat_mode="narrative", roster=None, worldbook_id=""):
+    """Create the candidate story with its authored player identity explicitly."""
+    response = ctx["client"].post("/api/sessions", json={
+        "name": "灰桥回声·隔离验收", "mode": "story", "combat_mode": combat_mode,
+        "plot_id": ctx["manifest"]["plot_id"], "worldbook_id": worldbook_id,
+        "identity": "博士",
+        "roster_character_ids": ctx["manifest"]["roster"] if roster is None else roster,
+    })
+    assert response.status_code == 201, response.get_json()
+    return ctx["app"]._managers["session"].get_session(response.get_json()["id"])
 
 
 def play(ctx, session, **payload):

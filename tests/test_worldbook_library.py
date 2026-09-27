@@ -509,19 +509,13 @@ def test_reference_cannot_bind_session(tmp_path):
     assert "资料库" in res.json["error"]
 
 
-def test_preinstalled_fallback_skips_reference(manager, monkeypatch, tmp_path):
-    """预装回退也必须排除资料库。"""
-    import world_book as module
-    fallback_dir = tmp_path / "docs"
-    fallback_dir.mkdir(exist_ok=True)
-    monkeypatch.setattr(module, "_WORLDBOOKS_DIR", fallback_dir)
-    other = WorldBookManager(fallback_dir)
-    book = other.create_book("兜底包")
-    book.source = module.SOURCE_PREINSTALLED
-    book.book_type = BOOK_TYPE_REFERENCE
-    other.save(book)
-    monkeypatch.setattr(module, "_PACK_FALLBACK_IDS", [book.id])
-    assert manager._fallback_preinstalled() is None
+def test_no_implicit_default_even_with_installed_story(manager):
+    """已有剧情书也不能被自动选为无绑定会话的世界观。"""
+    book = manager.create_book("已安装剧情书")
+    manager.save(book)
+    assert manager.get_default_book_id() is None
+    with pytest.raises(ValueError, match="全局默认世界书已取消"):
+        manager.set_default_book_id(book.id)
 
 
 # ─────────────────────────────────────────────────────────────

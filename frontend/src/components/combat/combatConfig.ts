@@ -28,9 +28,7 @@ const config: Record<LayoutMode, Record<string, number>> = {
     cardHeight: 259,
     handFanMarginTop: -36,
     bottomBarMarginTop: -72,
-    // 敌方小人缩放系数（相对我方统一比例）。我方与敌方共用同一美术尺度，
-    // 但敌方模型（士兵/术师/兽类）本体比干员矮约 13%，故取 0.9 使
-    // 「敌方比我方略小」的观感与逐角色归一化时代保持一致。等比缩放，不改宽高比。
+    // 敌方单位相对我方的默认显示比例；等比缩放，不改宽高比。
     enemySpineScale: 0.9,
   },
   windowed: {

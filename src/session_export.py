@@ -25,6 +25,7 @@ import zipfile
 from pathlib import Path
 
 from data_paths import CONTENT_ROOT, MEMORY_ROOT, PROJECT_ROOT
+from content_scope import is_content_visible
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,8 @@ _REPO_ROOT = PROJECT_ROOT
 _SESSIONS_DIR = MEMORY_ROOT / "sessions"
 _CHARS_DIR = CONTENT_ROOT / "characters"
 _BG_ROOT = CONTENT_ROOT / "combat" / "backgrounds"
+_DEFAULT_CHARS_DIR = _CHARS_DIR
+_DEFAULT_BG_ROOT = _BG_ROOT
 
 _FORMAT_VERSION = 1
 _SNAPSHOT_EXTS = {".md", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
@@ -76,7 +79,7 @@ def _parse_dependency_names(session_dir: Path) -> dict:
 def _snapshot_character(name: str, snap_root: Path) -> None:
     """快照角色卡 + 基础形象媒体到 snap_root/characters/<name>/。"""
     src = _CHARS_DIR / name
-    if not src.is_dir():
+    if not src.is_dir() or (_CHARS_DIR == _DEFAULT_CHARS_DIR and not is_content_visible(src)):
         return
     dst = snap_root / "characters" / name
     dst.mkdir(parents=True, exist_ok=True)
@@ -95,7 +98,7 @@ def _snapshot_character(name: str, snap_root: Path) -> None:
 def _snapshot_background(bg_id: str, snap_root: Path) -> None:
     """快照全局背景目录到 snap_root/backgrounds/<bg_id>/。"""
     src = _BG_ROOT / bg_id
-    if not src.is_dir():
+    if not src.is_dir() or (_BG_ROOT == _DEFAULT_BG_ROOT and not is_content_visible(src)):
         return
     shutil.copytree(src, snap_root / "backgrounds" / bg_id)
 
@@ -114,7 +117,7 @@ def export_session_zip(session_dir: Path, session_meta: dict, out_path: Path) ->
             "mode": mode,
             "name": session_meta.get("name", ""),
             "combat_mode": session_meta.get("combat_mode", "narrative"),
-            "player_identity": session_meta.get("player_identity", "博士"),
+            "player_identity": session_meta.get("player_identity", "玩家"),
             "plot_id": session_meta.get("plot_id"),
         },
         "dependencies": {
@@ -186,6 +189,25 @@ def _restore_snapshots(snap_root: Path) -> dict:
         return stats
 
     chars_src = snap_root / "characters"
+    bgs_src = snap_root / "backgrounds"
+    # Check the whole archive before copying anything. A hidden bundled path
+    # must not silently win over an imported snapshot with the same ID.
+    for source_root, target_root, content_base, label in (
+        (chars_src, _CHARS_DIR, _CHARS_DIR.parent, "角色"),
+        (bgs_src, _BG_ROOT, _BG_ROOT.parent.parent, "背景"),
+    ):
+        if not source_root.is_dir():
+            continue
+        for item in source_root.iterdir():
+            if not item.is_dir() or not (item / "index.md").is_file():
+                continue
+            destination = target_root / item.name
+            if not is_content_visible(destination, content_base=content_base):
+                raise ValueError(
+                    f"存档{label}「{item.name}」与未启用的内容包资源冲突；"
+                    "请先安装并启用对应世界书，再导入存档"
+                )
+
     if chars_src.is_dir():
         for name in sorted(chars_src.iterdir()):
             if not name.is_dir() or not (name / "index.md").is_file():
@@ -197,7 +219,6 @@ def _restore_snapshots(snap_root: Path) -> dict:
             shutil.copytree(name, dst)
             stats["characters"] += 1
 
-    bgs_src = snap_root / "backgrounds"
     if bgs_src.is_dir():
         for bg in sorted(bgs_src.iterdir()):
             if not bg.is_dir() or not (bg / "index.md").is_file():

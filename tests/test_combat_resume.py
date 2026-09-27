@@ -74,7 +74,7 @@ def _diff(a, b, path="") -> list[str]:
 # ── 战斗测试（无会话）──
 
 def test_test_battle_suspend_resume_round_trip(client):
-    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID})
+    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID, "characters": ["临光"]})
     assert start.status_code == 200, start.get_json()
     test_id = start.get_json()["test_id"]
     before = start.get_json()["state"]
@@ -122,7 +122,7 @@ def test_resume_without_snapshot_is_404(client):
 
 def test_resume_twice_returns_in_memory_state(client):
     """第二次恢复不重建：战斗已在内存，直接返回当前态势（resumed=False）。"""
-    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID})
+    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID, "characters": ["临光"]})
     test_id = start.get_json()["test_id"]
     clear_resume(_test_resume_path(test_id))
 
@@ -136,7 +136,7 @@ def test_resume_twice_returns_in_memory_state(client):
 
 
 def test_discard_suspend_removes_entry(client):
-    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID})
+    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID, "characters": ["临光"]})
     test_id = start.get_json()["test_id"]
     clear_resume(_test_resume_path(test_id))
 
@@ -149,7 +149,7 @@ def test_discard_suspend_removes_entry(client):
 
 
 def test_resumes_list_reports_suspended_tests(client):
-    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID})
+    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID, "characters": ["临光"]})
     test_id = start.get_json()["test_id"]
     clear_resume(_test_resume_path(test_id))
     client.post(f"/api/combat/test/{test_id}/suspend")

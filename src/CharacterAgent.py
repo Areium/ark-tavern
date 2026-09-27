@@ -7,7 +7,9 @@ import re
 import frontmatter
 import yaml
 
+import data_paths
 from data_paths import CONTENT_ROOT
+from content_scope import is_content_visible
 from memory import VectorMemory, resolve_embed_fn
 
 logger = logging.getLogger(__name__)
@@ -59,7 +61,8 @@ class CharacterAgent:
 
         # 查找实体文件夹（{name}/index.md）
         entity_path = os.path.join(chars_dir, character_name, "index.md")
-        if os.path.isfile(entity_path):
+        if (os.path.isfile(entity_path)
+                and (CONTENT_ROOT != data_paths.CONTENT_ROOT or is_content_visible(entity_path))):
             file_path = entity_path
         else:
             logger.warning("角色文件未找到: %s", character_name)
@@ -154,9 +157,9 @@ class CharacterAgent:
         memory_context = self.memory.build_context(user_input)
 
         player_section = ""
-        identity = "博士"
+        identity = "玩家"
         if player_info:
-            identity = player_info.get("identity", "博士")
+            identity = player_info.get("identity", "玩家")
             player_section = f"\n当前玩家身份: {identity}\n"
             try:
                 from player_profile import load_player_profile

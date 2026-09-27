@@ -21,7 +21,7 @@ import { combatCues, projectCombatEvent, CombatEventLedger, presentationDelay, t
 import "./combatPlayback.css";
 import { getCombatConfig, shortcutKeyToIndex, type LayoutMode } from "./combatConfig";
 
-const DEFAULT_ENCOUNTER = "初遇整合运动";
+const DEFAULT_ENCOUNTER = "";
 
 const INTENT_BADGE: Record<string, { icon: string; cls: string }> = {
   attack: { icon: "⚔", cls: "bg-red-950/85 text-red-200 border-red-700" },
@@ -107,6 +107,11 @@ export default function CombatView() {
   const [sessionRoster, setSessionRoster] = useState<string[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [encounterId, setEncounterId] = useState(DEFAULT_ENCOUNTER);
+  const [practiceCharacters, setPracticeCharacters] = useState<string[]>([]);
+  const [practiceRoster, setPracticeRoster] = useState<string[]>([]);
+  const [practiceRosterLoading, setPracticeRosterLoading] = useState(false);
+  const [practiceRosterError, setPracticeRosterError] = useState<string | null>(null);
+  const [rosterRetry, setRosterRetry] = useState(0);
   // 战斗节点目录（含地图尺寸与剧情节拍绑定），供战前选择
   const [combatNodes, setCombatNodes] = useState<BattleNodeOverviewDTO[]>([]);
 
@@ -118,7 +123,7 @@ export default function CombatView() {
         const nodes = res.nodes || [];
         setCombatNodes(nodes);
         setEncounterId((prev) =>
-          nodes.some((n) => n.node_id === prev) ? prev : (nodes[0]?.node_id ?? prev));
+          nodes.some((n) => n.node_id === prev) ? prev : "");
       },
       () => { /* 后端不可用时保留自由输入 */ },
     );
@@ -406,6 +411,18 @@ export default function CombatView() {
   }, [fetchState, reducedMotion, renderCombatEvent, requestSettlement, setCombatContext]);
 
   useEffect(() => {
+    if (sessionId) return;
+    let cancelled = false;
+    setPracticeRosterLoading(true);
+    setPracticeRosterError(null);
+    api.listCharactersWithCards().then(res => {
+      if (!cancelled) setPracticeCharacters(res.characters || []);
+    }).catch(e => {
+      if (!cancelled) setPracticeRosterError(`角色读取失败：${e.message || "请检查后端连接"}`);
+    }).finally(() => { if (!cancelled) setPracticeRosterLoading(false); });
+    return () => { cancelled = true; };
+  }, [api, sessionId, rosterRetry]);
+  useEffect(() => {
     playbackAbort.current = new AbortController();
     eventLedger.current.clear();
     presentationBusy.current = false;
@@ -568,10 +585,11 @@ export default function CombatView() {
   }, [startCombat]);
 
   const handleStartTestBattle = useCallback(async () => {
+    if (!encounterId.trim() || practiceRoster.length === 0) return;
     setLoading(true);
     setError(null);
     try {
-      const result = await api.combatTestStart(encounterId);
+      const result = await api.combatTestStart(encounterId, practiceRoster);
       setCombatContext({ state: result.state as CombatStateDTO, testId: result.test_id });
       setEvents([]);
       setResult(null);
@@ -581,7 +599,7 @@ export default function CombatView() {
     } finally {
       setLoading(false);
     }
-  }, [encounterId, api, setCombatContext]);
+  }, [encounterId, practiceRoster, api, setCombatContext]);
 
   // Active unit (engine's current turn)
   const activeUnit = combatState?.units.find((u) => u.unit_id === combatState.active_unit_id) ?? null;
@@ -1107,7 +1125,7 @@ export default function CombatView() {
   const handleUseItem = useCallback(async (itemName: string) => {
     if (presentationBusy.current) return;
     if (!selectedUnit || selectedUnit.team !== "player") {
-      setError("请先选中要使用道具的干员");
+      setError("请先选中要使用道具的角色");
       return;
     }
     if (!effectiveId) return;
@@ -1349,7 +1367,7 @@ export default function CombatView() {
 
           {!sessionId && (
             <p className="text-sm text-combat-gold/80 mb-3">
-              选择战斗节点后直接试打；演练不会改变会话进度。
+              选择战斗节点与参战角色后试打；演练不会改变会话进度。
             </p>
           )}
 
@@ -1360,13 +1378,16 @@ export default function CombatView() {
             </div>
           )}
 
-          <label className="block text-xs text-gray-500 mb-1 font-display tracking-wider">战斗节点</label>
+          <label htmlFor="combat-node" className="block text-xs text-gray-400 mb-1 font-display tracking-wider">战斗节点</label>
           {combatNodes.length > 0 ? (
             <select
               className="w-full bg-surface-dark border border-combat-border rounded-lg px-3 py-2 text-sm text-gray-200 mb-2 focus:border-combat-player transition-colors"
+              id="combat-node"
+              aria-label="战斗节点"
               value={encounterId}
               onChange={(e) => setEncounterId(e.target.value)}
             >
+              <option value="">请选择战斗节点</option>
               {combatNodes.map((n) => (
                 <option key={n.node_id} value={n.node_id}>
                   {n.name}（{n.rows}×{n.cols}，{n.unit_total} 敌）
@@ -1376,6 +1397,8 @@ export default function CombatView() {
           ) : (
             <input
               className="w-full bg-surface-dark border border-combat-border rounded-lg px-3 py-2 text-sm text-gray-200 mb-2 focus:border-combat-player transition-colors"
+              id="combat-node"
+              aria-label="战斗节点"
               value={encounterId}
               onChange={(e) => setEncounterId(e.target.value)}
             />
@@ -1421,7 +1444,7 @@ export default function CombatView() {
             <button
               className="w-full py-2.5 bg-cyan-900 hover:bg-cyan-800 text-cyan-200 rounded-lg text-sm font-medium transition-all disabled:opacity-40 mb-3 border border-cyan-800/50"
               onClick={handleStartBattle}
-              disabled={sessionRoster.length === 0 || loading}
+              disabled={sessionRoster.length === 0 || !encounterId.trim() || loading}
             >
               {loading ? "启动中..." : "开始战斗"}
             </button>
@@ -1467,11 +1490,23 @@ export default function CombatView() {
           )}
 
           {!sessionId && <div className="border-t border-combat-divider pt-3 mt-1">
-            <p className="text-xs text-gray-400 mb-2">使用内置参战角色，敌人与地形取自所选节点。</p>
+            <fieldset className="mb-4" disabled={loading || practiceRosterLoading}>
+              <legend className="text-xs text-gray-300 mb-2">参战角色</legend>
+              {practiceRosterLoading ? <p role="status" className="text-xs text-gray-400">正在读取角色…</p>
+                : practiceRosterError ? <div role="alert" className="text-xs text-red-300">{practiceRosterError}<button type="button" className="ml-2 underline" onClick={() => setRosterRetry(v => v + 1)}>重试</button></div>
+                : practiceCharacters.length === 0 ? <p className="text-xs text-gray-300">暂无可参战角色。请在角色库导入角色并配置卡牌后返回。</p>
+                : <div className="flex max-h-48 flex-wrap gap-2 overflow-y-auto pr-1">{practiceCharacters.map(name => (
+                  <label key={name} className="inline-flex items-center gap-2 rounded-lg border border-combat-border px-3 py-2 text-sm text-gray-200 cursor-pointer hover:bg-surface-hover">
+                    <input type="checkbox" checked={practiceRoster.includes(name)} onChange={e => setPracticeRoster(current => e.target.checked ? [...current, name] : current.filter(item => item !== name))} />
+                    {name}
+                  </label>
+                ))}</div>}
+            </fieldset>
+            {!encounterId && <p className="text-xs text-gray-300 mb-2">请选择战斗节点；若尚未导入，可在世界书节点图中创建。</p>}
             <button
               className="w-full py-2.5 bg-emerald-900/60 hover:bg-emerald-800/60 text-emerald-200 rounded-lg text-sm font-medium transition-all disabled:opacity-40 border border-emerald-800/50"
               onClick={handleStartTestBattle}
-              disabled={loading}
+              disabled={loading || practiceRosterLoading || !!practiceRosterError || !encounterId.trim() || practiceRoster.length === 0}
             >
               {loading ? "启动中..." : "开始回合战术演练"}
             </button>

@@ -28,6 +28,7 @@ from combat_engine.engine import CombatEngine, CombatEvent
 from combat_data_loader import CombatDataLoader, apply_enemy_overrides
 from combat_rules import band_scaling, difficulty_rules
 from data_paths import CONTENT_ROOT
+from content_scope import is_content_visible
 
 logger = logging.getLogger(__name__)
 
@@ -308,7 +309,7 @@ class CombatSession:
         """Load a character's YAML frontmatter from data/characters/<name>/index.md."""
         import frontmatter
         path = CONTENT_ROOT / "characters" / name / "index.md"
-        if not path.exists():
+        if not path.is_file() or not is_content_visible(path, content_base=CONTENT_ROOT):
             logger.warning("Character file not found: %s", path)
             return None
         try:
@@ -511,9 +512,9 @@ class CombatSession:
         target = self.engine.units.get(target_id)
         if not target or not target.is_alive:
             return {"ok": False, "error": "目标无效"}
-        # 消耗品只能作用于我方干员（不能给敌方回血/加护盾）
+        # 消耗品只能作用于我方角色（不能给敌方回血/加护盾）
         if target.team != "player":
-            return {"ok": False, "error": "物品只能对我方干员使用"}
+            return {"ok": False, "error": "物品只能对我方角色使用"}
 
         # 使用物品消耗 1 点共享 AP
         if self.engine.shared_ap < 1:

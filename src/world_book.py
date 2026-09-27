@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from data_paths import PACKS_ROOT, WORLDBOOKS_ROOT
+from data_paths import CONTENT_ROOT, PACKS_ROOT, WORLDBOOKS_ROOT
 from worldbook_scope import (
     EXTENSION_KEY, UNCLASSIFIED, validate_categories, validate_policy,
     expand_sources, find_scope_extension,
@@ -50,17 +50,16 @@ from worldbook_classify import classify_entries, needs_classification
 from character_stats import normalize_stat_fields
 from worldbook_media import (
     copied_character_id, materialize_character, normalize_character_media,
-    normalize_character_profiles, snapshot_character_media, snapshot_character_profile,
+    normalize_character_profiles, owned_materialized_character_root,
+    snapshot_character_media, snapshot_character_profile,
 )
 
 logger = logging.getLogger(__name__)
 
 _WORLDBOOKS_DIR = WORLDBOOKS_ROOT
 
-# 整合包分发源（随程序分发，git 跟踪）：首次启动自动安装到 _WORLDBOOKS_DIR
+# 可选内容包分发源（随程序分发，git 跟踪）；只在用户显式导入时安装。
 _PACKS_DIR = PACKS_ROOT
-# 未显式配置全局默认书时，按此顺序回退到已安装且启用的预装包（无则跳过）
-_PACK_FALLBACK_IDS = ["arknights"]
 
 # 旧安装副本刷新前的留存后缀：`<id>.json.pre-refresh.bak`
 # （不以 .json 结尾，避免被 list_books 当成一本书；去掉后缀即可还原）
@@ -1816,7 +1815,7 @@ class WorldBook:
 
     # ── 格式化 ──
 
-    def format_injection(self, entries: list[WorldBookEntry], identity: str = "博士",
+    def format_injection(self, entries: list[WorldBookEntry], identity: str = "玩家",
                          active_char: Optional[str] = None,
                          trace: list = None) -> tuple[str, str]:
         """格式化注入文本。
@@ -1871,7 +1870,7 @@ class WorldBook:
 
     # ── 只读 Prompt 预览（A-2 / §3.2）──
 
-    def preview_all_entries(self, *, mode="narrative", identity="博士", active_char=None,
+    def preview_all_entries(self, *, mode="narrative", identity="玩家", active_char=None,
                             excluded_entry_uids=None) -> dict:
         """只读全书预览：按既有注入顺序格式化全部启用条目。
 
@@ -1950,7 +1949,7 @@ class WorldBook:
 
     def preview_prompt_injection(self, *, mode="narrative", input_text="", recent_text="",
                                  roster_character_ids=None, manual_entry_uids=None,
-                                 full_scope=False, identity="博士", active_char=None,
+                                 full_scope=False, identity="玩家", active_char=None,
                                  seed=0, lore_scope=None) -> dict:
         """只读预览：这一轮**真正会插进提示词**的文本、顺序、位置与未插入原因。
 
@@ -2402,8 +2401,8 @@ class WorldBookManager:
     """世界书存储管理器：统一管理 data/worldbooks/（全部可写）。
 
     整合包（Content Pack）机制：
-    - data/packs/<id>.json 为随程序分发的整合包（git 跟踪，分发源）。
-    - 首次启动自动安装：把分发源复制到 data/worldbooks/<id>.json（source=preinstalled），
+    - data/worldbooks/packs/<id>.json 是可选分发源，启动不安装。
+    - 用户显式安装后复制到 data/worldbooks/<id>.json（source=preinstalled），
       与用户导入的书在同一列表、同一套规则下管理（启用/停用、编辑、删除、重装）。
     - 预装包被删除后，可通过 reinstall_book() 从分发源一键重装还原。
 
@@ -2418,9 +2417,7 @@ class WorldBookManager:
         # 按书锁：覆盖「读修订 → 校验 → 提交」整段，避免原子替换仍然丢更新。
         self._book_locks: dict[str, threading.RLock] = {}
         self._locks_guard = threading.Lock()
-        # 仅默认数据目录自动安装整合包（自定义目录用于测试/隔离，不注入预装内容）
-        if data_dir is None:
-            self._ensure_packs_installed()
+        # 分发包是可选导入源；启动时不安装任何世界观内容。
 
     def book_lock(self, book_id: str) -> threading.RLock:
         """取这本书的写锁（可重入）。同一本书的读-改-写必须整体持锁。"""
@@ -2434,7 +2431,7 @@ class WorldBookManager:
     # ── 整合包安装 ──
 
     def _ensure_packs_installed(self):
-        """启动时把 data/packs/ 下的整合包安装/刷新到 data/worldbooks/。
+        """旧版内容包批量升级辅助方法；普通启动流程不调用。
 
         按内容指纹（`pack_rev`）判断版本，而不是「存在就跳过」：
 
@@ -2519,10 +2516,15 @@ class WorldBookManager:
 
     def _path(self, book_id: str) -> Path:
         """统一存储路径（预装包安装副本与导入书同目录）。"""
+        if (not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", book_id)
+                or book_id in {"settings", "content_manifest"}):
+            raise ValueError("非法世界书 ID")
         return self._dir / f"{book_id}.json"
 
     def _pack_path(self, book_id: str) -> Path:
         """整合包分发源路径。"""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", book_id):
+            raise ValueError("非法世界书 ID")
         return self._packs_dir / f"{book_id}.json"
 
     def _settings_path(self) -> Path:
@@ -2566,7 +2568,7 @@ class WorldBookManager:
         imported = []
         for path in sorted(self._dir.glob("*.json"),
                            key=lambda p: p.stat().st_mtime, reverse=True):
-            if path.name == "settings.json":
+            if path.name in {"settings.json", "content_manifest.json"}:
                 continue
             try:
                 book = self.load(path.stem)
@@ -2608,11 +2610,12 @@ class WorldBookManager:
         }
 
     def load(self, book_id: str) -> Optional[WorldBook]:
-        if book_id in self._cache:
-            return self._cache[book_id]
         path = self._path(book_id)
         if not path.is_file():
+            self._cache.pop(book_id, None)
             return None
+        if book_id in self._cache:
+            return self._cache[book_id]
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         book = WorldBook.from_dict(data)
@@ -2810,20 +2813,82 @@ class WorldBookManager:
         logger.info("已重装预装整合包: %s (%s)", book.name, book_id)
         return book
 
+    def list_available_packs(self) -> list[dict]:
+        """列出可显式安装的离线内容包，不读取或修改安装副本。"""
+        result = []
+        if not self._packs_dir.is_dir():
+            return result
+        for path in sorted(self._packs_dir.glob("*.json")):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                logger.warning("忽略无法解析的内容包 %s", path.name)
+                continue
+            if not isinstance(data, dict) or data.get("id") != path.stem:
+                continue
+            result.append({"id": path.stem, "name": data.get("name", path.stem),
+                           "description": data.get("description", ""),
+                           "book_type": data.get("book_type", DEFAULT_BOOK_TYPE),
+                           "entry_count": len(data.get("entries") or []),
+                           "installed": self._path(path.stem).is_file()})
+        return result
+
+    def install_pack(self, book_id: str) -> WorldBook:
+        """显式安装尚未安装的内容包；不覆盖同名用户书或旧副本。"""
+        if self._path(book_id).exists():
+            raise ValueError("世界书已经安装；如需恢复出厂内容请使用重装")
+        return self.reinstall_book(book_id)
+
     def delete_book(self, book_id: str) -> bool:
-        """统一删除（预装包删除后可通过「重装」从分发源还原）。"""
+        """卸载书及其私有角色副本；分发源仍可供再次导入。"""
         book = self.load(book_id)
         if book is None:
             return False
-        if self.get_default_book_id() == book_id:
-            self.set_default_book_id(None)
-        self._cache.pop(book_id, None)
         path = self._path(book_id)
-        if path.is_file():
+        if not path.is_file():
+            return False
+        owned = [root for character_id in book.character_profiles
+                 if (root := owned_materialized_character_root(character_id, book_id))]
+        owned_ids = {root.name for root in owned}
+        if owned_ids:
+            for other_path in self._dir.glob("*.json"):
+                if other_path.stem in ("settings", "content_manifest", book_id):
+                    continue
+                other = self.load(other_path.stem)
+                if other and (owned_ids.intersection(other.character_profiles)
+                              or any(entry.character_id in owned_ids for entry in other.entries)):
+                    raise ValueError(f"角色副本仍被世界书「{other.name}」引用，请先处理该引用")
+        characters_dir = (CONTENT_ROOT / "characters").resolve()
+        # Keep staged files outside the public content tree even if cleanup fails.
+        staging = self._dir / f".uninstall-{book_id}-{uuid.uuid4().hex[:8]}"
+        if not staging.resolve().is_relative_to(self._dir.resolve()):
+            raise ValueError("资源卸载路径无效")
+        moved: list[tuple[Path, Path]] = []
+        try:
+            if owned:
+                staging.mkdir()
+                for root in owned:
+                    target = staging / root.name
+                    if (not root.resolve().is_relative_to(characters_dir)
+                            or not target.resolve().is_relative_to(staging)):
+                        raise ValueError("角色资源路径无效")
+                    root.rename(target)
+                    moved.append((root, target))
             path.unlink()
-            logger.info("已删除世界书: %s", book_id)
-            return True
-        return False
+        except Exception:
+            for root, target in reversed(moved):
+                target.rename(root)
+            if staging.exists():
+                staging.rmdir()
+            raise
+        self._cache.pop(book_id, None)
+        if staging.exists():
+            try:
+                shutil.rmtree(staging)
+            except OSError:
+                logger.exception("世界书已卸载，私有角色清理待重试: %s", staging)
+        logger.info("已删除世界书: %s", book_id)
+        return True
 
     # ── 检索 ──
 
@@ -2845,7 +2910,7 @@ class WorldBookManager:
         paths = sorted(self._dir.glob("*.json"),
                        key=lambda p: p.stat().st_mtime, reverse=True)
         for path in paths:
-            if path.name == "settings.json":
+            if path.name in {"settings.json", "content_manifest.json"}:
                 continue
             try:
                 book = self.load(path.stem)
@@ -3003,7 +3068,7 @@ class WorldBookManager:
     # ── 会话绑定解析 ──
 
     def resolve(self, overlay=None) -> Optional[WorldBook]:
-        """解析会话当前生效的世界书：会话绑定 > 全局默认书 > 已安装且启用的预装包。
+        """解析会话明确绑定、已安装且启用的剧情世界书。
 
         **资料库（book_type=reference）在这里被无条件排除**，无论它是不是默认书、
         有没有被会话绑定、或者是不是预装包 —— 资料库只供浏览、检索与摘录。
@@ -3045,12 +3110,4 @@ class WorldBookManager:
                     image = images.get("skin") or images.get("avatar")
                 if image:
                     return image
-        return None
-
-    def _fallback_preinstalled(self) -> Optional[WorldBook]:
-        for bid in _PACK_FALLBACK_IDS:
-            book = self.load(bid)
-            if (book is not None and book.source == SOURCE_PREINSTALLED
-                    and book.enabled and not book.is_reference):
-                return book
         return None

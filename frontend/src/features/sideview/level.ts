@@ -3,7 +3,7 @@ import type { SideviewLevel, SimulationLevel, SideviewOperator } from './types';
 /** Ledges up to this thickness default to one-way; authored `oneWay` overrides. */
 export const ONE_WAY_MAX_HEIGHT = 32;
 
-export const DEMO_OPERATOR: SideviewOperator = { name: '临光', maxHp: 120, attack: 26, skillPower: 65 };
+export const DEMO_OPERATOR: SideviewOperator = { name: '旅者', maxHp: 120, attack: 26, skillPower: 65 };
 const demo: SimulationLevel = {
   id: 'outskirts-01', name: '废城边界 · 雨幕行动', worldWidth: 3400, worldHeight: 680,
   spawn: { x: 110, y: 490 },

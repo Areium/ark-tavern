@@ -20,7 +20,7 @@ def client():
 
 @pytest.fixture(scope="module")
 def test_id(client):
-    res = client.post("/api/combat/test/start", json={"node_id": "enc_training"})
+    res = client.post("/api/combat/test/start", json={"node_id": "enc_training", "characters": ["临光"]})
     assert res.status_code == 200, res.get_json()
     body = res.get_json()
     yield body["test_id"]
@@ -83,8 +83,18 @@ def test_units_block_and_walls_reject_illegal_move(client, test_id):
 
 
 def test_unknown_node_returns_404(client):
-    res = client.post("/api/combat/test/start", json={"node_id": "enc_not_exists"})
+    res = client.post("/api/combat/test/start", json={"node_id": "enc_not_exists", "characters": ["临光"]})
     assert res.status_code == 404
+
+
+def test_practice_requires_node_and_selected_characters(client):
+    missing_node = client.post("/api/combat/test/start", json={"characters": ["临光"]})
+    assert missing_node.status_code == 400
+    assert "战斗节点" in missing_node.get_json()["error"]
+
+    missing_characters = client.post("/api/combat/test/start", json={"node_id": "enc_training"})
+    assert missing_characters.status_code == 400
+    assert "参战角色" in missing_characters.get_json()["error"]
 
 
 def test_unknown_selected_unit_returns_empty_moves(client, test_id):

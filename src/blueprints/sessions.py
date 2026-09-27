@@ -11,6 +11,8 @@ import copy
 from pathlib import Path
 
 from data_paths import PROJECT_ROOT, content_root, memory_root
+from content_scope import is_content_visible
+from constants import DEFAULT_PLAYER_IDENTITY
 from urllib.parse import quote
 
 import frontmatter
@@ -118,6 +120,10 @@ def register(app, managers):
         plot_name = ""
         if plot_id and mode == "story":
             from session_overlay import _resolve_plot_dir, _read_plot_file
+            resolved = _resolve_plot_dir(plot_id) or plot_id
+            plot_dir = content_root(_REPO_ROOT) / "plots" / resolved
+            if not is_content_visible(plot_dir, project_root=_REPO_ROOT):
+                return json_error("剧情不存在或不可用", 404)
             result = _read_plot_file(plot_id)
             if result:
                 plot_name = result[0].get("name", "")
@@ -128,13 +134,16 @@ def register(app, managers):
         # 主控角色（用户自身扮演的角色）：与角色入队合并为同一次选择。
         # 走该流程的客户端**总是**显式带上 identity；显式传空 = 明确没选 → 拒绝创建
         # （前端也会先拦一次，这里兜底，避免绕过 UI 建出没有主控的会话）。
-        # 完全不传该字段只留给不使用该流程的调用方（集成脚本 / 老测试），沿用默认「博士」。
+        # 完全不传该字段只留给不使用该流程的调用方（集成脚本 / 老测试），沿用默认「玩家」。
         if "identity" not in data:
-            player_identity = "博士"
+            player_identity = DEFAULT_PLAYER_IDENTITY
         else:
             player_identity = str(data.get("identity") or "").strip()
             if not player_identity:
                 return json_error("必须选择主控角色：identity 不能为空")
+        identity_path = content_root(_REPO_ROOT) / "characters" / player_identity / "index.md"
+        if not is_content_visible(identity_path, project_root=_REPO_ROOT):
+            return json_error("主控角色不存在或不可用", 404)
 
         raw_book_ids = data.get("worldbook_ids", [data.get("worldbook_id", "")])
         if (not isinstance(raw_book_ids, list) or
@@ -166,7 +175,8 @@ def register(app, managers):
             if plot_id and mode == "story":
                 from session_overlay import _resolve_plot_dir
                 resolved = _resolve_plot_dir(plot_id) or plot_id
-                if (content_root(_REPO_ROOT) / "plots" / resolved).is_dir():
+                plot_dir = content_root(_REPO_ROOT) / "plots" / resolved
+                if plot_dir.is_dir() and is_content_visible(plot_dir, project_root=_REPO_ROOT):
                     session.overlay.load_quests_from_plot(plot_id)
                     _load_plot_opening(session, plot_id, load_characters="roster_character_ids" not in data)
                     # 参考大纲：书里已生成的 LLM 大纲优先；剧情文件无节拍骨架时，
@@ -787,10 +797,10 @@ def register(app, managers):
 
         plots = []
         for entry in sorted(plots_dir.iterdir()):
-            if not entry.is_dir():
+            if not entry.is_dir() or not is_content_visible(entry, project_root=_REPO_ROOT):
                 continue
             md = entry / "index.md"
-            if not md.is_file():
+            if not md.is_file() or not is_content_visible(md, project_root=_REPO_ROOT):
                 continue
             try:
                 with open(md, "r", encoding="utf-8") as f:
@@ -819,10 +829,10 @@ def register(app, managers):
         identities = []
         if chars_dir.is_dir():
             for entry in sorted(chars_dir.iterdir()):
-                if not entry.is_dir():
+                if not entry.is_dir() or not is_content_visible(entry, project_root=_REPO_ROOT):
                     continue
                 md = entry / "index.md"
-                if not md.is_file():
+                if not md.is_file() or not is_content_visible(md, project_root=_REPO_ROOT):
                     continue
                 try:
                     with open(md, "r", encoding="utf-8") as f:
@@ -850,8 +860,12 @@ def register(app, managers):
         metadata.setdefault("name", name)
 
         char_dir = content_root(_REPO_ROOT) / "characters" / name
+        if not is_content_visible(char_dir, project_root=_REPO_ROOT):
+            return json_error("玩家身份不可用", 404)
         char_dir.mkdir(parents=True, exist_ok=True)
         md_path = char_dir / "index.md"
+        if not is_content_visible(md_path, project_root=_REPO_ROOT):
+            return json_error("玩家身份不可用", 404)
 
         # 合并现有 frontmatter（保留用户未传字段）
         if md_path.is_file():
@@ -888,12 +902,9 @@ def register(app, managers):
         """删除玩家身份角色目录（仅当 player_identity=true 时允许）。"""
         if not is_safe_entity_name(name):
             return json_error("非法的玩家身份名称", 400)
-        if name == "博士":
-            return json_error("不能删除默认身份「博士」", 400)
-
         char_dir = content_root(_REPO_ROOT) / "characters" / name
         md_path = char_dir / "index.md"
-        if not md_path.is_file():
+        if not md_path.is_file() or not is_content_visible(md_path, project_root=_REPO_ROOT):
             return json_error("玩家身份不存在", 404)
 
         try:
@@ -921,7 +932,10 @@ def register(app, managers):
         if not session:
             return json_error("会话不存在", 404)
         data = request.json or {}
-        identity = str(data.get("identity", "") or "").strip() or "博士"
+        identity = str(data.get("identity", "") or "").strip() or DEFAULT_PLAYER_IDENTITY
+        identity_path = content_root(_REPO_ROOT) / "characters" / identity / "index.md"
+        if not is_content_visible(identity_path, project_root=_REPO_ROOT):
+            return json_error("玩家身份不可用", 404)
         ok = session_mgr.set_player_identity(session_id, identity)
         if not ok:
             return json_error("设置失败", 500)

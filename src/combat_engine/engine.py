@@ -46,11 +46,11 @@ ENEMY_CARD_CATALOG: dict[str, Card] = {
                        "physical", 6, 12, 0.6, "SINGLE", 3, 1, "basic", "any"),
     "enemy_barrage": Card("enemy_barrage", "连射", "快速连射",
                           "physical", 4, 8, 0.4, "SINGLE", 3, 2, "basic", "any"),
-    "enemy_bolt": Card("enemy_bolt", "能量弹", "发射源石能量弹",
+    "enemy_bolt": Card("enemy_bolt", "能量弹", "发射能量弹",
                        "arts", 5, 10, 0.5, "SINGLE", 3, 1, "basic", "any"),
     "enemy_storm": Card("enemy_storm", "法术风暴", "范围法术攻击",
                         "arts", 4, 8, 0.4, "ADJACENT", 2, 2, "basic", "any"),
-    "enemy_blast": Card("enemy_blast", "法术冲击", "高密度源石能量",
+    "enemy_blast": Card("enemy_blast", "法术冲击", "高密度能量冲击",
                         "arts", 8, 16, 0.8, "SINGLE", 2, 2, "basic", "any"),
 }
 
@@ -828,7 +828,7 @@ class CombatEngine:
                 continue
             if card.target in ("SELF", "ALL_ALLIES"):
                 continue
-            # 被沉默的敌人无法施放源石技艺（arts）卡牌
+            # 被沉默的敌人无法施放特殊技艺（arts）卡牌
             if card.damage_type == "arts" and unit.status_amount("silence") > 0:
                 continue
 
@@ -1100,7 +1100,7 @@ class CombatEngine:
         if not players_alive:
             self.state.phase = "END"
             self.state.winner = "enemy"
-            self._emit("battle_end", winner="enemy", reason="所有干员已撤退")
+            self._emit("battle_end", winner="enemy", reason="所有队员已撤退")
             return True
         return False
 

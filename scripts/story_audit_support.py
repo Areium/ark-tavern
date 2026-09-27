@@ -149,7 +149,6 @@ def candidate_app(*, config_path: Path | None = None, root: Path | None = None):
         from blueprints import (
             assets as assets_bp,
             cards as cards_bp,
-            combat as combat_bp,
             environment as environment_bp,
             sessions as sessions_bp,
         )
@@ -158,7 +157,6 @@ def candidate_app(*, config_path: Path | None = None, root: Path | None = None):
         stack.enter_context(patch.object(assets_bp, "CONTENT_ROOT", content))
         stack.enter_context(patch.object(cards_bp, "CHAR_DIR", content / "characters"))
         stack.enter_context(patch.object(cards_bp, "CLASS_DIR", content / "classes"))
-        stack.enter_context(patch.object(combat_bp, "CONTENT_ROOT", content))
         import app as app_module
         from document_manager import DocumentManager
 

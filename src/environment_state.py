@@ -1,8 +1,10 @@
 import os
 import re
 import logging
+from pathlib import Path
 
 import frontmatter
+from content_scope import is_content_visible
 from data_paths import CONTENT_ROOT
 
 logger = logging.getLogger(__name__)
@@ -65,14 +67,13 @@ class EnvironmentState:
     # ── 文件加载 ──
 
     def load_default(self):
-        """加载默认场景：第一个可用地点 + 晴天。"""
-        locations = self._list_locations()
-        if locations:
-            self.load_location(locations[0])
-        else:
-            self.location = "罗德岛"
-            self.location_desc = "罗德岛舰船内部"
-        self.load_weather("sunny")
+        """新会话从空场景开始；地点与天气由剧情或玩家选择。"""
+        self.reset()
+
+    def _visible_file(self, path: str) -> bool:
+        if self.data_dir != _DEFAULT_ENV_DIR:
+            return True  # explicit standalone content directory
+        return is_content_visible(path, content_base=Path(self.data_dir).parent)
 
     def load_location(self, name: str) -> bool:
         """从 data/environment/Location/ 下加载地点描述及默认物品。
@@ -90,7 +91,7 @@ class EnvironmentState:
             for d in dirs:
                 d_full = os.path.join(root, d)
                 index_md = os.path.join(d_full, "index.md")
-                if os.path.isfile(index_md):
+                if os.path.isfile(index_md) and self._visible_file(index_md):
                     d_rel = os.path.relpath(d_full, base).replace("\\", "/")
                     if d == name or d_rel == name:
                         return self._parse_location_file(index_md)
@@ -103,7 +104,7 @@ class EnvironmentState:
                         continue
             # 传统 .md 文件（向后兼容）
             for f in files:
-                if not f.endswith(".md"):
+                if not f.endswith(".md") or not self._visible_file(os.path.join(root, f)):
                     continue
                 stem = os.path.splitext(f)[0]
                 f_rel = os.path.relpath(os.path.join(root, stem), base).replace("\\", "/")
@@ -137,7 +138,7 @@ class EnvironmentState:
         """
         # 精确文件名匹配
         filepath = self._resolve_weather_path(self.data_dir, name)
-        if filepath:
+        if filepath and self._visible_file(filepath):
             return self._parse_weather_file(filepath)
 
         # 扫描 frontmatter name/别名匹配
@@ -148,7 +149,7 @@ class EnvironmentState:
                 entry_path = os.path.join(base, entry)
                 if os.path.isdir(entry_path):
                     index_md = os.path.join(entry_path, "index.md")
-                    if os.path.isfile(index_md):
+                    if os.path.isfile(index_md) and self._visible_file(index_md):
                         try:
                             with open(index_md, "r", encoding="utf-8") as fh:
                                 meta = frontmatter.load(fh).metadata
@@ -161,6 +162,8 @@ class EnvironmentState:
                 elif entry.endswith(".md"):
                     try:
                         fp = os.path.join(base, entry)
+                        if not self._visible_file(fp):
+                            continue
                         with open(fp, "r", encoding="utf-8") as fh:
                             meta = frontmatter.load(fh).metadata
                         wtype = meta.get("weather_type", {})
@@ -283,6 +286,8 @@ class EnvironmentState:
     # ── 内部方法 ──
 
     def _parse_location_file(self, filepath: str) -> bool:
+        if not self._visible_file(filepath):
+            return False
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 data = frontmatter.load(f)
@@ -317,6 +322,8 @@ class EnvironmentState:
             return False
 
     def _parse_weather_file(self, filepath: str) -> bool:
+        if not self._visible_file(filepath):
+            return False
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 data = frontmatter.load(f)

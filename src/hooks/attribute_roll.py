@@ -42,10 +42,10 @@ ACTION_ATTRIBUTE_MAP: dict[str, list[str]] = {
         "精准", "缴械", "连击", "剑术", "射击", "刺杀",
         "偷袭", "暗杀", "劈砍", "刺击", "射击", "开火",
     ],
-    "源石技艺适应性": [
+    "特殊技艺": [
         "施法", "咏唱", "吟唱", "导能", "汇聚", "术式",
-        "驱动", "释放源石技艺", "激活法阵", "注入能量",
-        "施放", "咏唱", "引导源石", "催动", "激活",
+        "驱动", "释放技能", "激活法阵", "注入能量",
+        "施放", "引导能量", "催动", "激活",
     ],
     "情绪稳定性": [
         "保持冷静", "镇定", "压抑", "控制情绪",
@@ -138,6 +138,8 @@ class AttributeRollHook(NarrativeHook):
 
         attributes = agent.metadata.get("attributes", {})
         attr_level = attributes.get(attr_name)
+        if attr_level is None and attr_name == "特殊技艺":
+            attr_level = attributes.get("源石技艺适应性")  # 旧内容字段兼容
         if attr_level is None:
             logger.debug("角色 %s 没有属性 %s", char_name, attr_name)
             return None
@@ -318,7 +320,7 @@ def _failure_condition_name(attr_name: str) -> str:
         "生理耐受": "轻伤",
         "战术规划": "判断失误",
         "战斗技巧": "失误阴影",
-        "源石技艺适应性": "源石反噬",
+        "特殊技艺": "能量反噬",
         "情绪稳定性": "情绪波动",
         "魅力": "威信受损",
     }

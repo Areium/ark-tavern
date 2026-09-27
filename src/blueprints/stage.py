@@ -125,7 +125,7 @@ def register(app, managers):
             return f"/api/characters/{quote(name)}/{kind}?session_id={session_id}"
 
         from session_resources import find_session_media_path
-        player = session.player_identity or "博士"
+        player = session.player_identity or "玩家"
         def has_media(name: str, kind: str) -> bool:
             if find_session_media_path(session_dir, name, kind):
                 return True
@@ -241,7 +241,7 @@ def register(app, managers):
             values, sources = merge_character_stats(fields, global_values, session_values)
             out.append({
                 "name": name,
-                "is_player": name == (session.player_identity or "博士"),
+                "is_player": name == (session.player_identity or "玩家"),
                 "worldbook_id": book_id,
                 "worldbook_name": book_name,
                 "fields": fields,

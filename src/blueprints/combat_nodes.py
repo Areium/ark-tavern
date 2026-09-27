@@ -150,7 +150,7 @@ def register(app, managers):
     def import_from_worldbook():
         """从世界书条目导入节点。
 
-        body: `{entries: [...]}`（直接给条目）或 `{book_id: "arknights"}`
+        body: `{entries: [...]}`（直接给条目）或 `{book_id: "sample_book"}`
         （从 WorldBookManager 取书的所有条目）；返回逐条结果与错误。
         """
         data = request.json or {}

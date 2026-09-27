@@ -86,7 +86,7 @@ const ATTR_LABELS: Record<string, string> = {
   intelligence: "智力",
   emotional_stability: "情绪",
   combat_skill: "战斗",
-  originium_arts: "源石",
+  originium_arts: "特殊技艺",
   charisma: "魅力",
   endurance: "耐力",
   agility: "敏捷",
@@ -573,7 +573,7 @@ export default function CharacterManager() {
                   className={fieldCls}
                   value={draftName}
                   onChange={(e) => setDraftName(e.target.value)}
-                  placeholder="例如：博士、罗德岛新兵、龙门侦探"
+                  placeholder="例如：旅者、城镇卫兵、调查员"
                 />
               </label>
               <label className="block text-xs text-gray-400">
@@ -593,7 +593,7 @@ export default function CharacterManager() {
                 className={fieldCls}
                 value={draftTags}
                 onChange={(e) => setDraftTags(e.target.value)}
-                placeholder="例如：指挥官、感染者、战术专家"
+                placeholder="例如：指挥官、学者、战术专家"
               />
             </label>
 

@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # 参与战斗数值派生的 7 维属性（「魅力」为叙事属性，仅当其余全满时才提升）
 BATTLE_ATTRS = ["物理强度", "战场机动", "生理耐受", "战术规划",
-                "战斗技巧", "源石技艺适应性", "情绪稳定性"]
+                "战斗技巧", "特殊技艺", "情绪稳定性"]
 
 # 叙事属性：7 维全满后的溢出提升目标
 CHARISMA_ATTR = "魅力"
@@ -129,8 +129,11 @@ def pick_growth_attribute(attrs: dict, cap: int = ATTR_CAP) -> str | None:
     v1（批次 3 起）升级重新发放**属性点**：默认自动分配到最低属性（本函数），
     也可在 `data/combat/rules/growth.json` 关掉自动分配改由玩家/剧情手动加。
     """
+    # Preserve the field name in existing worldbook profiles when writing growth.
+    keys = [("源石技艺适应性" if k == "特殊技艺" and "特殊技艺" not in attrs
+             and "源石技艺适应性" in attrs else k) for k in BATTLE_ATTRS]
     candidates = [(k, int(attrs.get(k, DEFAULT_ATTR) or DEFAULT_ATTR))
-                  for k in BATTLE_ATTRS
+                  for k in keys
                   if int(attrs.get(k, DEFAULT_ATTR) or DEFAULT_ATTR) < cap]
     if not candidates:
         charisma = int(attrs.get(CHARISMA_ATTR, DEFAULT_ATTR) or DEFAULT_ATTR)
