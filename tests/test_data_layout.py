@@ -100,13 +100,38 @@ def test_runtime_content_apis_read_new_paths(content_client):
 
     plots = content_client.get("/api/plots")
     assert plots.status_code == 200
-    assert "near_light" in {row["id"] for row in plots.get_json()}
+    rows = {row["id"]: row for row in plots.get_json()}
+    assert "near_light" in rows
+    # 新建向导按剧情声明自动选中：绑定世界书 + 默认主控（都是可选字段，缺失为空串）
+    assert rows["near_light"]["worldbook_id"] == "near-light"
+    assert rows["near_light"]["player_identity"] == "博士"
+    assert rows["near_light"]["initial_characters"][:2] == ["临光", "瑕光"]
     from session_overlay import _resolve_plot_dir
     assert _resolve_plot_dir("near_light") == "near-light"
 
     node = content_client.get("/api/combat/nodes/enc_training")
     assert node.status_code == 200, node.get_json()
     assert node.get_json()["node"]["node_id"] == "enc_training"
+
+
+def test_plot_roster_prefers_initial_characters_and_falls_back_to_legacy_field():
+    """剧情阵容口径：`initial_characters` 优先，没有该字段时才回退 `characters`。
+
+    新建向导的预选与服务端开场角色加载共用 `session_overlay.plot_initial_characters`，
+    回退口径只有一份；这里钉住去重保序与「非列表 / 非字符串」兜底，不依赖本地安装状态。
+    """
+    from session_overlay import plot_initial_characters
+
+    assert plot_initial_characters({"initial_characters": ["临光", "瑕光"]}) == ["临光", "瑕光"]
+    # 旧字段回退（灰灯渡口 / 战斗功能测试把阵容写在 characters）并去重保序
+    assert plot_initial_characters({"characters": ["博士", "阿米娅", "博士"]}) == ["博士", "阿米娅"]
+    # initial_characters 存在时优先，不与 characters 合并
+    assert plot_initial_characters({"initial_characters": ["A"], "characters": ["B"]}) == ["A"]
+    # 显式空列表 = 没有开场角色，不回退
+    assert plot_initial_characters({"initial_characters": [], "characters": ["B"]}) == []
+    # 缺字段 / 类型不对：空列表，不抛异常
+    assert plot_initial_characters({}) == []
+    assert plot_initial_characters({"characters": "阿米娅"}) == []
 
 
 def test_flat_markdown_crud_hash_and_entity_precedence(tmp_path):

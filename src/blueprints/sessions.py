@@ -39,7 +39,7 @@ def _load_plot_opening(session, plot_id: str, load_characters: bool = True):
 
     从 index.md frontmatter 读取所有开场字段。
     """
-    from session_overlay import _read_plot_file
+    from session_overlay import _read_plot_file, plot_initial_characters
 
     try:
         result = _read_plot_file(plot_id)
@@ -64,7 +64,7 @@ def _load_plot_opening(session, plot_id: str, load_characters: bool = True):
 
         # 2. 加载初始角色（跳过不存在的角色 & 玩家身份角色）
         player_identity = session.player_identity
-        for char_name in (meta.get("initial_characters", []) if load_characters else []):
+        for char_name in (plot_initial_characters(meta) if load_characters else []):
             name = char_name.strip()
             if name and name != player_identity:
                 ok = session.scene_manager.load_character(name)
@@ -791,6 +791,8 @@ def register(app, managers):
     @bp.route("/api/plots", methods=["GET"])
     def list_plots():
         """列出所有可用剧情（从 data/plots/ 子目录扫描）。"""
+        from session_overlay import plot_initial_characters
+
         plots_dir = content_root(_REPO_ROOT) / "plots"
         if not plots_dir.is_dir():
             return jsonify([])
@@ -811,7 +813,13 @@ def register(app, managers):
                     "name": meta.get("name", entry.name),
                     "category": meta.get("category", "main"),
                     "priority": meta.get("priority", 5),
-                    "initial_characters": meta.get("initial_characters", []) if isinstance(meta.get("initial_characters", []), list) else [],
+                    "initial_characters": plot_initial_characters(meta),
+                    # 剧情自带的默认阵容声明，供新建向导「选中剧情即自动选中」使用：
+                    # `worldbook_id` = 该剧情绑定的世界书；`player_identity` = 默认主控
+                    # （玩家身份）。两者都是可选字段，缺失一律空串 —— 前端只做「有就选中」，
+                    # 不从名字或正文猜主控（口径见 docs/notes.md）。
+                    "worldbook_id": str(meta.get("worldbook_id") or "").strip(),
+                    "player_identity": str(meta.get("player_identity") or "").strip(),
                     "trigger_location": meta.get("trigger", {}).get("location", []),
                     "trigger_character": meta.get("trigger", {}).get("character", []),
                 })

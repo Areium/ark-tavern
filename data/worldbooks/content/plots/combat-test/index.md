@@ -22,6 +22,7 @@ opening_scene: '罗德岛训练场的警报声响起。战术面板上，红色�
 
 
   不需要犹豫。战斗已经开始。'
+player_identity: 博士
 priority: 1
 repeatable: true
 summary: 快速战斗测试剧情，用于验证战斗触发→结算→回到对话的完整流程。开场即进入战斗，后续连续触发多波敌人。

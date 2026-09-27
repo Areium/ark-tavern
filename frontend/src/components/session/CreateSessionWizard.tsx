@@ -2,6 +2,15 @@
  * 新建会话向导 — 游戏式分步创建：
  * 模式&战斗模式 → 剧情（可选） → 世界书（可选） → 主控与阵容 → 命名创建
  *
+ * **点选剧情即自动选中剧情声明的默认配置**（`pickPlot` → `resolvePlotDefaults`）：
+ * frontmatter 的 `worldbook_id` 自动绑定（书没装则保留玩家当前选择），`player_identity`
+ * 自动选为主控（缺省回退 `initial_characters` 首位），其余开场角色自动入队并标
+ * 「剧情预选」—— 它们已经处于入队状态，点一下磁贴是取消而非选中。
+ *
+ * **「主控与阵容」这一步只选角色**：候选范围、手动追加与全量兼容都不在这里调整
+ * （按书配置在世界书工作台里做）。创建时仍与服务端同口径：预览指纹来自
+ * `POST /scope-preview`，前端不自己再走一遍遍历，创建会话本身不调用任何 LLM。
+ *
  * **主控角色与角色入队是同一次选择**：玩家在「主控与阵容」这一步从同一份候选目录里
  * 挑一个角色当主控（= 本次会话的玩家身份，一切玩家发言/视角都指向它），该角色随即
  * 入队；队友在同一个列表里多选。候选目录来自 `/api/characters`，自建角色与世界书
@@ -9,13 +18,6 @@
  *
  * 没有主控就不能创建：向导在「下一步 / 创建」前给出提示，后端对显式空 identity
  * 同样直接 400（`blueprints/sessions.py`），不会静默落到默认身份。
- *
- * 阵容步骤展示的是**服务端真实解析结果**：候选统计、载入树与选用理由都来自
- * `POST /scope-preview`，前端不自己再走一遍遍历。创建会话本身不调用任何 LLM。
- *
- * 点选剧情会按该剧情的开场角色**预选**阵容（排除主控与角色库中不存在的角色）。
- * 预选出来的角色在界面上标为「剧情预选」并在顶部显式说明——它们已经处于入队状态，
- * 点一下磁贴是取消而非选中；玩家可以逐个取消或清空重选。
  */
 import { useState, useEffect, useMemo } from "react";
 import { useAppStore } from "../../stores/appStore";
@@ -23,21 +25,12 @@ import { useApi } from "../../hooks/useApi";
 import { useDialogMinimize } from "../../hooks/useDialogMinimize";
 import { useRosterScopePreview } from "../../hooks/useWorldbookDraft";
 import {
-  buildCharacterCatalog, buildLineup, mainControlError,
+  buildCharacterCatalog, buildLineup, mainControlError, resolvePlotDefaults,
   summaryText, type CharacterDoc,
 } from "../../utils/characterCatalog";
 import type { PlotInfo, WorldBookSummary, Session } from "../../types";
 import CharacterPicker from "./CharacterPicker";
 import EntityAvatar, { characterAvatarUrl } from "../roles/EntityAvatar";
-import WorldBookScopePreview from "../WorldBookScopePreview";
-
-const REASON_LABELS: Record<string, string> = {
-  always: "基础设定", roster: "角色入队", requires: "必要依赖", manual: "手动追加",
-  full_scope: "全量兼容", worldview: "世界观", fixed: "固定导入", dependency: "依赖展开",
-  legacy: "旧书兼容",
-};
-const reasonLabel = (reason: string) => REASON_LABELS[reason]
-  || (reason.startsWith("roster:") ? `角色入队（${reason.slice(7)}）` : reason);
 
 interface CreateSessionWizardProps {
   open: boolean;
@@ -53,6 +46,8 @@ const STEP_LABELS: Record<string, string> = {
   lineup: "主控与阵容",
   finish: "命名创建",
 };
+
+const trimKey = (value: string | null | undefined) => (value || "").trim();
 
 export default function CreateSessionWizard({ open, onClose, onCreated }: CreateSessionWizardProps) {
   const chatMode = useAppStore((s) => s.chatMode);
@@ -73,12 +68,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
-  // 手动追加只作用于本会话；全量兼容也是显式选择，不写回世界书规则
-  const [manualUids, setManualUids] = useState<string[]>([]);
-  const [fullScope, setFullScope] = useState(false);
-  const [manualQuery, setManualQuery] = useState("");
-  const [rosterNote, setRosterNote] = useState("");
-  // 剧情预选：点选剧情时按开场角色自动勾选的名单。用于把「系统预选」和「玩家自选」
+  // 剧情预选：点选剧情时按剧情默认阵容自动勾选的队友名单。用于把「系统预选」和「玩家自选」
   // 在界面上明确区分开——两者此前完全同款，玩家点一下已预选的磁贴其实是在取消。
   const [plotPreset, setPlotPreset] = useState<string[]>([]);
 
@@ -91,9 +81,24 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
 
   // 候选目录：自建 + 世界书角色，唯一的角色数据源（主控与队友共用）
   const catalog = useMemo(() => buildCharacterCatalog(charDocs, books), [charDocs, books]);
-  const catalogItems = useMemo(() => catalog.items.filter((item) =>
-    worldbookIds.length ? worldbookIds.includes(item.bookId) : item.source === "own"),
-    [catalog.items, worldbookIds]);
+  const plot = useMemo(() => plots.find((p) => p.id === plotId) || null, [plots, plotId]);
+  const plotBookId = trimKey(plot?.worldbook_id);
+  // 剧情默认阵容（主控 + 队友）：界面用它解释「为什么已经选中了」
+  const plotDefaults = useMemo(
+    () => resolvePlotDefaults(plot, books, catalog.items, worldbookIds),
+    [plot, books, catalog.items, worldbookIds]);
+  /**
+   * 候选 = 已绑定世界书的角色 + **该剧情自带阵容**；未绑书时 = 自建角色 + 剧情自带阵容。
+   *
+   * 剧情阵容必须能选：拆分出来的剧情书里，角色卡 frontmatter 的 `worldbook_id` 仍记着
+   * 来源书（如 `arknights`），只按来源书过滤会让整份开场阵容消失，「自动选中」也就无从谈起。
+   */
+  const catalogItems = useMemo(() => {
+    const cast = new Set([plotDefaults.main, ...plotDefaults.teammates].filter(Boolean));
+    return catalog.items.filter((item) => (worldbookIds.length
+      ? worldbookIds.includes(item.bookId) || cast.has(item.key)
+      : item.source === "own" || cast.has(item.key)));
+  }, [catalog.items, plotDefaults, worldbookIds]);
   // 阵容 = 主控 + 队友（去重，主控在前）；这就是提交给后端的入队名单
   const lineup = useMemo(() => buildLineup(mainControl, teammates), [mainControl, teammates]);
   const mainControlItem = catalogItems.find((item) => item.key === mainControl) || null;
@@ -124,10 +129,6 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     setTeammates([]);
     setName("");
     setError("");
-    setManualUids([]);
-    setFullScope(false);
-    setManualQuery("");
-    setRosterNote("");
     setPlotPreset([]);
     setLoading(true);
     let cancelled = false;
@@ -150,11 +151,12 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   // 阵容变化后重新解析候选范围：防抖 + 过时响应保护（旧响应不会覆盖新结果）。
   // 预览用**完整阵容**（含主控），与服务端 `SceneManager.get_roster()` 同口径，
   // 否则创建时的指纹校验会判定预览过期。
+  // 「手动追加」与「全量兼容」已从向导移除（按书配置在世界书工作台里做），
+  // 创建时仍按空追加、非全量解析，保证预览指纹与提交内容一致。
   const { previews: scopePreviews, loading: scopeLoading, error: scopeError } = useRosterScopePreview(
-    worldbookIds, lineup, manualUids, fullScope,
+    worldbookIds, lineup, [], false,
     open && worldbookIds.length > 0,
   );
-  const scopePreview = worldbookId ? scopePreviews[worldbookId] : null;
 
   if (!open) return null;
 
@@ -165,14 +167,19 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const plotLabel = plots.find((p) => p.id === plotId)?.name || plotId;
   const itemName = (key: string) => catalogItems.find((item) => item.key === key)?.name || key;
 
-  const selectBooks = (next: string[]) => {
-    const allowed = new Set(catalog.items.filter((item) =>
-      next.length ? next.includes(item.bookId) : item.source === "own").map((item) => item.key));
+  /**
+   * 改世界书绑定（世界书步骤里手动勾选）：候选随之收缩，已经不在候选里的主控 / 队友
+   * 必须一起退出，否则界面会出现「选了但列表里没有」的悬空选择。
+   * 剧情自带阵容不受书切换影响，与 `resolvePlotDefaults` 用同一套可用集合口径。
+   */
+  const applyBooks = (next: string[]) => {
+    const cast = new Set([plotDefaults.main, ...plotDefaults.teammates].filter(Boolean));
+    const allowed = new Set(catalog.items.filter((item) => (next.length
+      ? next.includes(item.bookId) || cast.has(item.key)
+      : item.source === "own" || cast.has(item.key))).map((item) => item.key));
     setWorldbookIds(next);
     if (mainControl && !allowed.has(mainControl)) setMainControl("");
     setTeammates((current) => current.filter((key) => allowed.has(key)));
-    setManualUids([]);
-    setFullScope(false);
   };
 
   /** 选定主控：同时把它从队友里摘掉（同一个角色不走两条入队路径）。 */
@@ -190,20 +197,29 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   /** 清空队友：留空是合法选择，但要让玩家知道这一点的后果（见下方空阵容提示）。 */
   const clearTeammates = () => setTeammates([]);
 
-  /** 点选剧情：按剧情开场角色预选队友，并记录预选名单用于界面标记。
+  /**
+   * 点选剧情：按剧情声明自动绑定世界书、自动选主控并预选队友（见 `resolvePlotDefaults`）。
    *
-   * 预选只包含「非主控」且「角色库中确实存在」的角色；服务端在收到显式
-   * roster 时不会再用开场角色补齐，所以这里预选出来的就是最终阵容的起点。
+   * 「不绑定」不清掉玩家自己挑的角色：只撤销剧情预选标记，并把已经不在候选里的
+   * 主控 / 队友摘掉（剧情阵容带来的角色可能随剧情一起失效）。
    */
   const pickPlot = (id: string) => {
+    setError("");
     setPlotId(id);
-    const known = new Set(catalogItems.map((item) => item.key));
-    const preset = id
-      ? ((plots.find((p) => p.id === id)?.initial_characters || [])
-        .filter((key) => key !== mainControl && known.has(key)))
-      : [];
-    setTeammates(preset);
-    setPlotPreset(preset);
+    const next = id ? plots.find((p) => p.id === id) || null : null;
+    if (!next) {
+      const allowed = new Set(catalog.items.filter((item) => (worldbookIds.length
+        ? worldbookIds.includes(item.bookId) : item.source === "own")).map((item) => item.key));
+      setPlotPreset([]);
+      if (mainControl && !allowed.has(mainControl)) setMainControl("");
+      setTeammates((current) => current.filter((key) => allowed.has(key)));
+      return;
+    }
+    const defaults = resolvePlotDefaults(next, books, catalog.items, worldbookIds);
+    setWorldbookIds(defaults.books);
+    setMainControl(defaults.main);
+    setTeammates(defaults.teammates);
+    setPlotPreset(defaults.teammates);
   };
 
   const goNext = () => {
@@ -235,11 +251,12 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
       // 主控通过 identity 声明（它同时是阵容首位），队友通过 roster_character_ids 入队；
       // 后端把两者合成阵容（`SceneManager.get_roster()`），同一角色只算一次。
       // 世界书绑定、角色入队与候选条目范围由服务端完成，首轮不会全量载入。
+      // 手动追加与全量兼容不在这里调整：提交空追加、非全量，与预览同一口径。
       // 带上预览指纹：预览已过期时宁可报错，也不静默用一套不同的范围创建会话。
       const session = await api.createSession(
         mode, name.trim(), mode === "story" ? plotId : "", combatMode,
-        mainControl, worldbookIds, teammates, manualUids,
-        Object.fromEntries(worldbookIds.map((id) => [id, scopePreviews[id]?.draft_hash || ""])), fullScope,
+        mainControl, worldbookIds, teammates, [],
+        Object.fromEntries(worldbookIds.map((id) => [id, scopePreviews[id]?.draft_hash || ""])), false,
       );
       onCreated(session);
     } catch (err: any) {
@@ -377,7 +394,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
           {!loading && current === "plot" && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs text-gray-400">选择要绑定的剧情（可选）</p>
+                <p className="text-xs text-gray-400">选择要绑定的剧情（可选）· 选中后自动绑定世界书并预选主控与队友</p>
                 <input
                   className="input text-xs w-48"
                   placeholder="搜索剧情..."
@@ -393,26 +410,41 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                 <span className="text-[12px] text-gray-500 ml-2">自由探索，不加载任何剧情</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto lobby-scroll pr-1">
-                {filteredPlots.map((p) => (
-                  <div
-                    key={p.id}
-                    className={`pick-card p-3 ${plotId === p.id ? "selected" : ""}`}
-                    onClick={() => pickPlot(p.id)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-200 truncate">{p.name}</span>
-                      <span className={`badge ${p.category === "main" ? "badge-plot" : "badge-story"}`}>
-                        {p.category === "main" ? "主线" : p.category}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-gray-600 mt-1">{p.id}</div>
-                    {!!p.initial_characters?.length && (
-                      <div className="text-[11px] text-cyan-300 mt-1">
-                        开场角色 {p.initial_characters.length} 名 · 选中后自动预选入队
+                {filteredPlots.map((p) => {
+                  const declaredBook = trimKey(p.worldbook_id);
+                  const boundBook = declaredBook ? books.find((b) => b.id === declaredBook) : null;
+                  return (
+                    <div
+                      key={p.id}
+                      className={`pick-card p-3 ${plotId === p.id ? "selected" : ""}`}
+                      onClick={() => pickPlot(p.id)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-200 truncate">{p.name}</span>
+                        <span className={`badge ${p.category === "main" ? "badge-plot" : "badge-story"}`}>
+                          {p.category === "main" ? "主线" : p.category}
+                        </span>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      <div className="text-[11px] text-gray-600 mt-1">{p.id}</div>
+                      {/* 自动选中的内容如实标注：绑定哪本书、默认主控是谁、几名开场角色 */}
+                      {declaredBook && (
+                        <div className={`text-[11px] mt-1 ${boundBook ? "text-amber-300" : "text-gray-500"}`}>
+                          {boundBook
+                            ? `自动绑定世界书：${boundBook.name}`
+                            : `声明的世界书「${declaredBook}」未安装，绑定保留当前选择`}
+                        </div>
+                      )}
+                      {!!trimKey(p.player_identity) && (
+                        <div className="text-[11px] text-amber-300 mt-1">默认主控：{trimKey(p.player_identity)}</div>
+                      )}
+                      {!!p.initial_characters?.length && (
+                        <div className="text-[11px] text-cyan-300 mt-1">
+                          开场角色 {p.initial_characters.length} 名 · 选中后自动预选入队
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
                 {filteredPlots.length === 0 && (
                   <p className="text-gray-500 text-sm col-span-2 text-center py-6">暂无可用剧情</p>
                 )}
@@ -423,15 +455,20 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
           {!loading && current === "worldbook" && (
             <div className="space-y-3">
               <p className="text-xs text-gray-300">选择本会话使用的剧情世界书，可多选。未选时不载入世界书；资料库不参与会话。</p>
+              {plot && plotBookId && worldbookIds.includes(plotBookId) && (
+                <p className="text-[12px] text-cyan-300" role="status">
+                  已按《{plotLabel}》自动绑定：{books.find((b) => b.id === plotBookId)?.name || plotBookId}
+                </p>
+              )}
               <p className="text-xs text-amber-300" role="status">已选 {worldbookIds.length} 本{worldbookIds.length ? `：${worldbookIds.map((id) => books.find((b) => b.id === id)?.name || id).join("、")}` : " · 不使用世界书"}</p>
-              {!!worldbookIds.length && <button type="button" className="text-xs text-blue-300 hover:underline" onClick={() => selectBooks([])}>清空选择</button>}
+              {!!worldbookIds.length && <button type="button" className="text-xs text-blue-300 hover:underline" onClick={() => applyBooks([])}>清空选择</button>}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto lobby-scroll pr-1">
                 {books.map((b) => (
                   <button type="button"
                     key={b.id}
                     aria-pressed={worldbookIds.includes(b.id)}
                     className={`pick-card p-3 text-left ${worldbookIds.includes(b.id) ? "selected" : ""}`}
-                    onClick={() => selectBooks(worldbookIds.includes(b.id)
+                    onClick={() => applyBooks(worldbookIds.includes(b.id)
                       ? worldbookIds.filter((id) => id !== b.id) : [...worldbookIds, b.id])}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -467,6 +504,15 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                     去角色库创建角色
                   </button>
                 </div>
+
+                {/* 自动选中的主控如实说明来源：剧情声明 or 开场角色首位 */}
+                {!!plot && !!plotDefaults.main && mainControl === plotDefaults.main && (
+                  <p className="text-[12px] text-cyan-300" role="status">
+                    已按《{plotLabel}》自动选中默认主控
+                    {trimKey(plot.player_identity) ? `（剧情声明 ${trimKey(plot.player_identity)}）` : "（开场角色首位）"}
+                    ，可随时改选。
+                  </p>
+                )}
 
                 {mainControlItem ? (
                   <div className="pick-card p-3 flex items-center gap-3 selected">
@@ -521,9 +567,9 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                 {plotPreset.length > 0 && (
                   <div className={`wbg-notice ${teammates.length === 0 ? "wbg-warn" : "wbg-ok"} rounded-md`} role="status">
                     <span>
-                      《{plotLabel}》已按剧情开场角色自动预选 <b>{plotPreset.length}</b> 名，
+                      《{plotLabel}》已按剧情默认阵容自动选中开场角色 <b>{plotPreset.length}</b> 名，
                       磁贴上标为「<span className="text-cyan-300">剧情预选</span>」。
-                      <b>它们已经处于入队状态</b>，点一下磁贴是取消而不是选中；不想要就逐个点掉，或直接清空重选。
+                      <b>它们已经处于入队状态</b>，点一下磁贴是取消而不是选中；不想要就逐个点掉，或直接清空队友。
                     </span>
                     {teammates.length > 0 && (
                       <button type="button" onClick={clearTeammates}>清空队友</button>
@@ -554,134 +600,6 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                 />
               </section>
 
-              {/* ③ 阵容 → 候选范围（服务端真实解析） */}
-              <section className="space-y-2" aria-label="本次阵容">
-                <p className="text-[12px] text-gray-500">
-                  本次阵容 {lineup.length} 名：{lineup.length
-                    ? lineup.map((key) => itemName(key) + (key === mainControl ? "（主控）" : (plotPreset.includes(key) ? "（剧情预选）" : ""))).join("、")
-                    : "（空）"}
-                </p>
-                {!worldbookId && <p className="text-[12px] text-gray-500">
-                  未绑定世界书：可使用自建角色，设定条目不会载入。
-                </p>}
-              </section>
-
-              {worldbookId && <div className="wbg-card space-y-3" aria-label="候选范围">
-                <div className="wbg-card-head">
-                  <div>
-                    <h4>这次会载入什么</h4>
-                    <p className="wbg-help">以下是第一本书的详细范围；其他已选书也会按各自规则载入。</p>
-                  </div>
-                  {scopeLoading && <span className="wbg-chip">重新计算…</span>}
-                </div>
-
-                {scopeError && <div role="alert" className="wbg-notice wbg-error"><span>候选范围预览失败：{scopeError}</span></div>}
-
-                {scopePreview && <>
-                  <div className="wbg-config-metrics">
-                    <span>候选条目 <b>{scopePreview.entry_count}</b></span>
-                    <span>全书可用 <b>{scopePreview.full_entry_count}</b></span>
-                    <span>估算 token <b>{scopePreview.resolved_estimated_tokens.toLocaleString()}</b></span>
-                    <span>未选中 <b>{scopePreview.unselected_count ?? 0}</b></span>
-                  </div>
-
-                  {!!scopePreview.active_roots?.length && <p className="wbg-help">
-                    激活起点：{scopePreview.active_roots.map((root) => root.entry_uid).join("、")}
-                    （{scopePreview.active_roots.length} 个）
-                  </p>}
-
-                  {!!scopePreview.display_tree?.length && <details className="wbg-details">
-                    <summary>载入树 <span>{scopePreview.display_tree.length}</span></summary>
-                    <ul className="wbg-tree-list">{scopePreview.display_tree.slice(0, 80).map((node) => <li key={node.uid}
-                      style={{ paddingLeft: 8 + Math.min(node.depth, 8) * 14 }}>
-                      <span className={node.is_root ? "wbg-tree-root" : ""}>{node.name || node.uid}</span>
-                      <small>{(scopePreview.selection_reasons?.[node.uid] || []).map(reasonLabel).join("、")}</small>
-                    </li>)}</ul>
-                    {scopePreview.display_tree.length > 80 && <p className="wbg-help">仅显示前 80 个节点。</p>}
-                  </details>}
-
-                  {!!scopePreview.source_expansions?.length && <details className="wbg-details">
-                    <summary>旧格式导入源展开 <span>{scopePreview.source_expansions.length}</span></summary>
-                    {scopePreview.source_expansions.map((source) => <p key={source.entry_uid} className="wbg-help">
-                      {source.name || source.entry_uid} · 深度 {source.max_depth} · 展开 {source.entries.length} 条
-                    </p>)}
-                  </details>}
-
-                  <details className="wbg-details">
-                    <summary>为什么载入 / 为什么不载入</summary>
-                    <p className="wbg-help">
-                      条目没被选中不是错误：按需载入下，只有被起点激活或依赖补齐的条目才会进入候选。
-                      可用「手动追加」把个别条目只加进本次会话。
-                    </p>
-                    {!!scopePreview.unselected_entries?.length && <ul className="wbg-build-issues">
-                      {scopePreview.unselected_entries.slice(0, 40).map((entry) => <li key={entry.uid}>
-                        <b>未载入</b><span>{entry.name || entry.uid}</span>
-                      </li>)}
-                    </ul>}
-                  </details>
-                </>}
-
-                {/* 手动追加：只作用于本会话，可逐条取消 */}
-                <div className="wbg-action-row">
-                  <div>
-                    <strong>手动追加条目（只作用于本会话）</strong>
-                    <small>{worldbookIds.length > 1 ? `这里设置首本世界书「${books.find((b) => b.id === worldbookId)?.name || worldbookId}」。` : ""}不会写回世界书规则；取消追加只影响这次创建。</small>
-                  </div>
-                </div>
-                <div className="wbg-action-controls">
-                  <input className="input text-xs flex-1" list="wizard-entry-targets" placeholder="搜索条目名称或 UID"
-                    aria-label="手动追加条目" value={manualQuery} onChange={(e) => setManualQuery(e.target.value)} />
-                  <datalist id="wizard-entry-targets">
-                    {(scopePreview?.unselected_entries || []).slice(0, 300).map((entry) => <option key={entry.uid} value={entry.uid}>
-                      {entry.name || entry.uid}
-                    </option>)}
-                  </datalist>
-                  <button className="btn px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200"
-                    disabled={!manualQuery.trim()} onClick={() => {
-                      const uid = manualQuery.trim();
-                      setManualQuery("");
-                      if (manualUids.includes(uid)) { setRosterNote("这个条目已经在手动追加列表里。"); return; }
-                      const known = scopePreview?.entry_names?.[uid]
-                        || scopePreview?.unselected_entries?.some((entry) => entry.uid === uid);
-                      if (!known) { setRosterNote(`没有找到条目「${uid}」。请从下拉建议里选择，或核对 UID。`); return; }
-                      setManualUids((current) => [...current, uid]);
-                      setRosterNote(`已手动追加「${scopePreview?.entry_names?.[uid] || uid}」，仅本次会话生效。`);
-                    }}>追加</button>
-                </div>
-                {!!manualUids.length && <div className="wbg-roster-chips">
-                  {manualUids.map((uid) => <span key={uid} className="wbg-fixed-chip">
-                    <span>{scopePreview?.entry_names?.[uid] || uid}</span>
-                    <button aria-label={`取消追加 ${uid}`} onClick={() => {
-                      const reasons = scopePreview?.selection_reasons?.[uid] || [];
-                      const alsoRequired = reasons.some((reason) => reason !== "manual");
-                      setManualUids((current) => current.filter((item) => item !== uid));
-                      setRosterNote(alsoRequired
-                        ? `已取消手动追加「${uid}」，但它仍会因${reasons.map(reasonLabel).join("、")}被载入 —— 必要关系要用的条目不会因为取消追加而消失。`
-                        : `已取消手动追加「${uid}」。`);
-                    }}>×</button>
-                  </span>)}
-                </div>}
-                {rosterNote && <p className="wbg-help" role="status">{rosterNote}</p>}
-
-                <div className="wbg-action-row">
-                  <div>
-                    <strong>本次会话全量兼容</strong>
-                    <small>显式选择：这次载入所有已选世界书的全部启用条目。只影响本会话，不改世界书规则。</small>
-                  </div>
-                  <button className="wbg-button" aria-pressed={fullScope} onClick={() => {
-                    setFullScope(!fullScope);
-                    setRosterNote(fullScope ? "已关闭全量兼容，回到按需载入。" : "已开启全量兼容：本次会话会载入全部启用条目。");
-                  }}>{fullScope ? "已开启 · 点击关闭" : "开启全量兼容"}</button>
-                </div>
-
-                {!!scopePreview?.warnings?.length && <div className="space-y-1">
-                  {scopePreview.warnings.map((warning) => <p key={warning} className="text-[12px] text-amber-300">{warning}</p>)}
-                </div>}
-              </div>}
-              {worldbookIds.slice(1).map((id) => <div key={id} className="wbg-card text-xs text-gray-300">
-                <strong>{books.find((b) => b.id === id)?.name || id}</strong>
-                <span className="ml-2">{scopePreviews[id] ? `预计载入 ${scopePreviews[id].entry_count} 条` : "范围计算中…"}</span>
-              </div>)}
             </div>
           )}
 
@@ -727,13 +645,18 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                       </p>
                     </>
                   )}
-                  {!!manualUids.length && (
-                    <span className="badge badge-wb">✋ 手动追加 {manualUids.length} 条（仅本会话）</span>
-                  )}
-                  {fullScope && <span className="badge badge-tactical">📚 本次会话全量兼容</span>}
                 </div>
               </div>
-              {worldbookIds.length ? worldbookIds.map((id) => <div key={id} className="space-y-2"><p className="text-xs text-gray-300">{books.find((b) => b.id === id)?.name || id}</p>{scopePreviews[id] ? <WorldBookScopePreview value={scopePreviews[id]} /> : <p className="text-xs text-gray-400">{scopeError || "计算导入范围中…"}</p>}</div>) : <p className="text-xs text-gray-400">未绑定世界书：此次会话不会载入世界书条目。</p>}
+              {/* 命名创建只报「估算 token」：候选条目明细与「候选规模减少」在世界书工作台看，
+                  这里不再重复一遍，也就不会再出现「减少 0 token（0%）」这种无信息量的行 */}
+              {worldbookIds.length ? worldbookIds.map((id) => (
+                <div key={id} className="flex items-center justify-between gap-3 text-xs">
+                  <span className="text-gray-300">{books.find((b) => b.id === id)?.name || id}</span>
+                  {scopePreviews[id]
+                    ? <span className="text-gray-200">估算 token <b>{scopePreviews[id].resolved_estimated_tokens.toLocaleString()}</b></span>
+                    : <span className="text-gray-400">{scopeError || "计算中…"}</span>}
+                </div>
+              )) : <p className="text-xs text-gray-400">未绑定世界书：此次会话不会载入世界书条目。</p>}
               {error && <p className="text-xs text-red-400">{error}</p>}
             </div>
           )}

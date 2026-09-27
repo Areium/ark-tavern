@@ -268,6 +268,10 @@ export interface PlotInfo {
   category: string;
   priority: number;
   initial_characters?: string[];
+  /** 剧情绑定的世界书 id（frontmatter `worldbook_id`）；空串 = 未声明。选中剧情时自动绑定 */
+  worldbook_id?: string;
+  /** 剧情默认主控角色（frontmatter `player_identity`）；空串 = 未声明，回退开场角色首位 */
+  player_identity?: string;
 }
 
 /** 战斗单位 */

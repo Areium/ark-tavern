@@ -53,6 +53,7 @@ prerequisites:
   faction_known:
   - 罗德岛
   - 喀兰贸易
+player_identity: 博士
 priority: 8
 repeatable: false
 summary: 博士受喀兰贸易之邀赴雪山小国谢拉格，卷入三大家族雪山大典之争，见证一场变革。

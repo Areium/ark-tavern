@@ -14,7 +14,7 @@
  *
  * 本文件是纯逻辑（无 React、无副作用、不改入参），与 `worldbook*.ts` 同风格。
  */
-import type { WorldBookSummary } from "../types";
+import type { PlotInfo, WorldBookSummary } from "../types";
 
 /** `/api/characters` 返回的条目（后端 `DocumentInfo.to_dict` 的子集，缺字段按兜底处理） */
 export interface CharacterDoc {
@@ -212,4 +212,58 @@ export function mainControlError(
     return `所选主控角色「${main}」已不在角色库中，请重新选择。`;
   }
   return null;
+}
+
+/** 剧情默认阵容：绑定的世界书 + 主控 + 队友 */
+export interface PlotDefaults {
+  /** 本次要绑定的世界书 id（剧情声明的书未安装时原样保留当前选择） */
+  books: string[];
+  /** 默认主控（玩家身份）；空串 = 剧情没声明、或声明的角色不在角色库里 */
+  main: string;
+  /** 默认队友（剧情开场角色里除主控外、且在候选里存在的角色） */
+  teammates: string[];
+}
+
+/** 剧情里用到的三个字段（`PlotInfo` 的子集，便于纯逻辑单测） */
+export type PlotRosterSource = Pick<PlotInfo, "worldbook_id" | "player_identity" | "initial_characters">;
+
+/**
+ * 剧情默认阵容 —— 「点选剧情即自动选中」的唯一实现（新建向导与界面提示共用）。
+ *
+ * 只处理声明里**确实写着**的东西，不从名字或正文猜主控：
+ *  - 世界书：剧情 `worldbook_id` 已安装时绑定它；未安装（未导 / 已删）时保留玩家当前选择，
+ *    不静默清空；
+ *  - 主控：优先 `player_identity`，缺省回退 `initial_characters` 首位，两者都只认候选里
+ *    确实存在的键（角色库里没有的角色不能当主控）；
+ *  - 队友：`initial_characters` 里除主控外的其余角色，同样只保留候选里存在的键。
+ *
+ * 候选口径与新建向导的候选列表一致：**绑定的世界书 + 该剧情自带阵容**。拆分出来的剧情书
+ * 正是这种形态 —— 书内条目带 `character_id`，而角色卡 frontmatter 的 `worldbook_id` 仍记着
+ * 来源书（如 `arknights`），只按来源书过滤会让整份开场阵容消失。
+ */
+export function resolvePlotDefaults(
+  plot: PlotRosterSource | null | undefined,
+  installedBooks: readonly Pick<WorldBookSummary, "id">[] = [],
+  catalogItems: readonly CharacterCatalogItem[] = [],
+  currentBooks: readonly string[] = [],
+): PlotDefaults {
+  if (!plot) return { books: [...currentBooks], main: "", teammates: [] };
+
+  const declaredBook = trimmed(plot.worldbook_id);
+  const books = declaredBook && installedBooks.some((book) => book.id === declaredBook)
+    ? [declaredBook]
+    : [...currentBooks];
+
+  const initial = [...new Set((plot.initial_characters || []).map(trimmed).filter(Boolean))];
+  const cast = [...new Set([trimmed(plot.player_identity), ...initial].filter(Boolean))];
+  const castKeys = new Set(cast);
+  const available = new Set(catalogItems
+    .filter((item) => (books.length
+      ? books.includes(item.bookId) || castKeys.has(item.key)
+      : item.source === "own" || castKeys.has(item.key)))
+    .map((item) => item.key));
+
+  const main = cast.find((key) => available.has(key)) || "";
+  const teammates = initial.filter((key) => key !== main && available.has(key));
+  return { books, main, teammates };
 }

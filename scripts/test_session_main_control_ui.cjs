@@ -1,7 +1,8 @@
 // 主控角色与角色入队合并后的验证（不启动浏览器）：
 //   A. 候选目录纯逻辑 —— 来源分类、缺字段兜底、搜索/来源筛选、阵容去重、主控校验；
 //   B. 共用选择器 CharacterPicker 的服务端渲染结构 —— 两种来源徽章、缺字段标注、
-//      已在阵容的锁定项、以及「同一份候选目录」的实际渲染结果。
+//      已在阵容的锁定项、以及「同一份候选目录」的实际渲染结果；
+//   C. 剧情默认阵容 —— 「点选剧情即自动选中世界书 / 主控 / 队友」的纯逻辑。
 // 转译钩子与 scripts/test_worldbook_scope_ui.cjs 同源（必须传 fileName，见 docs/notes.md）。
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -25,7 +26,7 @@ const { renderToStaticMarkup } = fromFrontend("react-dom/server");
 
 const {
   buildCharacterCatalog, catalogBooks, filterCharacterCatalog, sortCatalogForBook,
-  buildLineup, mainControlError, summaryText, MISSING_SUMMARY_TEXT,
+  buildLineup, mainControlError, resolvePlotDefaults, summaryText, MISSING_SUMMARY_TEXT,
 } = require(path.join(root, "frontend/src/utils/characterCatalog.ts"));
 const CharacterPicker = require(path.join(root, "frontend/src/components/session/CharacterPicker.tsx")).default;
 
@@ -152,5 +153,61 @@ const singleHtml = renderToStaticMarkup(React.createElement(CharacterPicker, {
 assert.ok(singleHtml.includes("本次主控"), "单选模式显示选中角标");
 // 角标只挂在一个磁贴上（来源筛选按钮同样用 aria-pressed，所以按角标数断言选中唯一）
 assert.equal((singleHtml.match(/本次主控/g) || []).length, 1, "单选模式只有一个选中项");
+
+// ── C. 剧情默认阵容：点选剧情即自动选中（resolvePlotDefaults） ────────────────
+const installedBooks = [
+  { id: "near-light", name: "长夜临光" },
+  { id: "arknights", name: "明日方舟" },
+  { id: "beyond-twin", name: "彼岸双生" },
+];
+// 拆分剧情书里的角色卡仍标注来源书（arknights）—— 只按来源书过滤会整份阵容消失，这是核心回归点
+const item = (key, bookId, bookName) => ({
+  key, name: key, summary: "", bookId, bookName,
+  source: bookId ? "worldbook" : "own", missing: [],
+});
+const candidateItems = [
+  item("临光", "arknights", "明日方舟"),
+  item("瑕光", "arknights", "明日方舟"),
+  item("博士", "arknights", "明日方舟"),
+  item("程叙", "beyond-twin", "彼岸双生"),
+  item("妮可", "beyond-twin", "彼岸双生"),
+  item("自建角色", "", ""),
+];
+
+// C1. 声明了书与主控：绑定该书，主控取声明，其余开场角色入队（来源书不同照样可选中）
+assert.deepEqual(
+  resolvePlotDefaults(
+    { worldbook_id: "near-light", player_identity: "博士", initial_characters: ["临光", "瑕光"] },
+    installedBooks, candidateItems, [],
+  ),
+  { books: ["near-light"], main: "博士", teammates: ["临光", "瑕光"] },
+  "剧情声明的主控与开场角色应被自动选中",
+);
+
+// C2. 未声明主控 → 回退开场角色首位；主控不重复出现在队友里
+assert.deepEqual(
+  resolvePlotDefaults({ worldbook_id: "beyond-twin", initial_characters: ["程叙", "妮可"] },
+    installedBooks, candidateItems, []),
+  { books: ["beyond-twin"], main: "程叙", teammates: ["妮可"] },
+  "缺 player_identity 时回退 initial_characters 首位",
+);
+
+// C3. 声明的书没安装 → 保留玩家当前选择，不静默清空
+assert.deepEqual(
+  resolvePlotDefaults({ worldbook_id: "grey-lantern", player_identity: "博士" },
+    installedBooks, candidateItems, ["near-light"]),
+  { books: ["near-light"], main: "博士", teammates: [] },
+  "剧情声明的书未安装时不动玩家的绑定",
+);
+
+// C4. 声明的主控不在角色库 → 顺延到开场角色首位；都不在 → 空串交给玩家手选
+assert.equal(resolvePlotDefaults({ player_identity: "查无此人", initial_characters: ["瑕光"] },
+  installedBooks, candidateItems).main, "瑕光", "主控不在角色库时顺延");
+assert.equal(resolvePlotDefaults({ player_identity: "查无此人", initial_characters: ["也不在"] },
+  installedBooks, candidateItems).main, "", "角色库里没有的角色不会被选中");
+
+// C5. 没有剧情 / 空声明：不动世界书与阵容
+assert.deepEqual(resolvePlotDefaults(null, installedBooks, candidateItems, []),
+  { books: [], main: "", teammates: [] }, "未选剧情时不做任何默认选中");
 
 console.log("PASS: 主控与阵容的候选目录 / 共用选择器断言全部通过");

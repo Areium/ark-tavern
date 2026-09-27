@@ -15,6 +15,30 @@
 ---
 
 ## 更新记录
+### 2026-09-27 — 新建会话：选中剧情即自动选中世界书与阵容
+
+> 点一下剧情，绑定的世界书、默认主控与开场角色都自动选中；「主控与阵容」这一步从此只选角色。
+
+- **剧情声明驱动默认选中**：剧情 frontmatter 新增可选 `player_identity`（默认主控），`worldbook_id`
+  经 `/api/plots` 一并返回。选中剧情即自动绑定该书（书未安装时保留玩家当前选择），主控取
+  `player_identity`、缺省回退开场角色首位，其余开场角色自动入队并标「剧情预选」；规则只在
+  `utils/characterCatalog.ts` 的 `resolvePlotDefaults` 里实现一份（`pickPlot` 与界面提示共用，
+  `scripts/test_session_main_control_ui.cjs` C 段钉住）。
+- **候选不再只认角色卡的来源书**：候选 = 已绑定世界书的角色 + 该剧情自带阵容。拆分出来的剧情书
+  （`near-light` / `fengxue-guojing` / `combat-test`）内条目带 `character_id`，而角色卡 frontmatter
+  的 `worldbook_id` 仍记 `arknights`，只按来源书过滤会让整份开场阵容消失。
+- **开场角色口径统一**：`session_overlay.plot_initial_characters` —— `initial_characters` 优先，
+  没有该字段时回退旧字段 `characters`（「灰灯渡口」「战斗功能测试」）；服务端开场加载、
+  `session_manager` 的重载回退与 `/api/plots` 共用同一份。
+- **「主控与阵容」只选角色**：候选范围、手动追加条目与全量兼容不再在这一步调整（按书配置在世界书
+  工作台）；创建仍提交空追加 / 非全量，与 `POST /scope-preview` 指纹同口径。
+- **「命名创建」只显示估算 token**：不再整块渲染候选范围卡片，「候选规模减少 0 token（0%）」这类
+  无信息量的行消失；候选条目明细仍在世界书工作台查看。
+- **改动位置**：`src/blueprints/sessions.py`、`src/session_overlay.py`、`src/session_manager.py`、
+  `frontend/src/components/session/CreateSessionWizard.tsx`、`frontend/src/types/index.ts`、
+  `data/worldbooks/content/plots/*/index.md`（5 份剧情补 `player_identity`）与
+  `data/worldbooks/content/plots/TEMPLATE.md`；`tests/test_data_layout.py` 补字段与回退口径用例。
+
 ### 2026-09-27 — 项目更名 Ark Tavern（仓库 `ark-tavern`）
 
 > 仓库与产品名统一为 **Ark Tavern**：GitHub 仓库由 `arknights-tavern` 更名为 `ark-tavern`（旧地址自动重定向）。

@@ -45,6 +45,7 @@ prerequisites:
   faction_known:
   - 罗德岛
   - 卡西米尔
+player_identity: 博士
 priority: 9
 repeatable: false
 summary: 罗德岛抵大骑士领，耀骑士归来，资本、荣耀与感染者命运的风暴来临。

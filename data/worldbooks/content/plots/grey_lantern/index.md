@@ -5,6 +5,7 @@ summary: 天灾前的最后一班渡船，只够你先救一群人，或取回�
 category: side
 priority: 5
 worldbook_id: grey-lantern
+player_identity: 博士
 characters: [博士, 阿米娅, 临光, 闪灵, 砾]
 initial_location: 灰灯渡口候船厅
 initial_time: 傍晚

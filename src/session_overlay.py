@@ -2448,6 +2448,31 @@ def _read_plot_file(plot_id: str) -> tuple[dict, str] | None:
     return None
 
 
+def plot_initial_characters(meta: dict) -> list[str]:
+    """剧情声明的开场角色列表（去重保序、去空白）。
+
+    口径：`initial_characters` 优先；**没有这个字段**时才回退旧字段 `characters` —— 早期
+    剧情文件把阵容写在 `characters`（如「灰灯渡口」「战斗功能测试」的 `characters: [...]`）。
+    显式 `initial_characters: []` 表示「没有开场角色」，不回退。
+
+    两处读取方必须共用这一个函数：新建向导按它预选队友，服务端按它加载开场角色，
+    口径分叉会让「界面预选的人」和「服务端实际载入的人」对不上。
+    """
+    raw = meta.get("initial_characters")
+    if not isinstance(raw, list):
+        raw = meta.get("characters")
+    if not isinstance(raw, list):
+        return []
+    names: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        name = item.strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 # 顶层节的边界标题模式（用于 _extract_section 判断何时停止提取）
 _SECTION_BOUNDARY_PATTERN = re.compile(
     r"^## (?:剧情概述|开场设置|关键对话参考|任务|章节\s+\d+[：:])\s*$"

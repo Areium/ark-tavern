@@ -10,6 +10,40 @@
 
 ## 会话
 
+### 新建向导：选中剧情即自动选中世界书与阵容（2026-09-27，`feat/plot-autoselect-roster`）
+
+- **现象**：剧情自带的开场阵容在向导里几乎永远预选不出来 —— 预装角色卡里绝大多数（170 张中的 166 张）
+  frontmatter 的 `worldbook_id` 记的是拆分前的来源书（`arknights`），而拆分出来的剧情书
+  （`near-light` / `fengxue-guojing` / `combat-test`）自己一张角色卡都没有。向导候选原本只按角色卡的
+  来源书过滤，绑定这些书后候选为空，「点剧情自动预选」自然落空。
+- **现状口径**：
+  - 剧情 frontmatter 新增可选字段 `player_identity`（默认主控），`worldbook_id` 也由 `/api/plots`
+    一并返回。选中剧情即自动绑定这本书（书未安装时保留玩家当前选择）；主控取 `player_identity`，
+    缺省回退开场角色首位；其余开场角色自动入队并标「剧情预选」。规则只有一份实现：
+    `utils/characterCatalog.ts` 的 `resolvePlotDefaults`（`scripts/test_session_main_control_ui.cjs`
+    C 段钉住），向导的 `pickPlot` 与界面提示共用。
+  - **候选 = 已绑定世界书的角色 + 该剧情自带阵容**：剧情阵容即便角色卡来源书不同也一律可选中，
+    否则「自动选中」无从谈起；未绑定任何书时仍只有自建角色 + 剧情阵容。
+  - **开场角色口径统一**到 `session_overlay.plot_initial_characters`：`initial_characters` 优先，
+    **没有该字段**时回退旧字段 `characters`（「灰灯渡口」「战斗功能测试」把阵容写在那里）；
+    显式 `initial_characters: []` = 没有开场角色，不回退。服务端开场加载、`session_manager` 的重载
+    回退与 `/api/plots` 共用这一份口径，不再各读各的。
+- **向导边界**：「主控与阵容」这一步只选角色 —— 候选范围、手动追加条目与全量兼容不再在这里调整
+  （按书配置在世界书工作台）。创建仍提交 `manual_entry_uids=[]` / `full_scope=False`，与
+  `POST /scope-preview` 的指纹同口径，否则创建会被判「预览已过期」并 400。
+- **命名创建只报 token**：该步不再渲染整块 `WorldBookScopePreview`，只列每本书的「估算 token」——
+  「候选规模减少 0 token（0%）」这种无信息量的行不再出现；候选条目明细在世界书工作台看。
+- **已知边界**：会话大厅的「添加角色 / 换主控」候选仍是**按角色卡来源书**过滤
+  （`SessionManagerView.tsx` 的 `candidateItems`），绑定拆分剧情书的会话里同样列不出该剧情的角色；
+  本次只改新建向导。要一并统一时，应把「绑定书 + 剧情阵容」的候选口径抽成 `characterCatalog` 里的
+  共用函数，两处都调它。
+- **证据**：`src/blueprints/sessions.py`（`/api/plots`）、`src/session_overlay.py`
+  （`plot_initial_characters`）、`src/session_manager.py::_plot_initial_characters`、
+  `frontend/src/utils/characterCatalog.ts::resolvePlotDefaults`、
+  `frontend/src/components/session/CreateSessionWizard.tsx`、
+  `scripts/test_session_main_control_ui.cjs`（C 段）、
+  `tests/test_data_layout.py::test_plot_roster_prefers_initial_characters_and_falls_back_to_legacy_field`。
+
 ### 多本世界书绑定与首本书兼容口径（2026-09-26，`1f5668a`）
 
 - **现象**：旧存档和部分调用方只认识 `worldbook_id` / `worldbook_scope`；多书会话若只读取这两个字段，会漏掉后续书。
