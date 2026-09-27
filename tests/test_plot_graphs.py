@@ -117,7 +117,13 @@ def test_validate_duplicate_node_ids():
 
 def test_save_load_delete_roundtrip(mgr):
     mgr, _ = mgr
-    doc = save_graph(mgr, BOOK, _doc(), display_name="风雪过境")
+    authored = _doc()
+    authored["nodes"][1]["scene_media"] = {
+        "background_url": "/api/assets/plots/fengxue_guojing/art/snow.png",
+        "cg_url": "/api/assets/plots/fengxue_guojing/art/arrival.webp",
+        "cg_title": "风雪中的相遇",
+    }
+    doc = save_graph(mgr, BOOK, authored, display_name="风雪过境")
     assert doc["worldbook_id"] == BOOK
     assert doc["updated_at"] > 0
 
@@ -125,6 +131,7 @@ def test_save_load_delete_roundtrip(mgr):
     assert loaded is not None
     assert [n["id"] for n in loaded["nodes"]] == ["n_a", "n_b", "n_c", "n_d"]
     assert len(loaded["edges"]) == 3
+    assert loaded["nodes"][1]["scene_media"] == authored["nodes"][1]["scene_media"]
     assert list_graphs(mgr, BOOK) == ["fengxue_guojing"]
 
     # 同剧情再次保存 → 覆盖同一条目（单条目粒度），书内不出现重复条目

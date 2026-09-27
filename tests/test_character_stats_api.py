@@ -321,6 +321,29 @@ def test_stage_payload(stage_api, monkeypatch):
     assert client.get("/api/sessions/nope/stage").status_code == 404
 
 
+def test_stage_uses_narration_beat_even_after_session_advances(stage_api, monkeypatch):
+    client, session, _docs = stage_api
+    import plot_graphs
+    monkeypatch.setattr(session.overlay, "get_plot_id", lambda: "p")
+    monkeypatch.setattr(session.overlay, "get_current_beat_id", lambda: "next")
+    monkeypatch.setattr(session.overlay, "get_beat_state", lambda: {"chapter_idx": 1})
+    monkeypatch.setattr(plot_graphs, "load_graph", lambda *_: {"nodes": [
+        {"id": "old", "type": "beat", "title": "旧节拍", "ref": {"chapter_idx": 1, "beat_id": "old"},
+         "scene_media": {"background_url": "/api/assets/plots/p/art/old.png",
+                         "cg_url": "/api/assets/plots/p/art/cg.png", "cg_title": "旧画面"}},
+        {"id": "next", "type": "beat", "title": "下一节拍", "ref": {"chapter_idx": 2, "beat_id": "next"},
+         "scene_media": {"background_url": "/api/assets/plots/p/art/next.png"}},
+    ]})
+    session._narration_history = [{"round": 1, "beat_id": "old", "chapter_idx": 1}]
+    old = client.get("/api/sessions/s1/stage?round=1").json
+    assert old["background"]["url"].endswith("old.png")
+    assert old["scene_media"]["cg"]["title"] == "旧画面"
+    assert old["scene_media"]["cue_key"] == "p:1:old:1"
+    current = client.get("/api/sessions/s1/stage").json
+    assert current["background"]["url"].endswith("next.png")
+    assert current["scene_media"]["cg"] is None
+
+
 # ── 快照与回档 ────────────────────────────────────────────────────────────────
 
 def test_stats_and_plugin_data_follow_tree_rollback(tmp_path, monkeypatch):

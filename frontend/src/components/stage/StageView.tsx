@@ -110,6 +110,8 @@ export default function StageView({
   const [failedSprites, setFailedSprites] = useState<string[]>([]);
   const [artworkOpen, setArtworkOpen] = useState(false);
   const [selectedArtwork, setSelectedArtwork] = useState(0);
+  const [cgOpen, setCgOpen] = useState(false);
+  const [failedCg, setFailedCg] = useState<string | null>(null);
   const artworkButtonRef = useRef<HTMLButtonElement>(null);
   const closeArtwork = () => {
     setArtworkOpen(false);
@@ -121,7 +123,7 @@ export default function StageView({
   const [imageBounds, setImageBounds] = useState<Record<string, PortraitBounds>>({});
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const dragRef = useRef<{ name: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
-  useEffect(() => { setStage(null); setArtworkOpen(false); setSelectedArtwork(0); }, [sessionId]);
+  useEffect(() => { setStage(null); setArtworkOpen(false); setSelectedArtwork(0); setCgOpen(false); setFailedCg(null); }, [sessionId]);
   useEffect(() => { setFailedSprites([]); }, [sessionId, resourceVersion]);
   useEffect(() => { setFailedBackground(null); }, [sessionId, resourceVersion]);
   useEffect(() => {
@@ -135,18 +137,6 @@ export default function StageView({
     try { localStorage.setItem(layoutKey(sessionId), JSON.stringify(next)); } catch { /* Storage can be disabled. */ }
   }, [sessionId]);
 
-  // ── 舞台数据：背景 / 立绘 / 环境（环境、阵容、资源覆盖变化时重拉） ──
-  useEffect(() => {
-    let cancelled = false;
-    api.getStage(sessionId).then((data) => {
-      if (!cancelled) {
-        setStage(data);
-        setFailedBackground(null); // Retry once per successful refresh, never on image failure itself.
-      }
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [api, sessionId, envRefreshKey, characterRefreshKey, resourceVersion]);
-
   // ── 脚本与游标 ──
   const script = useMemo(
     () => buildStageScript(messages, [...new Set([...sceneCharacters, playerName].filter(Boolean))], playerName),
@@ -157,6 +147,34 @@ export default function StageView({
   const current = script.steps[Math.min(step, Math.max(0, script.steps.length - 1))];
   const atEnd = step >= script.steps.length - 1;
   const presenting = waiting || script.streaming;
+  const scriptMessage = messages[script.messageIndex];
+  const stageRound = !script.streaming && scriptMessage?.role === "narrator" ? scriptMessage.round : undefined;
+  useEffect(() => { setCgOpen(false); }, [script.key]);
+
+  // A completed narration carries its authored beat even if the server has
+  // already advanced the session to the next beat. Avoid a request per token.
+  useEffect(() => {
+    let cancelled = false;
+    api.getStage(sessionId, stageRound).then((data) => {
+      if (!cancelled) {
+        setStage(data);
+        setFailedBackground(null);
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [api, sessionId, stageRound, script.key, envRefreshKey, characterRefreshKey, resourceVersion]);
+
+  const cgCue = stage?.scene_media;
+  useEffect(() => {
+    if (presenting || !stageRound || cgCue?.round !== stageRound || !cgCue?.cue_key || !cgCue.cg || artworkOpen) return;
+    const key = `ark_stage_cg:${sessionId}:${cgCue.cue_key}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+    } catch { /* A blocked storage area only affects replay suppression. */ }
+    setFailedCg(null);
+    setCgOpen(true);
+  }, [presenting, stageRound, cgCue, artworkOpen, sessionId]);
 
   // 新一段开始：回到第一步
   useEffect(() => { setCursor({ key: script.key, step: 0 }); }, [script.key]);
@@ -262,6 +280,10 @@ export default function StageView({
     return () => observer.disconnect();
   }, []);
   const onKey = (e: React.KeyboardEvent) => {
+    if (cgOpen) {
+      if (e.key === "Escape") { e.preventDefault(); setCgOpen(false); rootRef.current?.focus(); }
+      return;
+    }
     if (artworkOpen) {
       if (e.key === "Escape") { e.preventDefault(); closeArtwork(); }
       return;
@@ -330,6 +352,7 @@ export default function StageView({
   const bgUrl = visibleStage?.background.url && visibleStage.background.url !== failedBackground ? visibleStage.background.url : null;
   const artwork = visibleStage?.artwork ?? [];
   const currentArtwork = artwork[Math.min(selectedArtwork, artwork.length - 1)];
+  const activeCg = visibleStage?.scene_media?.cg;
   const bgStyle = bgUrl
     ? { backgroundImage: `url("${bgUrl}")` }
     : { backgroundImage: proceduralBackground(visibleStage?.time || "", visibleStage?.weather || "") };
@@ -369,7 +392,8 @@ export default function StageView({
       {/* 顶部工具 */}
       <div className="stage-tools">
         {stageOnly && <button type="button" className="stage-exit" onClick={onExitStageOnly} title="退出纯舞台（Esc）" aria-label="退出纯舞台"><AppIcon name="minimize" size={13} /><span>退出舞台</span></button>}
-        {artwork.length > 0 && <button ref={artworkButtonRef} type="button" onClick={() => { setSelectedArtwork(0); setArtworkOpen(true); }} title="查看彼岸双生剧情绘图" aria-label="剧情绘图"><AppIcon name="image" size={13} /><span>绘图</span></button>}
+        {activeCg && <button type="button" onClick={() => setCgOpen(true)} title="查看本节拍 CG" aria-label="查看本节拍 CG"><AppIcon name="image" size={13} /><span>CG</span></button>}
+        {artwork.length > 0 && <button ref={artworkButtonRef} type="button" onClick={() => { setSelectedArtwork(0); setArtworkOpen(true); }} title="查看剧情绘图" aria-label="剧情绘图"><AppIcon name="image" size={13} /><span>绘图</span></button>}
         <button type="button" onClick={onToggleMusic} aria-label={musicMuted ? "开启背景音乐" : "静音背景音乐"}
           title={musicMuted ? "开启背景音乐" : "静音背景音乐"} aria-pressed={!musicMuted}>
           <AppIcon name={musicMuted ? "volumeOff" : "volume"} size={13} />
@@ -382,7 +406,13 @@ export default function StageView({
         }} title="调整立绘大小和位置" aria-label={editingPortraits ? "完成立绘调整" : "调整立绘"}><AppIcon name="settings" size={13} /><span>{editingPortraits ? "完成调整" : "调整立绘"}</span></button>
       </div>
 
-      {artworkOpen && currentArtwork && <div className="stage-artwork-overlay" role="dialog" aria-label="彼岸双生剧情绘图" onClick={(event) => event.stopPropagation()}>
+      {cgOpen && activeCg && failedCg !== activeCg.url && <div className="stage-cg-overlay" role="dialog" aria-modal="true" aria-label={activeCg.title}
+        onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Tab") event.preventDefault(); }}>
+        <img src={activeCg.url} alt={activeCg.title} onError={() => { setFailedCg(activeCg.url); setCgOpen(false); }} />
+        <div className="stage-cg-caption"><span>{activeCg.title}</span><button type="button" autoFocus onClick={() => { setCgOpen(false); rootRef.current?.focus(); }}>继续剧情</button></div>
+      </div>}
+
+      {artworkOpen && currentArtwork && <div className="stage-artwork-overlay" role="dialog" aria-label="剧情绘图" onClick={(event) => event.stopPropagation()}>
         <div className="stage-artwork-head">
           <div><strong>彼岸双生 · 剧情绘图</strong><span>七幕与角色特写 · 选择画面查看</span></div>
           <button type="button" autoFocus onClick={closeArtwork} aria-label="关闭剧情绘图">关闭</button>

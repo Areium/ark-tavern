@@ -22,10 +22,12 @@
  *     编辑器内「✕ 关闭」；切剧情、换设定集、底层节点被删时直接卸载不播动画。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Image, Upload, X } from "lucide-react";
+import "../../styles/graph-scene-media.css";
 import { useApi } from "../../hooks/useApi";
 import { useAppStore } from "../../stores/appStore";
 import type {
-  BattleNodeOverviewDTO, CombatNodeGraphDTO,
+  AssetEntityGroupDTO, BattleNodeOverviewDTO, CombatNodeGraphDTO,
   PlotGraphDocDTO, PlotGraphNodeDTO, WorldBookSummary,
 } from "../../types";
 import BattleNodeForm from "./BattleNodeForm";
@@ -54,6 +56,7 @@ const errText = (e: unknown, fallback: string) =>
   e instanceof Error && e.message ? e.message : fallback;
 
 type Drawer =
+  | { kind: "media"; nodeId: string }
   | { kind: "battle"; nodeId: string }
   | { kind: "story"; plotId: string; beatId: string | null }
   | null;
@@ -361,12 +364,12 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+      const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save(); return; }
       // Esc 收起编辑抽屉（抽屉惯例；输入框内同样生效）
       if (e.key === "Escape" && drawer) { e.preventDefault(); closeDrawer(); return; }
-      if (typing) return;
+      if (typing || t?.closest(".ng-media-panel")) return;
       if (mod && !e.shiftKey && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
       else if (mod && (e.shiftKey && e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) { e.preventDefault(); redo(); }
       else if (!mod && (e.key === "Delete" || e.key === "Backspace")) {
@@ -650,6 +653,13 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
 
   // ── 渲染 ──
   const plots = overview?.plots || [];
+  const selectedNode = selected?.kind === "node" ? doc?.nodes.find((n) => n.id === selected.id) : undefined;
+  const canConfigureMedia = (node?: PlotGraphNodeDTO) => !!node && (
+    node.type === "plot" ||
+    (node.type === "chapter" && currentPlot?.chapters.some((c) => c.idx === node.ref?.chapter_idx)) ||
+    (node.type === "beat" && currentPlot?.chapters.some((c) => c.idx === node.ref?.chapter_idx && c.beats.some((b) => b.id === node.ref?.beat_id)))
+  );
+  const mediaNode = drawer?.kind === "media" ? doc?.nodes.find((n) => n.id === drawer.nodeId) : undefined;
 
   return (
     <div className="relative flex flex-col h-full min-h-0 bg-gray-950 text-gray-200">
@@ -677,6 +687,16 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
             {doc.nodes.length} 节点 · {doc.edges.length} 连线
           </span>
         )}
+        <select aria-label="选择演出节点" className="ng-media-node-select" value={canConfigureMedia(selectedNode) ? selectedNode!.id : ""}
+          onChange={(e) => setSelected(e.target.value ? { kind: "node", id: e.target.value } : null)}>
+          <option value="">选择演出节点</option>
+          {doc?.nodes.filter(canConfigureMedia).map((n) => <option key={n.id} value={n.id}>{displays.get(n.id)?.title || n.title}</option>)}
+        </select>
+        <button className="ng-media-entry" disabled={!canConfigureMedia(selectedNode)}
+          title={canConfigureMedia(selectedNode) ? "配置所选节点的舞台背景与 CG" : "选择已关联的剧情、章节或节拍节点后配置演出"}
+          onClick={() => selectedNode && openDrawer({ kind: "media", nodeId: selectedNode.id })}>
+          <Image size={15} aria-hidden="true" /> 演出配置
+        </button>
         <div className="flex-1" />
         {notice && (
           <span className={"text-[12px] shrink-0 " + (notice.kind === "err" ? "text-red-300" : "text-emerald-300")}>
@@ -838,10 +858,10 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
               aria-hidden="true"
             />
             <div
-              className={"ng-drawer" + (drawerOpen ? " ng-drawer-open" : "") + (resizing ? " ng-drawer-resizing" : "")}
+              className={"ng-drawer" + (drawer.kind === "media" ? " ng-media-drawer" : "") + (drawerOpen ? " ng-drawer-open" : "") + (resizing ? " ng-drawer-resizing" : "")}
               style={drawerW != null ? { width: drawerW } : undefined}
               role="complementary"
-              aria-label="节点编辑器"
+              aria-label={drawer.kind === "media" ? "演出配置" : "节点编辑器"}
             >
               {/* 左边缘拖拽把手：调整宽度（双击恢复默认半屏） */}
               <div
@@ -852,7 +872,13 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
                 <i className="ng-drawer-grip-bar" />
               </div>
 
-              {drawer.kind === "battle" ? (
+              {drawer.kind === "media" ? (mediaNode && canConfigureMedia(mediaNode) ? (
+                <SceneMediaPanel key={`${bookId}:${plotId}:${mediaNode.id}`} node={mediaNode}
+                  title={displays.get(mediaNode.id)?.title || mediaNode.title} bookId={bookId} plotId={plotId}
+                  onClose={closeDrawer} onChange={(media) => {
+                    if (doc) commit({ ...doc, nodes: doc.nodes.map((n) => n.id === mediaNode.id ? { ...n, scene_media: media } : n) });
+                  }} />
+              ) : <div className="ng-media-panel"><p>节点已移除或引用已失效。</p><button onClick={closeDrawer}>关闭</button></div>) : drawer.kind === "battle" ? (
                 <BattleNodeForm
                   key={`battle-${drawer.nodeId}`}
                   nodeId={drawer.nodeId}
@@ -934,4 +960,87 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
       )}
     </div>
   );
+}
+
+
+/** 编辑直接进入图的撤销栈，沿用整图保存；资源仅来自当前世界书。 */
+function SceneMediaPanel({ node, title, bookId, plotId, onChange, onClose }: {
+  node: PlotGraphNodeDTO; title: string; bookId: string; plotId: string;
+  onChange: (media: PlotGraphNodeDTO["scene_media"]) => void; onClose: () => void;
+}) {
+  const api = useApi();
+  const [assets, setAssets] = useState<AssetEntityGroupDTO[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [target, setTarget] = useState<"background_url" | "cg_url">("background_url");
+  const [query, setQuery] = useState("");
+  const [reload, setReload] = useState(0);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const active = useRef(true);
+  const mediaRef = useRef(node.scene_media);
+  const changeRef = useRef(onChange);
+  mediaRef.current = node.scene_media;
+  changeRef.current = onChange;
+  useEffect(() => { closeRef.current?.focus(); active.current = true; return () => { active.current = false; }; }, []);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true); setError("");
+    api.getAssetImages().then((groups) => {
+      if (!cancelled) setAssets(groups.filter((g) => g.worldbook_id === bookId));
+    }).catch((e) => { if (!cancelled) setError(errText(e, "图片资源加载失败，请重试")); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [api, bookId, reload]);
+  const update = (key: "background_url" | "cg_url" | "cg_title", value: string) => {
+    const next = { ...mediaRef.current, [key]: value };
+    if (key === "cg_url" && !value) delete next.cg_title;
+    const clean = Object.fromEntries(Object.entries(next).filter(([, v]) => !!v));
+    changeRef.current(Object.keys(clean).length ? clean : undefined);
+  };
+  const upload = async (file?: File) => {
+    if (!file) return;
+    const uploadTarget = target;
+    setUploading(true); setError("");
+    try {
+      const result = await api.uploadAssetImage("plots", file, `${plotId}/art`);
+      if (active.current) {
+        update(uploadTarget, result.url);
+        setReload((n) => n + 1);
+      }
+    } catch (e) { if (active.current) setError(errText(e, "上传失败，请重试")); }
+    finally { if (active.current) setUploading(false); }
+  };
+  const images = [...new Map(assets.flatMap((g) => g.images.filter((img) => /\.(png|jpe?g|webp|gif|bmp)$/i.test(img.name)).map((img) => ({ ...img, entity: g.entity_name }))).map((img) => [img.url, img])).values()];
+  const filtered = images.filter((img) => `${img.name} ${img.entity}`.toLowerCase().includes(query.toLowerCase()));
+  return <section className="ng-media-panel" aria-labelledby="scene-media-heading">
+    <header className="ng-media-header"><div><h2 id="scene-media-heading">演出配置</h2><p>{title}</p></div>
+      <button ref={closeRef} onClick={onClose} aria-label="关闭演出配置"><X size={18} /></button></header>
+    <div className="ng-media-scroll">
+      <p className="ng-media-help">修改后保存节点图生效。背景按节拍、章节、剧情的顺序优先使用，未设置时沿用上层背景。</p>
+      <div className="ng-media-targets" role="group" aria-label="选择配置项">
+        <button aria-pressed={target === "background_url"} onClick={() => setTarget("background_url")}>舞台背景</button>
+        {node.type === "beat" && <button aria-pressed={target === "cg_url"} onClick={() => setTarget("cg_url")}>节拍 CG</button>}
+      </div>
+      <p className="ng-media-hint">{target === "cg_url" ? "进入此节拍时自动展示一次，玩家可在舞台关闭。" : "进入此节点对应的剧情阶段时应用背景。"}</p>
+      <div className="ng-media-preview">
+        {node.scene_media?.[target] ? <img key={node.scene_media[target]} src={node.scene_media[target]} alt={target === "cg_url" ? "当前节拍 CG 预览" : "当前舞台背景预览"} onError={(e) => { e.currentTarget.alt = "图片无法加载，请重新选择资源"; }} />
+          : <div><Image size={28} aria-hidden="true" /><span>{target === "cg_url" ? "尚未设置 CG" : "沿用上层背景"}</span></div>}
+      </div>
+      <div className="ng-media-preview-caption"><span>{node.scene_media?.[target] ? "已配置 · 保存图后生效" : "从下方资源选择，或上传图片"}</span>
+        <button disabled={!node.scene_media?.[target]} onClick={() => update(target, "")}>清除{target === "cg_url" ? " CG" : "背景"}</button></div>
+      {target === "cg_url" && <label className="ng-media-field">CG 标题（可选）<input value={node.scene_media?.cg_title || ""} maxLength={100} disabled={!node.scene_media?.cg_url}
+        onChange={(e) => update("cg_title", e.target.value)} placeholder="例如：雨夜的重逢" /></label>}
+      <div className="ng-media-library-heading"><h3>本书图片</h3><label className={"ng-media-upload" + (uploading ? " is-disabled" : "")}>
+        <Upload size={14} aria-hidden="true" />{uploading ? "上传中…" : "上传图片"}<input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.bmp" disabled={uploading}
+          onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} /></label></div>
+      <label className="ng-media-field"><span className="sr-only">搜索本书图片</span><input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索图片名称或所属条目" /></label>
+      {error && <div className="ng-media-error" role="alert">{error}<button onClick={() => setReload((n) => n + 1)}>重新加载资源</button></div>}
+      {loading ? <p role="status" className="ng-media-empty">正在加载本书图片…</p> : filtered.length ?
+        <div className="ng-media-grid">{filtered.map((img) => <button key={img.url} title={`${img.entity} / ${img.name}`} aria-pressed={node.scene_media?.[target] === img.url}
+          onClick={() => update(target, img.url)}><img src={img.url} alt="" loading="lazy" /><span>{img.name}</span><small>{img.entity}</small></button>)}</div>
+        : <p className="ng-media-empty">{query ? "没有匹配的图片，试试其他名称。" : "本书还没有可用图片。上传图片后即可配置演出；已有资源可在资源管理中归属到本书。"}</p>}
+    </div>
+    <footer className="ng-media-footer">配置随节点图一起保存，支持撤销。<button onClick={onClose}>完成配置</button></footer>
+  </section>;
 }

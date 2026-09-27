@@ -1412,6 +1412,7 @@ export interface PlotGraphNodeDTO {
   x: number;
   y: number;
   ref?: { chapter_idx?: number; beat_id?: string; node_id?: string } | null;
+  scene_media?: { background_url?: string; cg_url?: string; cg_title?: string };
 }
 
 /** 有向连线（一个节点允许分出多条路线：from 可重复出现） */
@@ -1556,10 +1557,17 @@ export interface StageDTO {
   atmosphere: string[];
   background: {
     url: string | null;
-    source: "session" | "location" | "default" | "none";
+    source: "session" | "graph" | "location" | "default" | "none";
     bg_id: string;
   };
   artwork?: { id: string; act: string; title: string; caption: string; url: string }[];
+  scene_media?: {
+    beat_id: string;
+    chapter_idx: number;
+    cue_key: string;
+    round: number | null;
+    cg: { url: string; title: string } | null;
+  };
   characters: StageCharacterDTO[];
   player: { name: string; skin_url: string | null; avatar_url: string | null; color: string | null };
 }

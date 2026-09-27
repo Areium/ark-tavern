@@ -678,6 +678,8 @@ def register(app, managers):
 
                 # 两阶段提取：从叙事文本中提取标记（Call 2）
                 # 文本已流式显示完毕，此阶段不阻塞用户阅读
+                narration_beat_id = session.overlay.get_current_beat_id() if session.mode == "story" else ""
+                narration_chapter_idx = int(session.overlay.get_beat_state().get("chapter_idx", 0)) + 1 if narration_beat_id else 0
                 if _should_extract_markers(session, choices_count):
                     markers = session.scene_manager.extract_markers(
                         narrative, choices_count=choices_count,
@@ -734,7 +736,8 @@ def register(app, managers):
 
                 # 回忆系统：在文本输出后生成回忆（用户已在阅读，不再阻塞首字可见）
                 if session.mode == "story":
-                    session.add_narration(narrative, user_action, dialogue_segments)
+                    session.add_narration(narrative, user_action, dialogue_segments,
+                                          beat_id=narration_beat_id, chapter_idx=narration_chapter_idx)
                     session.overlay.append_plot_log(
                         plot_summary if plot_summary else narrative[:300].replace('\n', ' ')
                     )
@@ -903,6 +906,8 @@ def register(app, managers):
             marker_env = None
             lore_combat_hint = ""
             combat_node_for_tree = ("", "")
+            narration_beat_id = session.overlay.get_current_beat_id() if session.mode == "story" else ""
+            narration_chapter_idx = int(session.overlay.get_beat_state().get("chapter_idx", 0)) + 1 if narration_beat_id else 0
             if _should_extract_markers(session, choices_count):
                 markers = session.scene_manager.extract_markers(
                     narrative, choices_count=choices_count,
@@ -942,7 +947,8 @@ def register(app, managers):
             # 回忆系统
             response_extra = {}
             if session.mode == "story":
-                session.add_narration(narrative, user_action, dialogue_segments)
+                session.add_narration(narrative, user_action, dialogue_segments,
+                                      beat_id=narration_beat_id, chapter_idx=narration_chapter_idx)
                 session.overlay.append_plot_log(
                     plot_summary if plot_summary else narrative[:300].replace('\n', ' ')
                 )

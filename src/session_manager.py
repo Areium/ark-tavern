@@ -316,7 +316,8 @@ class Session:
         return list(self._memories)
 
     def add_narration(self, narrative: str, user_action: str = "",
-                      dialogue_segments: list | None = None):
+                      dialogue_segments: list | None = None, *,
+                      beat_id: str = "", chapter_idx: int = 0):
         """记录一轮叙述到持久化历史。"""
         self.narration_count += 1
         entry = {
@@ -324,6 +325,9 @@ class Session:
             "text": narrative[:1500] if narrative else "",
             "action": user_action,
         }
+        if beat_id:
+            entry["beat_id"] = beat_id
+            entry["chapter_idx"] = chapter_idx
         if dialogue_segments:
             entry["segments"] = dialogue_segments
         self._narration_history.append(entry)

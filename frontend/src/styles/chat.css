@@ -266,6 +266,15 @@
   position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column;
   color: #f4efe6; background: rgba(7, 10, 17, .97); backdrop-filter: blur(12px);
 }
+.stage-cg-overlay {
+  position: absolute; inset: 0; z-index: 31; display: grid; grid-template-rows: minmax(0, 1fr) auto;
+  place-items: center; gap: 10px; padding: clamp(12px, 3vw, 28px);
+  color: #f4efe6; background: rgba(6, 8, 14, .97);
+}
+.stage-cg-overlay > img { display: block; min-height: 0; max-width: 100%; max-height: 100%; object-fit: contain; }
+.stage-cg-caption { width: min(100%, 900px); display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
+.stage-cg-caption button { flex: 0 0 auto; padding: 8px 14px; border: 1px solid rgba(245, 200, 106, .55); border-radius: 8px; color: #fff; background: rgba(90, 56, 13, .65); }
+.stage-cg-caption button:hover, .stage-cg-caption button:focus-visible { background: rgba(134, 84, 20, .86); outline-color: #f5c86a; }
 .stage-artwork-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 18px; border-bottom: 1px solid rgba(255, 255, 255, .12); }
 .stage-artwork-head > div { display: grid; gap: 2px; }
 .stage-artwork-head strong { font-size: 16px; }

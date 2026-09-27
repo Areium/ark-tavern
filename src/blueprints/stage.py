@@ -137,12 +137,43 @@ def register(app, managers):
         if not session:
             return json_error("会话不存在", 404)
         from combat_data_loader import CombatDataLoader
+        from plot_graphs import load_graph
+        from scene_media import resolve_scene_media
         from avatar_color import get_theme_color
 
         loader = CombatDataLoader()
         location = session.environment.location or ""
         bg_id = loader.location_background_id(location) if location else ""
         session_dir = Path(session.data_dir)
+
+        plot_id = getattr(session.overlay, "get_plot_id", lambda: "")() or ""
+        book_id = getattr(session.overlay, "get_worldbook_id", lambda: "")() or ""
+        beat_id = getattr(session.overlay, "get_current_beat_id", lambda: "")() or ""
+        beat_state = getattr(session.overlay, "get_beat_state", lambda: {})()
+        chapter_idx = int(beat_state.get("chapter_idx", 0)) + 1 if beat_id else 0
+        cue_key = ""
+        cue_round = None
+        requested_round = request.args.get("round", type=int)
+        if requested_round is not None and requested_round > 0:
+            history = session._narration_history
+            for index, row in enumerate(history):
+                if row.get("round") != requested_round:
+                    continue
+                cue_round = requested_round
+                # The beat may have advanced before this narration was saved.
+                # A legacy row with no beat metadata cannot safely trigger CG.
+                beat_id = str(row.get("beat_id") or "")
+                chapter_idx = int(row.get("chapter_idx") or 0)
+                if beat_id:
+                    first_round = requested_round
+                    for prev in reversed(history[:index]):
+                        if (prev.get("beat_id"), prev.get("chapter_idx")) != (beat_id, chapter_idx):
+                            break
+                        first_round = int(prev["round"])
+                    cue_key = f"{plot_id}:{chapter_idx}:{beat_id}:{first_round}"
+                break
+        graph = load_graph(wb_mgr, book_id, plot_id) if book_id and plot_id else None
+        authored_media = resolve_scene_media(graph, chapter_idx=chapter_idx, beat_id=beat_id)
 
         background = {"url": None, "source": "none", "bg_id": bg_id or loader._DEFAULT_BG_ID}
         for cand, level in ((bg_id, "location"), (loader._DEFAULT_BG_ID, "default")):
@@ -156,6 +187,9 @@ def register(app, managers):
             if url:
                 background = {"url": url, "source": level, "bg_id": cand}
                 break
+
+        if authored_media["background_url"] and background["source"] != "session":
+            background = {"url": authored_media["background_url"], "source": "graph", "bg_id": ""}
 
         def media(name: str, kind: str) -> str:
             return f"/api/characters/{quote(name)}/{kind}?session_id={session_id}"
@@ -191,6 +225,13 @@ def register(app, managers):
             "time": session.environment.time_of_day,
             "atmosphere": list(session.environment.atmosphere or []),
             "background": background,
+            "scene_media": {
+                "beat_id": beat_id,
+                "chapter_idx": chapter_idx,
+                "cue_key": cue_key,
+                "round": cue_round,
+                "cg": authored_media["cg"] if cue_key else None,
+            },
             "artwork": _story_artwork(getattr(session.overlay, "get_plot_id", lambda: None)() or ""),
             "characters": characters,
             "player": {

@@ -624,8 +624,8 @@ export function useApi() {
       }),
 
     // ── 对话舞台 / 角色数值 / 插件数据（场景面板插件的正式数据接口） ──
-    getStage: (sessionId: string) =>
-      request<import("../types").StageDTO>(`/api/sessions/${sessionId}/stage`),
+    getStage: (sessionId: string, round?: number) =>
+      request<import("../types").StageDTO>(`/api/sessions/${sessionId}/stage${round ? `?round=${round}` : ""}`),
     getCharacterStats: (name: string) =>
       request<import("../types").CharacterStatsDTO>(`/api/characters/${encodeURIComponent(name)}/stats`),
     saveCharacterStats: (name: string, values: Record<string, import("../types").StatValue | null>, replace = false) =>

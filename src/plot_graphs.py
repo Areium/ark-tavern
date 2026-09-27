@@ -44,6 +44,7 @@ import re
 import time
 
 from world_book import WorldBookEntry
+from scene_media import validate_node_scene_media
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,7 @@ def validate_graph(doc: dict, *, plot_id: str = "") -> list[str]:
             ids.add(nid)
         if len(nid) > 64:
             errors.append(f"节点 id 过长: {nid[:32]}…")
+        errors.extend(validate_node_scene_media(node))
 
     edges = doc.get("edges")
     if not isinstance(edges, list):
