@@ -12,6 +12,7 @@ import os
 import sys
 import time
 import random
+import uuid
 
 # Ensure project root and src/ are importable
 _src_dir = os.path.dirname(os.path.abspath(__file__))
@@ -369,16 +370,20 @@ class CombatSession:
 
     # ── Event handling ──
 
-    def _enqueue_event(self, ev: CombatEvent) -> None:
-        """Forward engine events into the SSE queue."""
+    def _enqueue_event(self, ev: CombatEvent) -> dict:
+        """Give one event a delivery ID and forward it to the SSE queue."""
+        ev.data["presentation_id"] = uuid.uuid4().hex
         self.event_queue.put(ev)
+        return {"type": ev.type, "data": ev.data.copy()}
 
-    def _flush_engine_events(self) -> None:
-        """Move events from engine state into the SSE queue (for init events)."""
+    def _flush_engine_events(self) -> list[dict]:
+        """Move pending engine events to SSE and return this flush's batch."""
+        events = []
         if self.engine:
             for ev in self.engine.state.events:
-                self.event_queue.put(ev)
+                events.append(self._enqueue_event(ev))
             self.engine.state.events.clear()
+        return events
 
     # ── Player actions ──
 
@@ -407,6 +412,7 @@ class CombatSession:
 
         action_type = action.get("action", "")
         target = tuple(action.get("target", [0, 0]))
+        events = []
 
         try:
             if action_type == "play_card":
@@ -444,7 +450,7 @@ class CombatSession:
 
                 self.engine.play_card(owner_unit.unit_id, card, target)
                 self.engine._check_battle_end()
-                self._flush_engine_events()
+                events = self._flush_engine_events()
 
             elif action_type == "move":
                 unit_id = action.get("unit_id", "")
@@ -453,14 +459,14 @@ class CombatSession:
                     return {"ok": False, "error": "Invalid unit for move"}
 
                 if self.engine.move_unit(unit_id, target):
-                    self._flush_engine_events()
+                    events = self._flush_engine_events()
                 else:
                     return {"ok": False, "error": "Invalid move target"}
 
             elif action_type == "escape":
                 if not self.engine.escape():
                     return {"ok": False, "error": "本场战斗无法撤退"}
-                self._flush_engine_events()
+                events = self._flush_engine_events()
 
             else:
                 return {"ok": False, "error": f"Unknown action: {action_type}"}
@@ -470,7 +476,7 @@ class CombatSession:
             return {"ok": False, "error": str(e)}
 
         self.last_activity_at = time.time()
-        return {"ok": True, "state": self.get_state()}
+        return {"ok": True, "state": self.get_state(), "events": events}
 
     def end_turn(self) -> dict:
         """End the player's round: execute enemy phase, draw new hand."""
@@ -481,10 +487,10 @@ class CombatSession:
             return {"ok": False, "error": "Battle is over"}
 
         self.engine.end_player_round()
-        self._flush_engine_events()
+        events = self._flush_engine_events()
         self.last_activity_at = time.time()
 
-        return {"ok": True, "state": self.get_state()}
+        return {"ok": True, "state": self.get_state(), "events": events}
 
     def use_item(self, item_name: str, target_id: str) -> dict:
         """Use a consumable item on a target unit (heal/buff)."""
@@ -518,7 +524,7 @@ class CombatSession:
             amount = int(effect.get("amount", 0))
             healed = target.heal(amount)
             self.engine.shared_ap -= 1
-            self._enqueue_event(CombatEvent(
+            event = self._enqueue_event(CombatEvent(
                 "heal", data={"unit_id": target_id, "caster": "物品", "target_id": target_id,
                               "target": target.name, "amount": healed, "card": item_name,
                               "target_pos": list(target.pos)}))
@@ -537,7 +543,7 @@ class CombatSession:
                 break
 
         self.last_activity_at = time.time()
-        return {"ok": True, "state": self.get_state()}
+        return {"ok": True, "state": self.get_state(), "events": [event]}
 
     # ── State queries ──
 

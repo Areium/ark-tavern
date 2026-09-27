@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import "./combatPresentation.css";
 import type { CombatUnitDTO, EnemyIntentDTO } from "../../types";
 import AvatarPlaceholder from "../chat/AvatarPlaceholder";
 
@@ -51,14 +53,20 @@ function StatusBadges({ status }: { status?: Record<string, number> }) {
 }
 
 function HPBar({ current, max }: { current: number; max: number }) {
-  const pct = Math.max(0, Math.min(1, current / max));
+  const pct = Math.max(0, Math.min(1, max > 0 ? current / max : 0));
+  const [trail, setTrail] = useState(pct);
+  useEffect(() => {
+    const timer = setTimeout(() => setTrail(pct), pct < trail ? 230 : 0);
+    return () => clearTimeout(timer);
+  }, [pct, trail]);
   const level = pct > 0.5 ? "high" : pct > 0.25 ? "medium" : "low";
   return (
     <div className="flex items-center gap-1.5">
-      <div className="flex-1 combat-hp-bar">
+      <div className="flex-1 combat-hp-bar combat-hp-track" role="meter" aria-label="生命值" aria-valuemin={0} aria-valuemax={max} aria-valuenow={current}>
+        <div className="combat-hp-trail" style={{ transform: `scaleX(${Math.max(pct, trail)})` }} />
         <div
-          className={`combat-hp-fill ${level}`}
-          style={{ width: `${pct * 100}%` }}
+          className={`combat-hp-fill combat-hp-current ${level}`}
+          style={{ transform: `scaleX(${pct})` }}
         />
       </div>
       <span className="text-[11px] text-gray-500 font-mono w-12 text-right">
@@ -128,10 +136,20 @@ export default function UnitStatusPanel({
         return (
           <div
             key={u.unit_id}
+            role={onUnitClick ? "button" : undefined}
+            tabIndex={onUnitClick ? 0 : undefined}
+            aria-pressed={onUnitClick ? isSelected : undefined}
+            onKeyDown={(e) => {
+              if (onUnitClick && (e.key === "Enter" || e.key === " ")) {
+                e.preventDefault(); onUnitClick(u.unit_id);
+              }
+            }}
+            onFocus={(e) => onUnitHover?.(u.unit_id, e.currentTarget.getBoundingClientRect())}
+            onBlur={() => onUnitLeave?.()}
             onClick={() => onUnitClick?.(u.unit_id)}
             onMouseEnter={(e) => onUnitHover?.(u.unit_id, (e.currentTarget as HTMLElement).getBoundingClientRect())}
             onMouseLeave={() => onUnitLeave?.()}
-            className={`p-2 rounded-lg border transition-all cursor-pointer hover:brightness-110 ${borderClass}`}
+            className={`combat-unit-status p-2 rounded-lg border transition-colors cursor-pointer hover:brightness-110 ${borderClass}`}
           >
             <div className="flex items-center gap-2">
               <AvatarPlaceholder name={u.name} size="md" />

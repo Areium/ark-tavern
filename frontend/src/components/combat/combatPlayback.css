@@ -1,0 +1,31 @@
+.combat-action-caption {
+  min-height: 24px;
+  margin-bottom: 4px;
+  color: #bccbd8;
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.combat-playback[aria-busy="true"] .combat-action-caption {
+  color: #f1d391;
+}
+
+.combat-playback .damage-number.mixed { color: #e0b7ff; }
+.combat-playback .damage-number.crit {
+  font-size: 30px;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .combat-playback .damage-number {
+    animation: combat-number-fade 900ms ease-out forwards;
+  }
+  .combat-playback .combat-hp-fill.low { animation: none; }
+}
+
+@keyframes combat-number-fade {
+  0%, 65% { opacity: 1; }
+  100% { opacity: 0; }
+}

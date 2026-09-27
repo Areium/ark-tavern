@@ -1,0 +1,7 @@
+.combat-hp-track { position: relative; overflow: hidden; }
+.combat-hp-track .combat-hp-trail { position: absolute; inset: 0; background: #dfc5a2; transform-origin: left; transition: transform 320ms cubic-bezier(.16,1,.3,1); }
+.combat-hp-track .combat-hp-current { position: relative; width: 100%; transform-origin: left; transition: transform 110ms ease-out; }
+.combat-unit-status:focus-visible { outline: 2px solid #9bdef2; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .combat-hp-track .combat-hp-trail, .combat-hp-track .combat-hp-current { transition: none; }
+}

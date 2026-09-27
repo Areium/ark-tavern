@@ -8,7 +8,7 @@
  * interaction.  Those are handled by the CSS-based CombatGrid.
  */
 import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
-import { Application, Container, Graphics, Text, Texture } from "pixi.js";
+import { Application, Container, Graphics, Texture } from "pixi.js";
 import { AtlasAttachmentLoader, SkeletonBinary, Spine } from "@pixi-spine/runtime-3.8";
 import { TextureAtlas } from "@pixi-spine/base";
 import type { CombatUnitDTO } from "../../types";
@@ -144,6 +144,7 @@ interface UnitEntry {
   tweening?: boolean;
   baseScale?: number;
   flipped?: boolean;
+  cancelTween?: () => void;
   killTimeout?: ReturnType<typeof setTimeout>;
   /** fallback 令牌 HP 条（isSpine=false 时存在；scale.x = hp/max_hp 控制宽度） */
   hpBar?: Graphics;
@@ -212,8 +213,8 @@ async function loadSpine(baseUrl: string, fn: string): Promise<Spine> {
 // ---------------------------------------------------------------------------
 
 export interface PixiCombatSceneHandle {
-  playAttack(unitId: string): void;
-  playHit(unitId: string): void;
+  playAttack(unitId: string, targetId?: string): void;
+  playHit(unitId: string, critical?: boolean, sourceId?: string): void;
   playDeath(unitId: string): void;
   playStart(unitId: string): void;
   moveTo(unitId: string, to: [number, number], durationMs?: number): void;
@@ -249,6 +250,8 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
   const appRef = useRef<Application | null>(null);
   const unitLayerRef = useRef<Container | null>(null);
   const unitMapRef = useRef<Map<string, UnitEntry>>(new Map());
+  const latestUnitsRef = useRef(units);
+  latestUnitsRef.current = units;
   const loadedRef = useRef<Set<string>>(new Set());
   const loadingRef = useRef<Map<string, Promise<Spine | void>>>(new Map());
   const loadingUnitsRef = useRef<Set<string>>(new Set());
@@ -320,7 +323,11 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
     syncCanvasSizeRef.current();
 
     return () => {
-      app.destroy(true);
+      for (const entry of unitMapRef.current.values()) {
+        entry.cancelTween?.();
+        if (entry.killTimeout) clearTimeout(entry.killTimeout);
+      }
+      app.destroy(true, { children: true });
       appRef.current = null;
       unitLayerRef.current = null;
       unitMapRef.current.clear();
@@ -385,6 +392,7 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
     for (const [id, entry] of map) {
       if (!aliveIds.has(id)) {
         if (entry.dying) continue;
+        entry.cancelTween?.();
         if (entry.killTimeout) clearTimeout(entry.killTimeout);
         ul.removeChild(entry.displayObject);
         entry.displayObject.destroy({ children: true });
@@ -438,6 +446,9 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
           continue;
         }
 
+        const loadingApp = appRef.current;
+        const stillCurrent = () => appRef.current === loadingApp && !ul.destroyed
+          && latestUnitsRef.current.some(unit => unit.unit_id === u.unit_id && unit.is_alive);
         (async () => {
           try {
             let spine: Spine;
@@ -453,13 +464,18 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
               const p = loadSpine(baseUrl, fn);
               loadingRef.current.set(cacheKey, p);
               spine = await p;
-              loadedRef.current.add(cacheKey);
+              if (stillCurrent()) loadedRef.current.add(cacheKey);
             }
-            if (!aliveIds.has(u.unit_id)) { loadingUnitsRef.current.delete(u.unit_id); return; }
+            if (!stillCurrent()) {
+              spine.destroy({ children: true });
+              if (appRef.current === loadingApp) loadingUnitsRef.current.delete(u.unit_id);
+              return;
+            }
             if (!spine) { loadingUnitsRef.current.delete(u.unit_id); return; }
 
             // Re-compute position from DOM now that Spine is ready (layout has settled)
-            const latestPos = getCanvasPosRef.current(u.pos[0], u.pos[1]);
+            const latestUnit = latestUnitsRef.current.find(unit => unit.unit_id === u.unit_id)!;
+            const latestPos = getCanvasPosRef.current(latestUnit.pos[0], latestUnit.pos[1]);
             const finalSx = latestPos?.[0] ?? sx;
             const finalSy = latestPos?.[1] ?? sy;
             // 解析动画规格（战斗变体动画名带角色后缀，用前缀匹配）
@@ -502,12 +518,16 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
 
             ul.addChild(spine);
             map.set(u.unit_id, {
-              displayObject: spine, cell: [u.pos[0], u.pos[1]], yAnchorOffset: yOff,
+              displayObject: spine, cell: [latestUnit.pos[0], latestUnit.pos[1]], yAnchorOffset: yOff,
               isSpine: true, spec, baseScale: scale, flipped,
             });
             loadingUnitsRef.current.delete(u.unit_id);
             setPosTick((t) => t + 1);
           } catch (err) {
+            if (!stillCurrent()) {
+              if (appRef.current === loadingApp) loadingUnitsRef.current.delete(u.unit_id);
+              return;
+            }
             // 负缓存：失败资产只记一次详细日志，之后直接走 fallback
             if (!failedRef.current.has(cacheKey)) {
               console.error(`[PixiCombatScene] Spine load failed for ${u.name}:`, err);
@@ -545,7 +565,7 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
     if (!initialPosDoneRef.current && alive.length > 0) {
       initialPosDoneRef.current = true;
       requestAnimationFrame(() => {
-        setPosTick((t) => t + 1);
+        if (unitLayerRef.current === ul && !ul.destroyed) setPosTick((t) => t + 1);
       });
     }
   }, [ready, units, getCanvasPos, gridReady, posTick, enemyScale]);
@@ -555,6 +575,7 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
     if (!ready || !gridReady) return;
     const map = unitMapRef.current;
     for (const [, entry] of map) {
+      if (entry.tweening || entry.dying) continue;
       const pos = getCanvasPos(entry.cell[0], entry.cell[1]);
       if (pos) {
         entry.displayObject.x = pos[0];
@@ -563,139 +584,108 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
     }
   }, [ready, getCanvasPos, resizeTick]);
 
-  // ── Fallback（非 Spine 令牌）动画辅助 ──────────────────────────────
-  // 时间驱动 tween：与 moveTo 同以 app.ticker.lastTime 为基准；ticker 不可用时直接落终态
-  const runFallbackTween = (durationMs: number, onUpdate: (t: number) => void, onDone?: () => void) => {
+  // A unit owns one bounded presentation tween. Interruption restores its base pose.
+  const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const tween = (entry: UnitEntry, duration: number, update: (t: number) => void, finish?: () => void) => {
+    entry.cancelTween?.();
     const ticker = appRef.current?.ticker;
-    if (!ticker) { onUpdate(1); onDone?.(); return; }
-    const startT = ticker.lastTime;
+    if (!ticker || entry.displayObject.destroyed) return;
+    const start = performance.now();
+    const stop = () => { ticker.remove(tick); entry.cancelTween = undefined; finish?.(); };
     const tick = () => {
-      const t = Math.min(1, (ticker.lastTime - startT) / durationMs);
-      onUpdate(t);
-      if (t >= 1) { ticker.remove(tick); onDone?.(); }
+      if (entry.displayObject.destroyed) { stop(); return; }
+      const t = Math.min(1, (performance.now() - start) / duration);
+      update(t);
+      if (t >= 1) stop();
     };
+    entry.cancelTween = stop;
     ticker.add(tick);
   };
-
-  // 攻击：向朝向方向快速冲刺（±10~14px 来回，约 200ms）+ scale 1.15 punch
-  const fallbackAttack = (entry: UnitEntry) => {
-    const obj = entry.displayObject;
-    const lunge = Math.min(14, Math.max(10, cellSizeRef.current * 0.2));
-    const dir = entry.flipped ? -1 : 1; // 敌方默认镜像朝左
-    const baseX = obj.x;
-    // moveTo tween 进行中则只做 scale punch，避免两段位移互相覆盖
-    const canLunge = !entry.tweening;
-    if (canLunge) entry.tweening = true;
-    runFallbackTween(200, (t) => {
-      if (obj.destroyed) return;
-      const k = Math.sin(Math.PI * t); // 0→1→0：冲出再收回
-      if (canLunge) obj.x = baseX + dir * lunge * k;
-      obj.scale.set(1 + 0.15 * k); // 峰值 1.15
-    }, () => {
-      if (!obj.destroyed) { obj.x = baseX; obj.scale.set(1); }
-      if (canLunge) entry.tweening = false;
-    });
-  };
-
-  // 受击：tint 闪红（递归给 Graphics/Text 子对象染色，beginFill 颜色可 tint）
-  //       + 整体 alpha 闪烁兜底（覆盖头像 Sprite 等不可 tint 部分）+ 小幅衰减抖动
-  const fallbackHit = (entry: UnitEntry) => {
-    const obj = entry.displayObject;
-    const tintTree = (node: Container, tint: number) => {
-      for (const child of node.children) {
-        if (child instanceof Graphics || child instanceof Text) child.tint = tint;
-        else if (child instanceof Container) tintTree(child, tint);
-      }
-    };
-    tintTree(obj, 0xff5a4c);
-    obj.alpha = 0.6;
-    const baseX = obj.x;
-    const amp = Math.max(2, cellSizeRef.current * 0.05);
-    runFallbackTween(160, (t) => {
-      if (obj.destroyed) return;
-      obj.x = baseX + amp * Math.sin(t * Math.PI * 6) * (1 - t); // 快速往返且衰减
-    }, () => {
-      if (!obj.destroyed) obj.x = baseX;
-    });
-    setTimeout(() => {
-      if (obj.destroyed) return;
-      tintTree(obj, 0xffffff);
-      obj.alpha = 1;
-    }, 120);
-  };
-
-  // 死亡：alpha 渐隐 + 下沉（y +10px，约 600ms），随后销毁移除（沿用 killTimeout 模式）
-  const fallbackDeath = (unitId: string, entry: UnitEntry) => {
-    entry.dying = true;
-    const obj = entry.displayObject;
-    const baseY = obj.y;
-    runFallbackTween(600, (t) => {
-      if (obj.destroyed) return;
-      obj.alpha = 1 - t;
-      obj.y = baseY + 10 * t;
-    });
-    const ul = unitLayerRef.current;
-    if (entry.killTimeout) clearTimeout(entry.killTimeout);
-    entry.killTimeout = setTimeout(() => {
-      if (ul && ul.children.includes(obj)) ul.removeChild(obj);
-      obj.destroy({ children: true });
-      unitMapRef.current.delete(unitId);
-    }, 650);
-  };
-
-  // ── 动画控制（CombatView 通过 ref 驱动） ─────────────────────────
-  useImperativeHandle(ref, () => ({
-    playAttack(unitId: string) {
-      const entry = unitMapRef.current.get(unitId);
-      if (!entry || entry.dying) return;
-      // 非 Spine 令牌：fallback 冲刺 + scale punch
-      if (!entry.isSpine) { fallbackAttack(entry); return; }
-      if (!entry.spec) return;
-      const spine = entry.displayObject as Spine;
-      if (entry.spec.attack.length === 0) {
-        // 无攻击动画（理论上 resolveAnimSpec 已兜底到 Skill）→ 仅 scale punch
-        this.playHit(unitId);
-        return;
-      }
-      playChain(spine, entry.spec.attack, entry.spec.idle);
-    },
-
-    playHit(unitId: string) {
-      const entry = unitMapRef.current.get(unitId);
-      if (!entry || entry.dying) return;
-      // 非 Spine 令牌：tint 闪红 + 抖动
-      if (!entry.isSpine) { fallbackHit(entry); return; }
-      const spine = entry.displayObject as Spine;
-      // tint 闪红（pixi-spine 4.0.6 可能不可用 → try 回退纯 scale punch）
-      try { (spine as any).tint = 0xff6666; } catch { /* ignore */ }
+  const faceTarget = (entry: UnitEntry, targetId?: string) => {
+    const target = targetId ? unitMapRef.current.get(targetId) : undefined;
+    if (!target || Math.abs(target.displayObject.x - entry.displayObject.x) < 1) return;
+    entry.flipped = target.displayObject.x < entry.displayObject.x;
+    if (entry.isSpine) {
       const base = entry.baseScale ?? 1;
-      const fx = entry.flipped ? -base : base;
-      spine.scale.set(fx * 1.15, base * 1.15);
-      setTimeout(() => {
-        try { (spine as any).tint = 0xffffff; } catch { /* ignore */ }
-        spine.scale.set(fx, base);
-      }, 100);
-    },
+      entry.displayObject.scale.set(entry.flipped ? -base : base, base);
+    }
+  };
+  const attackFeedback = (entry: UnitEntry) => {
+    entry.cancelTween?.();
+    const obj = entry.displayObject;
+    const x = obj.x, base = entry.baseScale ?? 1;
+    const sx = entry.isSpine && entry.flipped ? -base : base;
+    const direction = entry.flipped ? -1 : 1;
+    const distance = reducedMotion() ? 0 : Math.min(12, cellSizeRef.current * .16);
+    entry.tweening = true;
+    tween(entry, 360, t => {
+      const pulse = t < .5 ? Math.sin(t * Math.PI) : Math.pow(2 - 2 * t, 2);
+      obj.x = x + direction * distance * pulse;
+      if (!entry.isSpine) obj.scale.set(1 + (reducedMotion() ? 0 : .045 * pulse));
+    }, () => {
+      if (!obj.destroyed) { obj.x = x; obj.scale.set(sx, base); }
+      entry.tweening = false;
+    });
+  };
+  const hitFeedback = (entry: UnitEntry, critical: boolean, sourceId?: string) => {
+    entry.cancelTween?.();
+    const obj = entry.displayObject;
+    const x = obj.x;
+    const source = sourceId ? unitMapRef.current.get(sourceId) : undefined;
+    const direction = source ? Math.sign(x - source.displayObject.x) || 1 : entry.flipped ? 1 : -1;
+    const distance = reducedMotion() ? 0 : (critical ? 7 : 4);
+    const tinted: { node: Container & { tint: number }; original: number }[] = [];
+    const tint = (node: Container) => {
+      if ("tint" in node && typeof node.tint === "number") {
+        const item = node as Container & { tint: number };
+        tinted.push({ node: item, original: item.tint });
+        item.tint = critical ? 0xffcd9c : 0xffb6a7;
+      } else for (const child of node.children) if (child instanceof Container) tint(child);
+    };
+    tint(obj);
+    entry.tweening = true;
+    tween(entry, critical ? 220 : 170, t => {
+      obj.x = x + direction * distance * Math.sin(Math.PI * t) * (1 - t);
+      obj.alpha = .78 + .22 * t;
+    }, () => {
+      for (const { node, original } of tinted) if (!node.destroyed) node.tint = original;
+      if (!obj.destroyed) { obj.x = x; obj.alpha = 1; }
+      entry.tweening = false;
+    });
+  };
 
+  useImperativeHandle(ref, () => ({
+    playAttack(unitId: string, targetId?: string) {
+      const entry = unitMapRef.current.get(unitId);
+      if (!entry || entry.dying) return;
+      entry.cancelTween?.();
+      faceTarget(entry, targetId);
+      attackFeedback(entry);
+      if (entry.isSpine && entry.spec?.attack.length)
+        playChain(entry.displayObject as Spine, entry.spec.attack, entry.spec.idle);
+    },
+    playHit(unitId: string, critical = false, sourceId?: string) {
+      const entry = unitMapRef.current.get(unitId);
+      if (!entry || entry.dying) return;
+      hitFeedback(entry, critical, sourceId);
+    },
     playDeath(unitId: string) {
       const entry = unitMapRef.current.get(unitId);
       if (!entry || entry.dying) return;
-      // 非 Spine 令牌：渐隐下沉后销毁
-      if (!entry.isSpine) { fallbackDeath(unitId, entry); return; }
+      entry.cancelTween?.();
       entry.dying = true;
-      const spine = entry.displayObject as Spine;
-      const spec = entry.spec!;
-      const ul = unitLayerRef.current;
-      if (spec.die) {
-        playChain(spine, [spec.die], "");
-      }
-      // Die 播完（约 1.5s）或超时后销毁；同时「Remove departed」已尊重 dying 不再提前移除
-      if (entry.killTimeout) clearTimeout(entry.killTimeout);
+      const obj = entry.displayObject;
+      const y = obj.y;
+      if (entry.isSpine && entry.spec?.die) playChain(obj as Spine, [entry.spec.die], "");
+      tween(entry, reducedMotion() ? 100 : 630, t => {
+        obj.alpha = 1 - Math.max(0, (t - .3) / .7);
+        if (!entry.isSpine && !reducedMotion()) obj.y = y + 7 * t;
+      });
       entry.killTimeout = setTimeout(() => {
-        if (ul && ul.children.includes(spine)) ul.removeChild(spine);
-        spine.destroy({ children: true });
-        unitMapRef.current.delete(unitId);
-      }, 1600);
+        entry.cancelTween?.();
+        if (!obj.destroyed) { obj.removeFromParent(); obj.destroy({ children: true }); }
+        if (unitMapRef.current.get(unitId) === entry) unitMapRef.current.delete(unitId);
+      }, reducedMotion() ? 120 : 650);
     },
 
     playStart(unitId: string) {
@@ -717,22 +707,22 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
       const from = getCanvasPosRef.current(entry.cell[0], entry.cell[1]);
       const target = getCanvasPosRef.current(to[0], to[1]);
       if (!from || !target) { entry.cell = to; return; }
+      entry.cancelTween?.();
       entry.tweening = true;
-      const ticker = appRef.current?.ticker;
-      if (!ticker) { entry.cell = to; entry.tweening = false; return; }
-      const startT = ticker.lastTime;
-      const dur = Math.max(50, durationMs);
-      const tick = () => {
-        const t = Math.min(1, (ticker.lastTime - startT) / dur);
-        entry.displayObject.x = from[0] + (target[0] - from[0]) * t;
-        entry.displayObject.y = from[1] + (target[1] - from[1]) * t + entry.yAnchorOffset;
-        if (t >= 1) {
-          entry.cell = to;
-          entry.tweening = false;
-          ticker.remove(tick);
-        }
-      };
-      ticker.add(tick);
+      if (entry.isSpine && Math.abs(target[0] - from[0]) > 1) {
+        entry.flipped = target[0] < from[0];
+        const base = entry.baseScale ?? 1;
+        entry.displayObject.scale.set(entry.flipped ? -base : base, base);
+      }
+      tween(entry, reducedMotion() ? 1 : Math.max(50, durationMs), t => {
+        const progress = 1 - Math.pow(1 - t, 3);
+        entry.displayObject.x = from[0] + (target[0] - from[0]) * progress;
+        entry.displayObject.y = from[1] + (target[1] - from[1]) * progress + entry.yAnchorOffset;
+      }, () => {
+        if (!entry.displayObject.destroyed) entry.displayObject.position.set(target[0], target[1] + entry.yAnchorOffset);
+        entry.cell = to;
+        entry.tweening = false;
+      });
     },
 
     getUnitRect: (unitId: string) => {
@@ -749,6 +739,7 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
   return (
     <div
       ref={containerRef}
+      aria-hidden="true"
       style={{
         position: "absolute",
         top: 0,

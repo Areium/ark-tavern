@@ -40,14 +40,22 @@ function formatEvent(ev: CombatEvent): { icon: string; text: string } {
     }
     case "damage": {
       const card = ev.data.card ? `「${ev.data.card}」` : "";
-      return { icon, text: `${ev.data.caster || "?"} ${card} → ${ev.data.target || "?"}  -${ev.data.damage || 0} [${ev.data.hit_result || ""}]` };
+      return { icon, text: `${ev.data.caster || "?"} ${card} → ${ev.data.target || "?"}  -${ev.data.damage || 0}${/crit/i.test(ev.data.hit_result || "") ? " · 暴击" : /miss|dodge/i.test(ev.data.hit_result || "") ? " · 未命中" : ""}` };
+    }
+    case "card_drawn":
+      return { icon, text: `抽到「${ev.data.card || "卡牌"}」 · ${ev.data.owner || ev.data.unit_id || ""}` };
+    case "cleanse":
+      return { icon, text: `${ev.data.target || "目标"} 的负面状态已清除` };
+    case "status": {
+      const names: Record<string, string> = { shield: "护盾", burn: "燃烧", slow: "减速", bind: "束缚", weaken: "虚弱", strengthen: "增幅", silence: "沉默", taunt: "嘲讽", evade: "闪避", blind: "致盲" };
+      return { icon, text: `${ev.data.target || "目标"} 获得${names[ev.data.type] || "状态效果"}` };
     }
     case "heal":
       return { icon, text: `${ev.data.caster || "?"} 治疗 ${ev.data.target || "?"} +${ev.data.amount || 0}` };
     case "death":
       return { icon, text: `${ev.data.name || "?"} 被击倒` };
     case "move":
-      return { icon, text: `${ev.data.name || "?"} 移动到 (${ev.data.to?.[0] || "?"},${ev.data.to?.[1] || "?"})` };
+      return { icon, text: `${ev.data.name || "?"} 移动到 (${(ev.data.to_pos ?? ev.data.to)?.[0] ?? "?"},${(ev.data.to_pos ?? ev.data.to)?.[1] ?? "?"})` };
     case "block_attempt":
       return { icon, text: `${ev.data.name || "?"} 尝试挡刀...` };
     case "block_success":
@@ -55,18 +63,16 @@ function formatEvent(ev: CombatEvent): { icon: string; text: string } {
     case "block_fail":
       return { icon, text: `${ev.data.name || "?"} 挡刀失败` };
     case "battle_end":
-      return { icon, text: ev.data.winner === "player" ? "战斗胜利！" : "战斗失败..." };
+      return { icon, text: ev.data.winner === "player" ? "战斗胜利！" : ev.data.winner === "escaped" ? "已撤退" : "战斗失败..." };
     case "card_played": {
-      const results = ev.data.results as number[] | undefined;
-      const total = results?.reduce((a: number, b: number) => a + b, 0) ?? 0;
-      return { icon, text: `${ev.data.caster || "?"} 使用「${ev.data.card || "?"}」→ (${ev.data.target?.join(",") || "?"}) 造成 ${total} 点伤害` };
+      return { icon, text: `${ev.data.caster || "?"} 使用「${ev.data.card || "?"}」` };
     }
     case "turn_end":
       return { icon, text: `第 ${ev.data.round || "?"} 回合结束` };
     case "error":
       return { icon, text: `错误: ${ev.data.msg || "?"}` };
     default:
-      return { icon, text: JSON.stringify(ev.data) };
+      return { icon, text: "战场状态已更新" };
   }
 }
 

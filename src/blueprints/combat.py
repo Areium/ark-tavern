@@ -108,10 +108,17 @@ def _build_sse_generator(combat, stream_prefix="combat", session=None):
         stream_id = f"{stream_prefix}_{_uuid.uuid4().hex[:8]}"
         yield f"data: {json.dumps({'type': 'meta', 'data': {'stream_id': stream_id}}, ensure_ascii=False)}\n\n"
 
-        while (combat.engine and not combat.engine.is_battle_over()
-               and not getattr(combat, "suspended", False)):
+        while not getattr(combat, "suspended", False):
+            # A finishing action enqueues damage/death before battle_end. Keep
+            # draining after the engine enters END, including late SSE connects.
+            if combat.engine and combat.engine.is_battle_over() and combat.event_queue.empty() \
+                    and not combat.engine.state.events:
+                yield f"data: {json.dumps({'type': 'done', 'data': {'stream_id': stream_id}}, ensure_ascii=False)}\n\n"
+                break
+            if not combat.engine and combat.event_queue.empty():
+                break
             try:
-                ev = combat.event_queue.get(timeout=30)
+                ev = combat.event_queue.get(timeout=0.1 if combat.engine and combat.engine.is_battle_over() else 30)
                 data = ev.data
 
                 if ev.type == "battle_end":
@@ -129,6 +136,8 @@ def _build_sse_generator(combat, stream_prefix="combat", session=None):
                     yield f"data: {json.dumps({'type': 'done', 'data': {'stream_id': stream_id}}, ensure_ascii=False)}\n\n"
                     break
             except _queue.Empty:
+                if combat.engine and combat.engine.is_battle_over():
+                    continue
                 yield f"data: {json.dumps({'type': 'heartbeat', 'data': {}}, ensure_ascii=False)}\n\n"
 
     return generate
@@ -529,6 +538,8 @@ def register(app, managers):
         if not result.get("ok"):
             return json_error(result.get("error", "操作失败"), 400)
 
+        if request.args.get("presentation") == "1":
+            return jsonify({"state": result.get("state", {}), "events": result.get("events", [])})
         return jsonify(result.get("state", {}))
 
     @bp.route("/api/sessions/<session_id>/combat/end-turn", methods=["POST"])
@@ -550,6 +561,8 @@ def register(app, managers):
         if not result.get("ok"):
             return json_error(result.get("error", "操作失败"), 400)
 
+        if request.args.get("presentation") == "1":
+            return jsonify({"state": result.get("state", {}), "events": result.get("events", [])})
         return jsonify(result.get("state", {}))
 
     @bp.route("/api/sessions/<session_id>/combat/complete", methods=["POST"])
@@ -936,6 +949,8 @@ def register(app, managers):
         if not result.get("ok"):
             return json_error(result.get("error", "操作失败"), 400)
 
+        if request.args.get("presentation") == "1":
+            return jsonify({"state": result.get("state", {}), "events": result.get("events", [])})
         return jsonify(result.get("state", {}))
 
     @bp.route("/api/combat/test/<test_id>/end-turn", methods=["POST"])
@@ -950,6 +965,8 @@ def register(app, managers):
         if not result.get("ok"):
             return json_error(result.get("error", "操作失败"), 400)
 
+        if request.args.get("presentation") == "1":
+            return jsonify({"state": result.get("state", {}), "events": result.get("events", [])})
         return jsonify(result.get("state", {}))
 
     @bp.route("/api/combat/test/<test_id>/events")

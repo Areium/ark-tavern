@@ -760,14 +760,14 @@ export function useApi() {
     listCombatEnemies: () =>
       request<{ enemies: any[] }>("/api/combat/enemies"),
 
-    combatAction: (sessionId: string, action: { action: string; card_index?: number; target?: [number, number]; item_name?: string; unit_id?: string }) =>
-      request<any>(`/api/sessions/${sessionId}/combat/action`, {
+    combatAction: (sessionId: string, action: { action: string; card_index?: number; target?: [number, number]; item_name?: string; unit_id?: string }, presentation = false) =>
+      request<any>(`/api/sessions/${sessionId}/combat/action${presentation ? "?presentation=1" : ""}`, {
         method: "POST",
         body: JSON.stringify(action),
       }),
 
-    combatEndTurn: (sessionId: string) =>
-      request<any>(`/api/sessions/${sessionId}/combat/end-turn`, {
+    combatEndTurn: (sessionId: string, presentation = false) =>
+      request<any>(`/api/sessions/${sessionId}/combat/end-turn${presentation ? "?presentation=1" : ""}`, {
         method: "POST",
       }),
 
@@ -841,14 +841,14 @@ export function useApi() {
         (selectedUnit ? `?selected_unit=${encodeURIComponent(selectedUnit)}` : ""),
       ),
 
-    combatTestAction: (testId: string, action: { action: string; card_index?: number; target?: [number, number]; item_name?: string; unit_id?: string }) =>
-      request<any>(`/api/combat/test/${testId}/action`, {
+    combatTestAction: (testId: string, action: { action: string; card_index?: number; target?: [number, number]; item_name?: string; unit_id?: string }, presentation = false) =>
+      request<any>(`/api/combat/test/${testId}/action${presentation ? "?presentation=1" : ""}`, {
         method: "POST",
         body: JSON.stringify(action),
       }),
 
-    combatTestEndTurn: (testId: string) =>
-      request<any>(`/api/combat/test/${testId}/end-turn`, {
+    combatTestEndTurn: (testId: string, presentation = false) =>
+      request<any>(`/api/combat/test/${testId}/end-turn${presentation ? "?presentation=1" : ""}`, {
         method: "POST",
       }),
 

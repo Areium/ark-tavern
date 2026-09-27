@@ -416,3 +416,11 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
 - **5174 被其他会话占用时**：别复用 `vite.config.shot.ts`——`node_modules` 是联接到主仓库的，`.vite-shot` 缓存目录
   也共享，会互相覆盖。临时复制一份配置改端口与 `cacheDir`（放到 worktree 内），用完删除。
 
+
+## 卡牌战斗事件播放（2026-09-27）
+
+- 四个 action/end-turn 接口可选 `?presentation=1`，返回 `{state, events}`；不带参数保持旧的 state 响应。事件的 `data.presentation_id` 在进入 SSE 队列时生成，HTTP 批次共享该 ID。
+- 前端先标记整批 ID，再播放事件和投影血量，最后采用权威快照。不要在收到 HTTP 响应时直接替换最终状态，否则死亡角色先消失。旧接口 SSE 分批消费要跨批保存攻击分组。
+- 选中角色的可移动范围由服务器计算；切换角色必须请求该角色并核对响应仍属于当前选择。动作开始递增版本，防止更早发出的 GET 覆盖播放投影。
+- 护盾 status.value 是新增量；burn.value 是每回合伤害，duration 才是持续时间。净化清理负面状态，最终快照仍是权威来源。
+- 定向检查 `node scripts/test_combat_presentation.cjs` 与 `tests/test_combat_presentation.py`。完整验收和未解决的窄屏/专属演出差距见 [第一轮验收](card-combat-presentation-qa.md)。

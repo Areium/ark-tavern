@@ -17,6 +17,8 @@ import CharacterIllustration from "./CharacterIllustration";
 import CombatQuestBar from "./CombatQuestBar";
 import CardFlyOverlay, { type CardFlight } from "./CardFlyOverlay";
 import CombatSettlement from "./CombatSettlement";
+import { combatCues, projectCombatEvent, CombatEventLedger, presentationDelay, type CombatPresentationResponse } from "./combatPresentation";
+import "./combatPlayback.css";
 import { getCombatConfig, shortcutKeyToIndex, type LayoutMode } from "./combatConfig";
 
 const DEFAULT_ENCOUNTER = "初遇整合运动";
@@ -51,6 +53,21 @@ export default function CombatView() {
   } = ctx;
   const api = useApi();
 
+  const selectedUnitRef = useRef(selectedUnitId);
+  selectedUnitRef.current = selectedUnitId;
+  const presentationBusy = useRef(false);
+  const stateVersion = useRef(0);
+  const playbackAbort = useRef(new AbortController());
+  const eventLedger = useRef(new CombatEventLedger());
+  const bufferedEvents = useRef<CombatEventDTO[]>([]);
+  const [presentationLabel, setPresentationLabel] = useState("");
+  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
   const [events, setEvents] = useState<CombatEventDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -168,12 +185,12 @@ export default function CombatView() {
 
   // Particle emitters
   const [particleEmitters, setParticleEmitters] = useState<
-    { id: string; config: { type: "spark" | "heal" | "death" | "victory"; x: number; y: number; count?: number } }[]
+    { id: string; config: { type: "spark" | "heal" | "death" | "victory"; x: number; y: number; count?: number; damageType?: string; critical?: boolean; angle?: number } }[]
   >([]);
   const emitterIdRef = useRef(0);
 
   const spawnParticles = useCallback(
-    (type: "spark" | "heal" | "death" | "victory", pos: [number, number], count?: number) => {
+    (type: "spark" | "heal" | "death" | "victory", pos: [number, number], count?: number, damageType?: string, critical?: boolean, sourceId?: string) => {
       const id = `emitter_${++emitterIdRef.current}`;
       const grid = gridRef.current;
       const rel = relativeRef.current;
@@ -186,7 +203,11 @@ export default function CombatView() {
           y = sp.y - relRect.top;
         }
       }
-      setParticleEmitters((prev) => [...prev.slice(-30), { id, config: { type, x, y, count } }]);
+      const source = stateRef.current?.units.find((u) => u.unit_id === sourceId);
+      const origin = source && grid && rel ? getCellCenter(grid, ...source.pos) : null;
+      const bounds = rel?.getBoundingClientRect();
+      const angle = origin && bounds ? Math.atan2(y - (origin.y - bounds.top), x - (origin.x - bounds.left)) : undefined;
+      setParticleEmitters((prev) => [...prev.slice(-30), { id, config: { type, x, y, count, damageType, critical, angle } }]);
     },
     [],
   );
@@ -223,11 +244,15 @@ export default function CombatView() {
   }, [sessionId, combatTestId, api]);
 
   const fetchState = useCallback(async () => {
-    if (!effectiveId) return;
+    if (!effectiveId || presentationBusy.current) return;
+    const signal = playbackAbort.current.signal;
+    const version = stateVersion.current;
+    const requestedUnit = selectedUnitRef.current;
     try {
       const state = combatTestId
-        ? await api.combatTestState(combatTestId, selectedUnitId ?? undefined)
-        : await api.combatState(sessionId!, selectedUnitId ?? undefined);
+        ? await api.combatTestState(combatTestId, requestedUnit ?? undefined)
+        : await api.combatState(sessionId!, requestedUnit ?? undefined);
+      if (presentationBusy.current || signal.aborted || version !== stateVersion.current || requestedUnit !== selectedUnitRef.current) return;
       setCombatContext({ state: state as CombatStateDTO });
       if (state.battle_over && state.winner) {
         setResult(state.winner === "player" ? "胜利" : "失败");
@@ -239,22 +264,18 @@ export default function CombatView() {
     }
   }, [effectiveId, combatTestId, sessionId, api, setCombatContext, requestSettlement]);
 
-  const connectSSE = useCallback(() => {
-    if (!effectiveId) return;
-    sseRef.current?.close();
-    const handlers = {
-      onEvent: (ev: any) => {
+  const renderCombatEvent = useCallback((ev: CombatEventDTO, attackNow = true) => {
         setEvents((prev) => [...prev.slice(-200), ev as CombatEventDTO]);
-        // Spawn damage numbers + particles
+        // One impact cue owns particles, floating text and sound.
         if (ev.type === "damage") {
           const pos = ev.data.target_pos || [4, 4];
           const hr = ev.data.hit_result || "";
           if (ev.data?.damage > 0) {
-            addDamageNumber(ev.data.damage, ev.data.damage_type || "physical", pos);
-            spawnParticles("spark", pos, 8 + Math.floor(ev.data.damage / 5));
+            addDamageNumber(ev.data.damage, /crit/i.test(hr) ? "crit" : ev.data.damage_type || "physical", pos);
+            spawnParticles("spark", pos, Math.min(24, 8 + Math.floor(ev.data.damage / 5)), ev.data.damage_type, /crit/i.test(hr), ev.data.unit_id);
             // Spine 动作：攻击者播攻击、目标播受击
-            pixiRef.current?.playAttack(ev.data.unit_id);
-            pixiRef.current?.playHit(ev.data.target_id);
+            if (attackNow) pixiRef.current?.playAttack(ev.data.unit_id, ev.data.target_id);
+            pixiRef.current?.playHit(ev.data.target_id, /crit/i.test(hr), ev.data.unit_id);
             if (/crit/i.test(hr)) audioManager.playSfx("crit");
             else {
               const dtype = ev.data.damage_type || "physical";
@@ -265,7 +286,7 @@ export default function CombatView() {
           } else if (/miss|dodge/i.test(hr)) {
             // 闪避/未命中：浮动文字 + miss 音效
             addDamageNumber(0, "miss", pos);
-            pixiRef.current?.playAttack(ev.data.unit_id);
+            if (attackNow) pixiRef.current?.playAttack(ev.data.unit_id, ev.data.target_id);
             audioManager.playSfx("miss");
           }
         }
@@ -287,7 +308,7 @@ export default function CombatView() {
           audioManager.playSfx(ev.data.team === "enemy" ? "enemy_death" : "death");
         }
         if (ev.type === "move") {
-          pixiRef.current?.moveTo(ev.data.unit_id, ev.data.to_pos, 300);
+          pixiRef.current?.moveTo(ev.data.unit_id, ev.data.to_pos, reducedMotion ? 80 : 300);
         }
         if (ev.type === "card_played") {
           audioManager.playSfx("card");
@@ -309,16 +330,113 @@ export default function CombatView() {
             audioManager.playSfx("defeat");
           }
           audioManager.stopBgm();
-          fetchState();
+
         }
+  }, [addDamageNumber, spawnParticles, requestSettlement, reducedMotion]);
+
+  // The command response owns playback; SSE is a duplicate transport, not a second clock.
+  const performCombatAction = useCallback(async (
+    request: () => Promise<CombatPresentationResponse | CombatStateDTO>, enemyTurn = false,
+  ): Promise<CombatStateDTO | null> => {
+    if (presentationBusy.current) return null;
+    presentationBusy.current = true;
+    stateVersion.current += 1;
+    bufferedEvents.current = [];
+    const signal = playbackAbort.current.signal;
+    setPresentationLabel(enemyTurn ? "敌方行动" : "行动中");
+    if (enemyTurn && stateRef.current) {
+      const next = { ...stateRef.current, phase: "ENEMY_TURN" };
+      stateRef.current = next;
+      setCombatContext({ state: next });
+    }
+    try {
+      const response = await request();
+      if (signal.aborted) return null;
+      // Old backends keep working, though only the new response guarantees complete playback.
+      const packet = "state" in response ? response as CombatPresentationResponse : null;
+      const finalState = packet ? packet.state : response as CombatStateDTO;
+      let batch = (packet?.events ?? bufferedEvents.current.splice(0)).filter((ev) => !eventLedger.current.has(ev));
+      batch.forEach((ev) => eventLedger.current.remember(ev));
+      if (cardPlayInProgressRef.current && !await presentationDelay(reducedMotion ? 0 : 160, signal)) return null;
+      const cueCursor = { attackKey: "" };
+      do {
+        for (const cue of combatCues(batch, reducedMotion, cueCursor)) {
+          if (signal.aborted) return null;
+          const d = cue.event.data;
+          if (cue.attack) {
+            setPresentationLabel(`${d.caster || "角色"} · ${d.card || "行动"}`);
+            pixiRef.current?.playAttack(d.unit_id, d.target_id);
+          } else if (cue.event.type === "move") setPresentationLabel(`${d.name || "角色"} · 移动`);
+          if (!await presentationDelay(cue.before, signal)) return null;
+          renderCombatEvent(cue.event, false);
+          if (stateRef.current) {
+            const next = projectCombatEvent(stateRef.current, cue.event);
+            stateRef.current = next;
+            setCombatContext({ state: next });
+          }
+          if (!await presentationDelay(cue.after, signal)) return null;
+        }
+        // Legacy servers may deliver more SSE events while this batch is playing.
+        batch = packet ? [] : bufferedEvents.current.splice(0).filter((ev) => !eventLedger.current.has(ev));
+        batch.forEach((ev) => eventLedger.current.remember(ev));
+      } while (batch.length);
+      if (signal.aborted) return null;
+      stateRef.current = finalState;
+      setCombatContext({ state: finalState });
+      if (finalState.battle_over && finalState.winner) {
+        setResult(finalState.winner === "player" ? "胜利" : finalState.winner === "escaped" ? "撤退" : "失败");
+        if (finalState.winner === "player") requestSettlement();
+      }
+      return finalState;
+    } catch (error) {
+      // An uncertain response must not cause the command to be sent twice.
+      bufferedEvents.current.forEach((ev) => eventLedger.current.remember(ev));
+      if (!signal.aborted) {
+        presentationBusy.current = false;
+        await fetchState();
+      }
+      throw error;
+    } finally {
+      if (!signal.aborted) {
+        presentationBusy.current = false;
+        bufferedEvents.current = [];
+        setPresentationLabel("");
+      }
+    }
+  }, [fetchState, reducedMotion, renderCombatEvent, requestSettlement, setCombatContext]);
+
+  useEffect(() => {
+    playbackAbort.current = new AbortController();
+    eventLedger.current.clear();
+    presentationBusy.current = false;
+    return () => { playbackAbort.current.abort(); };
+  }, [effectiveId]);
+
+  const connectSSE = useCallback(() => {
+    if (!effectiveId) return;
+    sseRef.current?.close();
+    const handlers = {
+      onEvent: (raw: { type: string; data: Record<string, any> }) => {
+        const ev = raw as CombatEventDTO;
+        if (eventLedger.current.has(ev)) return;
+        if (presentationBusy.current) {
+          bufferedEvents.current.push(ev);
+          return;
+        }
+        eventLedger.current.remember(ev);
+        renderCombatEvent(ev);
       },
       onError: (msg: string) => setError(msg),
-      onDone: () => fetchState(),
+      onDone: () => { if (!presentationBusy.current) fetchState(); },
     };
     sseRef.current = combatTestId
       ? createCombatTestSSE(combatTestId, handlers)
       : createCombatSSE(sessionId!, handlers);
-  }, [effectiveId, combatTestId, sessionId, fetchState, addDamageNumber, spawnParticles, requestSettlement]);
+  }, [effectiveId, combatTestId, sessionId, fetchState, renderCombatEvent]);
+
+  useEffect(() => {
+    if (selectedUnitId) void fetchState();
+  }, [selectedUnitId, fetchState]);
 
   // Auto-fetch when entering via LLM combat trigger (combat already started externally)
   useEffect(() => {
@@ -641,12 +759,12 @@ export default function CombatView() {
 
   const handleCellClick = useCallback(
     async (row: number, col: number) => {
-      if (!effectiveId || !combatState) return;
+      if (!effectiveId || !combatState || presentationBusy.current) return;
 
       const doAction = (action: { action: string; card_index?: number; unit_id?: string; target: [number, number] }) =>
         combatTestId
-          ? api.combatTestAction(combatTestId, action)
-          : api.combatAction(sessionId!, action);
+          ? performCombatAction(() => api.combatTestAction(combatTestId, action, true))
+          : performCombatAction(() => api.combatAction(sessionId!, action, true));
 
       // TARGETING: play card
       if (combatUIMode === "TARGETING" && selectedCardIndex !== null) {
@@ -674,7 +792,7 @@ export default function CombatView() {
           return;
         }
 
-        if (cardPlayInProgressRef.current) return;
+        if (cardPlayInProgressRef.current || presentationBusy.current) return;
         cardPlayInProgressRef.current = true;
         const cardIdx = selectedCardIndex;
         setPlayingCardIndex(cardIdx);
@@ -758,12 +876,12 @@ export default function CombatView() {
       setCombatContext({ selectedUnitId: null, uiMode: "VIEWING", selectedCardIndex: null });
       setCursor([row, col]);
     },
-    [effectiveId, combatTestId, sessionId, combatState, combatUIMode, selectedCardIndex, selectedUnitId, moveHighlights, rangeHighlights, displayedHand, api, fetchState, setCombatContext, launchCardFlight]
+    [effectiveId, combatTestId, sessionId, combatState, combatUIMode, selectedCardIndex, selectedUnitId, moveHighlights, rangeHighlights, displayedHand, api, fetchState, setCombatContext, launchCardFlight, performCombatAction]
   );
 
   const handleCardClick = useCallback(
     (index: number) => {
-      if (cardPlayInProgressRef.current) return;
+      if (cardPlayInProgressRef.current || presentationBusy.current) return;
       if (combatUIMode === "TARGETING" && selectedCardIndex === index) {
         setCombatContext({ selectedCardIndex: null, uiMode: "VIEWING", selectedUnitId: null });
         return;
@@ -786,12 +904,12 @@ export default function CombatView() {
   );
 
   const handleEndTurn = useCallback(async () => {
-    if (!effectiveId) return;
+    if (!effectiveId || presentationBusy.current) return;
     setLoading(true);
     try {
       const state = combatTestId
-        ? await api.combatTestEndTurn(combatTestId)
-        : await api.combatEndTurn(sessionId!);
+        ? await performCombatAction(() => api.combatTestEndTurn(combatTestId, true), true)
+        : await performCombatAction(() => api.combatEndTurn(sessionId!, true), true);
       // 用响应里的最新 state 直接更新（弃牌/抽牌后手牌立即刷新）
       setCombatContext({ state: state ?? undefined, uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
     } catch (e: any) {
@@ -799,7 +917,7 @@ export default function CombatView() {
     } finally {
       setLoading(false);
     }
-  }, [effectiveId, combatTestId, sessionId, api, setCombatContext]);
+  }, [effectiveId, combatTestId, sessionId, api, setCombatContext, performCombatAction]);
 
   const handleCancel = useCallback(() => {
     setCombatContext({ uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
@@ -808,7 +926,7 @@ export default function CombatView() {
   }, [setCombatContext]);
 
   const handleAbandon = useCallback(async () => {
-    if (!sessionId || combatTestId) return;
+    if (!sessionId || combatTestId || presentationBusy.current) return;
     sseRef.current?.close();
     try {
       const resp = await api.combatAbandon(sessionId);
@@ -857,10 +975,10 @@ export default function CombatView() {
   }, [effectiveId, combatState, combatTestId, sessionId, api, sessions, setSessions, setCombatContext, setCurrentView]);
 
   const handleEscape = useCallback(async () => {
-    if (!sessionId || combatTestId) return;
+    if (!sessionId || combatTestId || presentationBusy.current) return;
     setLoading(true);
     try {
-      const state = await api.combatAction(sessionId, { action: "escape" });
+      const state = await performCombatAction(() => api.combatAction(sessionId, { action: "escape" }, true));
       if (state) {
         setCombatContext({ state });
         if (state.battle_over && state.winner) {
@@ -872,7 +990,7 @@ export default function CombatView() {
     } finally {
       setLoading(false);
     }
-  }, [sessionId, combatTestId, api, setCombatContext]);
+  }, [sessionId, combatTestId, api, setCombatContext, performCombatAction]);
 
   /**
    * 确认结算 → 写回剧情数值（后端幂等）→ 关闭结算面板 → 返回对话并衔接原有叙述。
@@ -987,6 +1105,7 @@ export default function CombatView() {
   }, [sessionId, api]);
 
   const handleUseItem = useCallback(async (itemName: string) => {
+    if (presentationBusy.current) return;
     if (!selectedUnit || selectedUnit.team !== "player") {
       setError("请先选中要使用道具的干员");
       return;
@@ -995,15 +1114,15 @@ export default function CombatView() {
     setLoading(true);
     try {
       const state = combatTestId
-        ? await api.combatTestAction(combatTestId, { action: "use_item", item_name: itemName, unit_id: selectedUnit.unit_id })
-        : await api.combatAction(sessionId!, { action: "use_item", item_name: itemName, unit_id: selectedUnit.unit_id });
+        ? await performCombatAction(() => api.combatTestAction(combatTestId, { action: "use_item", item_name: itemName, unit_id: selectedUnit.unit_id }, true))
+        : await performCombatAction(() => api.combatAction(sessionId!, { action: "use_item", item_name: itemName, unit_id: selectedUnit.unit_id }, true));
       if (state) setCombatContext({ state });
     } catch (e: any) {
       setError(e?.message || "使用道具失败");
     } finally {
       setLoading(false);
     }
-  }, [effectiveId, combatTestId, sessionId, selectedUnit, api, setCombatContext]);
+  }, [effectiveId, combatTestId, sessionId, selectedUnit, api, setCombatContext, performCombatAction]);
 
   // Click on main area → map to grid cell or deselect.
   // Cell mapping handles 3D-transformed cells (rows 4-8) that don't
@@ -1050,7 +1169,7 @@ export default function CombatView() {
   );
 
   const handleCardDragStart = useCallback((index: number) => {
-    if (cardPlayInProgressRef.current) return;
+    if (cardPlayInProgressRef.current || presentationBusy.current) return;
     setDragCardIndex(index);
     setCombatContext({ selectedCardIndex: index, uiMode: "TARGETING" });
     const state = stateRef.current;
@@ -1113,7 +1232,7 @@ export default function CombatView() {
         return;
       }
 
-      if (cardPlayInProgressRef.current) return;
+      if (cardPlayInProgressRef.current || presentationBusy.current) return;
       cardPlayInProgressRef.current = true;
       const cardIdx = dragCardIndex;
       setPlayingCardIndex(cardIdx);
@@ -1127,8 +1246,8 @@ export default function CombatView() {
       try {
         const doAction = (action: { action: string; card_index?: number; target: [number, number] }) =>
           combatTestId
-            ? api.combatTestAction(combatTestId, action)
-            : api.combatAction(sessionId!, action);
+            ? performCombatAction(() => api.combatTestAction(combatTestId, action, true))
+            : performCombatAction(() => api.combatAction(sessionId!, action, true));
         const state = await doAction({
           action: "play_card",
           card_index: cardIdx,
@@ -1149,10 +1268,11 @@ export default function CombatView() {
         setDragCell(null);
       }
     },
-    [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, rangeHighlights, displayedHand, api, fetchState, getCardAp, setCombatContext, launchCardFlight]
+    [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, rangeHighlights, displayedHand, api, fetchState, getCardAp, setCombatContext, launchCardFlight, performCombatAction]
   );
 
   const handleUnitClick = useCallback((unitId: string) => {
+    if (presentationBusy.current) return;
     if (selectedUnitId === unitId) {
       setCombatContext({ selectedUnitId: null, uiMode: "VIEWING", selectedCardIndex: null });
     } else {
@@ -1185,7 +1305,7 @@ export default function CombatView() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!combatState || combatState.battle_over) return;
-      if (cardPlayInProgressRef.current) return;
+      if (cardPlayInProgressRef.current || presentationBusy.current) return;
       // 输入控件聚焦、或抽屉/结算等模态框打开时不抢键
       if (showDeckViewer || settlement) return;
       const target = e.target as HTMLElement | null;
@@ -1372,7 +1492,8 @@ export default function CombatView() {
 
   return (
     <div
-      className="flex flex-col h-full bg-combat-bg relative"
+      className="combat-playback flex flex-col h-full bg-combat-bg relative"
+      aria-busy={!!presentationLabel}
       style={bgUrl ? {
         // 场景图之上叠压暗渐变：顶部托住回合文字、底部托住手牌区，中部尽量露出画面
         backgroundImage: [
@@ -1424,6 +1545,10 @@ export default function CombatView() {
                 <button className="ml-2 text-red-400 hover:text-red-200" onClick={() => setError(null)}>×</button>
               </div>
             )}
+          </div>
+
+          <div className="combat-action-caption" role="status" aria-live="polite">
+            {presentationLabel || (combatState.phase === "PLAYER_TURN" ? "选择手牌，指定行动目标" : "等待行动")}
           </div>
 
           {/* Grid with damage numbers overlay */}
@@ -1585,7 +1710,7 @@ export default function CombatView() {
               return (
                 <span
                   key={d.id}
-                  className={`damage-number ${d.type === "heal" ? "heal" : d.type === "arts" ? "arts" : d.type === "miss" ? "miss" : "physical"}`}
+                  className={`damage-number ${d.type}`}
                   style={{
                     position: "absolute",
                     left: center ? `${center.x - 14}px` : `${cfg.cellSize + d.pos[1] * (cfg.cellSize + 2)}px`,
@@ -1594,7 +1719,7 @@ export default function CombatView() {
                     pointerEvents: "none",
                   }}
                 >
-                  {d.type === "miss" ? "闪避" : d.type === "heal" ? `+${d.value}` : `-${d.value}`}
+                  {d.type === "miss" ? "闪避" : d.type === "heal" ? `+${d.value}` : d.type === "crit" ? `${d.value} 暴击` : `-${d.value}`}
                 </span>
               );
             })}
@@ -1814,7 +1939,7 @@ export default function CombatView() {
           cards={displayedHand}
           getCardAp={getCardAp}
           selectedIndex={selectedCardIndex}
-          disabled={combatState.phase !== "PLAYER_TURN"}
+          disabled={combatState.phase !== "PLAYER_TURN" || loading || combatState.battle_over}
           highlightOwner={highlightOwner}
           ownerSkins={ownerSkins}
           onCardClick={handleCardClick}
