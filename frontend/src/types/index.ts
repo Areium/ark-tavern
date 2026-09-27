@@ -1088,6 +1088,8 @@ export interface WorldBookPromptPreviewOrderDTO {
   group_weight: number;
   depth: number;
   estimated_tokens: number;
+  /** 全书预览时与本条目对应的实际注入文本（包含名称标题与宏替换）。 */
+  text?: string;
   reasons: string[];
   matched_keys: string[];
   override_from_node?: { node_id?: string; position?: number; depth?: number; group_weight?: number } | null;

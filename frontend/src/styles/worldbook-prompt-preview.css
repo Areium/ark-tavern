@@ -204,11 +204,21 @@
 .wbpp-reader-text { margin: 0; padding: 24px; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.95 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--wbpp-body); }
 .wbpp-reader-panel > .wbpp-empty, .wbpp-reader-panel > .wbpp-notice { margin: 22px; }
 .wbpp-help { position: static; align-self: center; }
-.wbpp-modes .wbpp-help-trigger { width: 26px; height: 26px; padding: 0; border-radius: 50%; color: var(--wbpp-muted); cursor: help; }
+.wbpp-modes .wbpp-help-trigger { width: 26px; height: 26px; padding: 0; border-radius: 6px; color: var(--wbpp-muted); cursor: help; }
 .wbpp-help-content { position: absolute; left: 0; top: calc(100% + 10px); z-index: 10; width: min(330px, 100%); padding: 12px 14px; border: 1px solid var(--wbpp-line); border-radius: 8px; background: var(--ng-card-bg, #18202c); color: var(--wbpp-body); font-size: 13px; line-height: 1.8; box-shadow: 0 8px 24px #0003; visibility: hidden; opacity: 0; pointer-events: none; }
 .wbpp-help:hover .wbpp-help-content, .wbpp-help:focus-within .wbpp-help-content { visibility: visible; opacity: 1; }
+.wbpp-entry-list { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.wbpp-entry { min-width: 0; border: 1px solid var(--wbpp-line); border-radius: 10px; overflow: hidden; }
+.wbpp-entry-head { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; background: var(--wbpp-hover); }
+.wbpp-entry-head h5 { color: var(--wbpp-title); font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+.wbpp-entry-head p { display: flex; align-items: baseline; gap: 10px; color: var(--wbpp-body); font-size: 12px; line-height: 1.7; }
+.wbpp-entry-head b { flex: none; color: var(--wbpp-accent); font-weight: 600; }
+.wbpp-entry-head span { overflow-wrap: anywhere; }
+.wbpp-entry-text { margin: 0; padding: 16px; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.85 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--wbpp-body); }
 .wbpp-reader button:focus-visible { outline: 2px solid var(--wbpp-accent); outline-offset: 3px; }
 @media (max-width: 600px) {
   .wbpp-reader-text { padding: 16px; }
   .wbpp-reader-caption { padding: 14px 16px; }
+  .wbpp-entry-list { padding: 10px; }
+  .wbpp-entry-head p { flex-direction: column; gap: 2px; }
 }

@@ -200,6 +200,14 @@ assert.ok(previewMarkup.includes("<b>2</b> 条系统层条目，已排除"), "�
 assert.ok(previewMarkup.includes("<b>1</b> 条已停用"));
 assert.ok(previewMarkup.includes("静态层") && previewMarkup.includes("动态层"));
 assert.ok(!previewMarkup.includes("系统层</button>"), "系统层不是可切换的预览层：它根本不注入");
+const triggerEntry = {
+  trigger_keys: ["阿米娅"], secondary_keys: ["罗德岛"], always_active: false,
+  selective: true, probability: 50, case_sensitive: false, match_whole_words: false,
+};
+assert.ok(PromptPreviewTabModule.describeDynamicTrigger(triggerEntry).includes("主关键词任一命中（阿米娅），且副关键词任一命中（罗德岛）"));
+assert.ok(PromptPreviewTabModule.describeDynamicTrigger(triggerEntry).includes("50% 概率"));
+assert.ok(PromptPreviewTabModule.describeDynamicTrigger({ ...triggerEntry, selective: false }).includes("主或副关键词任一命中"));
+assert.ok(PromptPreviewTabModule.describeDynamicTrigger({ ...triggerEntry, always_active: true }).includes("常驻，无需关键词命中"));
 
 // ── 7. SSR：会话条目页也不给系统层条目一个「拨了没用」的开关 ──
 const IndexManager = require(path.join(root, "frontend/src/components/IndexManager.tsx")).default;

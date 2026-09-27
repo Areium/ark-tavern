@@ -2021,6 +2021,7 @@ class WorldBook:
                 "group_weight": int(entry.group_weight or 0),
                 "depth": int(entry.depth or 0),
                 "estimated_tokens": item["tokens"],
+                "text": item["text"],
                 "reasons": [],
                 "matched_keys": [],
                 "override_from_node": None,

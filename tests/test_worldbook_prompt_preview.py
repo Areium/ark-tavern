@@ -196,6 +196,9 @@ def test_all_entries_previews_every_enabled_non_metadata_entry(api):
     assert set(heading_names(payload["dynamic_text"])) == {
         item.name for item in book.entries if item.enabled and item.uid not in {"world", "bindings"}
     }
+    for layer in ("stable", "dynamic"):
+        parts = [item["text"] for item in payload["order"] if item["layer"] == layer]
+        assert payload[f"{layer}_text"] == "【世界书】\n" + "\n\n".join(parts)
 
 
 def test_all_entries_is_read_only_and_default_mode_keeps_runtime_semantics(api):
