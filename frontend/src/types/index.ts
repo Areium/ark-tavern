@@ -1559,6 +1559,7 @@ export interface StageDTO {
     source: "session" | "location" | "default" | "none";
     bg_id: string;
   };
+  artwork?: { id: string; act: string; title: string; caption: string; url: string }[];
   characters: StageCharacterDTO[];
   player: { name: string; skin_url: string | null; avatar_url: string | null; color: string | null };
 }

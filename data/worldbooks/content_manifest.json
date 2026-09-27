@@ -677,13 +677,25 @@
       "combat-test",
       "grey-lantern"
     ],
+    "combat/backgrounds/beyond_twin_cafe/": [
+      "beyond-twin"
+    ],
+    "combat/backgrounds/beyond_twin_factory/": [
+      "beyond-twin"
+    ],
     "combat/backgrounds/beyond_twin_lanjing/": [
+      "beyond-twin"
+    ],
+    "combat/backgrounds/beyond_twin_mall/": [
       "beyond-twin"
     ],
     "combat/backgrounds/beyond_twin_room200/": [
       "beyond-twin"
     ],
     "combat/backgrounds/beyond_twin_shenwan/": [
+      "beyond-twin"
+    ],
+    "combat/backgrounds/beyond_twin_sickroom/": [
       "beyond-twin"
     ],
     "combat/backgrounds/default/": [
@@ -1424,7 +1436,19 @@
     "environment/Location/旧城200室.md": [
       "beyond-twin"
     ],
+    "environment/Location/旧城200室·病中.md": [
+      "beyond-twin"
+    ],
+    "environment/Location/海岸餐厅.md": [
+      "beyond-twin"
+    ],
+    "environment/Location/深湾商场.md": [
+      "beyond-twin"
+    ],
     "environment/Location/深湾市.md": [
+      "beyond-twin"
+    ],
+    "environment/Location/澜晶机器人工厂.md": [
       "beyond-twin"
     ],
     "environment/Location/澜晶科技办公区.md": [

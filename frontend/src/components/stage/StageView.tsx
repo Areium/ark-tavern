@@ -108,13 +108,20 @@ export default function StageView({
   const [stage, setStage] = useState<StageDTO | null>(null);
   const [failedBackground, setFailedBackground] = useState<string | null>(null);
   const [failedSprites, setFailedSprites] = useState<string[]>([]);
+  const [artworkOpen, setArtworkOpen] = useState(false);
+  const [selectedArtwork, setSelectedArtwork] = useState(0);
+  const artworkButtonRef = useRef<HTMLButtonElement>(null);
+  const closeArtwork = () => {
+    setArtworkOpen(false);
+    requestAnimationFrame(() => artworkButtonRef.current?.focus());
+  };
   const [editingPortraits, setEditingPortraits] = useState(false);
   const [selectedPortrait, setSelectedPortrait] = useState<string | null>(null);
   const [portraitLayout, setPortraitLayout] = useState(() => readPortraitLayout(sessionId));
   const [imageBounds, setImageBounds] = useState<Record<string, PortraitBounds>>({});
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const dragRef = useRef<{ name: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
-  useEffect(() => { setStage(null); }, [sessionId]);
+  useEffect(() => { setStage(null); setArtworkOpen(false); setSelectedArtwork(0); }, [sessionId]);
   useEffect(() => { setFailedSprites([]); }, [sessionId, resourceVersion]);
   useEffect(() => { setFailedBackground(null); }, [sessionId, resourceVersion]);
   useEffect(() => {
@@ -255,6 +262,10 @@ export default function StageView({
     return () => observer.disconnect();
   }, []);
   const onKey = (e: React.KeyboardEvent) => {
+    if (artworkOpen) {
+      if (e.key === "Escape") { e.preventDefault(); closeArtwork(); }
+      return;
+    }
     if (e.key === "Escape" && stageOnly && !editingPortraits) { e.preventDefault(); onExitStageOnly(); return; }
     if (editingPortraits) {
       if (e.key === "Escape") { e.preventDefault(); setEditingPortraits(false); }
@@ -317,6 +328,8 @@ export default function StageView({
   const someoneSpeaking = !!focus && sprites.some((s) => s.name === focus);
 
   const bgUrl = visibleStage?.background.url && visibleStage.background.url !== failedBackground ? visibleStage.background.url : null;
+  const artwork = visibleStage?.artwork ?? [];
+  const currentArtwork = artwork[Math.min(selectedArtwork, artwork.length - 1)];
   const bgStyle = bgUrl
     ? { backgroundImage: `url("${bgUrl}")` }
     : { backgroundImage: proceduralBackground(visibleStage?.time || "", visibleStage?.weather || "") };
@@ -356,6 +369,7 @@ export default function StageView({
       {/* 顶部工具 */}
       <div className="stage-tools">
         {stageOnly && <button type="button" className="stage-exit" onClick={onExitStageOnly} title="退出纯舞台（Esc）" aria-label="退出纯舞台"><AppIcon name="minimize" size={13} /><span>退出舞台</span></button>}
+        {artwork.length > 0 && <button ref={artworkButtonRef} type="button" onClick={() => { setSelectedArtwork(0); setArtworkOpen(true); }} title="查看彼岸双生剧情绘图" aria-label="剧情绘图"><AppIcon name="image" size={13} /><span>绘图</span></button>}
         <button type="button" onClick={onToggleMusic} aria-label={musicMuted ? "开启背景音乐" : "静音背景音乐"}
           title={musicMuted ? "开启背景音乐" : "静音背景音乐"} aria-pressed={!musicMuted}>
           <AppIcon name={musicMuted ? "volumeOff" : "volume"} size={13} />
@@ -367,6 +381,21 @@ export default function StageView({
           setSelectedPortrait(sprites[0]?.name ?? roster[0]?.name ?? null);
         }} title="调整立绘大小和位置" aria-label={editingPortraits ? "完成立绘调整" : "调整立绘"}><AppIcon name="settings" size={13} /><span>{editingPortraits ? "完成调整" : "调整立绘"}</span></button>
       </div>
+
+      {artworkOpen && currentArtwork && <div className="stage-artwork-overlay" role="dialog" aria-label="彼岸双生剧情绘图" onClick={(event) => event.stopPropagation()}>
+        <div className="stage-artwork-head">
+          <div><strong>彼岸双生 · 剧情绘图</strong><span>七幕与角色特写 · 选择画面查看</span></div>
+          <button type="button" autoFocus onClick={closeArtwork} aria-label="关闭剧情绘图">关闭</button>
+        </div>
+        <div className="stage-artwork-body">
+          <nav className="stage-artwork-list" aria-label="剧情绘图列表">
+            {artwork.map((item, index) => <button type="button" key={item.id} className={index === selectedArtwork ? "is-active" : ""} aria-current={index === selectedArtwork ? "true" : undefined} onClick={() => setSelectedArtwork(index)}>
+              <img src={item.url} alt="" loading="lazy" /><span><small>{item.act}</small>{item.title}</span>
+            </button>)}
+          </nav>
+          <figure className="stage-artwork-feature"><img src={currentArtwork.url} alt={currentArtwork.title} /><figcaption><strong>{currentArtwork.title}</strong><span>{currentArtwork.caption}</span></figcaption></figure>
+        </div>
+      </div>}
 
       {editingPortraits && (
         <div className="stage-edit-panel" role="group" aria-label="立绘调整">

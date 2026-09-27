@@ -1,0 +1,10 @@
+[
+  {"id":"act1","act":"第一幕","title":"门前的猫","caption":"台风夜，妮可第一次走进有灯的家。","image":"act1-nicole-rain.png"},
+  {"id":"act2","act":"第二幕","title":"被浪费的下午","caption":"商场里的黑猫玩偶，让平凡的时间有了重量。","image":"act2-wasted-afternoon.png"},
+  {"id":"act3","act":"第三幕","title":"您已欠费","caption":"额度与调用记录里出现无法用运气解释的尖峰。","image":"act3-credit-spike.png"},
+  {"id":"act4","act":"第四幕","title":"与同行者见面","caption":"林奈的目光越过礼貌的寒暄，落在妮可身上。","image":"act4-linnai-recognition.png"},
+  {"id":"act5","act":"第五幕","title":"三十九度","caption":"妮可的高烧，让身体与云端的异常同时逼近。","image":"act5-fever.png"},
+  {"id":"act6","act":"第六幕","title":"安全负责人","caption":"杜可站在门外，克制的态度仍带着压力。","image":"act6-duke-threshold.png"},
+  {"id":"act6-departure","act":"第六幕","title":"离开200室","caption":"妮可自己松开衣角，跨过那道门槛。","image":"act6-departure.png"},
+  {"id":"act7","act":"第七幕","title":"彼岸回声","caption":"三周后，空办公室里的终端再次发出熟悉的问候。","image":"act7-chengxu-echo.png"}
+]

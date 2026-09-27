@@ -22,6 +22,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 from flask import Blueprint, jsonify, request
+from data_paths import content_root
+from content_scope import is_content_visible
 
 from shared.helpers import json_error
 from document_manager import DocumentNotFoundError
@@ -33,6 +35,40 @@ logger = logging.getLogger(__name__)
 
 _NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9_\-]{0,39}$")
 _MAX_PLUGIN_BYTES = 64 * 1024
+
+
+def _story_artwork(plot_id: str) -> list[dict]:
+    """Curated art is opt-in per plot; image paths stay inside that plot's art folder."""
+    if plot_id != "beyond_twin":
+        return []
+    art_dir = content_root() / "plots" / plot_id / "art"
+    catalog = art_dir / "index.json"
+    if not catalog.is_file() or not is_content_visible(catalog):
+        return []
+    try:
+        entries = json.loads(catalog.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(entries, list):
+        return []
+    result = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        filename = entry.get("image")
+        if not isinstance(filename, str) or Path(filename).name != filename or not filename.lower().endswith((".png", ".jpg", ".webp")):
+            continue
+        image = art_dir / filename
+        if not image.is_file() or not is_content_visible(image):
+            continue
+        result.append({
+            "id": str(entry.get("id") or filename),
+            "act": str(entry.get("act") or ""),
+            "title": str(entry.get("title") or ""),
+            "caption": str(entry.get("caption") or ""),
+            "url": f"/api/assets/plots/{plot_id}/art/{quote(filename)}",
+        })
+    return result
 
 
 def _skin_exists(name: str) -> bool:
@@ -155,6 +191,7 @@ def register(app, managers):
             "time": session.environment.time_of_day,
             "atmosphere": list(session.environment.atmosphere or []),
             "background": background,
+            "artwork": _story_artwork(getattr(session.overlay, "get_plot_id", lambda: None)() or ""),
             "characters": characters,
             "player": {
                 "name": player,

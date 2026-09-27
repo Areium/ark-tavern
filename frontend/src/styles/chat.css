@@ -262,6 +262,35 @@
 .stage-edit-range input { grid-column: 1 / -1; width: 100%; accent-color: #dfa945; cursor: pointer; }
 .stage-edit-reset { width: 100%; margin-top: 14px; padding: 7px 8px; border-radius: 7px; border: 1px solid rgba(255, 255, 255, .25); color: #f4efe6; font-size: 12px; }
 .stage-edit-reset:hover { background: rgba(255, 255, 255, .1); }
+.stage-artwork-overlay {
+  position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column;
+  color: #f4efe6; background: rgba(7, 10, 17, .97); backdrop-filter: blur(12px);
+}
+.stage-artwork-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 18px; border-bottom: 1px solid rgba(255, 255, 255, .12); }
+.stage-artwork-head > div { display: grid; gap: 2px; }
+.stage-artwork-head strong { font-size: 16px; }
+.stage-artwork-head span { font-size: 12px; color: #b9b8be; }
+.stage-artwork-head button { padding: 6px 12px; border: 1px solid rgba(255, 255, 255, .3); border-radius: 8px; color: inherit; background: rgba(255, 255, 255, .07); }
+.stage-artwork-head button:hover, .stage-artwork-head button:focus-visible { background: rgba(255, 255, 255, .18); }
+.stage-artwork-body { display: grid; grid-template-columns: minmax(170px, 230px) minmax(0, 1fr); gap: 16px; min-height: 0; flex: 1; padding: 16px; }
+.stage-artwork-list { display: grid; align-content: start; gap: 7px; overflow-y: auto; padding-right: 4px; }
+.stage-artwork-list button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 5px; border: 1px solid transparent; border-radius: 9px; text-align: left; color: #dedce0; background: rgba(255, 255, 255, .04); }
+.stage-artwork-list button:hover, .stage-artwork-list button:focus-visible { background: rgba(255, 255, 255, .12); }
+.stage-artwork-list button.is-active { border-color: rgba(245, 200, 106, .65); background: rgba(245, 200, 106, .12); color: #fff; }
+.stage-artwork-list img { width: 64px; height: 42px; object-fit: cover; border-radius: 5px; }
+.stage-artwork-list span { display: grid; gap: 2px; font-size: 12px; font-weight: 600; }
+.stage-artwork-list small { font-size: 10px; font-weight: 400; color: #c2ae86; }
+.stage-artwork-feature { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-width: 0; min-height: 0; margin: 0; }
+.stage-artwork-feature img { display: block; max-width: 100%; max-height: calc(100% - 56px); object-fit: contain; border-radius: 6px; box-shadow: 0 14px 40px rgba(0, 0, 0, .35); }
+.stage-artwork-feature figcaption { display: grid; gap: 3px; width: min(100%, 760px); text-align: center; font-size: 13px; line-height: 1.4; }
+.stage-artwork-feature figcaption span { color: #c5c4c8; }
+@media (max-width: 640px) {
+  .stage-artwork-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 76px; gap: 10px; padding: 10px; }
+  .stage-artwork-feature { grid-row: 1; }
+  .stage-artwork-list { grid-row: 2; display: flex; overflow-x: auto; overflow-y: hidden; padding: 0 0 4px; }
+  .stage-artwork-list button { flex: 0 0 140px; }
+  .stage-artwork-list img { width: 48px; height: 38px; }
+}
 
 .stage-cast { position: absolute; left: 0; right: 0; bottom: 0; top: 0; pointer-events: none; }
 .stage-sprite {
