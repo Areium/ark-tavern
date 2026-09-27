@@ -557,7 +557,8 @@ def register(app, managers):
         session_dir = Path(session.data_dir)
 
         from combat_data_loader import CombatDataLoader
-        from session_resources import list_session_media, session_resources_dir
+        from session_resources import (list_session_candidates, list_session_media,
+                                       session_resources_dir)
 
         loader = CombatDataLoader()
 
@@ -596,11 +597,24 @@ def register(app, managers):
                 "has_global": True,
             })
 
+        # 会话角色形象候选（上传后先落候选，点击才应用为覆盖）
+        character_candidates = []
+        for item in list_session_candidates(session_dir):
+            character_candidates.append({
+                "type": "character_candidate",
+                "key": item["name"],
+                "media_type": item["media_type"],
+                "name": item["filename"],
+                "url": f"/api/sessions/{session_id}/character-candidates/{quote(item['name'])}/{item['media_type']}/{quote(item['filename'])}",
+                "size": item["size"],
+            })
+
         return jsonify({
             "session_id": session_id,
             "backgrounds": backgrounds,
             "available_background_ids": loader.list_background_ids(),
             "character_media": character_media,
+            "character_candidates": character_candidates,
             "scene_characters": list(session.scene_manager.get_scene_characters()),
             "resources_dir": str(session_resources_dir(session_dir)),
             "backgrounds_dir": str(bg_dir),
@@ -724,6 +738,146 @@ def register(app, managers):
         if not removed:
             return json_error("该角色没有此类型的会话形象覆盖", 404)
         return jsonify({"message": "已删除，还原为全局形象", "key": name, "media_type": media_type})
+
+    # ── 会话角色形象候选：上传先落候选目录，点击候选才应用为覆盖 ──
+
+    def _resolve_candidate(session_id, name, media_type, filename):
+        """校验并解析候选文件路径。成功返回 (session, cand_dir, filepath)，否则 (None, response, None)。"""
+        from session_resources import (is_safe_entity_name, normalize_media_type,
+                                       session_candidates_dir)
+        session = session_mgr.get_session(session_id)
+        if not session:
+            return None, json_error("会话不存在", 404), None
+        if not is_safe_entity_name(name):
+            return None, json_error("非法的角色名"), None
+        try:
+            media_type = normalize_media_type(media_type)
+        except ValueError as e:
+            return None, json_error(str(e)), None
+        cand_dir = session_candidates_dir(session.data_dir, name, media_type)
+        filepath = (cand_dir / filename.replace("\\", "/")).resolve()
+        # 防路径穿越
+        if not str(filepath).startswith(str(cand_dir.resolve()) + os.sep):
+            return None, json_error("无效的文件路径", 403), None
+        if filepath.suffix.lower() not in _SESSION_BG_EXTS:
+            return None, json_error("不允许的文件类型", 403), None
+        return session, cand_dir, filepath
+
+    @bp.route("/api/sessions/<session_id>/character-candidates/<name>/<media_type>/<path:filename>", methods=["GET"])
+    def session_character_candidate_file(session_id: str, name: str, media_type: str, filename: str):
+        """会话角色形象候选图（候选目录下的原始文件）。"""
+        from flask import send_from_directory
+        session, cand_dir, filepath = _resolve_candidate(session_id, name, media_type, filename)
+        if session is None:
+            return cand_dir  # 此时第二个返回值是错误响应
+        if filepath.is_file():
+            return send_from_directory(str(cand_dir), filepath.name)
+        return json_error("文件不存在", 404)
+
+    @bp.route("/api/sessions/<session_id>/resources/characters/<name>/<media_type>/candidates", methods=["POST"])
+    def session_character_candidate_upload(session_id: str, name: str, media_type: str):
+        """上传形象到候选列表（不直接覆盖当前形象，玩家点击候选后才应用）。"""
+        import time
+        import uuid
+        from session_resources import (is_safe_entity_name, normalize_media_type,
+                                       session_candidates_dir)
+        session = session_mgr.get_session(session_id)
+        if not session:
+            return json_error("会话不存在", 404)
+        if not is_safe_entity_name(name):
+            return json_error("非法的角色名")
+        try:
+            media_type = normalize_media_type(media_type)
+        except ValueError as e:
+            return json_error(str(e))
+        file = request.files.get("file")
+        if not file or not file.filename:
+            return json_error("需要上传 file")
+        ext = Path(file.filename).suffix.lower()
+        if ext not in _SESSION_BG_EXTS:
+            return json_error("仅支持 png/jpg/jpeg/webp 图片")
+
+        cand_dir = session_candidates_dir(session.data_dir, name, media_type)
+        cand_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"cand-{int(time.time() * 1000):x}-{uuid.uuid4().hex[:6]}{ext}"
+        target = cand_dir / filename
+        file.save(str(target))
+        return jsonify({
+            "message": "已加入候选列表",
+            "type": "character_candidate",
+            "key": name,
+            "media_type": media_type,
+            "name": filename,
+            "url": f"/api/sessions/{session_id}/character-candidates/{quote(name)}/{media_type}/{quote(filename)}",
+            "size": target.stat().st_size,
+        }), 201
+
+    def _candidate_has_identical(cand_dir: Path, file_path: Path) -> bool:
+        """候选目录里是否已有与 file_path 内容完全相同的文件（避免归档旧覆盖时重复）。"""
+        import hashlib
+        try:
+            digest = hashlib.sha256(file_path.read_bytes()).hexdigest()
+        except OSError:
+            return False
+        for f in cand_dir.iterdir():
+            if f.is_file() and f.suffix.lower() in _SESSION_BG_EXTS and f.stat().st_size == file_path.stat().st_size:
+                try:
+                    if hashlib.sha256(f.read_bytes()).hexdigest() == digest:
+                        return True
+                except OSError:
+                    continue
+        return False
+
+    @bp.route("/api/sessions/<session_id>/resources/characters/<name>/<media_type>/candidates/<path:filename>/apply", methods=["POST"])
+    def session_character_candidate_apply(session_id: str, name: str, media_type: str, filename: str):
+        """把候选应用为会话形象覆盖；旧覆盖移入候选列表保留（内容相同的候选已存在时直接删除）。"""
+        import time
+        import uuid
+        from session_resources import normalize_media_type, session_media_dir
+        session, cand_dir, src = _resolve_candidate(session_id, name, media_type, filename)
+        if session is None:
+            return cand_dir  # 错误响应
+        if not src.is_file():
+            return json_error("候选文件不存在", 404)
+        media_type = normalize_media_type(media_type)
+        media_dir = session_media_dir(session.data_dir, name)
+        media_dir.mkdir(parents=True, exist_ok=True)
+        # 旧覆盖归档进候选（不丢图；与现有候选内容相同则直接删除避免重复）
+        for old in media_dir.glob(f"{media_type}.*"):
+            if old.suffix.lower() in _SESSION_BG_EXTS and old.is_file():
+                if _candidate_has_identical(cand_dir, old):
+                    old.unlink()
+                else:
+                    archived = cand_dir / f"replaced-{int(time.time() * 1000):x}-{uuid.uuid4().hex[:6]}{old.suffix.lower()}"
+                    shutil.move(str(old), str(archived))
+        target = media_dir / f"{media_type}{src.suffix.lower()}"
+        shutil.copy2(src, target)
+        return jsonify({
+            "message": "已应用为本会话形象",
+            "type": "character_media",
+            "key": name,
+            "media_type": media_type,
+            "name": target.name,
+            "size": target.stat().st_size,
+        })
+
+    @bp.route("/api/sessions/<session_id>/resources/characters/<name>/<media_type>/candidates/<path:filename>", methods=["DELETE"])
+    def session_character_candidate_delete(session_id: str, name: str, media_type: str, filename: str):
+        """删除候选图（不影响当前生效的形象）。"""
+        session, cand_dir, filepath = _resolve_candidate(session_id, name, media_type, filename)
+        if session is None:
+            return cand_dir  # 错误响应
+        if not filepath.is_file():
+            return json_error("候选文件不存在", 404)
+        filepath.unlink()
+        # 候选目录空了顺手收掉
+        for d in (cand_dir, cand_dir.parent):
+            try:
+                if d.is_dir() and not any(d.iterdir()):
+                    d.rmdir()
+            except OSError:
+                pass
+        return jsonify({"message": "已删除候选", "key": name, "media_type": media_type, "name": filepath.name})
 
     # ── 会话存档导入导出 ──
 

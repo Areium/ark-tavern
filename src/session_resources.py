@@ -78,3 +78,39 @@ def list_session_media(session_dir: str | Path) -> list[dict]:
                         "size": f.stat().st_size if f.is_file() else 0,
                     })
     return result
+
+
+def session_candidates_dir(session_dir: str | Path, name: str,
+                           media_type: str) -> Path:
+    """会话角色形象候选目录：<session_dir>/resources/characters/<name>/candidates/<media_type>
+
+    上传的形象先落进候选目录，玩家点击候选后才复制为正式覆盖（<name>/<media_type>.<ext>）。
+    """
+    return session_media_dir(session_dir, name) / "candidates" / normalize_media_type(media_type)
+
+
+def list_session_candidates(session_dir: str | Path) -> list[dict]:
+    """枚举会话角色形象候选：[{media_type, name, filename, size}]。"""
+    result: list[dict] = []
+    chars_dir = session_resources_dir(session_dir) / "characters"
+    if not chars_dir.is_dir():
+        return result
+    for entry in sorted(chars_dir.iterdir()):
+        if not entry.is_dir():
+            continue
+        cand_root = entry / "candidates"
+        if not cand_root.is_dir():
+            continue
+        for media_type in _MEDIA_TYPES:
+            d = cand_root / media_type
+            if not d.is_dir():
+                continue
+            for f in sorted(d.iterdir()):
+                if f.is_file() and f.suffix.lower() in _SESSION_MEDIA_EXTS:
+                    result.append({
+                        "media_type": media_type,
+                        "name": entry.name,
+                        "filename": f.name,
+                        "size": f.stat().st_size,
+                    })
+    return result

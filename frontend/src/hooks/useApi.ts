@@ -114,6 +114,13 @@ export function useApi() {
       uploadMultipart(`/api/sessions/${sessionId}/resources/characters/${encodeURIComponent(name)}/${mediaType}`, {}, file),
     deleteSessionCharacterMedia: (sessionId: string, name: string, mediaType: string) =>
       request<any>(`/api/sessions/${sessionId}/resources/characters/${encodeURIComponent(name)}/${mediaType}`, { method: "DELETE" }),
+    // ── 形象候选：上传先落候选列表，点击候选才应用为会话覆盖 ──
+    uploadSessionCharacterCandidate: (sessionId: string, name: string, mediaType: string, file: File) =>
+      uploadMultipart(`/api/sessions/${sessionId}/resources/characters/${encodeURIComponent(name)}/${mediaType}/candidates`, {}, file),
+    applySessionCharacterCandidate: (sessionId: string, name: string, mediaType: string, filename: string) =>
+      request<any>(`/api/sessions/${sessionId}/resources/characters/${encodeURIComponent(name)}/${mediaType}/candidates/${encodeURIComponent(filename)}/apply`, { method: "POST" }),
+    deleteSessionCharacterCandidate: (sessionId: string, name: string, mediaType: string, filename: string) =>
+      request<any>(`/api/sessions/${sessionId}/resources/characters/${encodeURIComponent(name)}/${mediaType}/candidates/${encodeURIComponent(filename)}`, { method: "DELETE" }),
     exportSession: async (sessionId: string) => {
       // 导出会话存档 zip 并触发浏览器下载
       const base = await getBaseUrl();

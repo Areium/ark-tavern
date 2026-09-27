@@ -667,12 +667,27 @@ export interface SessionResourceDTO {
   has_global: boolean;
 }
 
+/** 会话角色形象候选（上传后先落候选列表，点击才应用为会话覆盖） */
+export interface SessionResourceCandidateDTO {
+  type: "character_candidate";
+  /** 角色名 */
+  key: string;
+  /** avatar | skin | card_face */
+  media_type: string;
+  /** 候选文件名（cand-* / replaced-*） */
+  name: string;
+  /** 候选图 URL（GET /api/sessions/<id>/character-candidates/...） */
+  url: string;
+  size: number;
+}
+
 /** 会话资源总览（GET /api/sessions/<id>/resources） */
 export interface SessionResourcesDTO {
   session_id: string;
   backgrounds: SessionResourceDTO[];
   available_background_ids: string[];
   character_media: SessionResourceDTO[];
+  character_candidates: SessionResourceCandidateDTO[];
   scene_characters: string[];
   resources_dir: string;
   backgrounds_dir: string;

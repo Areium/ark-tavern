@@ -4,6 +4,7 @@ import { useApi } from "../../hooks/useApi";
 import type {
   SessionResourcesDTO,
   SessionResourceDTO,
+  SessionResourceCandidateDTO,
 } from "../../types";
 
 const MEDIA_LABEL: Record<string, string> = {
@@ -201,10 +202,37 @@ export default function SessionResourcePanel() {
     if (!activeSessionId) return;
     setBusy(true);
     try {
-      await api.uploadSessionCharacterMedia(activeSessionId, name, mediaType, file);
+      // 上传只进候选列表，不直接覆盖当前形象；点击候选缩略图才应用
+      await api.uploadSessionCharacterCandidate(activeSessionId, name, mediaType, file);
       await refresh();
     } catch (err: any) {
       alert("形象上传失败: " + err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCandidateApply = async (name: string, mediaType: string, filename: string) => {
+    if (!activeSessionId) return;
+    setBusy(true);
+    try {
+      await api.applySessionCharacterCandidate(activeSessionId, name, mediaType, filename);
+      await refresh();
+    } catch (err: any) {
+      alert("应用候选失败: " + err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCandidateDelete = async (name: string, mediaType: string, filename: string) => {
+    if (!activeSessionId) return;
+    setBusy(true);
+    try {
+      await api.deleteSessionCharacterCandidate(activeSessionId, name, mediaType, filename);
+      await refresh();
+    } catch (err: any) {
+      alert("删除候选失败: " + err.message);
     } finally {
       setBusy(false);
     }
@@ -265,6 +293,11 @@ export default function SessionResourcePanel() {
   const mediaByChar = new Map<string, SessionResourceDTO>(
     (data?.character_media ?? []).map((m): [string, SessionResourceDTO] => [`${m.key}:${m.media_type}`, m]),
   );
+  const candidatesByChar = new Map<string, SessionResourceCandidateDTO[]>();
+  for (const c of data?.character_candidates ?? []) {
+    const k = `${c.key}:${c.media_type}`;
+    candidatesByChar.set(k, [...(candidatesByChar.get(k) ?? []), c]);
+  }
 
   return (
     <div className="space-y-4">
@@ -301,6 +334,7 @@ export default function SessionResourcePanel() {
                   <div className="space-y-3">
                     {MEDIA_TYPES.map((t) => {
                       const covered = mediaByChar.get(`${name}:${t}`);
+                      const candidates = candidatesByChar.get(`${name}:${t}`) ?? [];
                       const key = `char-${name}-${t}`;
                       return (
                         <div key={t} className="flex items-center gap-3">
@@ -312,8 +346,8 @@ export default function SessionResourcePanel() {
                               {covered && <span className="text-[11px] text-blue-200">会话覆盖</span>}
                             </div>
                             <div className="flex gap-1 flex-wrap">
-                              <button aria-label={`${covered ? "替换" : "上传"}${name}会话${MEDIA_LABEL[t]}`} disabled={busy || loading} onClick={() => fileRefs.current[key]?.click()} className="text-[11px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400" title={`上传会话${MEDIA_LABEL[t]}（仅本会话生效）`}>
-                                {covered ? "替换" : "上传"}
+                              <button aria-label={`上传${name}的${MEDIA_LABEL[t]}到候选列表`} disabled={busy || loading} onClick={() => fileRefs.current[key]?.click()} className="text-[11px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400" title={`上传${MEDIA_LABEL[t]}到候选列表（不直接替换，点击候选缩略图即应用，仅本会话生效）`}>
+                                上传
                               </button>
                               <button aria-label={`选取${name}会话${MEDIA_LABEL[t]}`} disabled={busy || loading || !!libraryError} onClick={() => openPicker(name, t)} className="text-[11px] px-1.5 py-0.5 rounded bg-blue-700/30 text-blue-200 hover:bg-blue-700/50 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400" title={`从「${name}」的图片库中选取${MEDIA_LABEL[t]}设为会话覆盖`}>选取</button>
                               {covered && <button aria-label={`删除${name}会话${MEDIA_LABEL[t]}覆盖`} disabled={busy || loading} onClick={() => handleCharMediaDelete(name, t)} className="text-[11px] px-1.5 py-0.5 rounded bg-red-700/30 text-red-300 hover:bg-red-700/50 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400" title={`删除会话${MEDIA_LABEL[t]}覆盖，还原为默认形象`}>删除覆盖</button>}
@@ -323,6 +357,35 @@ export default function SessionResourcePanel() {
                                 e.target.value = "";
                               }} />
                             </div>
+                            {/* 候选列表：点击缩略图即应用为本会话形象（旧形象自动回到候选里） */}
+                            {candidates.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                                {candidates.map((c) => (
+                                  <span key={c.name} className="relative group/cand inline-block">
+                                    <button
+                                      type="button"
+                                      disabled={busy || loading}
+                                      onClick={() => handleCandidateApply(name, t, c.name)}
+                                      aria-label={`应用候选${MEDIA_LABEL[t]} ${c.name}`}
+                                      title="点击应用为本会话形象"
+                                      className="block rounded overflow-hidden border border-gray-600 hover:border-amber-500/70 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400"
+                                    >
+                                      <img src={withVersion(c.url, resourceVersion)} alt={`候选${MEDIA_LABEL[t]}`} className="w-10 h-12 object-cover bg-gray-800" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={busy || loading}
+                                      onClick={() => handleCandidateDelete(name, t, c.name)}
+                                      aria-label={`删除候选 ${c.name}`}
+                                      title="删除此候选"
+                                      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-gray-900/90 text-gray-400 hover:text-red-300 text-[10px] leading-none flex items-center justify-center opacity-0 group-hover/cand:opacity-100 focus-visible:opacity-100 transition-opacity disabled:opacity-50"
+                                    >
+                                      ✕
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
