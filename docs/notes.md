@@ -118,6 +118,20 @@
 - **现状口径**：断言脚本在转译钩子里对该文件路径直接 `module.exports = { CUSTOM_PANEL_MODULES: [] }` 顶替，
   内置面板改为显式 `require("plugins/builtin.tsx")` 登记。新写脚本照抄；不要为迁就钩子把 glob 从 `index.ts` 挪走。
 
+## 前端主题
+
+### 自带固定色板的区块必须成对写浅色覆盖（2026-09-27，`361c669`）
+
+- **口径**：`frontend/src/style.css` 里默认（深色）色板写在基类上，浅色覆盖写成 `html.light <选择器>`
+  紧跟在基类之后；皮肤 `html.skin-tavern` / `html.skin-prts` 各有自己的色板，三者互斥——
+  `App.tsx` 只在 `skin === "default" && theme === "light"` 时挂 `html.light`，皮肤激活时不挂浅色。
+- **踩坑**：只写深色色板、漏了 `html.light` 的区块（会话大厅的 `session-hero`、`session-practice-panel`）
+  在浅色模式下原样保留深色底，成了浅色页面上的一条黑带。覆盖时注意两点：带
+  `background-clip: text` 的渐变字、带 `background-size: cover` 的壁纸槽位要用 `background-image`
+  长手覆盖，别用 `background` 简写（简写会把 size / position / clip 一并重置）。
+- **验证**：参照 `scripts/shot_roles_ui.py`，用 playwright 逐个切 `<html>` class 后截图，并用
+  `getComputedStyle` 取 `.session-hero` 的 background-image / 边框色 / 投影做对照。
+
 ## 测试
 
 ### 无浏览器 SSR 脚本的转译钩子必须传 `fileName`（2026-09-22，`feat/roles-ui-polish`）
@@ -143,6 +157,11 @@
   用 Python `playwright`（pip 已装 1.60，chromium 148 缓存可用）驱动；chromium 启动参数要带
   `--proxy-server=direct:// --proxy-bypass-list=*`，否则环境变量里的本地代理会吞掉回环地址请求。
   worktree 的 `frontend/node_modules` 用目录联接（`New-Item -ItemType Junction`）指向主仓库即可。
+- **踩坑（2026-09-27）**：dev server 在跑时用编辑工具改 `frontend/src` 下的文件，vite 的 watcher 会撞上
+  编辑器原子写留下的临时目录并直接崩掉进程：
+  `Error: EBUSY: resource busy or locked, watch '<dir>/.style.css.<pid>.<guid>.tmpdir/style.css.tmp'`，
+  之后访问该端口是 `ERR_CONNECTION_REFUSED`——不是构建错误也不是代码错误，重启 dev server 即恢复。
+  截图验证时先把样式改完再起服务（或改完就重启），别在服务运行中反复改 `src/`。
 - **已知未修（资产页）**：实体行上的「+」上传把文件放到实体目录**根**（`handleImageUpload(file, category, entity)`
   → `characters/<entity>/<file>`），不进 `avatar/` / `skin/` 子目录，而后端 `set_default_image` 只认这三个
   子目录，所以从资产页上传的图片**不能设为默认头像 / 立绘**，头像目前仍需手工放进 `avatar/`。
