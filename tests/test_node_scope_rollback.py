@@ -46,12 +46,8 @@ def _make_book(first_beat: str, second_beat: str) -> WorldBook:
 
 
 def _bind_session_scope(ov, book):
-    ov.set_worldbook_scope({
-        "book_id": book.id,
-        "policy_revision": 1,
-        "resolved_entry_uids": [e.uid for e in book.entries
-                                if e.enabled and e.content.strip()],
-    })
+    ov.set_worldbook_ids([book.id])
+    ov.set_worldbook_scope(book.session_scope_snapshot([]), book.id)
 
 
 def _resolver(book, ov):
@@ -175,35 +171,14 @@ def test_rollback_restores_scope_byte_identical(env):
     assert set(_eligible(ov, book)) == r3
 
 
-def test_rollback_to_old_node_lazy_recompute(env):
-    """快照里没有 lore_scope 的老节点：回档时惰性补算并写回。"""
-    ov, book, _, _ = env
-    # 先不挂 resolver 走两轮 → 节点快照无 lore_scope（模拟改造前的老会话）
-    ov.commit_tree_step(narrative="n0", title="根",
-                        branches=[{"label": "甲"}], round_num=1)
-    node_a = ov.commit_tree_step(narrative="n1", title="甲", branches=[],
-                                 branch={"label": "甲"}, round_num=2)
-    assert node_a["state"].get("lore_scope") is None
-    assert ov.get_active_lore_scope() is None
-
-    # 回档到根节点（tree:n_root 绑定 core）：惰性补算并写回
-    ov.rollback_to_tree_node("n_root",
-                             lore_resolver_factory=lambda: _resolver(book, ov))
-    scope = ov.get_active_lore_scope()
-    assert scope is not None and "core" in scope["allowed"]
-    # 补算结果已写回节点，二次回档直接还原不再重算
-    assert ov.get_current_tree_node()["state"]["lore_scope"]["allowed"] \
-        == scope["allowed"]
-
-
-def test_legacy_overlay_without_scope_api(env):
-    """eligible_uids=None（不过滤）的旧语义保留：overlay 无 scope 方法时。"""
+def test_overlay_without_current_scope_is_empty(env):
+    """缺少当前会话范围时必须返回空候选，不能回退成整书注入。"""
     ov, book, _, _ = env
 
     class _Bare:
         pass
 
-    assert book.eligible_uids_for(_Bare()) is None
-    # 全量会话范围（无节点作用域）返回 EligibleSet 但语义等于 set
+    assert book.eligible_uids_for(_Bare()) == set()
+    # 当前会话范围存在、没有节点作用域时返回完整会话候选。
     assert _eligible(ov, book) == {"core", "geo", "tactic", "spoiler",
                                    "lore_bindings_arknights"}

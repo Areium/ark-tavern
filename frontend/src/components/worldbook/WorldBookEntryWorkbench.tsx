@@ -50,7 +50,7 @@ export default function WorldBookEntryWorkbench(props: WorldBookPanelProps & { o
 
   const setRoot = (uid: string, root: { activation: "always" | "roster_any" | "manual"; expansion: "none" | "requires_closure"; character_ids?: string[] } | null) => {
     const rest = draft.roots.filter((r) => r.entry_uid !== uid);
-    patch({ adopt_v3: true, scope_mode: "selective", roots: root ? [...rest, { entry_uid: uid, ...root }] : rest });
+    patch({ scope_mode: "selective", roots: root ? [...rest, { entry_uid: uid, ...root }] : rest });
   };
   const addEdge = (kind: "requires_edges" | "related_edges", from: string, to: string) => {
     if (!to || from === to) return;
@@ -258,7 +258,7 @@ export default function WorldBookEntryWorkbench(props: WorldBookPanelProps & { o
                   : rootOf(focused.uid)!.activation === "roster_any" ? `角色入队时选用：${characterName(characters, rootOf(focused.uid)!.character_ids?.[0] || "")}`
                     : "仅手动追加"}</span>
                 <span className="wbg-chip">{rootOf(focused.uid)!.expansion === "requires_closure" ? "补齐必要依赖"
-                  : rootOf(focused.uid)!.expansion === "none" ? "只含自身" : `按深度 ${rootOf(focused.uid)!.max_depth ?? 1} 展开`}</span>
+                  : "只含自身"}</span>
               </li>}
               {requiresFrom(focused.uid).map((edge) => <li key={`r:${edge.to_uid}`} className="wbg-row">
                 <b className="wbg-sev">必要</b><span className="wbg-row-arrow" aria-hidden="true">→</span>

@@ -178,8 +178,8 @@ def _categories_for(book: dict, entries: list[dict]) -> list[dict] | None:
 def _rules_for(inject_uids: list[str]) -> dict:
     return {
         "roots": [{"entry_uid": uid, "activation": "always", "expansion": "none",
-                   "character_ids": [], "origin": "split"} for uid in inject_uids],
-        "root_rule": {"entry_uids": sorted(inject_uids)}, "rejected": [], "edge_meta": {},
+                   "character_ids": []} for uid in inject_uids],
+        "root_rule": {"entry_uids": sorted(inject_uids)},
     }
 
 
@@ -191,18 +191,12 @@ def _filter_base_metadata(book: dict, known: set[str]) -> None:
     if isinstance(rules, dict):
         roots = [root for root in rules.get("roots", []) if root.get("entry_uid") in known]
         book["dependency_rules"] = {
-            **rules, "roots": roots,
+            "roots": roots,
             "root_rule": {"entry_uids": sorted(root["entry_uid"] for root in roots)},
-            "rejected": [edge for edge in rules.get("rejected", []) if _edge_inside(edge, known)],
-            "edge_meta": {},
         }
     config = book.get("import_config")
     if isinstance(config, dict):
-        book["import_config"] = {
-            **config,
-            "fixed_entry_uids": [uid for uid in config.get("fixed_entry_uids", []) if uid in known],
-            "dependency_sources": [],
-        }
+        book["import_config"] = {"revision": max(1, int(config.get("revision", 1) or 1))}
     book["policy_revisions"] = []
     if isinstance(book.get("entry_order"), list):
         book["entry_order"] = [uid for uid in book["entry_order"] if uid in known]
@@ -267,7 +261,7 @@ def split_builtin_book(source: dict) -> tuple[dict, dict[str, dict]]:
             "related_edges": [copy.deepcopy(edge) for edge in source.get("related_edges", [])
                                if _edge_inside(edge, known)],
             "dependency_rules": _rules_for(inject_uids),
-            "import_config": {"fixed_entry_uids": [], "dependency_sources": [], "revision": 1},
+            "import_config": {"revision": 1},
             "policy_revisions": [],
         }
         categories = _categories_for(source, entries)
@@ -284,6 +278,14 @@ def split_builtin_book(source: dict) -> tuple[dict, dict[str, dict]]:
     base["name"] = "明日方舟·内置设定集"
     base["book_type"] = "reference"
     base["description"] = "明日方舟通用设定资料书；内置剧情已拆分为独立世界书。"
+    base["schema_version"] = 3
+    base["scope_mode"] = "selective"
+    base["entry_order"] = [entry["uid"] for entry in base["entries"]]
+    base["dependency_edges"] = list(base.get("dependency_edges") or [])
+    base["related_edges"] = list(base.get("related_edges") or [])
+    base["dependency_rules"] = _rules_for([])
+    base["import_config"] = {"revision": 1}
+    base["policy_revisions"] = []
     compact_story_entry_names(base)
     for category in base.get("categories", []):
         if category.get("id") == "factions":

@@ -14,9 +14,8 @@ Worldbook blueprint — 世界书（酒馆 Lorebook 兼容）管理 API。
     GET    /api/worldbook/<book_id>/lore-bindings        读取节点级绑定（无则 null）
     PUT    /api/worldbook/<book_id>/lore-bindings        保存节点级绑定（targets 为空 = 关闭）
     GET    /api/worldbook/<book_id>/export     导出酒馆 v1 格式（回灌用）
-    PUT    /api/worldbook/<book_id>/taxonomy   更新分类树与条目归属
     POST   /api/worldbook/<book_id>/auto-classify  按条目元数据自动分类（预览 / 应用）
-    POST   /api/worldbook/<book_id>/bind       绑定到会话（或解绑；资料库禁止绑定）
+    PUT    /api/worldbook/<book_id>/configuration  原子更新分类与载入规则
     POST   /api/worldbook/<book_id>/excerpt    从来源书摘录条目到本书（仅 story，整批原子）
     POST   /api/worldbook/<book_id>/prompt-preview     单轮实际注入预览（只读，A-2）
     GET    /api/worldbook/<book_id>/dependency-tree    条目依赖子树（只读，A-3）
@@ -32,6 +31,7 @@ import uuid
 import copy
 import tempfile
 import zipfile
+import shutil
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -41,35 +41,19 @@ from shared.helpers import json_error
 from world_book import (
     BOOK_TYPE_REFERENCE, RESOLVER_VERSION, WorldBook, WorldBookEntry,
     apply_auto_classification, auto_classification_patch, content_revision,
-    estimate_tokens, normalize_book_type, validate_entry_groups,
+    normalize_book_type, validate_entry_groups,
     validate_entry_layout, normalize_entry_layout,
 )
 from worldbook_classify import classify_entries
 from worldbook_media import owned_materialized_character_root
 from character_stats import validate_stat_fields
 from worldbook_scope import (
-    ACTIVATION_ALWAYS, ACTIVATION_MANUAL, ACTIVATION_ROSTER_ANY,
-    EXPANSION_LEGACY_DEPTH, EXPANSION_NONE, EXPANSION_REQUIRES_CLOSURE,
-    MAX_DEPENDENCY_DEPTH, SCHEMA_VERSION_V3, resolve_v3_scope, validate_categories,
-    validate_policy, validate_v3_rules,
+    ACTIVATION_ALWAYS, EXPANSION_REQUIRES_CLOSURE, SCHEMA_VERSION_V3,
+    resolve_v3_scope, validate_categories, validate_v3_rules,
 )
 import node_lore_scope
 
 logger = logging.getLogger(__name__)
-
-
-def _union_edges(first, second) -> list[dict]:
-    """按 (from, to) 去重合并两组边（用于人工拒绝 / 锁定等持久化集合）。"""
-    out, seen = [], set()
-    for edge in list(first) + list(second):
-        if not isinstance(edge, dict):
-            continue
-        pair = (edge.get("from_uid"), edge.get("to_uid"))
-        if pair in seen or not all(isinstance(x, str) and x for x in pair):
-            continue
-        seen.add(pair)
-        out.append({"from_uid": pair[0], "to_uid": pair[1]})
-    return out
 
 
 def _dependency_cycles(closure_uids, requires_edges) -> list[list[str]]:
@@ -139,98 +123,6 @@ def _dependency_cycles(closure_uids, requires_edges) -> list[list[str]]:
         elif component and component[0] in adjacency[component[0]]:
             cycles.append([component[0], component[0]])
     return sorted(cycles)
-
-
-def _apply_full_scope(payload: dict, book) -> dict:
-    """把预览结果改成「本次会话显式全量兼容」。
-
-    v2 与 v3 都走这一条：范围真的换成全量，预览与实际创建保持一致，
-    只影响本次会话，不改动这本书的规则。
-
-    全量条目取 `WorldBook.full_scope_uids()` —— 与 `WorldBook._full_scope_scope`
-    （Prompt 预览的 v2 / v3 两条分支）**同源**，保证同一个 `full_scope` 开关在
-    `scope-preview` 与 `prompt-preview` 上给出同一份范围（v2 书上曾经只有
-    `scope-preview` 认这个开关）。本函数**只**改这些键，`scope` 里其余既有键
-    （v2 的 `excluded_entries` 等）保持不动，对外行为与改动前逐字一致。
-    """
-    uids = book.full_scope_uids()
-    wanted = set(uids)
-    costs = {e.uid: estimate_tokens(e.content) for e in book.entries if e.uid in wanted}
-    total = sum(costs.values())
-    scope = dict(payload.get("scope") or {})
-    scope.update({
-        "resolved_entry_uids": uids,
-        "selection_reasons": {uid: ["full_scope"] for uid in uids},
-        "legacy_full_scope": True,
-        "full_scope": True,
-    })
-    payload.update({
-        "scope": scope,
-        "full_scope": True,
-        "entry_count": len(uids),
-        "resolved_estimated_tokens": total,
-        "saved_estimated_tokens": 0,
-        "saved_percent": 0.0,
-        "warnings": ["已选择「本次会话全量兼容」：这次会载入全部启用条目，"
-                     "只影响本会话，不改变这本书的规则。"] + list(payload.get("warnings") or []),
-    })
-    return payload
-
-
-def _merge_v3_payload(manual: dict, existing: dict = None) -> dict:
-    """把人工草稿并入已持久化的 v3 规则集。
-
-    草稿是唯一来源；`existing`（旧数据）只用来补草稿没提到的人工锁定项，
-    否则「保存一次」就会静默清掉旧书里已锁定的起点。
-
-    `rejected`（人工删除过的边）与 `edge_meta`（边的来源与证据）一并保留：
-    它们已经写进旧书的 JSON，删字段会破坏旧书读回与酒馆格式往返导出，
-    因此保留为兼容透传，新写入不再产生新值。
-    """
-    existing = existing or {}
-    locked = {r.get("entry_uid") for r in existing.get("roots", [])
-              if isinstance(r, dict) and r.get("locked")}
-
-    roots = []
-    seen = set()
-    for root in list(manual.get("roots", [])):
-        if not isinstance(root, dict) or not root.get("entry_uid"):
-            continue
-        uid = root["entry_uid"]
-        if uid in seen:
-            continue
-        seen.add(uid)
-        roots.append({**root, "locked": True} if uid in locked else root)
-    # 人工锁定但草稿里没出现的起点：必须保留
-    for root in existing.get("roots", []):
-        if not isinstance(root, dict) or not root.get("entry_uid"):
-            continue
-        if root.get("locked") and root["entry_uid"] not in seen:
-            seen.add(root["entry_uid"])
-            roots.append({**root, "locked": True})
-
-    def union(first, second):
-        out, pairs = [], set()
-        for edge in list(first) + list(second):
-            if not isinstance(edge, dict):
-                continue
-            pair = (edge.get("from_uid"), edge.get("to_uid"))
-            if pair in pairs:
-                continue
-            pairs.add(pair)
-            out.append(edge)
-        return out
-
-    rejected = union(existing.get("rejected", []), manual.get("rejected", []))
-    edge_meta = {k: dict(v) for k, v in (existing.get("edge_meta") or {}).items()
-                 if isinstance(v, dict)}
-    return {
-        "roots": roots,
-        "requires_edges": union(manual.get("requires_edges", []), []),
-        "related_edges": union(manual.get("related_edges", []), []),
-        "rejected": rejected,
-        "edge_meta": edge_meta,
-    }
 
 
 def _entry_from_payload(payload: dict, uid: str = None) -> WorldBookEntry:
@@ -456,7 +348,7 @@ def register(app, managers):
         """返回绑定了这本书的会话 id（已排序）。
 
         只依赖 SessionManager 的**公开契约** `list_sessions()` —— 它返回会话摘要，
-        其中 `worldbook_id` 就是该会话当前绑定的世界书（`None` 表示未绑定）。
+        其中 `worldbook_ids` 是该会话按顺序绑定的世界书列表。
         不得读生产类的私有字段：早期版本误读了不存在的 `sessions` 属性，导致真实
         运行时这个判断永远为空，被绑定的书照样能改成资料库。
 
@@ -483,24 +375,21 @@ def register(app, managers):
         return sorted(
             str(item.get("id"))
             for item in summaries
-            if isinstance(item, dict) and book_id in (item.get("worldbook_ids") or
-                                                       [item.get("worldbook_id")])
+            if isinstance(item, dict) and book_id in (item.get("worldbook_ids") or [])
         )
 
     def _reference_conversion_conflict(book) -> str:
         """把 story 改成 reference 前的安全闸门。
 
-        资料库不能参与解析，也不能被会话绑定。如果这本书当前是全局默认书、或者正被
-        某些会话绑定，直接改用途就会留下悬空状态（会话指向一本不参与解析的书）。
-        这里**拒绝**这次转换并说明要处理什么，而不是静默清空默认指针或改别人的会话 ——
+        资料库不能参与解析，也不能被会话绑定。如果这本书正被某些会话绑定，
+        直接改用途就会留下悬空状态。这里**拒绝**这次转换并说明要处理什么，
+        而不是静默改动别人的会话 ——
         静默改会话属于「以动作换状态」，用户无法预知自己的会话被动了什么。
 
         会话占用状态无法确认时抛 `SessionOccupancyUnknown`（调用方转 503），**不是**
         返回「无冲突」—— 见 `_sessions_bound_to` 的 fail-closed 说明。
         """
         reasons = []
-        if wb_mgr.get_default_book_id() == book.id:
-            reasons.append("它是当前的全局默认世界书")
         session_ids = _sessions_bound_to(book.id)
         if session_ids:
             reasons.append(
@@ -509,7 +398,7 @@ def register(app, managers):
         if not reasons:
             return ""
         return ("无法把《%s》改为资料库：%s。"
-                "请先改绑这些会话（或取消默认），再切换用途。"
+                "请先改绑这些会话，再切换用途。"
                 % (book.name, "；".join(reasons)))
 
     def _book_detail(book: "WorldBook", include_entries: bool = True) -> dict:
@@ -540,7 +429,6 @@ def register(app, managers):
             "created_at": book.created_at,
             "updated_at": book.updated_at,
             "entry_count": stats.total,
-            "is_default": wb_mgr.get_default_book_id() == book.id,
             "schema_version": book.schema_version,
             "scope_mode": book.scope_mode,
             "categories": book.categories,
@@ -614,9 +502,9 @@ def register(app, managers):
         if "file" in request.files and request.files["file"]:
             f = request.files["file"]
             if Path(f.filename or "").suffix.lower() == ".arkwb":
-                from worldbook_bundle import MAX_METADATA_SIZE, MAX_TOTAL_SIZE
+                from worldbook_bundle import MAX_BOOK_SIZE, MAX_METADATA_SIZE, MAX_TOTAL_SIZE
 
-                limit = MAX_TOTAL_SIZE + 2 * MAX_METADATA_SIZE + 64 * 1024 * 1024
+                limit = MAX_TOTAL_SIZE + MAX_BOOK_SIZE + MAX_METADATA_SIZE + 64 * 1024 * 1024
                 staged_path = None
                 try:
                     with tempfile.NamedTemporaryFile(suffix=".arkwb", delete=False) as staged:
@@ -859,12 +747,38 @@ def register(app, managers):
                 if refreshed:
                     wb_mgr.save(book)
                 archive, _ = wb_mgr.export_bundle(book_id)
+                snapshot = archive.with_name(f".download-{book_id}-{uuid.uuid4().hex}.arkwb")
+                try:
+                    snapshot.hardlink_to(archive)
+                except OSError:
+                    try:
+                        shutil.copy2(archive, snapshot)
+                    except OSError:
+                        snapshot.unlink(missing_ok=True)
+                        raise
         except (ValueError, OSError) as exc:
             logger.exception("世界书完整包导出失败")
             return json_error(f"完整包导出失败: {exc}", 500)
-        return send_file(archive, as_attachment=True,
-                         download_name=f"{book_id}.arkwb",
-                         mimetype="application/zip")
+        try:
+            response = send_file(snapshot, as_attachment=True,
+                                 download_name=f"{book_id}.arkwb",
+                                 mimetype="application/zip")
+        except Exception:
+            snapshot.unlink(missing_ok=True)
+            raise
+        file_body = response.response
+
+        def stream_snapshot():
+            try:
+                yield from file_body
+            finally:
+                if hasattr(file_body, "close"):
+                    file_body.close()
+                snapshot.unlink(missing_ok=True)
+
+        response.response = stream_snapshot()
+        response.call_on_close(lambda: snapshot.unlink(missing_ok=True))
+        return response
 
     # ── 4. 条目 CRUD ──
 
@@ -928,33 +842,8 @@ def register(app, managers):
                     book.entry_group_map.pop(entry_id, None)
                     if book.entry_order is not None:
                         book.entry_order = [uid for uid in book.entry_order if uid != entry_id]
-                    affected = {"dependency_edges": sum(entry_id in (edge["from_uid"], edge["to_uid"]) for edge in book.dependency_edges),
-                                "fixed_entries": int(entry_id in book.import_config["fixed_entry_uids"]),
-                                "dependency_sources": sum(s["entry_uid"] == entry_id for s in book.import_config["dependency_sources"])}
-                    book.dependency_edges = [edge for edge in book.dependency_edges
-                                             if entry_id not in (edge["from_uid"], edge["to_uid"])]
-                    book.related_edges = [edge for edge in book.related_edges
-                                          if entry_id not in (edge["from_uid"], edge["to_uid"])]
-                    if book.dependency_rules is not None:
-                        book.dependency_rules["roots"] = [
-                            root for root in book.dependency_rules["roots"]
-                            if root["entry_uid"] != entry_id]
-                        book.dependency_rules["root_rule"]["entry_uids"] = [
-                            uid for uid in book.dependency_rules["root_rule"]["entry_uids"]
-                            if uid != entry_id]
-                        # 入边与出边、以及被拒绝建议都要一起清掉（不留悬空引用）
-                        book.dependency_rules["rejected"] = [
-                            edge for edge in book.dependency_rules.get("rejected", [])
-                            if entry_id not in (edge.get("from_uid"), edge.get("to_uid"))]
-                        meta = book.dependency_rules.get("edge_meta") or {}
-                        book.dependency_rules["edge_meta"] = {
-                            key: value for key, value in meta.items()
-                            if entry_id not in key.split("|")}
-                    config = book.import_config
-                    config["fixed_entry_uids"] = [uid for uid in config["fixed_entry_uids"] if uid != entry_id]
-                    config["dependency_sources"] = [s for s in config["dependency_sources"]
-                                                    if s["entry_uid"] != entry_id]
-                    config["revision"] += 1
+                    affected = book.remove_entry_references(entry_id)
+                    book.import_config["revision"] += 1
                     wb_mgr.save(book)
                     return jsonify({"message": "已删除", "affected": affected})
             return json_error("条目不存在", 404)
@@ -1095,56 +984,7 @@ def register(app, managers):
             wb_mgr.save(book)
             return jsonify({"bindings": payload, "entry_uid": entry.uid})
 
-    # ── 4.1 分类树 / 依赖导入配置 ──
-
-    def _policy_candidate(book, data):
-        if not isinstance(data, dict):
-            raise ValueError("请求体必须是对象")
-        config, edges = validate_policy({e.uid for e in book.entries},
-                                        {**book.import_config, **data}, book.dependency_edges)
-        mode = data.get("scope_mode", book.scope_mode)
-        if mode not in ("legacy", "selective"):
-            raise ValueError("scope_mode 必须是 legacy 或 selective")
-        candidate = copy.deepcopy(book)
-        candidate.import_config = {**config, "revision": book.import_config["revision"] + 1}
-        candidate.dependency_edges, candidate.scope_mode = edges, mode
-        return candidate
-
-    @bp.route("/api/worldbook/<book_id>/taxonomy", methods=["PUT"])
-    def update_taxonomy(book_id):
-        with _locked_book(book_id) as (book, err):
-            if err:
-                return err
-            data = request.json
-            try:
-                if not isinstance(data, dict):
-                    raise ValueError("请求体必须是对象")
-                if data.get("expected_revision", book.import_config["revision"]) != book.import_config["revision"]:
-                    return json_error("配置已变更，请重新加载后再保存", 409)
-                old_kinds = {e.uid: book.category_scope_type(e.category_id) for e in book.entries}
-                book.categories = validate_categories(data.get("categories"))
-                moves = data.get("entry_moves", {})
-                if not isinstance(moves, dict) or any(uid not in {e.uid for e in book.entries} for uid in moves):
-                    raise ValueError("entry_moves 必须按有效条目 UID 指定目标分类")
-                category_ids = {c["id"] for c in book.categories}
-                for entry in book.entries:
-                    if entry.uid in moves:
-                        target = moves[entry.uid]
-                        if not isinstance(target, str) or target not in category_ids:
-                            raise ValueError(f"条目 {entry.uid} 的目标分类不存在")
-                        entry.category_id = target
-                        if book.category_scope_type(target) != "character":
-                            entry.character_id = ""
-                    if entry.category_id not in category_ids:
-                        raise ValueError(f"请先为分类中的条目 {entry.uid} 指定迁移目标")
-                    if entry.uid in moves or old_kinds[entry.uid] != book.category_scope_type(entry.category_id):
-                        _validate_entry_scope(book, entry)
-            except (TypeError, ValueError) as exc:
-                return json_error(str(exc))
-            # 编辑分类不隐式退出旧书兼容模式；用户检查预览后显式启用按需模式。
-            book.import_config["revision"] += 1
-            wb_mgr.save(book)
-            return jsonify(_book_detail(book))
+    # ── 4.1 分类与规则辅助 ──
 
     @bp.route("/api/worldbook/<book_id>/auto-classify", methods=["POST"])
     def auto_classify(book_id):
@@ -1185,21 +1025,6 @@ def register(app, managers):
             payload["apply"] = True
             return jsonify({"classification": payload, "book": _book_detail(book)})
 
-    @bp.route("/api/worldbook/<book_id>/import-config", methods=["PUT"])
-    def update_import_config(book_id):
-        with _locked_book(book_id) as (book, err):
-            if err:
-                return err
-            data = request.json
-            try:
-                if isinstance(data, dict) and data.get("expected_revision", book.import_config["revision"]) != book.import_config["revision"]:
-                    return json_error("配置已变更，请重新加载后再保存", 409)
-                book = _policy_candidate(book, data)
-            except (TypeError, ValueError) as exc:
-                return json_error(str(exc))
-            wb_mgr.save(book)
-            return jsonify(_book_detail(book))
-
     @bp.route("/api/worldbook/<book_id>/scope-preview", methods=["POST"])
     def preview_scope(book_id):
         """只读预览：接受完整草稿 / 阵容 / 会话覆盖，返回可解释的候选范围。
@@ -1217,22 +1042,7 @@ def register(app, managers):
             roster = data.get("roster_character_ids", [])
             manual = data.get("manual_entry_uids", [])
             revision = data.get("policy_revision")
-            full_scope = bool(data.get("full_scope"))
-            if candidate.v3_enabled:
-                payload = candidate.preview_v3_scope(roster, manual, revision, full_scope)
-                if full_scope:
-                    payload = _apply_full_scope(payload, candidate)
-                return jsonify(payload)
-            # 未启用 v3 的书沿用 v2 预览（旧语义不静默改变）
-            payload = candidate.preview_scope(roster)
-            if full_scope:
-                payload = _apply_full_scope(payload, candidate)
-            payload["draft_hash"] = candidate.policy_draft_hash(roster, manual, revision, full_scope)
-            payload["policy_revision"] = candidate.import_config["revision"]
-            payload["content_revision"] = content_revision(candidate.entries)
-            payload["schema_version"] = candidate.schema_version
-            payload["resolver_version"] = RESOLVER_VERSION
-            return jsonify(payload)
+            return jsonify(candidate.preview_v3_scope(roster, manual, revision))
         except (TypeError, ValueError) as exc:
             return json_error(str(exc))
 
@@ -1313,8 +1123,8 @@ def register(app, managers):
             return jsonify(candidate.preview_prompt_injection(
                 mode=mode, input_text=input_text, recent_text=recent_text,
                 roster_character_ids=roster, manual_entry_uids=manual,
-                full_scope=bool(data.get("full_scope")), identity=identity,
-                active_char=active_char, seed=seed, lore_scope=lore_scope))
+                identity=identity, active_char=active_char, seed=seed,
+                lore_scope=lore_scope))
         except (TypeError, ValueError) as exc:
             return json_error(str(exc))
 
@@ -1323,8 +1133,8 @@ def register(app, managers):
         """条目依赖子树（A-3）：`entry_uids` 的 requires 闭包 + 边状态 + 环。
 
         **复用 `resolve_v3_scope` 的同一段 BFS**，不另写第二套遍历：把 `entry_uids`
-        合成等价起点（`always` + `requires_closure`；给了 `max_depth` 就用
-        `always` + `legacy_depth`），边与其余装载路径与 `scope-preview` 完全一致。
+        合成 `always` + `requires_closure` 起点，边与其余装载路径与
+        `scope-preview` 完全一致。
         这样「条目页展开看到的依赖」与「分类与载入页看到的候选范围」永远同源。
 
         只读：不写盘、不改规则、不加 `_locked_book`。
@@ -1343,24 +1153,9 @@ def register(app, managers):
         if not wanted:
             return json_error("entry_uids 不能为空，且至少需要一个本书中真实存在的条目 UID", 400)
 
-        max_depth = None
-        raw_depth = request.args.get("max_depth")
-        if raw_depth not in (None, ""):
-            try:
-                max_depth = int(str(raw_depth).strip())
-            except (TypeError, ValueError):
-                return json_error("max_depth 必须是整数", 400)
-            max_depth = max(0, min(MAX_DEPENDENCY_DEPTH, max_depth))
-
-        roots = []
-        for uid in wanted:
-            root = {"entry_uid": uid, "activation": ACTIVATION_ALWAYS, "character_ids": []}
-            if max_depth is None:
-                root["expansion"] = EXPANSION_REQUIRES_CLOSURE
-            else:
-                root["expansion"] = EXPANSION_LEGACY_DEPTH
-                root["max_depth"] = max_depth
-            roots.append(root)
+        roots = [{"entry_uid": uid, "activation": ACTIVATION_ALWAYS,
+                  "expansion": EXPANSION_REQUIRES_CLOSURE, "character_ids": []}
+                 for uid in wanted]
         rules = {"roots": roots, "root_rule": {"entry_uids": []}}
 
         # 边与其余参数走与 scope-preview 相同的装载口径（书里真实的 requires/related）
@@ -1374,16 +1169,12 @@ def register(app, managers):
         closure = set(result["resolved_entry_uids"])
         nodes = [{"uid": node["uid"], "name": node["name"], "parent_uid": node["parent_uid"],
                   "child_uids": node["child_uids"], "depth": node["depth"],
-                  "remaining": node["remaining"], "is_root": node["is_root"],
+                  "is_root": node["is_root"],
                   # 闭包只沿 requires 展开，所以「到达该节点的边」实践中恒为 requires；
                   # related 只作为提示走 edges[]，永远不参与展开、也不会出现在这里。
                   "relation": "requires"}
                  for node in result["display_tree"]]
-        # 边集合（R-25）：保留 **from_uid 落在闭包内**的所有边，to_uid 可以在闭包外。
-        # 依据：`status == "capped"` 的边正是「上游已到达、但遍历深度用尽」——
-        # 它的目标**不在**闭包里（`remaining == 0` 不再遍历）。若按「两端都要在
-        # 闭包内」过滤，capped 边会被整批丢掉，节点视图的灰虚线就画不出来。
-        # 前端对闭包外的目标渲染成「未展开（深度用尽）」小标记，名字从 detail.entries 查。
+        # 保留 from_uid 落在闭包内的所有边；related 边只作浏览提示。
         edges = [{"from_uid": edge["from_uid"], "to_uid": edge["to_uid"],
                   "relation": edge["relation"], "status": edge["status"]}
                  for edge in result["resolved_edges"] if edge["from_uid"] in closure]
@@ -1444,123 +1235,21 @@ def register(app, managers):
             if kind != "character" and entry.character_id:
                 raise ValueError(f"非角色分类的条目 {entry.uid} 不可关联角色")
 
-        mode = data.get("scope_mode", candidate.scope_mode)
-        if mode not in ("legacy", "selective"):
-            raise ValueError("scope_mode 必须是 legacy 或 selective")
-        candidate.scope_mode = mode
-
-        # 是否采用 v3 按需规则：**显式**才迁移。
-        # v2 书普通保存（改分类、改边）绝不能隐式切到 v3 —— 预装书 fixed/sources
-        # 都是空的，一旦隐式启用就会把候选清成空集。
-        adopt_v3 = bool(book.v3_enabled or data.get("adopt_v3"))
-
-        existing_rules = dict(candidate.dependency_rules or {})
-        request_rejected = [r for r in (data.get("rejected") or []) if isinstance(r, dict)]
-        if request_rejected:
-            existing_rules["rejected"] = _union_edges(
-                existing_rules.get("rejected") or [], request_rejected)
-
-        manual_keys = ("roots", "requires_edges", "related_edges")
-        migrating = adopt_v3 and not book.v3_enabled
-        v3_payload = None
-        if adopt_v3 and (any(key in data for key in manual_keys) or migrating
-                         or "rejected" in data):
-            if migrating:
-                # 显式迁移：把旧来源（世界观 / 阵容 / 固定 / 导入源）按**等价**映射
-                # 并入起点。用并集而不是「客户端没给才补」——否则只要草稿漏了一类
-                # 旧来源，保存一次就会静默少载入一批条目。
-                base = candidate.equivalent_v3_rules()
-                # 客户端（用户当前草稿）在前：用户显式改过的起点优先，
-                # 等价映射只补草稿没提到的旧来源。
-                manual = {
-                    "roots": [r for r in ((data.get("roots") or []) + base["roots"])
-                              if isinstance(r, dict)],
-                    "requires_edges": [e for e in ((data.get("requires_edges") or [])
-                                                   + base["requires_edges"]) if isinstance(e, dict)],
-                    "related_edges": [e for e in ((data.get("related_edges") or [])
-                                                  + base["related_edges"]) if isinstance(e, dict)],
-                }
-            else:
-                # 已经是 v3：**已持久化的规则**就是草稿基线。
-                # 只覆盖本次请求显式给出的列表，没给的键保持不动 —— 否则一个
-                # 「只带 rejected」的部分请求会把用户配好的起点 / 依赖静默清空；
-                # 反过来也不能把 v2 等价映射重新并进来，
-                # 那会让「收窄起点」永远不生效（P1-3 的第二段反证）。
-                manual = {
-                    "roots": data.get("roots", existing_rules.get("roots") or []),
-                    "requires_edges": data.get("requires_edges", candidate.dependency_edges),
-                    "related_edges": data.get("related_edges", candidate.related_edges),
-                }
-
-            # 旧数据兼容守卫：`edge_meta.locked` 是 AI 构建时代写入的字段，按 §4.4
-            # 停写不删；这里只保证旧书读回后关系类型不被草稿静默改写，不产生任何新值。
-            locked_meta = {key for key, meta in (existing_rules.get("edge_meta") or {}).items()
-                           if isinstance(meta, dict) and meta.get("locked")}
-            existing_requires = {(e["from_uid"], e["to_uid"]) for e in candidate.dependency_edges}
-            existing_related = {(e["from_uid"], e["to_uid"]) for e in candidate.related_edges}
-            manual_requires = {(e.get("from_uid"), e.get("to_uid")): e
-                               for e in manual.get("requires_edges", []) if isinstance(e, dict)}
-            manual_related = {(e.get("from_uid"), e.get("to_uid")): e
-                              for e in manual.get("related_edges", []) if isinstance(e, dict)}
-            for key in locked_meta:
-                if "|" not in key:
-                    continue
-                pair = tuple(key.split("|", 1))
-                edge = {"from_uid": pair[0], "to_uid": pair[1]}
-                if pair in existing_requires:
-                    manual_related.pop(pair, None)
-                    manual_requires[pair] = edge
-                elif pair in existing_related:
-                    manual_requires.pop(pair, None)
-                    manual_related[pair] = edge
-            manual["requires_edges"] = list(manual_requires.values())
-            manual["related_edges"] = list(manual_related.values())
-            v3_payload = _merge_v3_payload(manual, existing_rules)
-
-        if migrating and v3_payload is None:
-            # 显式迁移但请求体什么都没带（例如只有 {"adopt_v3": true}）：整体走等价映射
-            v3_payload = candidate.equivalent_v3_rules()
-
-        if v3_payload is not None and adopt_v3:
-            candidate.dependency_rules, candidate.dependency_edges, candidate.related_edges = (
-                validate_v3_rules(known, v3_payload, candidate.dependency_edges))
-            candidate.schema_version = SCHEMA_VERSION_V3
-            # v2 字段与 v3 起点保持同步，旧消费者（导出、旧接口）仍可读
-            candidate.import_config["fixed_entry_uids"] = sorted(
-                r["entry_uid"] for r in candidate.dependency_rules["roots"]
-                if r["activation"] == ACTIVATION_ALWAYS and r["expansion"] == EXPANSION_NONE)
-            candidate.import_config["dependency_sources"] = [
-                {"entry_uid": r["entry_uid"], "max_depth": r["max_depth"]}
-                for r in candidate.dependency_rules["roots"]
-                if r["expansion"] == EXPANSION_LEGACY_DEPTH]
-        elif not adopt_v3:
-            # v2 书普通保存：草稿里的起点按 v2 形态写回，范围**逐条等价**，
-            # 世界观 / 阵容仍然由分类决定，不因为保存一次而改变候选。
-            v2_data = {key: data[key] for key in
-                       ("fixed_entry_uids", "dependency_sources", "dependency_edges")
-                       if key in data}
-            if any(key in data for key in manual_keys):
-                roots = [r for r in (data.get("roots") or []) if isinstance(r, dict)]
-                v2_data["fixed_entry_uids"] = sorted({
-                    r.get("entry_uid") for r in roots
-                    if r.get("activation") == ACTIVATION_ALWAYS
-                    and r.get("expansion") == EXPANSION_NONE and r.get("entry_uid")})
-                v2_data["dependency_sources"] = [
-                    {"entry_uid": r["entry_uid"], "max_depth": r.get("max_depth", 0)}
-                    for r in roots
-                    if r.get("expansion") == EXPANSION_LEGACY_DEPTH and r.get("entry_uid")]
-                if "requires_edges" in data:
-                    v2_data["dependency_edges"] = data.get("requires_edges") or []
-            if "related_edges" in data:
-                _, _, candidate.related_edges = validate_v3_rules(
-                    known, {"roots": [], "requires_edges": [],
-                            "related_edges": data.get("related_edges") or []})
-            if v2_data:
-                config, edges = validate_policy(known, {
-                    **candidate.import_config, **v2_data,
-                }, candidate.dependency_edges)
-                candidate.import_config.update(config)
-                candidate.dependency_edges = edges
+        if data.get("scope_mode", "selective") != "selective":
+            raise ValueError("scope_mode 必须是 selective")
+        payload = {
+            "roots": data.get("roots", candidate.dependency_rules.get("roots") or []),
+            "root_rule": {"entry_uids": [
+                root.get("entry_uid") for root in data.get(
+                    "roots", candidate.dependency_rules.get("roots") or [])
+                if isinstance(root, dict) and root.get("entry_uid")]},
+            "requires_edges": data.get("requires_edges", candidate.dependency_edges),
+            "related_edges": data.get("related_edges", candidate.related_edges),
+        }
+        candidate.dependency_rules, candidate.dependency_edges, candidate.related_edges = (
+            validate_v3_rules(known, payload))
+        candidate.schema_version = SCHEMA_VERSION_V3
+        candidate.scope_mode = "selective"
 
         if not preview:
             candidate.import_config["revision"] = book.import_config["revision"] + 1
@@ -1601,19 +1290,15 @@ def register(app, managers):
             },
         })
 
-    # ── 5. 会话绑定（旧默认书接口仅返回迁移提示） ──
-
-    @bp.route("/api/worldbook/<book_id>/default", methods=["POST"])
-    def set_default(book_id):
-        return json_error("全局默认世界书已取消，请在会话中绑定世界书", 410)
+    # ── 5. 会话绑定 ──
 
     @bp.route("/api/sessions/<session_id>/worldbooks", methods=["PUT"])
-    def set_session_worldbooks(session_id, ids_override=None):
+    def set_session_worldbooks(session_id):
         session = session_mgr.get_session(session_id) if session_mgr else None
         if not session:
             return json_error("会话不存在", 404)
         data = request.get_json(silent=True) or {}
-        ids = ids_override if ids_override is not None else data.get("worldbook_ids")
+        ids = data.get("worldbook_ids")
         if not isinstance(ids, list) or any(not isinstance(x, str) or not x.strip() for x in ids):
             return json_error("worldbook_ids 必须是世界书 ID 数组")
         ids = list(dict.fromkeys(x.strip() for x in ids))
@@ -1626,40 +1311,11 @@ def register(app, managers):
                 return json_error("资料库不能绑定到会话", 409)
             books.append(book)
         previous = set(session.overlay.get_worldbook_ids())
-        scopes = {book.id: (book.session_scope_snapshot(session.scene_manager.get_roster())
-                             if book.v3_enabled else book.resolve_import_scope(session.scene_manager.get_roster()))
+        scopes = {book.id: book.session_scope_snapshot(session.scene_manager.get_roster())
                   for book in books if book.id not in previous}
         session.overlay.set_worldbook_bindings(ids, scopes)
-        return jsonify({"session_id": session_id, "worldbook_id": session.overlay.get_worldbook_id(),
-                        "worldbook_ids": ids, "worldbook_scope": session.overlay.get_worldbook_scope(),
+        return jsonify({"session_id": session_id, "worldbook_ids": ids,
                         "worldbook_scopes": {bid: session.overlay.get_worldbook_scope(bid) for bid in ids}})
-
-    @bp.route("/api/worldbook/<book_id>/bind", methods=["POST"])
-    def bind_session(book_id):
-        """绑定世界书到会话。body: {session_id, bound}。
-
-        bound=false 时显式不使用世界书，不回落全局默认书。
-        """
-        data = request.json or {}
-        session_id = str(data.get("session_id", "") or "").strip()
-        bound = bool(data.get("bound", True))
-        if not session_id:
-            return json_error("需要 session_id 参数")
-        if not session_mgr:
-            return json_error("会话服务不可用", 503)
-        session = session_mgr.get_session(session_id)
-        if not session:
-            return json_error("会话不存在", 404)
-        if bound:
-            book, err = _get_book_or_404(book_id)
-            if err:
-                return err
-            if book.is_reference:
-                return json_error("资料库不能绑定到会话；请选择剧情世界书", 409)
-        ids = session.overlay.get_worldbook_ids()
-        ids = (ids + [book_id] if bound and book_id not in ids else
-               [bid for bid in ids if bid != book_id] if not bound else ids)
-        return set_session_worldbooks(session_id, ids)
 
     @bp.route("/api/worldbook/search", methods=["GET"])
     def search_books():
@@ -1726,12 +1382,11 @@ def register(app, managers):
             overlay = session.overlay
         book = wb_mgr.resolve(overlay)
         if not book:
-            return jsonify({"book": None, "books": [], "default_book_id": None})
+            return jsonify({"book": None, "books": []})
         resolved = book.books if hasattr(book, "books") else [book]
         return jsonify({
             "book": _book_detail(resolved[0], include_entries=False),
             "books": [_book_detail(item, include_entries=False) for item in resolved],
-            "default_book_id": None,
         })
 
     app.register_blueprint(bp)

@@ -446,7 +446,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   useEffect(() => {
     if (!indexSessionId) return;
     const session = sessions.find((item) => item.id === indexSessionId);
-    const boundBookId = session?.worldbook_ids?.[0] || session?.worldbook_id;
+    const boundBookId = session?.worldbook_ids[0];
     if (!boundBookId) { setIndexSessionId(null); return; }
     setSelectedId(boundBookId);
     setWorldbookTab("index");
@@ -513,12 +513,12 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
 
   const effectiveTab = normalizeWorldbookTab(worldbookTab, detail);
   const visibleTabs = visibleWorldbookTabs(detail);
-  const { draft: configDraft, patch, adoptV3, dirty: configDirty, saving: configSaving,
+  const { draft: configDraft, patch, dirty: configDirty, saving: configSaving,
     save: saveConfig, undo: undoConfig, error: configError, conflict: configConflict } = useWorldbookDraft(detail);
   const { preview, loading: previewing, error: previewError } = useScopePreview(
     detail?.id || "", detail?.updated_at, configDraft, [], [], !!detail && !isReference(detail));
   const panelProps: WorldBookPanelProps | null = detail && configDraft ? {
-    detail, draft: configDraft, patch, adoptV3, dirty: configDirty, saving: configSaving,
+    detail, draft: configDraft, patch, dirty: configDirty, saving: configSaving,
     save: async () => { await saveConfig(); }, undo: undoConfig, saveError: configError,
     conflict: configConflict, preview, previewing, previewError, roster: [], setRoster: () => undefined,
   } : null;

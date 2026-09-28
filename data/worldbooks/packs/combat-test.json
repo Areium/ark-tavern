@@ -261,64 +261,55 @@
         "entry_uid": "factions_整合运动_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "factions_罗德岛_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "Location_Rhode_Island_Training Room_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "enemies_整合运动士兵",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "enemies_整合运动术师",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_灵知_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_银灰_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_阿米娅_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "plots_combat-test_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       }
     ],
     "root_rule": {
@@ -333,13 +324,9 @@
         "factions_罗德岛_index",
         "plots_combat-test_index"
       ]
-    },
-    "rejected": [],
-    "edge_meta": {}
+    }
   },
   "import_config": {
-    "fixed_entry_uids": [],
-    "dependency_sources": [],
     "revision": 1
   },
   "policy_revisions": [],

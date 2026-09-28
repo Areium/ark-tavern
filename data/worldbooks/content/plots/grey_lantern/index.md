@@ -6,7 +6,7 @@ category: side
 priority: 5
 worldbook_id: grey-lantern
 player_identity: 博士
-characters: [博士, 阿米娅, 临光, 闪灵, 砾]
+initial_characters: [博士, 阿米娅, 临光, 闪灵, 砾]
 initial_location: 灰灯渡口候船厅
 initial_time: 傍晚
 initial_atmosphere: 雨水沿停摆的检票机滴落，扩音器反复播放一条早已过期的开船通知。

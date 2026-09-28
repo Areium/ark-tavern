@@ -16,7 +16,7 @@ import {
  * 所有改动只落在页面级的统一草稿上，由页面右上角一次保存。
  */
 export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
-  const { detail, draft, patch, adoptV3, preview, previewing, previewError, roster, setRoster } = props;
+  const { detail, draft, patch, preview, previewing, previewError, roster, setRoster } = props;
   const characters = useCharacterDirectory();
   const label = useMemo(() => makeLabeler(detail), [detail]);
   const [showAllBase, setShowAllBase] = useState(false);
@@ -33,12 +33,7 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
   const removeRoot = (uid: string) => rootPatch(draft.roots.filter((r) => r.entry_uid !== uid));
   const toggleExpansion = (root: WorldBookRootDTO) => rootPatch(draft.roots.map((r) => r.entry_uid !== root.entry_uid
     ? r : withManualExpansion(r, r.expansion === "requires_closure" ? "none" : "requires_closure")));
-  /**
-   * 移除一条边：只把这条边从对应列表里过滤掉。
-   *
-   * 不写 `draft.rejected` —— 那是 AI 构建专属字段，按提案 §4.4 只做兼容透传、
-   * 新写入不再产生新值（人工删边不再往里追加）。
-   */
+  /** 移除一条边：把这条边从对应列表里过滤掉。 */
   const removeEdge = (list: WorldBookDependencyEdgeDTO[], edge: WorldBookDependencyEdgeDTO,
     key: "requires_edges" | "related_edges") => {
     patch({
@@ -123,17 +118,6 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
       </div>
     </header>
 
-    {!detail.dependency_rules && <div className="wbg-notice wbg-warn" role="status">
-      <span>
-        这本书目前仍使用旧版载入规则。下面按「固定导入 → 基础设定、导入源 → 按旧深度展开」
-        等价呈现；<b>改分类、改角色关联不会改变载入范围</b>，要改用按需载入请显式选择（右侧预览会先展示迁移结果）。
-      </span>
-      {!draft.adopt_v3 && <button className="wbg-button wbg-button-quiet" onClick={adoptV3}>
-        启用按需载入（保留现有全部来源）
-      </button>}
-      {draft.adopt_v3 && <span className="wbg-chip">已选择：保存后改用按需载入</span>}
-    </div>}
-
     <div className="wbg-config-grid">
       <div className="wbg-config-main">
         <section className="wbg-card" aria-label="基础设定">
@@ -149,8 +133,8 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
               <span className="wbg-row-name">{label(root.entry_uid)}</span>
               <span className="wbg-chip" title="展开方式">{EXPANSION_LABELS[root.expansion] || root.expansion}</span>
               {byUid.get(root.entry_uid)?.enabled === false && <span className="wbg-chip is-warn">已停用</span>}
-              <button className="wbg-text-button" disabled={root.expansion === "legacy_depth"}
-                title={root.expansion === "legacy_depth" ? "旧格式导入源固定按深度展开" : "在「只含自身」与「补齐必要依赖」之间切换"}
+              <button className="wbg-text-button"
+                title="在「只含自身」与「补齐必要依赖」之间切换"
                 onClick={() => toggleExpansion(root)}>
                 {root.expansion === "requires_closure" ? "改为只含自身" : "补齐必要依赖"}
               </button>
@@ -283,7 +267,6 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
             <ul className="wbg-tree-list">{preview.display_tree.slice(0, 120).map((node) => <li key={node.uid}
               style={{ paddingLeft: 8 + Math.min(node.depth, 8) * 14 }}>
               <span className={node.is_root ? "wbg-tree-root" : ""}>{node.name || node.uid}</span>
-              {node.remaining !== null && <small>剩余 {node.remaining}</small>}
             </li>)}</ul>
             {preview.display_tree.length > 120 && <p className="wbg-help">仅显示前 120 个节点。</p>}
           </details> : null}

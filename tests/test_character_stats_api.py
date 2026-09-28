@@ -194,7 +194,7 @@ def stage_api(tmp_path, monkeypatch):
         "博士": ({"name": "博士", "player_identity": True}, ""),
     })
     overlay = SessionOverlay("s1", "story")
-    overlay.set_worldbook_id("book")
+    overlay.set_worldbook_ids(["book"])
     session = SimpleNamespace(
         id="s1", overlay=overlay, player_identity="博士",
         scene_manager=FakeScene("博士", ["临光", "瑕光"]),
@@ -261,7 +261,7 @@ def test_session_stats_merge_and_bound_book_fields(stage_api):
 
 def test_session_stats_fall_back_to_character_book_when_unbound(stage_api):
     client, session, _docs = stage_api
-    session.overlay.set_worldbook_id(None)
+    session.overlay.set_worldbook_ids([])
     listing = client.get("/api/sessions/s1/character-stats").json
     by_name = {c["name"]: c for c in listing["characters"]}
     assert by_name["瑕光"]["worldbook_id"] == "other"

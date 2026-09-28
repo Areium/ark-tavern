@@ -29,13 +29,11 @@
   - **自动选中只吃「剧情声明的那本书」的花名册**（`resolveLineupDefaults` 的 `rosterBookIds`）：
     手动再加一本可能是几百角色的大书时只扩候选，不静默把阵容塞满；要一并选上走队友区的显式按钮
     「按绑定世界书全选角色」（`selectAllBookCharacters`）。
-  - **开场角色口径统一**到 `session_overlay.plot_initial_characters`：`initial_characters` 优先，
-    **没有该字段**时回退旧字段 `characters`（「灰灯渡口」「战斗功能测试」把阵容写在那里）；
-    显式 `initial_characters: []` = 没有开场角色，不回退。服务端开场加载、`session_manager` 的重载
+  - **开场角色口径统一**到 `session_overlay.plot_initial_characters`：只读取
+    `initial_characters`；显式空数组表示没有开场角色。服务端开场加载、`session_manager` 的重载
     回退与 `/api/plots` 共用这一份口径，不再各读各的。
-- **向导边界**：「主控与阵容」这一步只选角色 —— 候选范围、手动追加条目与全量兼容不再在这里调整
-  （按书配置在世界书工作台）。创建仍提交 `manual_entry_uids=[]` / `full_scope=False`，与
-  `POST /scope-preview` 的指纹同口径，否则创建会被判「预览已过期」并 400。
+- **向导边界**：「主控与阵容」这一步只选角色；候选范围按当前 v3 规则解析。创建接口按书提交
+  `manual_entry_uids_by_book` / `expected_draft_hashes`，不再接受首本书的单数参数。
 - **命名创建只报 token**：该步不再渲染整块 `WorldBookScopePreview`，只列每本书的「估算 token」——
   「候选规模减少 0 token（0%）」这种无信息量的行不再出现；候选条目明细在世界书工作台看。
 - **已知边界**：会话大厅的「添加角色 / 换主控」候选仍是**按角色卡来源书**过滤
@@ -46,30 +44,27 @@
   `src/session_manager.py::_plot_initial_characters`、
   `frontend/src/utils/characterCatalog.ts`、`frontend/src/components/session/CreateSessionWizard.tsx`、
   `scripts/test_session_main_control_ui.cjs`（C 段）、
-  `tests/test_worldbook_system_layer.py`（花名册与摘要）、
-  `tests/test_data_layout.py::test_plot_roster_prefers_initial_characters_and_falls_back_to_legacy_field`。
+  `tests/test_worldbook_system_layer.py`（花名册与摘要）、`tests/test_data_layout.py`。
 
-### 多本世界书绑定与首本书兼容口径（2026-09-26，`1f5668a`）
+### 多本世界书绑定口径（核对于 2026-09-28）
 
-- **现象**：旧存档和部分调用方只认识 `worldbook_id` / `worldbook_scope`；多书会话若只读取这两个字段，会漏掉后续书。
-- **现状口径**：`worldbook_ids` 按选择顺序保存所有剧情书，`worldbook_scopes` 保存后续书的会话快照；旧字段始终对应首本书。依赖和条目覆盖接口以 `book_id` 选择具体书，省略时继续操作首本书。全局默认书不再回落，未绑定书的会话不注入世界书。
-- **创建接口**：`manual_entry_uids_by_book` 可分别指定各书的手动条目；旧参数 `manual_entry_uids` 仅兼容首本书；`full_scope` 作用于全部已选书。当前新建向导不提供这两个开关，提交空追加、非全量。统一角色数值字段仍沿用首本书的 `stat_fields`；跨书字段合并尚未设计。
+- **现状口径**：`worldbook_ids` 按选择顺序保存所有剧情书，`worldbook_scopes` 按书 ID 保存各书会话快照；不再写入或读取单数存储字段。依赖和条目覆盖接口以 `book_id` 选择具体书，省略时操作按顺序派生的首本书。全局默认书不再回落，未绑定书的会话不注入世界书。
+- **创建接口**：`manual_entry_uids_by_book` / `expected_draft_hashes` 分别按书提交手动条目与预览指纹。统一角色数值字段仍沿用首本书的 `stat_fields`；跨书字段合并尚未设计。
 - **证据**：`src/session_overlay.py`、`src/world_book.py`、`src/blueprints/sessions.py`、`tests/test_session_worldbook_multibind.py`。
 
 ### 主控角色与「角色入队」是同一次选择（2026-09-23，`feat/session-main-control`）
 
 - **口径**：会话**阵容 = 主控角色（玩家身份）+ 队友**。`SceneManager.get_roster()` 是服务端口径
   （主控在前、按名去重，`Session.to_dict()["roster"]` 与候选范围的 roster 都用它）；
-  `get_scene_characters()` 只有队友 —— 主控由玩家自己扮演，模型不替玩家说话，
-  `tests/legacy/player_identity_opening.py` 钉住「玩家身份不得出现在场景角色里」。
+  `get_scene_characters()` 只有队友 —— 主控由玩家自己扮演，模型不替玩家说话；对应 pytest
+  钉住「玩家身份不得出现在场景角色里」。
   同一角色只出现一次：主控经 `identity` 声明、队友经 `roster_character_ids` 入队，两边都不重复。
 - **创建契约**：`POST /api/sessions` 的 `identity` **显式传空 = 明确没选主控 → 400**
   （前端向导也先拦一次）；**完全不传**该字段才回落通用称谓「玩家」，只服务不使用新流程的调用方
   （集成脚本 / 老用例）。见 `tests/test_session_main_control.py`。
 - **预览与创建必须同口径**：候选范围的 roster 取 `get_roster()`，因此向导的 `scope-preview`
   必须传**含主控的完整阵容**（`useRosterScopePreview(bookId, lineup, …)`），否则创建时的
-  `expected_draft_hash` 校验会判「预览已过期」并 400。这条只有带世界书的真实数据才暴露，
-  `tests/legacy/main_control_flow.py` 端到端守住（自建主控 / 世界书主控两条路径）。
+  `expected_draft_hashes` 校验会判「预览已过期」并 400；自建主控与世界书主控都由独立 pytest 覆盖。
 - **换主控要重算范围**：`SessionManager.set_player_identity` → `SceneManager.set_player_identity`
   → 按新阵容 refresh。会话依赖面板（`blueprints/sessions.py` 的 `_get_managed` 与四个 PATCH）
   也一律用 `get_roster()`；用 `get_scene_characters()` 会让面板第一次打开就把主控从快照里刷掉。
@@ -89,7 +84,7 @@
 
 ### 角色数值的字段解析：会话绑定书优先，不是角色自己的书（2026-09-23，`feat/session-stage-panels`）
 
-- **口径**：会话里某角色用哪套统一字段，先看**会话绑定的世界书**（`overlay.worldbook_id` → `stat_fields`），
+- **口径**：会话里某角色用哪套统一字段，先看**会话绑定顺序中的首本世界书**（由 `worldbook_ids` 派生 → `stat_fields`），
   同一会话内所有角色因此口径一致；会话没绑书或该书没定义字段，才退回角色自己的来源书（frontmatter
   `worldbook_id`）。角色页「数值」页签（全局值）只看角色自己的来源书。两处不一致时以会话为准——
   `tests/test_character_stats_api.py::test_session_stats_merge_and_bound_book_fields` 钉住。
@@ -178,7 +173,7 @@
 
 ### 世界书条目工作台持久化口径（2026-09-22，`feat/worldbook-entry-refresh`）
 
-- **顺序**：旧书没有 `entry_order` 时继续使用既有注入排序；首次拖动后写入完整 UID 排列，新增、摘录、
+- **顺序**：未显式保存 `entry_order` 时使用既有注入排序；首次拖动后写入完整 UID 排列，新增、摘录、
   lore-binding 首次补条目时同步追加。实际收集仍先分稳定层与动态层，再按显式顺序排列；UI 禁止跨层拖动。
 - **自动保存**：条目、简介与排序共用按书串行队列、generation/CAS 和 sessionStorage 待办镜像。
   页面卸载不销毁协调器；旧响应不覆盖新草稿；空正文的新条目可切书后找回；删除在旧创建请求结束后继续执行，
@@ -195,7 +190,7 @@
 ### 条目文件夹与触发互斥组是两套概念（2026-09-27，`f59b9a8`）
 
 - **现象**：条目原有 `group` / `group_weight` 字段用于酒馆触发互斥；直接把它用作管理界面的文件夹会改变解析规则。
-- **现状口径**：书级 `entry_groups` 保存文件夹名称，`entry_group_map` 保存条目 UID 到文件夹 ID 的归属，`entry_layout` 保存文件夹与未分组条目的共同顶层顺序；组内条目再缩进。新建空分组放在列表顶部，文件夹可与未分组条目混排；旧书没有 `entry_layout` 时按原来的“未分组条目在前、文件夹在后”显示。移动条目、移动或删除文件夹时，界面把布局、归属和完整 `entry_order` 一次提交；Prompt 的稳定层与动态层分别依新顺序注入，跨层文件夹不会成为单个连续块。纯元数据客户端仍可不传布局和排序，保持旧接口语义。删除文件夹只解绑条目，删除条目与系统节点时清理映射。
+- **现状口径**：书级 `entry_groups` 保存文件夹名称，`entry_group_map` 保存条目 UID 到文件夹 ID 的归属，`entry_layout` 保存文件夹与未分组条目的共同顶层顺序；组内条目再缩进。新建空分组放在列表顶部，文件夹可与未分组条目混排；未显式保存 `entry_layout` 时按“未分组条目在前、文件夹在后”显示。移动条目、移动或删除文件夹时，界面把布局、归属和完整 `entry_order` 一次提交；Prompt 的稳定层与动态层分别依新顺序注入，跨层文件夹不会成为单个连续块。纯元数据客户端可不传布局和排序。删除文件夹只解绑条目，删除条目与系统节点时清理映射。
 - **证据**：`tests/test_worldbook_entry_groups.py` 验证持久化、CAS、复制、导入导出、原子排序与分层注入；`tests/test_plot_graphs.py` 和 `tests/test_story_outline.py` 覆盖系统条目删除与清理。
 
 ### 条目摘录与角色资源副本（2026-09-27）
@@ -212,7 +207,6 @@ WSL，而本机未安装 WSL。等价做法：
 ```powershell
 python -m pytest tests/ perf_tests/test_combat_runtime_v1.py perf_tests/test_combat_data_v1.py `
   perf_tests/test_settlement_v1.py perf_tests/test_card_json_roundtrip.py perf_tests/test_cv_budget.py
-$env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下逐个跑，需 src 在 PYTHONPATH
 ```
 
 ### CLI 夹具必须自己钉死 UTF-8（2026-09-19，`f6ea4e7`）
@@ -239,7 +233,7 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
 ### 世界书条目的稳定层、动态层与系统层（核对于 2026-09-28）
 
 - 系统条目由 `src/world_book.py:is_system_entry()` 判定，前端 `frontend/src/utils/worldbookLayer.ts` 保持同口径。先判系统层，再按位置区分稳定层与动态层；`plot_graph`、`lore_bindings`、`story_outline` 属系统层，带关键词的 `combat_node` 仍可注入。
-- 系统层不进 Prompt 的 `order` 或 `dropped`，不进全量兼容候选、会话条目列表，也不计入可注入条数与估算 token。`book_entry_stats()` 是后端统计口径，前端 `bookEntryStats()` 与之对齐。
+- 系统层不进 Prompt 的 `order` 或 `dropped`，不进会话候选或会话条目列表，也不计入可注入条数与估算 token。`book_entry_stats()` 是后端统计口径，前端 `bookEntryStats()` 与之对齐。
 - 条目页按稳定、动态、系统展示；系统条目不可单独拖动，但所在文件夹可移动。持久化的 `entry_order` 仍是全书 UID 排列，实际注入时再按稳定层与动态层分区。
 - Python 与 TypeScript 各有 `SYSTEM_ENTRY_TYPES` / `SYSTEM_ENTRY_FENCES`，改动任一侧都要同步另一侧。验证见 `tests/test_worldbook_system_layer.py` 和 `scripts/test_worldbook_layer_ui.cjs`。
 
@@ -269,11 +263,8 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
   `data/worldbooks/packs/`；`categories.yaml` 留在 `data/` 根目录；用户书 JSON、
   `settings.json`、备份和会话数据保持原位。环境内容只有 `Location/` 与 `weather/`，
   时段预设仍是代码内置列表，不存在 `environment/time/` 目录。
-- **迁移限制**：`scripts/migrate_data_layout.py` 默认仅预览，`--apply` 在全部目标无内容冲突时才移动；
-  可中断重跑，但不会覆盖不同内容，也不会重新生成预装包或刷新已安装书。运行迁移前应停止应用，
-  冲突需人工确认后再重跑。
 - **证据**：`tests/test_data_layout.py` 覆盖 Document/Wiki 与内容 API、素材 URL、临时候选剧情、
-  战斗节点提示刷新、背景引用和生成器临时输出；迁移行为由 `tests/test_data_layout_migration.py` 覆盖。
+  战斗节点提示刷新、背景引用和生成器临时输出。
 
 ### 「来源世界书」只有一个字段：实体 index.md 的 `worldbook_id`（2026-09-22）
 
@@ -337,7 +328,7 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
 
 ## 卡牌战斗事件播放（2026-09-27）
 
-- 四个 action/end-turn 接口可选 `?presentation=1`，返回 `{state, events}`；不带参数保持旧的 state 响应。事件的 `data.presentation_id` 在进入 SSE 队列时生成，HTTP 批次共享该 ID。
+- 四个 action/end-turn 接口统一返回 `{state, events}`。事件的 `data.presentation_id` 在进入 SSE 队列时生成，HTTP 批次共享该 ID。
 - 前端先标记整批 ID，再播放事件和投影血量，最后采用权威快照。不要在收到 HTTP 响应时直接替换最终状态，否则死亡角色先消失。旧接口 SSE 分批消费要跨批保存攻击分组。
 - 选中角色的可移动范围由服务器计算；切换角色必须请求该角色并核对响应仍属于当前选择。动作开始递增版本，防止更早发出的 GET 覆盖播放投影。
 - 护盾 status.value 是新增量；burn.value 是每回合伤害，duration 才是持续时间。净化清理负面状态，最终快照仍是权威来源。
@@ -348,10 +339,9 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
 - 启动时不安装或刷新任何离线世界书包。会话未显式绑定剧情世界书时不注入书内容；新会话主控称谓为「玩家」，环境为空。已有本地安装副本保留给用户管理，不自动删除。
 - 分发源仍存于 `data/worldbooks/packs/` 和 `data/worldbooks/content/`。`content_manifest.json` 标记仓库资源的归属；仅当至少一本归属书已安装且启用时，其角色、剧情、战斗节点和素材才可见。停用或删除已安装书使其独占内容退出运行时目录及直达 URL，分发源仍可供再次安装。改动离线资源后运行 `python scripts/generate_content_manifest.py` 并检查 `tests/test_distributed_content_manifest.py`。
 - 战斗 Spine 变体映射作为 `content/spine_variants.json` 分发，经 `/api/assets/spine-variants` 只返回当前可见角色；无模型的角色使用通用几何标记。导入的世界书角色私有副本在卸载时清理，被其他书引用则拒绝卸载。
-- 本机 `tests/legacy/main_control_flow.py` 仍需实际角色库同时有自建角色与世界书角色；若缺其一，该脚本报告“角色库数据不足”并退出失败。这是旧脚本的外部数据前提，不代表主控新默认失败；对应独立 pytest 使用临时夹具验证。
-
 ### 可复制的完整世界书（2026-09-28）
 
-- 已安装书的新位置为 `data/worldbooks/books/<id>.json`；旧根目录书仍可读取。迁移前先停应用，再用 `scripts/migrate_worldbook_layout.py` 预览和执行。迁移只移动经解析且 ID 匹配的 JSON，不改书内容。
+- 已安装书的新位置为 `data/worldbooks/books/<id>.json`；旧根目录书仍可读取。迁移前先停应用，再用 `scripts/migrate_worldbook_layout.py` 预览和执行。迁移只移动符合当前 schema 且 ID 匹配的 JSON，不改书内容；不兼容副本须先备份并修复。
 - `.arkwb` 包收集分发归属清单和本地清单中属于该书的文件，以及带 `worldbook_id` 的用户实体目录/JSON；包内保留 `content/` 相对路径和哈希。未知归属且无标记的自建资源不会被猜测为该书资源，作者需先给实体标记归属。跨书共享文件会随各自的包复制，导入时只接受同路径同内容。
 - `inbox/` 文件导入记录在 `.imported.json`，同一文件未变化时不会重复安装；导入失败显示在书架错误状态，修复或替换文件后会重试。资源落入共享 `content/`，本地归属单独记在 `local_content_manifest.json`，停用/删除后的可见性同时检查两份清单。卸载不会直接删共享资源文件，防止误删其它书的引用。
+- 2026-09-28 本机旧 `arknights.json` 缺 `schema_version=3`，迁移预览会跳过；其与当前分发包的共同内容字段完全相同。临时目录内验证了「备份并修复」后迁移，254 条条目保持一致且留下 `.bak`。操作真实数据前仍需停止应用并确认保存。

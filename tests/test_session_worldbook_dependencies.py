@@ -11,7 +11,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from blueprints.sessions import register
 from session_worldbook_dependencies import (
     apply_inheritance_update, change_entry_override, change_relation, effective_graph,
-    ensure_editable_scope,
     preview_inheritance_update, restore_inheritance,
 )
 from world_book import DEFAULT_CATEGORIES, WorldBook, WorldBookEntry, WorldBookManager
@@ -29,7 +28,7 @@ def make_book():
 
 
 def v3_book():
-    book = make_book().adopt_v2_as_v3()
+    book = make_book()
     for root in book.dependency_rules["roots"]:
         if root["entry_uid"] == "a":
             root["expansion"] = "requires_closure"
@@ -77,15 +76,6 @@ def test_global_update_keeps_local_relation_and_reports_conflict():
     assert effective_graph(updated)["related_edges"] == [{"from_uid": "a", "to_uid": "tech"}]
 
 
-def test_schema2_session_upgrade_is_local_and_range_equivalent():
-    book = make_book()
-    old = book.resolve_import_scope(["A"])
-    upgraded = ensure_editable_scope(old, book, ["A"])
-    assert upgraded["schema_version"] == 3
-    assert set(upgraded["resolved_entry_uids"]) == set(old["resolved_entry_uids"])
-    assert book.schema_version == 2 and book.dependency_rules is None
-
-
 def test_entry_enabled_override_changes_only_session_scope_and_injection():
     book = v3_book()
     book.entries.append(WorldBookEntry(
@@ -121,9 +111,8 @@ class Overlay:
         with self.lock:
             self.scope = copy.deepcopy(updater(copy.deepcopy(self.scope)))
             return copy.deepcopy(self.scope)
-    def get_worldbook_id(self): return self.book_id
-    def set_worldbook_id(self, value): self.book_id = value
     def get_worldbook_ids(self): return [self.book_id] if self.book_id else []
+    def get_worldbook_id(self): return self.book_id
     def set_worldbook_ids(self, values): self.book_id = values[0] if values else None
 
 
@@ -138,7 +127,9 @@ class FakeSession:
             "get_roster": lambda _s: list(self.characters),
         })()
     def to_dict(self):
-        return {"id": self.id, "worldbook_scope": self.overlay.get_worldbook_scope(),
+        return {"id": self.id, "worldbook_ids": self.overlay.get_worldbook_ids(),
+                "worldbook_scopes": {bid: self.overlay.get_worldbook_scope(bid)
+                                     for bid in self.overlay.get_worldbook_ids()},
                 "characters": self.characters}
 
 
@@ -176,8 +167,8 @@ def session_api(tmp_path, monkeypatch):
 
 def test_api_schema2_snapshot_override_and_cross_session_isolation(session_api):
     client, manager, books, llm = session_api
-    first = client.post("/api/sessions", json={"worldbook_id": "book", "roster_character_ids": ["A"]})
-    second = client.post("/api/sessions", json={"worldbook_id": "book", "roster_character_ids": ["A"]})
+    first = client.post("/api/sessions", json={"worldbook_ids": ["book"], "roster_character_ids": ["A"]})
+    second = client.post("/api/sessions", json={"worldbook_ids": ["book"], "roster_character_ids": ["A"]})
     assert first.status_code == second.status_code == 201 and llm.calls == []
     one, two = first.json["id"], second.json["id"]
     deps = client.get(f"/api/sessions/{one}/worldbook-dependencies").json
@@ -202,8 +193,8 @@ def test_entry_override_api_is_scoped_to_bound_session(session_api):
         "off", name="默认停用", content="仅本会话启用。", always_active=True,
         enabled=False, category_id="other"))
     books.save(book)
-    first = client.post("/api/sessions", json={"worldbook_id": "book", "roster_character_ids": ["A"]})
-    second = client.post("/api/sessions", json={"worldbook_id": "book", "roster_character_ids": ["A"]})
+    first = client.post("/api/sessions", json={"worldbook_ids": ["book"], "roster_character_ids": ["A"]})
+    second = client.post("/api/sessions", json={"worldbook_ids": ["book"], "roster_character_ids": ["A"]})
     one, two = first.json["id"], second.json["id"]
 
     initial = client.get(f"/api/sessions/{one}/worldbook-entry-overrides")
@@ -237,10 +228,10 @@ def test_session_overlay_scope_survives_reload(tmp_path, monkeypatch):
     first = overlay_module.SessionOverlay("session-1", "free")
     scope = v3_book().session_scope_snapshot(["A"])
     changed = change_relation(scope, "a", "tech", None, 1)
+    first.set_worldbook_ids(["book"])
     first.set_worldbook_scope(changed)
     restored = overlay_module.SessionOverlay("session-1", "free").get_worldbook_scope()
     assert restored["scope_revision"] == 2
     assert restored["suppressed_edges"] == changed["suppressed_edges"]
     assert effective_graph(restored)["requires_edges"] == []
-
 

@@ -145,9 +145,9 @@ def register(app, managers):
         if not is_content_visible(identity_path, project_root=_REPO_ROOT):
             return json_error("主控角色不存在或不可用", 404)
 
-        raw_book_ids = data.get("worldbook_ids", [data.get("worldbook_id", "")])
+        raw_book_ids = data.get("worldbook_ids", [])
         if (not isinstance(raw_book_ids, list) or
-                any(not isinstance(x, str) or not x.strip() for x in raw_book_ids if x != "")):
+                any(not isinstance(x, str) or not x.strip() for x in raw_book_ids)):
             return json_error("worldbook_ids 必须是世界书 ID 数组")
         worldbook_ids = list(dict.fromkeys(x.strip() for x in raw_book_ids if x.strip()))
         roster = data.get("roster_character_ids", [])
@@ -167,11 +167,6 @@ def register(app, managers):
             return json_error(f"世界书读取失败：{exc}")
 
         def initialize(session):
-            multi_overlay = hasattr(session.overlay, "set_worldbook_ids")
-            if multi_overlay:
-                session.overlay.set_worldbook_ids(worldbook_ids)
-            elif len(worldbook_ids) > 1:
-                raise ValueError("当前会话存储不支持绑定多本世界书")
             if plot_id and mode == "story":
                 from session_overlay import _resolve_plot_dir
                 resolved = _resolve_plot_dir(plot_id) or plot_id
@@ -196,39 +191,27 @@ def register(app, managers):
             # 阵容 = 主控 + 队友：主控也是入队角色，它的条目按 roster 规则载入，
             # 但主控不是场景 NPC（scene_manager 里只有队友），同一角色只算一次。
             roster_ids = session.scene_manager.get_roster()
-            # 「本次会话全量兼容」是显式选择，只作用于这个会话，不改这本书的规则。
-            full_scope = bool(data.get("full_scope"))
             manual_by_book = data.get("manual_entry_uids_by_book") or {}
             hashes = data.get("expected_draft_hashes") or {}
             if not isinstance(manual_by_book, dict) or not isinstance(hashes, dict):
                 raise ValueError("世界书预览参数格式不正确")
             for scoped_book in books:
-                manual = manual_by_book.get(scoped_book.id,
-                                            data.get("manual_entry_uids", []) if scoped_book == book else []) or []
+                manual = manual_by_book.get(scoped_book.id, []) or []
                 if not isinstance(manual, list) or any(
                         not isinstance(uid, str) or not uid.strip() for uid in manual):
-                    raise ValueError("manual_entry_uids 必须是非空字符串组成的数组")
-                expected = hashes.get(scoped_book.id,
-                                      data.get("expected_draft_hash") if scoped_book == book else None)
-                if expected and scoped_book.v3_enabled and expected != scoped_book.policy_draft_hash(
-                        roster_ids, manual, None, full_scope):
+                    raise ValueError("manual_entry_uids_by_book 的值必须是非空字符串组成的数组")
+                expected = hashes.get(scoped_book.id)
+                if expected and expected != scoped_book.policy_draft_hash(roster_ids, manual):
                     raise ValueError("候选范围预览已过期，请重新预览后再创建会话")
-                if not scoped_book.v3_enabled:
-                    scoped_book.adopt_v2_as_v3()
-                scope = scoped_book.session_scope_snapshot(roster_ids, manual, full_scope=full_scope)
-                if multi_overlay:
-                    session.overlay.set_worldbook_scope(scope, scoped_book.id)
-                else:
-                    session.overlay.set_worldbook_scope(scope)
-            if not books:
-                session.overlay.set_worldbook_scope({"book_id": None, "resolved_entry_uids": []})
+                scope = scoped_book.session_scope_snapshot(roster_ids, manual)
+                session.overlay.set_worldbook_scope(scope, scoped_book.id)
 
         try:
             session = session_mgr.create_session(
                 name=data.get("name", ""), mode=mode,
                 plot_name=plot_name if not data.get("name") else "",
                 combat_mode=combat_mode, player_identity=player_identity,
-                plot_id=plot_id, worldbook_id=book.id if book else "",
+                plot_id=plot_id, worldbook_ids=worldbook_ids,
                 initializer=initialize,
             )
         except ValueError as exc:
@@ -296,17 +279,13 @@ def register(app, managers):
     # ── 会话级世界书依赖 ──
 
     def _bound_ids(overlay):
-        return (overlay.get_worldbook_ids() if hasattr(overlay, "get_worldbook_ids")
-                else [overlay.get_worldbook_id()] if overlay.get_worldbook_id() else [])
+        return overlay.get_worldbook_ids()
 
     def _scope_for(overlay, book_id):
-        return (overlay.get_worldbook_scope(book_id) if hasattr(overlay, "get_worldbook_ids")
-                else overlay.get_worldbook_scope())
+        return overlay.get_worldbook_scope(book_id)
 
     def _update_scope_for(overlay, book_id, updater):
-        return (overlay.update_worldbook_scope(updater, book_id)
-                if hasattr(overlay, "get_worldbook_ids")
-                else overlay.update_worldbook_scope(updater))
+        return overlay.update_worldbook_scope(updater, book_id)
 
     def _session_book(session):
         book_id = request.args.get("book_id") or session.overlay.get_worldbook_id()

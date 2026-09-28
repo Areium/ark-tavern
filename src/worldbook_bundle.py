@@ -22,6 +22,7 @@ MAX_FILES = 10_000
 MAX_FILE_SIZE = 64 * 1024 * 1024
 MAX_TOTAL_SIZE = 2 * 1024 * 1024 * 1024
 MAX_METADATA_SIZE = 16 * 1024 * 1024
+MAX_BOOK_SIZE = 256 * 1024 * 1024
 _ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _WINDOWS_DEVICE = re.compile(r"(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\..*)?\Z", re.I)
@@ -186,8 +187,10 @@ def _source_resources(book_id: str, worldbooks_dir: Path, content_dir: Path) -> 
                       for prefix in directories) and key not in local_files}
     owned_directories: set[str] = set()
     for key, path in user_files.items():
-        if path.stat().st_size > MAX_METADATA_SIZE:
+        if path.suffix.lower() not in {".md", ".json"}:
             continue
+        if path.stat().st_size > MAX_FILE_SIZE:
+            raise ValueError(f"Unclassified content exceeds size limit: {key}")
         if path.suffix.lower() == ".md":
             try:
                 lines = path.read_text(encoding="utf-8-sig").splitlines()
@@ -229,7 +232,7 @@ def export_bundle(book_payload: dict, book_id: str, worldbooks_dir: Path,
     if target.exists() or target.is_symlink():
         raise FileExistsError(target)
     book_data = _json_bytes(book_payload)
-    if len(book_data) > MAX_METADATA_SIZE:
+    if len(book_data) > MAX_BOOK_SIZE:
         raise ValueError("Worldbook exceeds size limit")
     resources = []
     total = 0
@@ -348,15 +351,17 @@ def _install_bundle_locked(archive_path: Path, book_target: Path, content_dir: P
                 raise ValueError("Duplicate archive member")
             if stat.S_IFMT(info.external_attr >> 16) == stat.S_IFLNK:
                 raise ValueError("Archive contains symlink")
-            if info.file_size > MAX_FILE_SIZE:
+            limit = (MAX_BOOK_SIZE if name == "book.json" else
+                     MAX_METADATA_SIZE if name == "manifest.json" else MAX_FILE_SIZE)
+            if info.file_size > limit:
                 raise ValueError("Archive member exceeds size limit")
             entries[name] = info
             folded.add(name.casefold())
-        if len(entries) > MAX_FILES + 2 or sum(i.file_size for i in entries.values()) > MAX_TOTAL_SIZE + 2 * MAX_METADATA_SIZE:
+        if len(entries) > MAX_FILES + 2 or sum(i.file_size for i in entries.values()) > MAX_TOTAL_SIZE + MAX_BOOK_SIZE + MAX_METADATA_SIZE:
             raise ValueError("Archive exceeds size limit")
         if "book.json" not in entries or "manifest.json" not in entries:
             raise ValueError("Missing bundle metadata")
-        if entries["book.json"].file_size > MAX_METADATA_SIZE or entries["manifest.json"].file_size > MAX_METADATA_SIZE:
+        if entries["book.json"].file_size > MAX_BOOK_SIZE or entries["manifest.json"].file_size > MAX_METADATA_SIZE:
             raise ValueError("Bundle metadata exceeds size limit")
         book_data = archive.read("book.json")
         book = _read_json(book_data)

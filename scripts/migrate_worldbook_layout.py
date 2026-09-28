@@ -42,11 +42,13 @@ def main() -> int:
         print(f"  {book_id}.json -> books/{book_id}.json")
     for filename, reason in problems:
         print(f"  SKIP {filename}: {reason}")
-    if args.apply and not problems:
+    if args.apply:
         manager = WorldBookManager(root)
         moved = manager.migrate_legacy_books()
         print(f"Moved: {len(moved)}")
-        return 0 if len(moved) == len(planned) else 1
+        if problems:
+            print("Skipped files remain in the legacy directory; repair them before retrying.")
+        return 0 if len(moved) == len(planned) and not problems else 1
     if problems:
         print("Resolve skipped files before applying; no files were moved.")
         return 1

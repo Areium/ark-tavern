@@ -206,6 +206,42 @@ def test_resolver_walks_parents_for_inheritance():
     assert sc["allowed"] == ["a"]
 
 
+def test_overlay_resolver_requires_current_v3_scope_and_keeps_empty_scope_empty():
+    binding = _bindings_entry(targets={"beat:b1": {"entry_uids": ["a"]}})
+    book = _book([_entry("a"), binding])
+
+    class Overlay:
+        def __init__(self, scope):
+            self.scope = scope
+
+        def get_story_tree(self):
+            return {"nodes": {"n_1": {"id": "n_1", "parent_id": None}}}
+
+        def get_worldbook_scope(self):
+            return self.scope
+
+        def get_current_beat_id(self):
+            return "b1"
+
+        def get_plot_id(self):
+            return "plot"
+
+        def get_current_chapter_title(self):
+            return "chapter"
+
+    assert nls.build_overlay_resolver(book, Overlay(None)) is None
+    assert nls.build_overlay_resolver(book, Overlay({"schema_version": 2})) is None
+
+    resolver = nls.build_overlay_resolver(book, Overlay({
+        "schema_version": 3,
+        "resolved_entry_uids": [],
+    }))
+    assert resolver is not None
+    node = {"id": "n_1", "parent_id": None}
+    scope = resolver(node, None, {"n_1": node}, "")
+    assert scope["allowed"] == []
+
+
 # ── validate_bindings ──
 
 def test_validate_ok():

@@ -333,8 +333,7 @@ def _combat_node_owned_by_session(session, encounter_id: str) -> bool:
         return False
     overlay = getattr(session, "overlay", None)
     plot_id = (overlay.get_plot_id() if overlay else "") or ""
-    book_ids = (overlay.get_worldbook_ids() if overlay and hasattr(overlay, "get_worldbook_ids")
-                else [overlay.get_worldbook_id()] if overlay and overlay.get_worldbook_id() else [])
+    book_ids = overlay.get_worldbook_ids() if overlay else []
     bind_plot = str((node.get("bind") or {}).get("plot_id") or "")
     node_book = str(node.get("worldbook_id") or "")
     if plot_id and bind_plot == plot_id:

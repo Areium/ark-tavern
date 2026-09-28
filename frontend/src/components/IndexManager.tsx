@@ -33,7 +33,7 @@ export default function IndexManager({ book, onRefresh, onEditDefaults }: {
   const generation = useRef(0);
   const savingRef = useRef(false);
   const matchingSessions = useMemo(() => sessions.filter((session) =>
-    (session.worldbook_ids?.length ? session.worldbook_ids : [session.worldbook_id]).includes(book.id)), [sessions, book.id]);
+    session.worldbook_ids.includes(book.id)), [sessions, book.id]);
 
   useEffect(() => {
     let active = true;

@@ -23,6 +23,8 @@ def test_explicit_pack_install_disable_delete_and_restart(tmp_path, monkeypatch)
     packs.mkdir(parents=True)
     (packs / "sample.json").write_text(json.dumps({
         "id": "sample", "name": "样本世界", "entries": [], "book_type": "story",
+        "schema_version": 3, "scope_mode": "selective",
+        "dependency_rules": {"roots": [], "root_rule": {"entry_uids": []}},
     }, ensure_ascii=False), encoding="utf-8")
     (books / "content_manifest.json").write_text(json.dumps({
         "directories": {"characters/样本角色/": ["sample"]}, "files": {},

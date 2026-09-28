@@ -62,7 +62,7 @@ def test_practice_batches_are_scoped_and_match_sse_queue(client):
     base = f"/api/combat/test/{test_id}"
     try:
         initial_ids = {ev.data["presentation_id"] for ev in list(combat.event_queue.queue)}
-        first = client.post(f"{base}/end-turn?presentation=1")
+        first = client.post(f"{base}/end-turn")
         assert first.status_code == 200, first.get_json()
         first_batch = first.get_json()
         assert set(first_batch) == {"state", "events"}
@@ -74,7 +74,7 @@ def test_practice_batches_are_scoped_and_match_sse_queue(client):
         assert [(ev.type, ev.data["presentation_id"]) for ev in queued[-len(first_ids):]] == [
             (ev["type"], ev["data"]["presentation_id"]) for ev in first_batch["events"]]
 
-        second = client.post(f"{base}/end-turn?presentation=1")
+        second = client.post(f"{base}/end-turn")
         assert second.status_code == 200, second.get_json()
         second_ids = {ev["data"]["presentation_id"] for ev in second.get_json()["events"]}
         assert not second_ids.intersection(first_ids)
@@ -87,29 +87,29 @@ def test_practice_batches_are_scoped_and_match_sse_queue(client):
         client.delete(base)
 
 
-def test_legacy_and_presentation_route_shapes(client):
+def test_action_and_end_turn_always_return_state_and_events(client):
     started = client.post("/api/combat/test/start", json={"node_id": "enc_training", "characters": ["临光"]})
     test_id = started.get_json()["test_id"]
     base = f"/api/combat/test/{test_id}"
     try:
-        legacy = client.post(f"{base}/end-turn")
-        assert legacy.status_code == 200, legacy.get_json()
-        assert "units" in legacy.get_json() and "state" not in legacy.get_json()
+        ended = client.post(f"{base}/end-turn")
+        assert ended.status_code == 200, ended.get_json()
+        assert set(ended.get_json()) == {"state", "events"}
 
         state = client.get(f"{base}/state").get_json()
         player = next(u for u in state["units"] if u["team"] == "player")
         moves = client.get(f"{base}/state?selected_unit={player['unit_id']}").get_json()["valid_moves"]
         assert moves
         action = {"action": "move", "unit_id": player["unit_id"], "target": moves[0]}
-        presented = client.post(f"{base}/action?presentation=1", json=action)
-        assert presented.status_code == 200, presented.get_json()
-        assert set(presented.get_json()) == {"state", "events"}
-        assert presented.get_json()["events"]
+        response = client.post(f"{base}/action", json=action)
+        assert response.status_code == 200, response.get_json()
+        assert set(response.get_json()) == {"state", "events"}
+        assert response.get_json()["events"]
     finally:
         client.delete(base)
 
 
-def test_session_item_returns_heal_batch_and_legacy_state(client):
+def test_session_item_returns_heal_batch_and_actions_use_one_dto(client):
     created = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
     assert created.status_code in (200, 201), created.get_json()
     sid = created.get_json()["id"]
@@ -126,23 +126,16 @@ def test_session_item_returns_heal_batch_and_legacy_state(client):
         player.hp = max(1, player.hp - 35)
         item = {"action": "use_item", "item_name": "急救包", "unit_id": player.unit_id}
 
-        presented = client.post(f"{base}/action?presentation=1", json=item)
-        assert presented.status_code == 200, presented.get_json()
-        assert set(presented.get_json()) == {"state", "events"}
-        [heal] = presented.get_json()["events"]
+        response = client.post(f"{base}/action", json=item)
+        assert response.status_code == 200, response.get_json()
+        assert set(response.get_json()) == {"state", "events"}
+        [heal] = response.get_json()["events"]
         assert heal["type"] == "heal" and heal["data"]["amount"] > 0
         assert heal["data"]["presentation_id"]
         assert any(ev.data["presentation_id"] == heal["data"]["presentation_id"]
                    for ev in list(session.combat.event_queue.queue))
 
-        legacy_item = client.post(f"{base}/action", json=item)
-        assert legacy_item.status_code == 200, legacy_item.get_json()
-        assert "units" in legacy_item.get_json() and "state" not in legacy_item.get_json()
-
-        legacy = client.post(f"{base}/end-turn")
-        assert legacy.status_code == 200, legacy.get_json()
-        assert "units" in legacy.get_json() and "state" not in legacy.get_json()
-        next_turn = client.post(f"{base}/end-turn?presentation=1")
+        next_turn = client.post(f"{base}/end-turn")
         assert next_turn.status_code == 200, next_turn.get_json()
         assert set(next_turn.get_json()) == {"state", "events"}
     finally:

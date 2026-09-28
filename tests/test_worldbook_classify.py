@@ -2,7 +2,7 @@
 
 覆盖三层：
   1. 纯分类器（信号优先级、白名单、冲突、角色关联）
-  2. `WorldBook.from_dict` 的迁移守卫（空分类才补，已保存的分类不覆盖，不改载入模式）
+  2. `WorldBook.from_dict` 的分类守卫（空分类才补，已保存的分类不覆盖）
   3. `POST /api/worldbook/<id>/auto-classify`（预览只读、应用落盘、revision 冲突）
 """
 import copy
@@ -139,7 +139,8 @@ def test_preset_categories_are_valid_and_unique():
 # ── from_dict 迁移守卫 ────────────────────────────────────────────────
 
 def raw_pack(entries=None, categories=None):
-    data = {"id": "arknights", "name": "氪金整合包", "source": "preinstalled", "schema_version": 1,
+    data = {"id": "arknights", "name": "氪金整合包", "source": "preinstalled", "schema_version": 3,
+            "scope_mode": "selective", "book_type": "story", "dependency_rules": {},
             "entries": [e.to_dict() for e in (entries or pack_entries())]}
     if categories is not None:
         data["categories"] = categories
@@ -147,9 +148,9 @@ def raw_pack(entries=None, categories=None):
 
 
 def test_empty_categories_are_treated_as_unclassified_and_classified(tmp_path):
-    """磁盘上是 `categories: []`（被保存过的旧副本）也要补分类，但不切换载入模式。"""
+    """预装包的空分类会补齐，内部范围模式保持 selective。"""
     book = WorldBook.from_dict(raw_pack(categories=[]))
-    assert book.scope_mode == "legacy", "旧书仅补分类，不隐式进入按需载入"
+    assert book.scope_mode == "selective"
     assert [e.category_id for e in book.entries][:3] == ["worldview", "rules", "races"]
     by_uid = {entry.uid: entry for entry in book.entries}
     assert by_uid["characters_阿米娅_index"].character_id == "阿米娅"
@@ -175,13 +176,14 @@ def test_saved_taxonomy_is_never_overwritten():
 
 
 def test_external_books_without_signals_are_left_alone():
-    data = {"id": "er", "name": "外部书", "source": "imported", "entries": [
+    data = {"id": "er", "name": "外部书", "source": "imported", "schema_version": 3,
+            "scope_mode": "selective", "book_type": "story", "dependency_rules": {}, "entries": [
         entry("0", name="abductor virgins").to_dict(),
         entry("1", name="alecto").to_dict()]}
     book = WorldBook.from_dict(data)
     assert [c["id"] for c in book.categories] == ["unclassified"]
     assert all(e.category_id == "unclassified" for e in book.entries)
-    assert book.scope_mode == "legacy"
+    assert book.scope_mode == "selective"
 
 
 def test_imported_book_with_generator_metadata_is_not_auto_classified_on_load():
@@ -236,7 +238,7 @@ def test_api_auto_classify_apply_persists_without_switching_scope_mode(api):
                            json={"apply": True, "expected_revision": revision})
     assert response.status_code == 200
     detail = response.json["book"]
-    assert detail["scope_mode"] == "legacy", "编辑分类不隐式退出旧书兼容模式"
+    assert detail["scope_mode"] == "selective"
     assert detail["import_config"]["revision"] == revision + 1
     by_uid = {e["uid"]: e for e in detail["entries"]}
     assert by_uid["races_乌萨斯_index"]["category_id"] == "races"

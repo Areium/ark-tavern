@@ -490,120 +490,103 @@
         "entry_uid": "world_彼岸双生",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "factions_澜晶科技",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "factions_量子智元之心",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "Location_旧城200室",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "Location_旧城200室·病中",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "Location_海岸餐厅",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "Location_深湾商场",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "Location_深湾市",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "Location_澜晶机器人工厂",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "Location_澜晶科技办公区",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "items_Agent终端",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "items_黑猫玩偶",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_妮可_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_杜可_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_林奈_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_程叙_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "plots_beyond_twin_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       }
     ],
     "root_rule": {
@@ -626,13 +609,9 @@
         "plots_beyond_twin_index",
         "world_彼岸双生"
       ]
-    },
-    "rejected": [],
-    "edge_meta": {}
+    }
   },
   "import_config": {
-    "fixed_entry_uids": [],
-    "dependency_sources": [],
     "revision": 1
   },
   "policy_revisions": [],

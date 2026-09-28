@@ -1,22 +1,20 @@
 /**
  * 条目依赖逐层展开（A-3）的**纯逻辑**。
  *
- * 服务端的 `GET /api/worldbook/<id>/dependency-tree` 已经把「多源到达取最大剩余深度、
- * 环终止、`remaining==0` 不再遍历」算完了（与 `resolve_v3_scope` 同一段 BFS）。这里只做
+ * 服务端的 `GET /api/worldbook/<id>/dependency-tree` 已经算完依赖闭包与环。
+ * 这里只做
  * **展示层**的三件事：
- *   1. 多源到达去重（同一 uid 保留剩余深度最大的一次到达，其余标为重复）；
+ *   1. 多源到达去重（同一 uid 保留第一次到达，其余标为重复）；
  *   2. 逐层展开的树形投影（默认 1 层、`related` 不算展开来源、环内节点不再向下）；
- *   3. breadcrumb 与 `remaining` 的人话文案。
+ *   3. breadcrumb 与停止展开的提示。
  *
- * 前端**不自行截断依赖闭包**：只按「服务端给的子节点」渲染，`remaining==0` 或落在环内
- * 的行不再向下，这两类都是服务端已经终止遍历的情况。纯函数、无 React、无副作用。
+ * 前端只按服务端给的子节点渲染；环、重复到达与行数限制仅控制展示。
+ * 纯函数、无 React、无副作用。
  */
 import type {
   WorldBookDependencyTreeNodeDTO, WorldBookDependencyTreeEdgeDTO, WorldBookIssueDTO,
 } from "../types";
 
-export const REMAINING_UNLIMITED_LABEL = "不限深度";
-export const REMAINING_EXHAUSTED_LABEL = "深度已用尽";
 export const CYCLE_STOP_NOTE = "依赖环：不再向下展开";
 export const REPEATED_STOP_NOTE = "重复到达：默认不再展开";
 export const LEAFLESS_NOTE = "没有可展开的必要依赖";
@@ -30,19 +28,6 @@ export const RELATION_LABELS: Record<string, string> = {
   requires: "必要依赖",
   related: "仅提示相关",
 };
-
-// ── 剩余深度 ────────────────────────────────────────────────────────────────
-
-/** 剩余深度的排序权重：`null`（requires_closure 的不限深度）最强。 */
-export const rankRemaining = (remaining: number | null | undefined): number =>
-  (remaining === null || remaining === undefined ? Number.POSITIVE_INFINITY : remaining);
-
-/** 人话文案：不限深度不能显示成 `null`。 */
-export function remainingLabel(remaining: number | null | undefined): string {
-  if (remaining === null || remaining === undefined) return REMAINING_UNLIMITED_LABEL;
-  if (!Number.isFinite(remaining) || remaining <= 0) return REMAINING_EXHAUSTED_LABEL;
-  return `还剩 ${remaining} 跳`;
-}
 
 // ── 环 ──────────────────────────────────────────────────────────────────────
 
@@ -70,27 +55,15 @@ export function cycleNodeSet(cycles: string[][] | null | undefined): Set<string>
 
 // ── 多源到达 ────────────────────────────────────────────────────────────────
 
-/** 导出供脚本直接断言；生产路径用 `normalizeArrivals`（组件走它对整棵树做归一）。 */
-export function pickStrongestArrival<T extends { remaining?: number | null }>(
-  arrivals: T[] | null | undefined,
-): T | null {
-  let best: T | null = null;
-  for (const arrival of arrivals || []) {
-    if (!arrival) continue;
-    if (!best || rankRemaining(arrival.remaining) > rankRemaining(best.remaining)) best = arrival;
-  }
-  return best;
-}
-
 export interface ArrivalNormalization {
-  /** uid → 剩余深度最强的那次到达 */
+  /** uid → 第一次到达 */
   primary: Map<string, WorldBookDependencyTreeNodeDTO>;
-  /** 被更强到达覆盖掉的其他到达 */
+  /** 同一 uid 的其他到达 */
   repeated: WorldBookDependencyTreeNodeDTO[];
 }
 
 /**
- * 同一 uid 被多条路径到达时，只保留剩余深度最大的一次（平手保留先到的），
+ * 同一 uid 被多条路径到达时，只保留第一次到达，
  * 其余进 `repeated`。服务端正常只回一条/uid，这里是防御性归一，不改服务端口径。
  */
 export function normalizeArrivals(
@@ -102,12 +75,7 @@ export function normalizeArrivals(
     if (!node || typeof node.uid !== "string" || !node.uid) continue;
     const known = primary.get(node.uid);
     if (!known) { primary.set(node.uid, node); continue; }
-    if (rankRemaining(node.remaining) > rankRemaining(known.remaining)) {
-      repeated.push(known);
-      primary.set(node.uid, node);
-    } else {
-      repeated.push(node);
-    }
+    repeated.push(node);
   }
   return { primary, repeated };
 }
@@ -182,8 +150,6 @@ export interface DependencyTreeRow {
   uid: string;
   name: string;
   depth: number;
-  remaining: number | null;
-  remainingLabel: string;
   relation: "requires" | "related";
   isRoot: boolean;
   /** 到达该行的边在环内 */
@@ -206,7 +172,7 @@ export interface DependencyTreeRow {
   requiresChildCount: number;
   /** `related` 出边目标（仅提示，不参与展开） */
   relatedUids: DependencyTreeRelatedRef[];
-  /** 行首三角（仅当存在 requires 出边、且不因环/深度用尽而终止） */
+  /** 行首三角（仅当存在 requires 出边、且不因环而终止） */
   expandable: boolean;
   /** 重复到达行可「仍要展开（仅查看）」 */
   forceable: boolean;
@@ -343,7 +309,6 @@ export function buildDependencyTree(
     if (firstKey === null) firstSeenUid.set(uid, key);
     const path = [...chain, uid];
     const stopByCycle = viaCycleEdge && cycleNodes.has(uid);
-    const stopByRemaining = !!node && node.remaining === 0;
     const childUids = childUidsOf(uid);
     const requiresChildCount = childUids.length;
     // 依赖指向结果里没有的条目（服务端未回该节点）→ 明确标「不存在」，不静默吞掉
@@ -356,7 +321,7 @@ export function buildDependencyTree(
         .sort()
         .map((target) => ({ uid: target, name: nameFor(target) }));
 
-    const canWalkDown = !stopByCycle && !stopByRemaining;
+    const canWalkDown = !stopByCycle;
     const forceable = repeated && requiresChildCount > 0 && canWalkDown && !forced.has(key);
     let expanded = false;
     if (canWalkDown && requiresChildCount && !collapsed.has(key)) {
@@ -366,14 +331,11 @@ export function buildDependencyTree(
     }
     let stopNote = "";
     if (stopByCycle) stopNote = CYCLE_STOP_NOTE;
-    else if (stopByRemaining) stopNote = REMAINING_EXHAUSTED_LABEL + "（服务端未继续遍历）";
     else if (repeated && requiresChildCount) stopNote = REPEATED_STOP_NOTE;
     else if (isRoot && !requiresChildCount) stopNote = LEAFLESS_NOTE;
 
     const row: DependencyTreeRow = {
       key, uid, name: node ? (node.name || uid) : nameFor(uid), depth,
-      remaining: node ? (node.remaining ?? null) : null,
-      remainingLabel: remainingLabel(node ? node.remaining : null),
       relation, isRoot, viaCycleEdge, inCycle: cycleNodes.has(uid),
       repeated, duplicateOf: firstKey, duplicatePath: repeated ? breadcrumbLabel(primary, uid) : "",
       dimmed: repeated || grey,

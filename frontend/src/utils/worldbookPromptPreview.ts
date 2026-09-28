@@ -268,8 +268,6 @@ export const REASON_LABELS: Record<string, string> = {
   always: "起点：基础设定",
   manual: "手动追加",
   requires: "依赖带出",
-  full_scope: "全量兼容",
-  legacy_full_scope: "全量兼容",
 };
 
 /** 命中原因：`reasons`（服务端口径）+ `matched_keys`（关键词命中键）→ 中文短语。 */

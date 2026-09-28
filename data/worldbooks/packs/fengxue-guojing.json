@@ -750,190 +750,163 @@
         "entry_uid": "weather_snow_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "factions_佩尔罗契家族_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "factions_喀兰贸易_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "factions_布朗陶家族_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "factions_罗德岛_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "factions_谢拉格_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "Location_Kjerag_喀兰贸易会客厅_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "Location_Kjerag_圣山山路_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "Location_Kjerag_圣山祭坛_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "Location_Kjerag_谢拉格小镇_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "Location_Kjerag_雪山大典广场_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "items_喀兰铁路设计图",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "items_耶拉冈德之石",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "enemies_山雪鬼",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "enemies_山雪鬼队长",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "enemies_雪原爪兽",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_初雪_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_博士_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_大长老_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_崖心_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_灵知_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_耶拉_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_菈塔托丝·布朗陶_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_银灰_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_锏_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_阿克托斯·佩尔罗契_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "plots_fengxue_guojing_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       }
     ],
     "root_rule": {
@@ -966,13 +939,9 @@
         "plots_fengxue_guojing_index",
         "weather_snow_index"
       ]
-    },
-    "rejected": [],
-    "edge_meta": {}
+    }
   },
   "import_config": {
-    "fixed_entry_uids": [],
-    "dependency_sources": [],
     "revision": 1
   },
   "policy_revisions": [],

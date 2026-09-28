@@ -10,8 +10,6 @@ import os
 import random
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from world_book import (  # noqa: E402
@@ -223,16 +221,20 @@ def test_scope_resolves_worldview_roster_fixed_and_dependencies_with_cycle():
     ], dependency_edges=[
         {"from_uid": "dep-a", "to_uid": "dep-b"},
         {"from_uid": "dep-b", "to_uid": "dep-a"},
-    ], import_config={"fixed_entry_uids": ["other"],
-                      "dependency_sources": [{"entry_uid": "dep-a", "max_depth": 3}]})
-    scope = book.resolve_import_scope(["阿米娅"])
+    ], dependency_rules={"roots": [
+        {"entry_uid": "world", "activation": "always", "expansion": "none"},
+        {"entry_uid": "amiya", "activation": "roster_any", "expansion": "none",
+         "character_ids": ["阿米娅"]},
+        {"entry_uid": "other", "activation": "always", "expansion": "none"},
+        {"entry_uid": "dep-a", "activation": "always", "expansion": "requires_closure"},
+    ], "root_rule": {"entry_uids": ["world", "amiya", "other", "dep-a"]}})
+    scope = book.resolve_v3_import_scope(["阿米娅"])
     assert set(scope["resolved_entry_uids"]) == {"world", "amiya", "other", "dep-a", "dep-b"}
-    assert scope["legacy_full_scope"] is False
+    assert scope["schema_version"] == 3
 
 
-def test_scope_legacy_book_remains_full_and_matching_can_filter_uids():
+def test_matching_can_filter_uids():
     book = WorldBook("t", "测试", [_e("one", always_active=True), _e("two", always_active=True)])
-    assert set(book.resolve_import_scope()["resolved_entry_uids"]) == {"one", "two"}
     assert [entry.uid for entry in book.collect_matches("", "", eligible_uids={"one"})] == ["one"]
 
 
@@ -368,10 +370,11 @@ class _FakeOverlay:
     def __init__(self, book_id=None):
         self._book_id = book_id
 
-    def get_worldbook_id(self):
-        return self._book_id
+    def get_worldbook_ids(self):
+        return [self._book_id] if self._book_id else []
 
-    def set_worldbook_id(self, book_id):
+    def set_worldbook_ids(self, book_ids):
+        book_id = book_ids[0] if book_ids else None
         self._book_id = book_id
 
 
@@ -384,11 +387,6 @@ def test_manager_crud_and_resolve(tmp_path):
     # 无绑定无默认 → None
     assert mgr.resolve(_FakeOverlay()) is None
 
-    # 不再设置全局默认；无会话绑定始终不载入世界书。
-    with pytest.raises(ValueError):
-        mgr.set_default_book_id(book.id)
-    assert mgr.resolve(_FakeOverlay()) is None
-
     # 会话显式绑定生效
     book2 = mgr.create_book("第二本")
     overlay = _FakeOverlay(book2.id)
@@ -396,7 +394,6 @@ def test_manager_crud_and_resolve(tmp_path):
 
     # 删除书不引入默认绑定
     mgr.delete_book(book.id)
-    assert mgr.get_default_book_id() is None
     assert len(mgr.list_books()) == 1
 
 
@@ -406,3 +403,28 @@ def test_import_book_via_manager(tmp_path):
         "导入", {"entries": {"0": {"key": ["A"], "content": "内容"}}})
     assert report.imported == 1 and report.source_format == SOURCE_V1
     assert book.name == "导入"
+
+
+def test_unsupported_installed_pack_is_backed_up_before_explicit_reinstall(tmp_path):
+    manager = WorldBookManager(tmp_path / "books")
+    manager._packs_dir = tmp_path / "packs"
+    manager._packs_dir.mkdir()
+    source = WorldBook("sample", "当前内容包", [_e("entry")], source="preinstalled")
+    (manager._packs_dir / "sample.json").write_text(
+        json.dumps(source.to_dict(), ensure_ascii=False), encoding="utf-8")
+    old_payload = {**source.to_dict(), "schema_version": 2}
+    installed_path = manager._path("sample")
+    old_bytes = json.dumps(old_payload, ensure_ascii=False).encode("utf-8")
+    installed_path.write_bytes(old_bytes)
+
+    listing = {item["id"]: item for item in manager.list_available_packs()}
+    assert listing["sample"]["installed"] is False
+    assert listing["sample"]["repair_required"] is True
+    assert installed_path.read_bytes() == old_bytes
+
+    repaired = manager.install_pack("sample")
+    backups = list(manager._dir.glob("sample.unsupported-schema-*.bak"))
+    assert len(backups) == 1 and backups[0].read_bytes() == old_bytes
+    assert repaired.schema_version == 3
+    assert manager.load("sample").schema_version == 3
+    assert {item["id"]: item for item in manager.list_available_packs()}["sample"]["installed"] is True

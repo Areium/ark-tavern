@@ -7,7 +7,7 @@ import type { WorldBookScopePreviewDTO } from "../types";
  * 界面上一律用 v3 表述（基础设定 / 依赖展开），不再出现 v2 的旧词。
  */
 const LABELS: Record<string, string> = {
-  worldview: "世界观", roster: "入队角色", fixed: "基础设定", dependency: "依赖展开", legacy: "全量兼容",
+  worldview: "世界观", roster: "入队角色", fixed: "基础设定", dependency: "依赖展开",
 };
 
 export default function WorldBookScopePreview({ value }: { value: WorldBookScopePreviewDTO }) {
@@ -15,9 +15,7 @@ export default function WorldBookScopePreview({ value }: { value: WorldBookScope
     <p className="text-gray-200">候选条目 <strong>{value.entry_count}</strong> / {value.full_entry_count}，估算 token {value.resolved_estimated_tokens.toLocaleString()} / {value.full_estimated_tokens.toLocaleString()}</p>
     <p className="text-cyan-300">候选规模减少 {value.saved_estimated_tokens.toLocaleString()} token（{value.saved_percent}%）</p>
     <div className="flex flex-wrap gap-3 text-gray-400">{Object.entries(value.breakdown).filter(([, v]) => v.entry_count > 0).map(([key, v]) => <span key={key}>{LABELS[key] || key}：{v.entry_count} 条 / ~{v.estimated_tokens} token</span>)}</div>
-    {value.scope.legacy_full_scope && <p className="text-amber-300">当前保留旧书全量兼容模式；可在 Prompt 预览中检查实际注入内容。</p>}
     {value.warnings.map((warning) => <p key={warning} className="text-amber-300">{warning}</p>)}
-    {value.source_expansions?.map((source) => <details key={source.entry_uid} className="text-gray-400"><summary>{source.name || source.entry_uid} · 起点展开深度 {source.max_depth} · 展开 {source.entries.length} 条</summary><p>{source.entries.map((e) => e.name || e.uid).join("、") || "无可用条目"}</p></details>)}
     {!!value.scope.excluded_entries?.length && <details className="text-gray-400"><summary>已排除 {value.scope.excluded_entries.length} 条（不会注入）</summary>{value.scope.excluded_entries.map((e) => <p key={e.uid}>{e.name || e.uid}：{e.reason}</p>)}</details>}
     <p className="text-gray-500">这是候选内容估算，不是每轮实际节省量；分类间可能重叠，合计已去重。关键词、常驻、概率和预算仍决定实际注入。</p>
   </div>;

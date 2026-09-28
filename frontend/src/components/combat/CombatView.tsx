@@ -341,7 +341,7 @@ export default function CombatView() {
 
   // The command response owns playback; SSE is a duplicate transport, not a second clock.
   const performCombatAction = useCallback(async (
-    request: () => Promise<CombatPresentationResponse | CombatStateDTO>, enemyTurn = false,
+    request: () => Promise<CombatPresentationResponse>, enemyTurn = false,
   ): Promise<CombatStateDTO | null> => {
     if (presentationBusy.current) return null;
     presentationBusy.current = true;
@@ -357,34 +357,27 @@ export default function CombatView() {
     try {
       const response = await request();
       if (signal.aborted) return null;
-      // Old backends keep working, though only the new response guarantees complete playback.
-      const packet = "state" in response ? response as CombatPresentationResponse : null;
-      const finalState = packet ? packet.state : response as CombatStateDTO;
-      let batch = (packet?.events ?? bufferedEvents.current.splice(0)).filter((ev) => !eventLedger.current.has(ev));
+      const finalState = response.state;
+      const batch = response.events.filter((ev) => !eventLedger.current.has(ev));
       batch.forEach((ev) => eventLedger.current.remember(ev));
       if (cardPlayInProgressRef.current && !await presentationDelay(reducedMotion ? 0 : 160, signal)) return null;
       const cueCursor = { attackKey: "" };
-      do {
-        for (const cue of combatCues(batch, reducedMotion, cueCursor)) {
-          if (signal.aborted) return null;
-          const d = cue.event.data;
-          if (cue.attack) {
-            setPresentationLabel(`${d.caster || "角色"} · ${d.card || "行动"}`);
-            pixiRef.current?.playAttack(d.unit_id, d.target_id);
-          } else if (cue.event.type === "move") setPresentationLabel(`${d.name || "角色"} · 移动`);
-          if (!await presentationDelay(cue.before, signal)) return null;
-          renderCombatEvent(cue.event, false);
-          if (stateRef.current) {
-            const next = projectCombatEvent(stateRef.current, cue.event);
-            stateRef.current = next;
-            setCombatContext({ state: next });
-          }
-          if (!await presentationDelay(cue.after, signal)) return null;
+      for (const cue of combatCues(batch, reducedMotion, cueCursor)) {
+        if (signal.aborted) return null;
+        const d = cue.event.data;
+        if (cue.attack) {
+          setPresentationLabel(`${d.caster || "角色"} · ${d.card || "行动"}`);
+          pixiRef.current?.playAttack(d.unit_id, d.target_id);
+        } else if (cue.event.type === "move") setPresentationLabel(`${d.name || "角色"} · 移动`);
+        if (!await presentationDelay(cue.before, signal)) return null;
+        renderCombatEvent(cue.event, false);
+        if (stateRef.current) {
+          const next = projectCombatEvent(stateRef.current, cue.event);
+          stateRef.current = next;
+          setCombatContext({ state: next });
         }
-        // Legacy servers may deliver more SSE events while this batch is playing.
-        batch = packet ? [] : bufferedEvents.current.splice(0).filter((ev) => !eventLedger.current.has(ev));
-        batch.forEach((ev) => eventLedger.current.remember(ev));
-      } while (batch.length);
+        if (!await presentationDelay(cue.after, signal)) return null;
+      }
       if (signal.aborted) return null;
       stateRef.current = finalState;
       setCombatContext({ state: finalState });
@@ -781,8 +774,8 @@ export default function CombatView() {
 
       const doAction = (action: { action: string; card_index?: number; unit_id?: string; target: [number, number] }) =>
         combatTestId
-          ? performCombatAction(() => api.combatTestAction(combatTestId, action, true))
-          : performCombatAction(() => api.combatAction(sessionId!, action, true));
+          ? performCombatAction(() => api.combatTestAction(combatTestId, action))
+          : performCombatAction(() => api.combatAction(sessionId!, action));
 
       // TARGETING: play card
       if (combatUIMode === "TARGETING" && selectedCardIndex !== null) {
@@ -926,8 +919,8 @@ export default function CombatView() {
     setLoading(true);
     try {
       const state = combatTestId
-        ? await performCombatAction(() => api.combatTestEndTurn(combatTestId, true), true)
-        : await performCombatAction(() => api.combatEndTurn(sessionId!, true), true);
+        ? await performCombatAction(() => api.combatTestEndTurn(combatTestId), true)
+        : await performCombatAction(() => api.combatEndTurn(sessionId!), true);
       // 用响应里的最新 state 直接更新（弃牌/抽牌后手牌立即刷新）
       setCombatContext({ state: state ?? undefined, uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
     } catch (e: any) {
@@ -996,7 +989,7 @@ export default function CombatView() {
     if (!sessionId || combatTestId || presentationBusy.current) return;
     setLoading(true);
     try {
-      const state = await performCombatAction(() => api.combatAction(sessionId, { action: "escape" }, true));
+      const state = await performCombatAction(() => api.combatAction(sessionId, { action: "escape" }));
       if (state) {
         setCombatContext({ state });
         if (state.battle_over && state.winner) {
@@ -1132,8 +1125,8 @@ export default function CombatView() {
     setLoading(true);
     try {
       const state = combatTestId
-        ? await performCombatAction(() => api.combatTestAction(combatTestId, { action: "use_item", item_name: itemName, unit_id: selectedUnit.unit_id }, true))
-        : await performCombatAction(() => api.combatAction(sessionId!, { action: "use_item", item_name: itemName, unit_id: selectedUnit.unit_id }, true));
+        ? await performCombatAction(() => api.combatTestAction(combatTestId, { action: "use_item", item_name: itemName, unit_id: selectedUnit.unit_id }))
+        : await performCombatAction(() => api.combatAction(sessionId!, { action: "use_item", item_name: itemName, unit_id: selectedUnit.unit_id }));
       if (state) setCombatContext({ state });
     } catch (e: any) {
       setError(e?.message || "使用道具失败");
@@ -1264,8 +1257,8 @@ export default function CombatView() {
       try {
         const doAction = (action: { action: string; card_index?: number; target: [number, number] }) =>
           combatTestId
-            ? performCombatAction(() => api.combatTestAction(combatTestId, action, true))
-            : performCombatAction(() => api.combatAction(sessionId!, action, true));
+            ? performCombatAction(() => api.combatTestAction(combatTestId, action))
+            : performCombatAction(() => api.combatAction(sessionId!, action));
         const state = await doAction({
           action: "play_card",
           card_index: cardIdx,

@@ -1,8 +1,8 @@
 # Data 目录
 
 世界设定、角色、剧情及配套资源集中在世界书目录。平台本体不预设世界观；
-《明日方舟》资料是可选的离线内容包。旧内容的物理路径和 ID 保持兼容，
-运行时由 `content_manifest.json` 及已安装、已启用的书决定其可见性。
+《明日方舟》资料是可选的离线内容包。运行时由 `content_manifest.json`
+及已安装、已启用的书决定其可见性。
 
 ```text
 data/
@@ -30,7 +30,7 @@ data/
 │   ├── local_content_manifest.json  完整包导入资源的本地归属，本地数据
 │   ├── <book_id>.json     旧版已安装书位置，可读取并迁移
 │   ├── settings.json      旧版本世界书设置，本地数据
-│   └── *.bak              旧版内容刷新前的恢复副本，本地数据
+│   └── *.bak              手动重装或修复前的恢复副本，本地数据
 ├── memory/                运行时创建的会话、向量记忆、战斗恢复（本地数据）
 └── archive/               迁移时按需创建，保留已下线 AI 构建缓存
 ```
@@ -47,10 +47,11 @@ data/
   `scripts/generate_builtin_worldbook.py` 显式生成离线内容包，
   `scripts/generate_content_manifest.py` 更新其资源归属清单；启动不自动安装或刷新已安装副本。
   用户可在世界书工作台显式安装、删除或重装内容包，重装会覆盖该书当前安装副本。
+  若检测到同名安装副本仍使用已停止支持的内部 schema，示例页会显示「备份并修复」；
+  用户确认后先保存一份 `*.unsupported-schema-*.bak`，再安装当前内容包。
 - `combat/nodes/*.json`、职业 `cards.json`、`combat/rules/*.json` 与 `combat/tiles/*.json`
   继续由引擎读取，不转换成自然语言世界书条目。战斗配置的唯一真相源不变。
 - `imports` 继续使用 `类别/文档ID`，例如 `classes/向导`，不写物理目录。
-
 ## 整本复制与直接导入
 
 - 在工作台点击「导出完整包」会下载 `<book_id>.arkwb`，同时在 `exports/` 留下一份。
@@ -64,17 +65,5 @@ data/
   停用或删除书会隐藏其独占资源；删除不自动清掉可能仍被别处引用的共享文件。
 - 旧版根目录 `<book_id>.json` 可继续使用。停用应用后运行
   `python scripts/migrate_worldbook_layout.py` 预览，再运行
-  `python scripts/migrate_worldbook_layout.py --apply` 移入 `books/`；脚本不重写书内容，遇到冲突会停止。
-
-## 从旧布局升级
-
-先停止正在运行的应用/后端，再执行：
-
-```powershell
-python scripts/migrate_data_layout.py
-python scripts/migrate_data_layout.py --apply
-```
-
-默认只预览。迁移器先检查全部目标冲突，保留本地角色素材，逐文件验证内容，支持中断后重跑；
-用户世界书、设置、备份和会话不移动。旧 `worldbook_jobs`、`worldbook_analysis` 移入 `archive/` 留存。
-若目标已有不同内容，处理冲突后再运行，不会覆盖。新检出的仓库无需迁移。
+  `python scripts/migrate_worldbook_layout.py --apply` 移入 `books/`；脚本不重写书内容，
+  不符合当前 schema 的书会留在原处，先在示例页备份并修复，再重新迁移。

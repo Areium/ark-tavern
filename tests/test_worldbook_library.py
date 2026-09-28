@@ -1,11 +1,10 @@
 """世界书资料库与剧情世界书分离（book_type）与条目摘录。
 
-覆盖：旧书默认 story、用途 round-trip、reference 禁止默认/绑定/解析、
-搜索过滤、成功摘录、编辑稿摘录、来源追踪、原子失败不落盘、并发修订/锁边界。
+覆盖：当前内部 schema 的用途 round-trip、reference 禁止绑定/解析、搜索过滤、
+成功摘录、编辑稿摘录、来源追踪、原子失败不落盘、并发修订/锁边界。
 
 所有连接都走真实 Flask 路由与真实 WorldBookManager；没有 LLM 调用。
 """
-import copy
 import hashlib
 import json
 import sys
@@ -17,8 +16,8 @@ from flask import Flask
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from world_book import (
-    BOOK_TYPE_REFERENCE, BOOK_TYPE_STORY, DEFAULT_CATEGORIES, EXCERPT_SOURCE_FIELDS,
-    WorldBook, WorldBookEntry, WorldBookManager, normalize_book_type,
+    BOOK_TYPE_REFERENCE, BOOK_TYPE_STORY, EXCERPT_SOURCE_FIELDS,
+    WorldBookEntry, WorldBookManager, normalize_book_type,
 )
 from worldbook_scope import EXTENSION_KEY
 
@@ -63,27 +62,10 @@ def seed(manager, book_id, entries):
 
 
 # ─────────────────────────────────────────────────────────────
-# A. 数据模型与兼容迁移
+# A. 当前数据模型与外部格式导入
 # ─────────────────────────────────────────────────────────────
 
-def test_legacy_book_without_field_reads_as_story(manager):
-    """旧数据缺 book_type 时必须按 story 读取，不得自动变成 reference。"""
-    book = manager.create_book("老书")
-    path = manager._path(book.id)
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    assert "book_type" in raw
-    raw.pop("book_type")
-    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-    manager._cache.pop(book.id, None)
-
-    reloaded = manager.load(book.id)
-    assert reloaded.book_type == BOOK_TYPE_STORY
-    assert reloaded.is_reference is False
-    # 摘要也必须暴露 story，前端才能正确分组
-    assert manager._summary(reloaded, None)["book_type"] == "story"
-
-
-def test_legacy_exported_book_reimports_as_story(manager):
+def test_standard_sillytavern_book_imports_as_story(manager):
     """没有项目扩展的普通酒馆书导入后是 story（不得被误判成资料库）。"""
     st = {"entries": {"0": {"uid": "e1", "comment": "阿米娅",
                             "content": "罗德岛领袖", "key": ["阿米娅"]}}}
@@ -229,36 +211,6 @@ def test_update_book_type_round_trips(api):
     assert res.json["book"]["book_type"] == "story"
 
 
-def test_reference_can_be_repaired_to_story_even_when_referenced(api):
-    """reference -> story 是**修复**操作，不能被「转换为资料库」闸门拦住。
-
-    历史坏状态（旧数据/手工改过 settings）下，一本 reference 可能仍是全局默认书或
-    被会话绑定。此时用户想把它改回剧情世界书应当放行 —— 闸门只针对会把状态搞坏的
-    story -> reference 方向，否则用户会陷入「改不回去」的死结。
-    """
-    client, manager = api
-    ref = make_reference(client, "被误设为默认的资料库")
-    # 强行制造坏状态：默认指针指向资料库
-    # （公开的 set_default_book_id 会拒绝资料库，这里直接写底层 settings 模拟历史数据）
-    manager._save_settings({"default_book_id": ref["id"]})
-    assert manager.get_default_book_id() is None
-
-    # 即便这本资料库还是默认书，改回 story 也必须成功
-    res = client.put(f"/api/worldbook/{ref['id']}", json={"book_type": "story"})
-    assert res.status_code == 200, res.json
-    assert res.json["book"]["book_type"] == "story"
-    assert manager.load(ref["id"]).is_reference is False
-
-
-def test_retired_default_does_not_block_story_to_reference(api):
-    """历史默认指针已失效，不再阻碍用途转换。"""
-    client, manager = api
-    book = make_story(client, "默认剧情书")
-    manager._save_settings({"default_book_id": book["id"]})
-    res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
-    assert res.status_code == 200
-
-
 def test_update_book_type_rejects_invalid_value(api):
     client, _ = api
     book = make_story(client, "书")
@@ -269,35 +221,14 @@ def test_update_book_type_rejects_invalid_value(api):
 
 # ── reference 不得设为默认 / 绑定 / 解析 ──
 
-def test_reference_cannot_be_default(api):
-    client, manager = api
-    reference = make_reference(client, "资料库")
-    res = client.post(f"/api/worldbook/{reference['id']}/default", json={"default": True})
-    assert res.status_code == 410
-    assert manager.get_default_book_id() is None
-
-
-def test_set_default_book_id_rejects_reference_at_manager_level(manager):
-    reference = manager.create_book("资料", book_type=BOOK_TYPE_REFERENCE)
-    with pytest.raises(ValueError):
-        manager.set_default_book_id(reference.id)
-
-
-def test_reference_is_excluded_from_resolve_even_when_default_pointer(manager):
-    """防御性兜底：即便默认指针指向资料库，解析也不得返回它。"""
-    reference = manager.create_book("资料", book_type=BOOK_TYPE_REFERENCE)
-    manager._save_settings({"default_book_id": reference.id})
-    assert manager.resolve() is None
-
-
 def test_reference_is_excluded_from_overlay_binding(manager):
     """会话 overlay 显式绑定资料库时也不得生效（防御旧数据/手工改动）。"""
     class Overlay:
         def __init__(self, book_id):
             self._book_id = book_id
 
-        def get_worldbook_id(self):
-            return self._book_id
+        def get_worldbook_ids(self):
+            return [self._book_id]
 
         def get_worldbook_scope(self):
             return {"book_id": self._book_id, "resolved_entry_uids": []}
@@ -307,18 +238,6 @@ def test_reference_is_excluded_from_overlay_binding(manager):
 
     story = manager.create_book("剧情")
     assert manager.resolve(Overlay(story.id)).id == story.id
-
-
-def test_default_endpoint_is_retired_for_story_books(api):
-    """剧情书也不能再设为全局默认。"""
-    client, manager = api
-    book = make_story(client, "默认书")
-    assert client.post(f"/api/worldbook/{book['id']}/default",
-                       json={"default": True}).status_code == 410
-
-    res = client.put(f"/api/worldbook/{book['id']}", json={"book_type": "reference"})
-    assert res.status_code == 200
-    assert manager.get_default_book_id() is None
 
 
 def test_story_cannot_be_switched_to_reference_while_session_bound(tmp_path):
@@ -337,7 +256,7 @@ def test_story_cannot_be_switched_to_reference_while_session_bound(tmp_path):
             self.bound_book_id = None
 
         def list_sessions(self):
-            return [{"id": "s1", "name": "会话一", "worldbook_id": self.bound_book_id}]
+            return [{"id": "s1", "name": "会话一", "worldbook_ids": [self.bound_book_id] if self.bound_book_id else []}]
 
     sessions = FakeSessions()
     assert not hasattr(sessions, "sessions")
@@ -418,7 +337,7 @@ def test_conversion_gate_fails_closed_on_invalid_return_type(tmp_path):
     """list_sessions() 返回结构类型无效（不是 list/tuple）→ 503，状态不变。"""
     class WeirdSessions:
         def list_sessions(self):
-            return {"s1": {"worldbook_id": "whatever"}}   # 旧实现曾想兼容的 dict 形态
+            return {"s1": {"worldbook_ids": ["whatever"]}}
 
     client, manager = _gate_client(tmp_path, WeirdSessions())
     book = make_story(client, "普通书")
@@ -471,51 +390,6 @@ def test_reference_repair_does_not_need_session_enumeration(tmp_path):
     res = client.put(f"/api/worldbook/{ref['id']}", json={"book_type": "story"})
     assert res.status_code == 200, res.json
     assert manager.load(ref["id"]).book_type == BOOK_TYPE_STORY
-
-
-def test_reference_cannot_bind_session(tmp_path):
-    from blueprints.worldbook import register
-
-    class FakeRoster:
-        def get_scene_characters(self):
-            return []
-
-    class FakeSession:
-        id = "s1"
-        scene_manager = FakeRoster()
-
-        class overlay:
-            @staticmethod
-            def set_worldbook_id(_value):
-                raise AssertionError("资料库不得被写入会话绑定")
-
-    class FakeSessions:
-        """只暴露 bind 路由真正使用的公开契约：get_session()。"""
-
-        @staticmethod
-        def get_session(session_id):
-            return FakeSession() if session_id == "s1" else None
-
-    book_manager = WorldBookManager(tmp_path)
-    app = Flask(__name__)
-    app.config["TESTING"] = True
-    register(app, {"worldbook": book_manager, "session": FakeSessions()})
-    client = app.test_client()
-
-    reference = make_reference(client, "资料库")
-    res = client.post(f"/api/worldbook/{reference['id']}/bind",
-                      json={"session_id": "s1", "bound": True})
-    assert res.status_code == 409
-    assert "资料库" in res.json["error"]
-
-
-def test_no_implicit_default_even_with_installed_story(manager):
-    """已有剧情书也不能被自动选为无绑定会话的世界观。"""
-    book = manager.create_book("已安装剧情书")
-    manager.save(book)
-    assert manager.get_default_book_id() is None
-    with pytest.raises(ValueError, match="全局默认世界书已取消"):
-        manager.set_default_book_id(book.id)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -946,20 +820,23 @@ def test_reference_stays_out_of_scope_resolution(api):
     seed(manager, reference["id"], [
         make_entry("r2", "角色条目。", category_id="characters", character_id="阿米娅")])
     reference_book = manager.load(reference["id"])
+    reference_book.dependency_rules = {
+        "roots": [{"entry_uid": "r1", "activation": "always", "expansion": "none",
+                   "character_ids": []}],
+        "root_rule": {"entry_uids": ["r1"]},
+    }
 
     # 解析器本身仍能算（它是纯书内计算），但任何绑定点都不该把它交出去
-    assert reference_book.resolve_import_scope([])["resolved_entry_uids"], \
+    assert reference_book.resolve_v3_import_scope([])["resolved_entry_uids"], \
         "前置条件：这本书在书内确实有候选，否则本用例不能证明是绑定点在拦"
 
-    # ① 无会话：默认指针指向它也不生效
-    #    （测试直接写 settings 模拟历史数据/手工编辑；正常路径由 /default 接口拦住）
-    manager._save_settings({"default_book_id": reference["id"]})
+    # 无会话时资料库不参与解析。
     assert manager.resolve() is None
 
     # ② 有会话绑定：同样不生效
     overlay = type("Overlay", (), {
-        "get_worldbook_id": lambda self: reference["id"],
-        "get_worldbook_scope": lambda self: {
+        "get_worldbook_ids": lambda self: [reference["id"]],
+        "get_worldbook_scope": lambda self, book_id=None: {
             "book_id": reference["id"], "resolved_entry_uids": ["r1", "r2"]},
     })()
     assert manager.resolve(overlay) is None
@@ -968,6 +845,6 @@ def test_reference_stays_out_of_scope_resolution(api):
     story = make_story(client, "剧情书")
     seed(manager, story["id"], [make_entry("s1", "世界观设定。", category_id="worldview")])
     story_overlay = type("StoryOverlay", (), {
-        "get_worldbook_id": lambda self: story["id"],
+        "get_worldbook_ids": lambda self: [story["id"]],
     })()
     assert manager.resolve(story_overlay).id == story["id"]

@@ -37,7 +37,7 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 | 模块 | 职责 |
 |---|---|
 | `session_manager.py` | 会话 CRUD、回滚、叙述变体；创建时通过 initializer 在发布前完成阵容与世界书范围初始化。**`combat_mode`（`"narrative"` \| `"tactical"`）创建时选定，不可更改**。**主控角色（`player_identity`）与场景角色是两个口径**：主控是玩家自己扮演的角色，属于阵容但**不是**场景 NPC（`SceneManager.get_roster()` = 主控 + 队友；`get_scene_characters()` = 队友），模型不会替玩家说话 |
-| `session_overlay.py` | 职责聚合：角色/物品属性覆盖 + 剧情日志（保留最近 15 条）+ 节拍状态 + 任务系统 + 多本世界书绑定（`worldbook_ids`）及各书候选快照（`worldbook_scopes`）；旧字段 `worldbook_id` / `worldbook_scope` 对应首本书 + **角色会话数值 `character_stats` 与插件数据 `plugin_data`**（两者随剧情树节点快照回档）；会话依赖读改写在 overlay 锁内原子保存 |
+| `session_overlay.py` | 职责聚合：角色/物品属性覆盖 + 剧情日志（保留最近 15 条）+ 节拍状态 + 任务系统 + 多本世界书绑定（`worldbook_ids`）及各书候选快照（`worldbook_scopes`）+ **角色会话数值 `character_stats` 与插件数据 `plugin_data`**（两者随剧情树节点快照回档）；首本书仅由复数字段按顺序派生，不再单独存储；会话依赖读改写在 overlay 锁内原子保存 |
 | `character_stats.py` | 角色数值三层口径：世界书统一字段（`WorldBook.stat_fields`）→ 角色全局值（frontmatter `stats`）→ 会话值；字段规范化 / 值校验 / 合并 / 提示词 `<character_stats>` 块。见 `docs/design/session-scene-plugins.md` |
 | `session_worldbook_dependencies.py` | 会话世界书继承基线、pair 屏蔽、本地边/起点展开覆盖、有效图、恢复继承与全局版本更新预览；不写全局书 |
 | `session_context.py` | 按会话缓存文档摘要 |
@@ -55,15 +55,15 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
   **注入纪律：常驻 position-0 条目进稳定层，触发型条目一律进动态层（前缀缓存稳定）。**
   **另有第三类「系统层」**：节点图 / 节点绑定这类编辑器与运行时元数据条目（`is_system_entry`）按设计永不注入，不与前两层并列计入 token，也不进 Prompt 预览的 order / dropped；判定必须先系统层再按位置分层。详见 `docs/notes.md`「条目分层是三层，不是两层」。
   `eligible_uids_for` 返回 `EligibleSet`（候选集 + `forced_uids`/`position_overrides` 元数据随集合传递，注入调用点零改动）。
-  **书用途 `book_type`**：`story`（剧情世界书，可绑定会话并参与解析）| `reference`（资料库，只供浏览、检索与摘录）。缺字段的旧数据按 `story` 读取；`resolve()` 排除 `reference`，未绑定会话不注入；`excerpt_entries()` 提供整批原子摘录（新 UID、来源不被修改、保留 `excerpt_source` 可追溯来源）。详见 `docs/design/worldbook/worldbook-library.md`。
-- `node_lore_scope.py` — 节点级世界书动态载入：书内一条永不注入的 `lore_bindings` 条目（围栏 JSON + extensions 标记）声明「目标 → 条目」绑定；`resolve_scope` 在剧情树节点落盘时把作用域冻结进 `story_tree.nodes[].state.lore_scope`（随回档走），注入时 `eligible_uids_for` 做「会话范围 ∩ 节点作用域」窄化白名单。书内无绑定条目 / 自由模式 / 老会话一律关闭，行为与旧版一致。详见 `docs/design/worldbook/node-scoped-worldbook-loading.md`。
-- `worldbook_scope.py` — 多级分类、角色关联与导入策略校验，有向依赖深度遍历。**v2 与 v3 并存**：v2 语义（世界观 / 阵容 / 固定 / 依赖四源去重）逐字保留；v3 把「分类」与「载入」分开——全书一张有向图，起点由 `activation`（always / roster_any / manual）× `expansion`（none / requires_closure / legacy_depth）描述，`requires` 参与闭包遍历、`related` 只浏览，环可终止并回报交叉引用，闭包超限报错而非静默截断。`world_book.py` 提供估算预览、旧书/旧会话快照兼容与**不可变规则版本历史**（`policy_revisions`，会话绑定完整规则版本而不只是版本号），两个 prompt 入口均过滤候选。详见 `docs/design/worldbook/worldbook-on-demand.md`。
+  **书用途 `book_type`**：`story`（剧情世界书，可绑定会话并参与解析）| `reference`（资料库，只供浏览、检索与摘录）。当前内部 schema 要求显式提供该字段；外部 SillyTavern 导入未声明用途时归一化为 `story`。`resolve()` 排除 `reference`，未绑定会话不注入；`excerpt_entries()` 提供整批原子摘录（新 UID、来源不被修改、保留 `excerpt_source` 可追溯来源）。详见 `docs/design/worldbook/worldbook-library.md`。
+- `node_lore_scope.py` — 节点级世界书动态载入：书内一条永不注入的 `lore_bindings` 条目（围栏 JSON + extensions 标记）声明「目标 → 条目」绑定；`resolve_scope` 在剧情树节点落盘时把作用域冻结进 `story_tree.nodes[].state.lore_scope`（随回档走），注入时 `eligible_uids_for` 做「会话范围 ∩ 节点作用域」窄化白名单。书内无绑定条目或自由模式时关闭。详见 `docs/design/worldbook/node-scoped-worldbook-loading.md`。
+- `worldbook_scope.py` — 当前内部世界书只接受 **schema v3 + selective**：分类与载入规则分离，全书使用一张有向图；起点由 `activation`（always / roster_any / manual）× `expansion`（none / requires_closure）描述，`requires` 参与闭包遍历、`related` 只供浏览，环可终止并回报交叉引用，闭包超限报错而非静默截断。`world_book.py` 提供估算预览和不可变规则版本历史（`policy_revisions`，会话绑定完整规则版本而不只是版本号），两个 prompt 入口均过滤候选。SillyTavern Lorebook v1/v2 与角色卡只作为外部导入格式，导入时直接归一化为当前内部 v3。详见 `docs/design/worldbook/worldbook-on-demand.md`。
 - `worldbook_classify.py` — 条目自动分类：只认 uid 生成器前缀 / `group` 字段 / 名称括号后缀三类显式线索（取值为白名单，识别不出就不分类），产出分类树、条目归属与 `characters_<角色目录名>_index` → 角色关联。**不改变载入模式**：`from_dict` 只在分类形同未分类时对预装包自动补齐，其余走用户显式的「自动分类」。详见 `docs/design/worldbook/worldbook-on-demand.md`。
 - `memory.py` — `VectorMemory`：最近轮次滑动窗口 + ChromaDB 语义搜索，持久化于 `data/memory/`（gitignored）。
 
 > **2026-09 变更（世界书工作台重构）**：世界书依赖的「AI 自动构建」整条链路已移除——构建内核（原 `worldbook_builder.py` / `worldbook_builder_plan.py` / `worldbook_reading.py`）、`dependency-proposals` 系列接口、前端构建面板与会话侧 AI 微调一并删除，两篇专项设计归档到 `docs/archive/`。见 `docs/proposals/worldbook-workbench-redesign.md` §2.4。
 >
-> **删的是画布与「让模型替你猜依赖」，不是依赖功能**：依赖数据、分类、载入规则、统一草稿的保存与撤销、范围预览、节点绑定全部保留，但旧「分类与载入」页签已撤销、其子视图（`LoadTab` / `WorldBookConfigOverview` / `WorldBookEntryWorkbench`）当前都没有任何引用，依赖配置的编辑 UI 未挂载（`patch` 无调用点，`条目` 页上的保存条实际不可达，保留原路径待接线）；旧书里已有的 AI 关系照常载入与展开（`origin` / `model` / `evidence` / `review_status` / `rejected` / `edge_meta` 等字段保留、只停写）。
+> **删的是画布与「让模型替你猜依赖」，不是依赖功能**：依赖数据、分类、载入规则、统一草稿的保存与撤销、范围预览、节点绑定全部保留；依赖配置的编辑 UI 当前未挂载。AI 构建时期的证据、复核与拒绝元数据已经从当前 schema 删除。
 
 ### 2.4 战斗后端
 
@@ -97,7 +97,7 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 
 ### 2.7 测试
 
-`tests/`（已纳入版本控制，含黄金基线 `tests/golden/`）+ `perf_tests/test_*_v1.py`（无外部依赖的战斗/结算子集）。统一入口 `bash scripts/run_tests.sh`（内含 pytest 与 `tests/legacy/` 脚本式检查）。
+`tests/`（已纳入版本控制，含黄金基线 `tests/golden/`）+ `perf_tests/test_*_v1.py`（无外部依赖的战斗/结算子集）。统一入口 `bash scripts/run_tests.sh`，全部由 pytest 收集。
 
 剧情树（LLM 生成节点）的两层验证：`tests/test_story_tree_full_flow.py`（脚本化 LLM 驱动 narrate-continue 全链路的确定性完整流程用例）与 `scripts/verify_llm_node_generation.py`（真实 LLM 端到端冒烟，需 `config/llm_config.json`，输出可行性报告至 `.tmp/`）。
 
@@ -138,7 +138,7 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 - **角色页共用控件与字体语言** — `components/roles/RoleWidgets.tsx`（面板页头 `PanelHeader` / 来源徽章 `SourceBookBadge` / 工具栏图标按钮 / 折叠按钮 / 搜索框 / 操作按钮 / 空状态 / 来源世界书下拉）+ `components/roles/EntityAvatar.tsx`（无头像时按名称取色的首字色块，取色规则与对话页 `chat/AvatarPlaceholder` 一致）+ `styles/roles.css`（衬线标题 + Orbitron 眉标，与世界书工作台同源；色值全部取 `--ng-*` 令牌，随明暗与皮肤切换，Tailwind 颜色工具类照旧由 `scripts/gen_skin_utils.py` 生成皮肤覆盖）
 - **来源世界书分组（角色库 / 资产 / 卡牌共用）** — `utils/worldbookGrouping.ts`（纯逻辑：`UNCLASSIFIED_KEY` = `"__none__"`、`worldbookKeyOf` 把缺字段/空白归一为未分类、`groupByWorldbook` 一级按书分组且未分类恒排最后、组间按书名字典序、组内保持传入顺序）+ `hooks/useWorldbookGroups.ts`（折叠状态与派生分组，来源选择 `activeKey` 由调用方持有）+ `components/WorldbookGroupList.tsx`（「全部」行 + 可折叠分组头，条目本体由调用方 `renderItems` 提供；同文件导出 `GroupDimensionToggle`，现只有资产 / 卡牌在用）。`CharacterManager.tsx` 的角色库**只按来源世界书分组**（原并列的「平铺」维度展示的是同一份列表、只差不分组，已撤销），来源来自 `/api/characters` 每个条目的 `worldbook_id`（`document_manager.DocumentInfo` 读实体 index.md frontmatter，空串 = 未分类）
 - `components/WorldBookManager.tsx` — 世界书工作台：顶层按用途分「剧情世界书 / 资料库」（带筛选与计数），详情是带页签的工作台——**条目 / Prompt 预览 / 节点图 / 会话条目**；`会话条目` 由 `IndexManager.tsx` 承载，按当前书的分类展示条目，支持 `跟随书内设置 / 启用 / 停用` 三态覆盖。导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、条目编辑器、酒馆格式导出、**hero 上的「数值字段」对话框（`worldbook/StatFieldsEditor.tsx`，定义这本书下角色共用的统一数值字段，随书保存 / 导出 / 导入 / 复制）**；资料库以检索/浏览为主，可就地把条目「加入剧情世界书」（提交前可编辑标题/正文/触发词）。全局默认世界书已取消，只有会话明确绑定的剧情书参与解析。纯逻辑在 `utils/worldbookLibrary.ts`
-- `components/session/CreateSessionWizard.tsx` — 新建会话向导（模式&战斗模式 → 剧情 → 多选剧情世界书 → **主控与阵容** → 命名创建）。**选中剧情即自动选中**（`utils/characterCatalog.ts` 的 `resolvePlotDefaults` / `resolveLineupDefaults`）：剧情 frontmatter 的 `worldbook_id` 自动绑定（书未安装时保留玩家当前选择）、`player_identity`（缺省回退开场角色首位）自动选为主控、**该书角色花名册（书摘要里的 `character_ids`）+ 剧情开场角色整批入队**并标「自动预选」，玩家随后可随手改。资料库不出现在绑定列表；**角色候选 = 已绑定世界书的角色 + 各书花名册 + 剧情自带阵容**（`selectableCatalogItems`；拆分剧情书的角色卡仍记来源书，只按来源书过滤会让整份阵容消失），未绑书时仅自建角色 + 剧情阵容。自动选中只吃剧情声明那本书的花名册，手动再加的大书只扩候选，要一并选上走队友区的显式按钮「按绑定世界书全选角色」。**「主控与阵容」这一步只选角色**：候选范围、手动追加与全量兼容在世界书工作台按书配置，向导不在这里调整。主控步骤（单选）与队友步骤（多选）共用 `components/session/CharacterPicker.tsx`；主控经 `identity` 声明、队友经 `roster_character_ids` 入队，主控不再出现在队友候选里。候选目录与筛选/去重规则在 `utils/characterCatalog.ts`。没选主控不能创建（前端拦截 + 后端拒绝显式空 `identity`）；「命名创建」只列每本书的估算 token
+- `components/session/CreateSessionWizard.tsx` — 新建会话向导（模式&战斗模式 → 剧情 → 多选剧情世界书 → **主控与阵容** → 命名创建）。**选中剧情即自动选中**（`utils/characterCatalog.ts` 的 `resolvePlotDefaults` / `resolveLineupDefaults`）：剧情 frontmatter 的 `worldbook_id` 自动绑定（书未安装时保留玩家当前选择）、`player_identity`（缺省回退开场角色首位）自动选为主控、**该书角色花名册（书摘要里的 `character_ids`）+ 剧情开场角色整批入队**并标「自动预选」，玩家随后可随手改。资料库不出现在绑定列表；**角色候选 = 已绑定世界书的角色 + 各书花名册 + 剧情自带阵容**（`selectableCatalogItems`；拆分剧情书的角色卡仍记来源书，只按来源书过滤会让整份阵容消失），未绑书时仅自建角色 + 剧情阵容。自动选中只吃剧情声明那本书的花名册，手动再加的大书只扩候选，要一并选上走队友区的显式按钮「按绑定世界书全选角色」。**「主控与阵容」这一步只选角色**：候选范围和手动追加在世界书工作台按各书当前规则配置，向导不在这里调整。主控步骤（单选）与队友步骤（多选）共用 `components/session/CharacterPicker.tsx`；主控经 `identity` 声明、队友经 `roster_character_ids` 入队，主控不再出现在队友候选里。候选目录与筛选/去重规则在 `utils/characterCatalog.ts`。没选主控不能创建（前端拦截 + 后端拒绝显式空 `identity`）；「命名创建」只列每本书的估算 token
 - `components/session/SessionManagerView.tsx` — 会话大厅：会话列表与详情、多本剧情世界书绑定、**角色阵容（`session.roster` = 主控 + 队友，主控标「🎭 主控（你）」且不可移出）**、换主控；「添加角色」仅列出当前已绑定世界书的角色，未绑定时仅列自建角色，并与新建向导共用 `CharacterPicker`
 - `components/session/SessionWorldbookDependencies.tsx` — 会话大厅内按书切换的依赖微调：先用自然语言选择「条目出现时同时载入谁」或「出现什么条目时载入它」，再按需展开继承关系、屏蔽/恢复和更新预览；只修改当前会话的对应世界书
 - `GET/PATCH /api/sessions/<id>/worldbook-entry-overrides` — 当前会话绑定书的条目三态覆盖；多书会话以 `book_id` 指定书，省略时使用首本书。覆盖数据保存在对应快照的 `local_overrides.entry_enabled`，以 `scope_revision` 做并发校验，`null` 恢复跟随条目默认值，不写全局书或其它会话
@@ -168,8 +168,7 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 ## 4. 内容工具与脚本
 
 数据布局见 `data/README.md`：内容与资源在 `data/worldbooks/content/`，可选离线包在
-`data/worldbooks/packs/`，其分发归属清单为 `data/worldbooks/content_manifest.json`；完整包导入的资源归属存于本地 `local_content_manifest.json`。`inbox/` 接收直接复制的书，`exports/` 保存完整导出包；统一路径由 `src/data_paths.py` 定义。升级本地素材运行
-`scripts/migrate_data_layout.py` 预览后加 `--apply` 执行。用户书与会话不迁移。
+`data/worldbooks/packs/`，其分发归属清单为 `data/worldbooks/content_manifest.json`；完整包导入的资源归属存于本地 `local_content_manifest.json`。`inbox/` 接收直接复制的书，`exports/` 保存完整导出包；统一路径由 `src/data_paths.py` 定义。旧版已安装书用 `scripts/migrate_worldbook_layout.py` 迁移。
 
 
 战斗内容工具（`tools/`）：
@@ -220,7 +219,7 @@ docs/
 | `design/combat/combat-ui-design.md` | 战斗界面交互与布局设计 |
 | `design/combat/battle-spec.md` | 战斗规格（节点 JSON 全字段/地形效果/威胁与阶段带/校验规则/生成闭环），LLM 与设计者共用 |
 | `design/combat/combat-background-prompts.md` | 战斗背景图生成提示词规范 |
-| `design/worldbook/worldbook-on-demand.md` | 世界书分类与依赖载入、按需候选范围、快照兼容与 API |
+| `design/worldbook/worldbook-on-demand.md` | 世界书分类与依赖载入、按需候选范围、当前会话快照与 API |
 | `design/worldbook/worldbook-library.md` | 世界书资料库与剧情世界书分离：`book_type` 用途、安全的用途切换、原子摘录与来源追踪、前端资料库体验 |
 | `design/worldbook/node-scoped-worldbook-loading.md` | 节点级世界书动态载入：`lore_bindings` 绑定面、`会话范围 ∩ 节点作用域` 窄化白名单、快照与回档 |
 | `design/narrative/rag-retrieval.md` | 知识注入的四条召回通道（依赖预加载 / 关键词世界书 / 预取 Hook / `wiki_query` 按需）、分层注入与记忆系统 |

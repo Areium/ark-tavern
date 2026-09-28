@@ -29,10 +29,8 @@ export interface Session {
   mode: "free" | "story";
   player_identity?: string;
   plot_id: string | null;
-  worldbook_id?: string | null;
-  worldbook_ids?: string[];
-  worldbook_scope?: WorldBookScopeDTO | null;
-  worldbook_scopes?: Record<string, WorldBookScopeDTO | null>;
+  worldbook_ids: string[];
+  worldbook_scopes: Record<string, WorldBookScopeDTO | null>;
   created_at: number;
   usable: boolean;
   /** 场景角色（NPC 队友）。主控角色不在其中：它由 `player_identity` 声明 */
@@ -707,7 +705,7 @@ export interface WorldBookSummary {
   source_format: string;
   /** 来源：preinstalled（预装整合包）/ imported（用户导入）——统一管理，均可编辑 */
   source: "preinstalled" | "imported";
-  /** 用途：剧情世界书 / 资料库。缺字段的旧数据按 story 读取 */
+  /** 用途：剧情世界书 / 资料库（当前内部 schema 必填） */
   book_type: WorldBookType;
   /** `book_type === "reference"` 的便捷标记 */
   is_reference?: boolean;
@@ -737,7 +735,6 @@ export interface WorldBookSummary {
   character_ids?: string[];
   created_at: number;
   updated_at: number;
-  is_default: boolean;
 }
 
 /** 世界书检索命中（GET /api/worldbook/search） */
@@ -819,13 +816,13 @@ export interface WorldBookDetail extends WorldBookSummary {
   entry_layout?: WorldBookEntryLayoutItemDTO[];
   entry_order?: string[];
   has_explicit_entry_order?: boolean;
-  schema_version?: number;
-  scope_mode?: "legacy" | "selective";
+  schema_version: 3;
+  scope_mode: "selective";
   categories?: WorldBookCategoryDTO[];
   dependency_edges?: WorldBookDependencyEdgeDTO[];
   import_config?: WorldBookImportConfigDTO;
-  /** v3：全书底层有向图的条件起点；null/缺省表示这本书仍是 v2 语义 */
-  dependency_rules?: WorldBookRulesDTO | null;
+  /** 全书底层有向图的条件起点。 */
+  dependency_rules: WorldBookRulesDTO;
   related_edges?: WorldBookDependencyEdgeDTO[];
   content_revision?: string;
   resolver_version?: number;
@@ -897,37 +894,18 @@ export interface SessionInheritancePreviewDTO {
   preview_hash: string;
 }
 export interface WorldBookImportConfigDTO {
-  fixed_entry_uids: string[];
-  dependency_sources: Array<{ entry_uid: string; max_depth: number }>;
   revision: number;
 }
 
 /** v3 起点激活方式：always 恒为候选 / roster_any 入队任一角色即候选 / manual 只手动追加 */
 export type WorldBookActivation = "always" | "roster_any" | "manual";
-/** v3 展开方式：none 只含自身 / requires_closure 完整必要闭包 / legacy_depth 旧深度语义 */
-export type WorldBookExpansion = "none" | "requires_closure" | "legacy_depth";
+/** v3 展开方式：none 只含自身 / requires_closure 完整必要闭包 */
+export type WorldBookExpansion = "none" | "requires_closure";
 export interface WorldBookRootDTO {
   entry_uid: string;
   activation: WorldBookActivation;
   expansion: WorldBookExpansion;
   character_ids?: string[];
-  max_depth?: number;
-  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
-  locked?: boolean;
-  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
-  origin?: string;
-  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
-  model?: string;
-  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
-  prompt_version?: string;
-  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
-  source_content_hash?: string;
-  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
-  evidence?: string;
-  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
-  review_status?: string;
-  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
-  job_id?: string;
 }
 /** v3 规则集：分类只负责组织，起点与展开决定候选 */
 export interface WorldBookRulesDTO {
@@ -935,10 +913,6 @@ export interface WorldBookRulesDTO {
   root_rule?: { entry_uids: string[] };
   requires_edges?: WorldBookDependencyEdgeDTO[];
   related_edges?: WorldBookDependencyEdgeDTO[];
-  /** AI 构建专属；字段保留停写不删，UI 不再展示（人工拒绝记录兼容透传） */
-  rejected?: WorldBookDependencyEdgeDTO[];
-  /** AI 构建专属；字段保留停写不删，UI 不再展示 */
-  edge_meta?: Record<string, Record<string, string | boolean>>;
 }
 export interface WorldBookPolicyRevisionDTO {
   revision: number;
@@ -952,7 +926,6 @@ export interface WorldBookDisplayNodeDTO {
   depth: number;
   parent_uid: string | null;
   child_uids: string[];
-  remaining: number | null;
   is_root: boolean;
   /**
    * 该 uid 在闭包内是否有**多于一次到达**（服务端读时派生）。
@@ -982,24 +955,13 @@ export interface WorldBookIssueDTO {
 /** 统一配置写入（PUT /api/worldbook/<id>/configuration）的请求体 */
 export interface WorldBookConfigurationDraft {
   expected_revision?: number;
-  /**
-   * 显式启用 v3 按需载入规则。**只有用户明确选择时才传**：
-   * v2 书的普通分类 / 角色编辑不能顺手把书切成按需载入（预装书 fixed/sources
-   * 都是空的，一旦隐式启用候选会被清成空集）。服务端也只认这个显式开关。
-   */
-  adopt_v3?: boolean;
   categories?: WorldBookCategoryDTO[];
   entry_moves?: Record<string, string>;
   entry_updates?: Record<string, { category_id?: string; character_id?: string }>;
-  scope_mode?: "legacy" | "selective";
+  scope_mode?: "selective";
   roots?: WorldBookRootDTO[];
   requires_edges?: WorldBookDependencyEdgeDTO[];
   related_edges?: WorldBookDependencyEdgeDTO[];
-  /**
-   * 人工拒绝记录：兼容透传字段（R-8）。AI 构建已删除，不再产生新值，
-   * 但旧书已经写入的值照旧传回，避免旧数据在往返中被抹掉。
-   */
-  rejected?: WorldBookDependencyEdgeDTO[];
 }
 export interface WorldBookConfigurationResultDTO {
   book: WorldBookDetail;
@@ -1013,17 +975,9 @@ export interface WorldBookScopeDTO {
   policy_revision?: number;
   roster_character_ids?: string[];
   resolved_entry_uids: string[];
-  legacy_full_scope?: boolean;
   resolved_at?: number;
   selection_reasons?: Record<string, string[]>;
   excluded_entries?: Array<{ uid: string; name: string; reason: string }>;
-}
-export interface WorldBookPolicyDraft {
-  fixed_entry_uids: string[];
-  dependency_sources: WorldBookImportConfigDTO["dependency_sources"];
-  dependency_edges: WorldBookDependencyEdgeDTO[];
-  scope_mode: "legacy" | "selective";
-  expected_revision?: number;
 }
 /** 自动分类：单个候选分类（含条目数） */
 export interface WorldBookClassificationCategoryDTO extends WorldBookCategoryDTO {
@@ -1071,13 +1025,10 @@ export interface WorldBookScopePreviewDTO {
   saved_estimated_tokens: number;
   saved_percent: number;
   breakdown: Record<string, { entry_count: number; estimated_tokens: number }>;
-  source_expansions?: Array<{ entry_uid: string; name: string; max_depth: number; entries: Array<{ uid: string; name: string }> }>;
   warnings: string[];
-  // ── v3 解释字段（未启用 v3 的书不返回）──
-  schema_version?: number;
+  // ── v3 解释字段 ──
+  schema_version: 3;
   resolver_version?: number;
-  /** 本次会话是否显式选择「全量兼容」（只影响本会话） */
-  full_scope?: boolean;
   active_roots?: WorldBookRootDTO[];
   resolved_edges?: WorldBookResolvedEdgeDTO[];
   selection_reasons?: Record<string, string[]>;
@@ -1178,7 +1129,6 @@ export interface WorldBookPromptPreviewRequest {
   recent_text?: string;
   roster_character_ids?: string[];
   manual_entry_uids?: string[];
-  full_scope?: boolean;
   identity?: string;
   active_char?: string | null;
   seed?: number;
@@ -1188,7 +1138,7 @@ export interface WorldBookPromptPreviewRequest {
   lore_scope?: WorldBookNodeLoreScopeDTO | null;
 }
 
-export type WorldBookEdgeStatus = "skeleton" | "cross" | "capped" | "idle";
+export type WorldBookEdgeStatus = "skeleton" | "cross" | "idle";
 
 export interface WorldBookResolvedEdgeDTO {
   from_uid: string;
@@ -1204,7 +1154,6 @@ export interface WorldBookDependencyTreeNodeDTO {
   parent_uid: string | null;
   child_uids: string[];
   depth: number;
-  remaining: number | null;
   is_root: boolean;
   /** 到达该节点的边关系：根为 requires */
   relation: "requires" | "related";
@@ -1251,7 +1200,6 @@ export interface WorldBookImportResult {
 export interface WorldBookResolveResult {
   book: WorldBookSummary | null;
   books?: WorldBookSummary[];
-  default_book_id: string | null;
 }
 
 // ── 战斗节点编辑器（batch 2）─────────────────────────────────────────────────

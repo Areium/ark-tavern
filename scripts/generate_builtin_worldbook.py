@@ -6,8 +6,7 @@
 战斗功能测试及其关联内容拆为独立剧情书；角色条目复制后仍保留在通用资料库。
 每个文档对应一条条目，条目 content 承载完整 Markdown 正文（不只是摘要）。
 
-这些包随程序分发（git 跟踪），程序首次启动自动安装到 data/worldbooks/
-（source=preinstalled），也可通过世界书导入功能手动导入同一份文件。
+这些包随程序分发（git 跟踪），由用户在世界书工作台显式安装到 data/worldbooks/。
 「角色·剧情」文档管理界面移除后，这些包即文档内容的迁移出口：
 浏览与编辑经由世界书模块进行。
 
@@ -168,6 +167,17 @@ def main():
         enrich_grey_lantern(stories["grey-lantern"])
     else:
         # Small fixture/custom content roots may intentionally omit the built-in plots.
+        book.update({
+            "book_type": "reference",
+            "schema_version": 3,
+            "scope_mode": "selective",
+            "entry_order": [entry["uid"] for entry in entries],
+            "dependency_edges": [],
+            "related_edges": [],
+            "dependency_rules": {"roots": [], "root_rule": {"entry_uids": []}},
+            "import_config": {"revision": 1},
+            "policy_revisions": [],
+        })
         reference, stories = book, {}
     write_books(reference, stories, OUT.parent)
     for payload in (reference, *stories.values()):

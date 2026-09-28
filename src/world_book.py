@@ -11,7 +11,7 @@
 - 触发匹配：主/副关键词正则扫描 + selective / 概率 / 常驻语义
 - format_injection() — 按 position / group_weight / depth 排序并格式化注入文本，
   支持 token 预算与 {{user}} / {{char}} 宏替换
-- WorldBookManager — data/worldbooks/ 目录 CRUD + 会话绑定解析 + 全局默认书
+- WorldBookManager — data/worldbooks/ 目录 CRUD + 显式会话绑定解析
 
 与酒馆的语义映射（见计划文档）：
     key/keysecondary → trigger_keys/secondary_keys
@@ -40,12 +40,9 @@ from typing import Optional
 
 from data_paths import CONTENT_ROOT, PACKS_ROOT, WORLDBOOKS_ROOT
 from worldbook_scope import (
-    EXTENSION_KEY, UNCLASSIFIED, validate_categories, validate_policy,
-    expand_sources, find_scope_extension,
-    ACTIVATION_ALWAYS, ACTIVATION_MANUAL, ACTIVATION_ROSTER_ANY,
-    EXPANSION_NONE, EXPANSION_REQUIRES_CLOSURE, EXPANSION_LEGACY_DEPTH,
+    EXTENSION_KEY, UNCLASSIFIED, validate_categories, find_scope_extension,
+    ACTIVATION_ALWAYS, EXPANSION_NONE,
     SCHEMA_VERSION_V3, resolve_v3_scope, validate_v3_rules,
-    v2_rules_from_import_config, equivalent_v3_roots,
 )
 from worldbook_classify import classify_entries, needs_classification
 from character_stats import normalize_stat_fields
@@ -71,20 +68,20 @@ SOURCE_MANUAL = "manual"
 SOURCE_PREINSTALLED = "preinstalled"
 
 # ── 书用途（book_type）──
-# story     ：剧情世界书，可绑定会话、设为默认并参与解析
+# story     ：剧情世界书，可绑定会话并参与解析
 # reference ：资料库，只供浏览 / 检索 / 摘录，不参与任何会话解析
 BOOK_TYPE_STORY = "story"
 BOOK_TYPE_REFERENCE = "reference"
 BOOK_TYPES = (BOOK_TYPE_STORY, BOOK_TYPE_REFERENCE)
 
-# 旧数据缺字段时一律按 story 读取（既有世界书、会话快照与导出保持兼容）
+# 外部 SillyTavern 格式没有用途字段时的导入默认值。
 DEFAULT_BOOK_TYPE = BOOK_TYPE_STORY
 
 
 def normalize_book_type(value, default: str = DEFAULT_BOOK_TYPE) -> str:
     """把外部传入的用途值规范化为合法取值；非法值抛 ValueError。
 
-    `None` / 空串代表「未指定」，回落到 default —— 这是缺字段的兼容路径。
+    `None` / 空串代表调用方未指定，回落到该入口声明的 default。
     非空但不在白名单内的值一律拒绝，不静默降级成 story（否则用户会以为
     一本资料库已经变成剧情书）。
     """
@@ -687,9 +684,7 @@ def _preview_drop_reason(entry: WorldBookEntry, scan_text: str, scoped_uids: set
     判定顺序（不可调换，逐条对齐 `_entry_matches` / `eligible_uids_for` /
     `format_injection` 的真实分支）：
 
-    1. `not_in_scope`         —— 不在书的候选范围内（含「范围解析阶段就被排除」的
-       条目，见调用方 `scoped_uids`：v2 会把停用 / 空正文条目从候选里过滤掉，
-       它们要走下面第 3/4 条的真实原因，不能被掩成 `not_in_scope`）；
+    1. `not_in_scope`         —— 不在书的候选范围内；
     2. `node_binding_demoted` —— 在书范围内，但被当前节点作用域排除；
     3. `disabled`             —— 条目停用；
     4. `empty_content`        —— 正文为空白；
@@ -1037,9 +1032,9 @@ class WorldBook:
     def __init__(self, book_id: str, name: str = "", entries: list = None,
                  source_format: str = SOURCE_MANUAL, budget_tokens: int = 0,
                  source: str = "imported", enabled: bool = True,
-                 pack_rev: str = "", schema_version: int = 2,
+                 pack_rev: str = "", schema_version: int = SCHEMA_VERSION_V3,
                  categories: list = None, dependency_edges: list = None,
-                 import_config: dict = None, scope_mode: str = None,
+                 import_config: dict = None, scope_mode: str = "selective",
                  dependency_rules: dict = None, related_edges: list = None,
                  policy_revisions: list = None, book_type: str = DEFAULT_BOOK_TYPE,
                  description: str = "", cover_image: str = "",
@@ -1085,10 +1080,12 @@ class WorldBook:
         self.entry_layout = (normalize_entry_layout(
             entry_layout, self.entry_groups, self.entry_group_map,
             self.effective_entry_order()) if entry_layout is not None else None)
-        self.schema_version = 3 if dependency_rules else 2
-        self.scope_mode = scope_mode or ("selective" if schema_version >= 2 and categories else "legacy")
-        if self.scope_mode not in ("legacy", "selective"):
-            raise ValueError("scope_mode 必须是 legacy 或 selective")
+        if schema_version != SCHEMA_VERSION_V3:
+            raise ValueError(f"内部世界书仅支持 schema_version={SCHEMA_VERSION_V3}")
+        if scope_mode != "selective":
+            raise ValueError("内部世界书仅支持 selective 范围模式")
+        self.schema_version = SCHEMA_VERSION_V3
+        self.scope_mode = "selective"
         self.categories = self._normalize_categories(categories)
         for entry in self.entries:
             entry.category_id = entry.category_id or "unclassified"
@@ -1096,55 +1093,58 @@ class WorldBook:
         self.import_config = self._normalize_import_config(import_config)
         # ── v3：全书底层有向图 + 条件起点（分类只负责组织，不决定候选）──
         known = {e.uid for e in self.entries}
-        self.related_edges = []
-        self.dependency_rules = None
-        if dependency_rules is not None:
-            # 关联补充边可能随规则集一起序列化，也可能独立存放（旧写入路径）。
-            # 两处都要认，否则「保存一次再读回」会把 related 边丢掉。
-            payload = dict(dependency_rules)
-            if related_edges and not payload.get("related_edges"):
-                payload["related_edges"] = list(related_edges)
-            rules, requires, related = validate_v3_rules(
-                known, payload, self.dependency_edges)
-            self.dependency_rules = rules
-            self.dependency_edges = requires
-            self.related_edges = related
-        elif related_edges:
-            _, _, self.related_edges = validate_v3_rules(
-                known, {"roots": [], "requires_edges": [], "related_edges": related_edges})
+        payload = dict(dependency_rules) if isinstance(dependency_rules, dict) else {
+            "roots": [{"entry_uid": entry.uid, "activation": ACTIVATION_ALWAYS,
+                       "expansion": EXPANSION_NONE, "character_ids": []}
+                      for entry in self.entries],
+            "root_rule": {"entry_uids": sorted(known)},
+        }
+        payload["requires_edges"] = list(payload.get("requires_edges", self.dependency_edges))
+        payload["related_edges"] = list(payload.get("related_edges", related_edges or []))
+        self.dependency_rules, self.dependency_edges, self.related_edges = validate_v3_rules(
+            known, payload)
         # 不可变策略版本历史：会话可据此恢复「它创建时绑定的规则」，而不只是版本号。
         self.policy_revisions = self._normalize_revisions(policy_revisions)
 
     def _normalize_revisions(self, value) -> list[dict]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("policy_revisions 必须是数组")
         result = []
-        for raw in value if isinstance(value, list) else []:
+        seen = set()
+        known = {entry.uid for entry in self.entries}
+        for raw in value:
             if not isinstance(raw, dict):
-                continue
+                raise ValueError("policy_revisions 的元素必须是对象")
             revision = raw.get("revision")
-            if type(revision) is not int or revision < 1:
-                continue
+            if type(revision) is not int or revision < 1 or revision in seen:
+                raise ValueError("policy_revisions.revision 必须是唯一的正整数")
+            if raw.get("scope_mode", "selective") != "selective":
+                raise ValueError("policy_revisions 仅支持 selective 范围模式")
+            if not isinstance(raw.get("rules"), dict):
+                raise ValueError("policy_revisions.rules 必须是对象")
+            rules, requires, related = validate_v3_rules(known, {
+                **raw["rules"],
+                "requires_edges": raw.get("requires_edges") or [],
+                "related_edges": raw.get("related_edges") or [],
+            })
+            seen.add(revision)
             result.append({
                 "revision": revision,
                 "resolver_version": int(raw.get("resolver_version", RESOLVER_VERSION) or RESOLVER_VERSION),
-                "scope_mode": raw.get("scope_mode", "selective"),
-                "rules": copy.deepcopy(raw.get("rules")) if isinstance(raw.get("rules"), dict) else None,
-                "requires_edges": copy.deepcopy(raw.get("requires_edges") or []),
-                "related_edges": copy.deepcopy(raw.get("related_edges") or []),
-                "fixed_entry_uids": list(raw.get("fixed_entry_uids") or []),
-                "dependency_sources": copy.deepcopy(raw.get("dependency_sources") or []),
+                "scope_mode": "selective",
+                "rules": rules,
+                "requires_edges": requires,
+                "related_edges": related,
                 "created_at": float(raw.get("created_at", time.time())),
             })
         result.sort(key=lambda item: item["revision"])
         return result[-MAX_POLICY_REVISIONS:]
 
     @property
-    def v3_enabled(self) -> bool:
-        """是否按 v3 规则解析（否则沿用 v2 语义，旧会话不受影响）。"""
-        return self.dependency_rules is not None
-
-    @property
     def is_reference(self) -> bool:
-        """资料库：只浏览、检索、摘录，不参与会话解析，也不能设为默认或被绑定。"""
+        """资料库：只浏览、检索、摘录，不参与会话解析或绑定。"""
         return self.book_type == BOOK_TYPE_REFERENCE
 
     def bump_edit_revision(self) -> int:
@@ -1152,16 +1152,74 @@ class WorldBook:
         self.edit_revision += 1
         return self.edit_revision
 
+    def remove_entry_references(self, uid: str) -> dict[str, int]:
+        """删除条目后同步清理当前规则与历史规则快照中的悬空引用。"""
+        self.entry_group_map.pop(uid, None)
+        if self.entry_order is not None:
+            self.entry_order = [entry_uid for entry_uid in self.entry_order
+                                if entry_uid != uid]
+        if self.entry_layout is not None:
+            self.entry_layout = self.effective_entry_layout()
+        affected = {
+            "dependency_edges": sum(
+                uid in (edge["from_uid"], edge["to_uid"])
+                for edge in self.dependency_edges),
+            "related_edges": sum(
+                uid in (edge["from_uid"], edge["to_uid"])
+                for edge in self.related_edges),
+            "policy_revisions": 0,
+        }
+        self.dependency_edges = [
+            edge for edge in self.dependency_edges
+            if uid not in (edge["from_uid"], edge["to_uid"])
+        ]
+        self.related_edges = [
+            edge for edge in self.related_edges
+            if uid not in (edge["from_uid"], edge["to_uid"])
+        ]
+        self.dependency_rules["roots"] = [
+            root for root in self.dependency_rules["roots"]
+            if root["entry_uid"] != uid
+        ]
+        self.dependency_rules["root_rule"]["entry_uids"] = [
+            entry_uid for entry_uid in self.dependency_rules["root_rule"]["entry_uids"]
+            if entry_uid != uid
+        ]
+        for snapshot in self.policy_revisions:
+            rules = snapshot["rules"]
+            before = (len(rules["roots"])
+                      + len(snapshot["requires_edges"])
+                      + len(snapshot["related_edges"]))
+            rules["roots"] = [root for root in rules["roots"]
+                              if root["entry_uid"] != uid]
+            rules["root_rule"]["entry_uids"] = [
+                entry_uid for entry_uid in rules["root_rule"]["entry_uids"]
+                if entry_uid != uid
+            ]
+            snapshot["requires_edges"] = [
+                edge for edge in snapshot["requires_edges"]
+                if uid not in (edge["from_uid"], edge["to_uid"])
+            ]
+            snapshot["related_edges"] = [
+                edge for edge in snapshot["related_edges"]
+                if uid not in (edge["from_uid"], edge["to_uid"])
+            ]
+            after = (len(rules["roots"])
+                     + len(snapshot["requires_edges"])
+                     + len(snapshot["related_edges"]))
+            affected["policy_revisions"] += before - after
+        return affected
+
     @staticmethod
-    def legacy_entry_sort_key(entry: WorldBookEntry):
-        """The pre-refresh static order. Old books keep this exact behaviour."""
+    def default_entry_sort_key(entry: WorldBookEntry):
+        """标准注入顺序：位置、组权重、深度、UID。"""
         return (entry.position, -entry.group_weight, entry.depth, entry.uid)
 
     def effective_entry_order(self) -> list[str]:
         """Return the full UI/injection order without mutating stored entries."""
         if self.entry_order is not None:
             return list(self.entry_order)
-        return [entry.uid for entry in sorted(self.entries, key=self.legacy_entry_sort_key)]
+        return [entry.uid for entry in sorted(self.entries, key=self.default_entry_sort_key)]
 
     def effective_entry_layout(self) -> list[dict]:
         return normalize_entry_layout(self.entry_layout, self.entry_groups,
@@ -1209,12 +1267,10 @@ class WorldBook:
         return {
             "revision": self.import_config["revision"],
             "resolver_version": RESOLVER_VERSION,
-            "scope_mode": self.scope_mode,
+            "scope_mode": "selective",
             "rules": copy.deepcopy(self.dependency_rules),
             "requires_edges": copy.deepcopy(self.dependency_edges),
             "related_edges": copy.deepcopy(self.related_edges),
-            "fixed_entry_uids": list(self.import_config["fixed_entry_uids"]),
-            "dependency_sources": copy.deepcopy(self.import_config["dependency_sources"]),
             "created_at": time.time(),
         }
 
@@ -1226,52 +1282,6 @@ class WorldBook:
                 return
         self.policy_revisions.append(snapshot)
         self.policy_revisions = self.policy_revisions[-MAX_POLICY_REVISIONS:]
-
-    def equivalent_v3_rules(self, extra_roots=None, requires_edges=None,
-                            related_edges=None) -> dict:
-        """把当前 v2 配置映射成**范围等价**的 v3 规则集。
-
-        这是显式迁移（用户在界面上确认「启用按需规则」）时用的：
-        - legacy → 每条 always + none；
-        - selective → 世界观分类 always + none，角色分类 roster_any + none；
-        - 固定导入 → always + none；导入源 → always + legacy_depth（保留 max_depth）。
-        结果与旧语义逐条等价，不会因为「保存一次」就悄悄少载入一堆条目。
-        """
-        rules, requires, related = v2_rules_from_import_config(
-            self.import_config, requires_edges if requires_edges is not None else self.dependency_edges)
-        known = {r["entry_uid"] for r in rules["roots"]}
-        roots = list(rules["roots"])
-        for root in equivalent_v3_roots(self.entries, self.categories, self.scope_mode,
-                                        self.category_scope_type):
-            if root["entry_uid"] in known:
-                continue
-            known.add(root["entry_uid"])
-            roots.append(root)
-        for root in extra_roots or []:
-            if isinstance(root, dict) and root.get("entry_uid") in known:
-                continue
-            if isinstance(root, dict) and root.get("entry_uid"):
-                known.add(root["entry_uid"])
-                roots.append(root)
-        return {"roots": roots,
-                "root_rule": {"entry_uids": sorted(known)},
-                "requires_edges": requires,
-                "related_edges": related if related_edges is None else related_edges,
-                "rejected": [], "edge_meta": {}}
-
-    def adopt_v2_as_v3(self):
-        """把现有 v2 配置无损升级为 v3 起点（范围等价，不改候选）。
-
-        只显式调用：旧书/旧会话不会因为读一次就悄悄改变语义。
-        """
-        payload = self.equivalent_v3_rules()
-        rules, requires, related = validate_v3_rules(
-            {e.uid for e in self.entries}, payload, self.dependency_edges)
-        self.dependency_rules = rules
-        self.dependency_edges = requires
-        self.related_edges = related
-        self.schema_version = 3
-        return self
 
     @staticmethod
     def _normalize_categories(categories) -> list[dict]:
@@ -1292,22 +1302,7 @@ class WorldBook:
 
     def _normalize_import_config(self, config) -> dict:
         config = config if isinstance(config, dict) else {}
-        known = {e.uid for e in self.entries}
-        fixed = []
-        for uid in config.get("fixed_entry_uids", []) if isinstance(config.get("fixed_entry_uids", []), list) else []:
-            uid = str(uid)
-            if uid in known and uid not in fixed:
-                fixed.append(uid)
-        sources = []
-        for raw in config.get("dependency_sources", []) if isinstance(config.get("dependency_sources", []), list) else []:
-            if not isinstance(raw, dict):
-                continue
-            uid = str(raw.get("entry_uid", "") or "")
-            depth = raw.get("max_depth", 0)
-            if uid in known and type(depth) is int and 0 <= depth <= 32:
-                sources.append({"entry_uid": uid, "max_depth": depth})
-        return {"fixed_entry_uids": fixed, "dependency_sources": sources,
-                "revision": max(1, _to_int(config.get("revision", 1), 1))}
+        return {"revision": max(1, _to_int(config.get("revision", 1), 1))}
 
     # ── 序列化 ──
 
@@ -1334,21 +1329,19 @@ class WorldBook:
             "dependency_edges": self.dependency_edges,
             "import_config": self.import_config,
         }
-        # Missing means legacy ordering. Persist only after an explicit reorder.
+        # Persist a custom order only after an explicit reorder.
         if self.entry_order is not None:
             data["entry_order"] = list(self.entry_order)
         if self.entry_layout is not None:
             data["entry_layout"] = self.effective_entry_layout()
-        # 数值字段：没定义过就不写，既有书的序列化形态保持不变
+        # Optional payloads stay absent when unused.
         if self.stat_fields:
             data["stat_fields"] = copy.deepcopy(self.stat_fields)
         if self.character_media:
             data["character_media"] = copy.deepcopy(self.character_media)
         if self.character_profiles:
             data["character_profiles"] = copy.deepcopy(self.character_profiles)
-        if self.dependency_rules is not None:
-            data["dependency_rules"] = self.dependency_rules
-        # related_edges 独立持久化：v3 书与「已配置关联补充但尚未启用 v3」的书都要能往返
+        data["dependency_rules"] = self.dependency_rules
         if self.related_edges:
             data["related_edges"] = self.related_edges
         if self.policy_revisions:
@@ -1360,9 +1353,15 @@ class WorldBook:
 
     @staticmethod
     def from_dict(data: dict) -> "WorldBook":
+        if data.get("schema_version") != SCHEMA_VERSION_V3:
+            raise ValueError(f"内部世界书仅支持 schema_version={SCHEMA_VERSION_V3}")
+        if data.get("scope_mode") != "selective":
+            raise ValueError("内部世界书仅支持 selective 范围模式")
+        if not isinstance(data.get("dependency_rules"), dict):
+            raise ValueError("内部世界书缺少 dependency_rules")
+        if data.get("book_type") not in BOOK_TYPES:
+            raise ValueError(f"内部世界书 book_type 必须是 {' 或 '.join(BOOK_TYPES)}")
         entries = [WorldBookEntry.from_dict(e) for e in data.get("entries", [])]
-        # Older writers may have removed an entry without updating display folders.
-        # Do not let such stale metadata make the entire worldbook unloadable.
         group_map = data.get("entry_group_map")
         if isinstance(group_map, dict):
             known_uids = {entry.uid for entry in entries}
@@ -1384,16 +1383,15 @@ class WorldBook:
             source=str(data.get("source", "imported")),
             enabled=bool(data.get("enabled", True)),
             pack_rev=str(data.get("pack_rev", "")),
-            schema_version=int(data.get("schema_version", 1) or 1),
+            schema_version=data["schema_version"],
             categories=data.get("categories"),
             dependency_edges=data.get("dependency_edges"),
             import_config=data.get("import_config"),
-            scope_mode=data.get("scope_mode"),
+            scope_mode=data["scope_mode"],
             dependency_rules=data.get("dependency_rules"),
             related_edges=data.get("related_edges"),
             policy_revisions=data.get("policy_revisions"),
-            # 缺字段 → story（既有世界书 / 会话快照 / 导出全部照旧）
-            book_type=data.get("book_type"),
+            book_type=data["book_type"],
             stat_fields=data.get("stat_fields"),
             character_media=data.get("character_media"),
             character_profiles=data.get("character_profiles"),
@@ -1403,7 +1401,7 @@ class WorldBook:
         # 预装整合包由内置生成器写出，uid 前缀 / group / 名称后缀都是可靠来源元数据；
         # 外部书没有这类元数据时保持原样，不按名字或关键词猜测。
         if book.source == SOURCE_PREINSTALLED and needs_classification(data.get("categories")):
-            apply_auto_classification(book, first_install="categories" not in data)
+            apply_auto_classification(book)
         return book
 
     def category_scope_type(self, category_id: str) -> str:
@@ -1419,111 +1417,10 @@ class WorldBook:
             current = by_id.get(current.get("parent_id"))
         return "other"
 
-    def resolve_import_scope(self, roster_character_ids: list[str] = None) -> dict:
-        """固定候选 UID 快照；不改变条目的关键词、常驻位置或预算。"""
-        if roster_character_ids is None:
-            roster_character_ids = []
-        if not isinstance(roster_character_ids, list) or any(
-                not isinstance(x, str) or not x.strip() for x in roster_character_ids):
-            raise ValueError("roster_character_ids 必须是非空字符串组成的数组")
-        roster = {x.strip() for x in roster_character_ids}
-        known = {e.uid: e for e in self.entries}
-        legacy = self.scope_mode == "legacy"
-        reasons = {"legacy": set(known) if legacy else set(), "worldview": set(),
-                   "roster": set(), "fixed": set(self.import_config["fixed_entry_uids"]),
-                   "dependency": expand_sources(self.import_config["dependency_sources"], self.dependency_edges)}
-        if not legacy:
-            for entry in self.entries:
-                kind = self.category_scope_type(entry.category_id)
-                if kind == "worldview":
-                    reasons["worldview"].add(entry.uid)
-                elif kind == "character" and entry.character_id in roster:
-                    reasons["roster"].add(entry.uid)
-        selected = set().union(*reasons.values())
-        resolved = [e.uid for e in self.entries if e.uid in selected and self.enabled and e.enabled and e.content.strip()]
-        return {"book_id": self.id, "policy_revision": self.import_config["revision"],
-                "roster_character_ids": sorted(roster), "resolved_entry_uids": resolved,
-                "legacy_full_scope": legacy, "resolved_at": time.time(),
-                "selection_reasons": {uid: [reason for reason, uids in reasons.items() if uid in uids]
-                                      for uid in sorted(selected)},
-                "excluded_entries": [{"uid": e.uid, "name": e.name,
-                                      "reason": _excluded_reason(e)}
-                                     for e in self.entries if e.uid in selected and e.uid not in resolved]}
-
-    # ── 显式全量兼容（full_scope）的**唯一真源** ──
-
-    def _full_scope_entries(self) -> list[WorldBookEntry]:
-        """「本次会话显式全量兼容」包含的条目（**书内顺序**）：启用且有正文。
-
-        这是 `full_scope` 语义的唯一真源。v2 / v3 的预览、`scope-preview` 路由侧的
-        `_apply_full_scope`、以及会话快照都用它，否则同一个开关在不同接口上会给出
-        不同答案（v2 书的 Prompt 预览曾经完全忽略这个开关，页签上的「全量兼容」点了
-        没有任何反应）。
-
-        **系统层条目不在其中**：节点图 / 节点绑定永不注入，「全量」也只是把候选放宽
-        到会注入的条目，把系统层算进去会让 `full_entry_count` / `full_estimated_tokens`
-        凭空变大（它们既不会被匹配，也不该占 token 预算）。
-
-        注意与 `legacy_full_scope` 的区别：legacy 书（`scope_mode == "legacy"`）的
-        全量口径额外要求**书级** `enabled`，那是旧语义，不走这里。
-        """
+    def _injectable_entries(self) -> list[WorldBookEntry]:
+        """返回启用、有正文且不属于系统层的条目。"""
         return [e for e in self.entries
                 if e.enabled and (e.content or "").strip() and not is_system_entry(e)]
-
-    def full_scope_uids(self) -> list[str]:
-        """显式全量兼容的条目 UID（排序后的稳定列表）。"""
-        return sorted(e.uid for e in self._full_scope_entries())
-
-    def _full_scope_scope(self, scope: dict) -> dict:
-        """把一个已解析的候选范围换成「显式全量兼容」范围。
-
-        与路由侧 `_apply_full_scope`（`src/blueprints/worldbook.py`）**同源**：两者
-        都取 `full_scope_uids()`，因此「Prompt 预览」的 `candidate_count` 与
-        `scope-preview` 的 `entry_count` 在同一个 `full_scope` 开关下必然相等。
-        区别只在于本方法产出的是**解析结果** dict：全量范围没有起点与依赖解释，
-        所以 `active_roots` / `resolved_edges` / `display_tree` / `cross_references`
-        / `issues` 一并置空，`legacy_full_scope` 置真（与 v3 预览原有行为逐字一致）。
-        其余键（`book_id` / 策略修订 / `excluded_entries` 等）原样保留。
-        """
-        uids = self.full_scope_uids()
-        return {**scope, "resolved_entry_uids": uids,
-                "selection_reasons": {uid: ["full_scope"] for uid in uids},
-                "active_roots": [], "resolved_edges": [], "display_tree": [],
-                "cross_references": [], "issues": [], "legacy_full_scope": True}
-
-    def preview_scope(self, roster_character_ids=None) -> dict:
-        scope = self.resolve_import_scope(roster_character_ids)
-        resolved = set(scope["resolved_entry_uids"])
-        full = self._full_scope_entries()
-        costs = {e.uid: estimate_tokens(e.content) for e in full}
-        total, selected = sum(costs.values()), sum(costs.get(uid, 0) for uid in resolved)
-        warnings = []
-        pending = sum(e.category_id == "unclassified" for e in full)
-        if pending:
-            warnings.append(f"{pending} 条尚未分类；按需模式下不会自动导入，可归类或设为固定导入。")
-        unlinked = sum(self.category_scope_type(e.category_id) == "character" and not e.character_id for e in full)
-        if unlinked:
-            warnings.append(f"{unlinked} 条角色设定未关联角色，不能随阵容自动导入。")
-        entry_names = {entry.uid: entry.name for entry in self.entries}
-        source_expansions = []
-        for source in self.import_config["dependency_sources"]:
-            expanded = expand_sources([source], self.dependency_edges) & resolved
-            source_expansions.append({
-                "entry_uid": source["entry_uid"],
-                "name": entry_names.get(source["entry_uid"], source["entry_uid"]),
-                "max_depth": source["max_depth"],
-                "entries": [{"uid": entry.uid, "name": entry.name}
-                            for entry in self.entries if entry.uid in expanded],
-            })
-        return {"scope": scope, "entry_count": len(resolved), "full_entry_count": len(full),
-                "full_estimated_tokens": total, "resolved_estimated_tokens": selected,
-                "saved_estimated_tokens": total - selected,
-                "saved_percent": round(100 * (total - selected) / total, 1) if total else 0,
-                "breakdown": {reason: {"entry_count": sum(reason in scope["selection_reasons"].get(uid, []) for uid in resolved),
-                                       "estimated_tokens": sum(costs.get(uid, 0) for uid in resolved if reason in scope["selection_reasons"].get(uid, []))}
-                              for reason in ("worldview", "roster", "fixed", "dependency", "legacy")},
-                "source_expansions": source_expansions,
-                "warnings": warnings}
 
     # ── v3 解析 ──
 
@@ -1558,26 +1455,24 @@ class WorldBook:
             book_id=self.id,
             manual_entry_uids=manual,
         )
+        if not self.enabled:
+            # 书级停用是候选解析的最外层门禁。编辑器仍可读取、修改这本书，
+            # 但预览、会话绑定和真实注入都不得泄漏其中任何条目。
+            result.update({
+                "active_roots": [],
+                "resolved_entry_uids": [],
+                "selection_reasons": {},
+                "resolved_edges": [],
+                "display_tree": [],
+            })
         result["resolver_version"] = RESOLVER_VERSION
-        if (snapshot or {}).get("scope_mode", self.scope_mode) == "legacy":
-            uids = sorted(e.uid for e in self.entries
-                          if self.enabled and e.enabled and e.content.strip())
-            result.update(resolved_entry_uids=uids, legacy_full_scope=True,
-                          selection_reasons={uid: ["legacy"] for uid in uids})
         return result
 
     def preview_v3_scope(self, roster_character_ids=None, manual_entry_uids=None,
-                         revision=None, full_scope=False):
-        """v3 预览：候选范围 + 解释 + 与草稿绑定的一致性指纹。
-
-        `full_scope=True` 表示「本次会话显式全量兼容」：预览结果与创建会话时一致，
-        因此这里必须真的把范围换成全量，而不是只加一句提示。
-        """
+                         revision=None):
+        """v3 预览：候选范围 + 解释 + 与草稿绑定的一致性指纹。"""
         scope = self.resolve_v3_import_scope(roster_character_ids, revision, manual_entry_uids)
-        full = self._full_scope_entries()
-        if full_scope:
-            # 与 v2 分支共用同一段「全量兼容范围」构造（`_full_scope_scope`）
-            scope = self._full_scope_scope(scope)
+        full = self._injectable_entries()
         resolved = set(scope["resolved_entry_uids"])
         costs = {e.uid: estimate_tokens(e.content) for e in self.entries}
         total = sum(costs.get(e.uid, 0) for e in full)
@@ -1585,9 +1480,6 @@ class WorldBook:
         by_uid = {e.uid: e for e in self.entries}
 
         warnings = []
-        if full_scope:
-            warnings.append("已选择「本次会话全量兼容」：这次会载入全部启用条目，"
-                            "只影响本会话，不改变这本书的规则。")
         pending = sum(e.category_id == "unclassified" for e in full)
         if pending:
             warnings.append(f"{pending} 条尚未分类；未分类条目不会被任何起点激活，"
@@ -1604,7 +1496,6 @@ class WorldBook:
             "schema_version": SCHEMA_VERSION_V3,
             "scope_mode": self.scope_mode,
             "resolver_version": RESOLVER_VERSION,
-            "full_scope": bool(full_scope),
             "entry_count": len(resolved),
             "full_entry_count": len(full),
             "full_estimated_tokens": total,
@@ -1618,7 +1509,7 @@ class WorldBook:
             "cross_references": scope["cross_references"],
             "issues": scope["issues"],
             "draft_hash": self.policy_draft_hash(roster_character_ids, manual_entry_uids,
-                                                 revision, full_scope),
+                                                 revision),
             "policy_revision": scope["policy_revision"],
             "content_revision": scope["content_revision"],
             "breakdown": {
@@ -1626,7 +1517,7 @@ class WorldBook:
                                             for uid in resolved),
                          "estimated_tokens": sum(costs.get(uid, 0) for uid in resolved
                                                  if reason in scope["selection_reasons"].get(uid, []))}
-                for reason in ("always", "roster", "requires", "manual", "full_scope")},
+                for reason in ("always", "roster", "requires", "manual")},
             "manual_entry_uids": scope["manual_entry_uids"],
             "unselected_entries": unselected[:200],
             "unselected_count": len(unselected),
@@ -1636,8 +1527,8 @@ class WorldBook:
         }
 
     def policy_draft_hash(self, roster_character_ids=None, manual_entry_uids=None,
-                          revision=None, full_scope=False) -> str:
-        """草稿指纹：规则 + 边 + 阵容 + 手动追加 + 是否显式全量兼容。
+                          revision=None) -> str:
+        """草稿指纹：规则 + 边 + 阵容 + 手动追加。
 
         用于「预览与创建必须一致」：只要其中任何一项不同，指纹就不同，
         创建会话时校验失败而不是静默换一套范围。
@@ -1651,22 +1542,19 @@ class WorldBook:
             "related_edges": (snapshot or {}).get("related_edges") or self.related_edges,
             "roster": sorted({c.strip() for c in (roster_character_ids or []) if isinstance(c, str)}),
             "manual": sorted(set(manual_entry_uids or [])),
-            "full_scope": bool(full_scope),
             "content_revision": content_revision(self.entries),
         }
         text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
     def session_scope_snapshot(self, roster_character_ids=None, manual_entry_uids=None,
-                               revision=None, full_scope=False) -> dict:
+                               revision=None) -> dict:
         """生成会话要持久化的 v3 范围快照。
 
         绑定的是**完整规则/关联/边的不可变版本**（不只是版本号），并记录解析器版本、
         阵容、手动追加、激活根、UID、原因、参与边与展示路径。正文仍按实时语义读取，
         因此这里保存的是规则与解析结果，不是条目正文副本。
 
-        `full_scope=True` 是**显式**的全量兼容：本次会话载入全部启用且有正文的条目，
-        不改动这本书的规则，也不影响别的会话。
         """
         scope = self.resolve_v3_import_scope(roster_character_ids, revision, manual_entry_uids)
         snapshot = self.rules_snapshot(scope["policy_revision"])
@@ -1688,8 +1576,6 @@ class WorldBook:
             "resolved_edges": [e for e in scope["resolved_edges"] if e.get("active")],
             "display_tree": scope["display_tree"],
             "issues": scope["issues"],
-            "legacy_full_scope": False,
-            "full_scope": False,
             "resolved_at": scope["resolved_at"],
         }
         result.update({
@@ -1706,19 +1592,6 @@ class WorldBook:
                                 "entry_enabled": {}},
             "suppressed_edges": [], "inheritance_conflicts": [], "scope_revision": 1,
         })
-        if not full_scope:
-            return result
-        uids = self.full_scope_uids()          # 与预览共用同一真源
-        result.update({
-            "resolved_entry_uids": uids,
-            "selection_reasons": {uid: ["full_scope"] for uid in uids},
-            "active_roots": [],
-            "resolved_edges": [],
-            "display_tree": [],
-            "issues": [],
-            "legacy_full_scope": True,
-            "full_scope": True,
-        })
         return result
 
     def refresh_session_scope(self, existing_scope, roster_character_ids=None) -> dict:
@@ -1727,41 +1600,14 @@ class WorldBook:
         关键：不能拿「这本书现在长什么样」去覆盖会话快照，否则
         - 绑定的不可变规则版本会被换成最新版本；
         - 手动追加（本会话作用域）会消失；
-        - 显式全量兼容会被悄悄取消；
         - 选用原因 / 参与边 / 展示树会退化成一份没有解释的 UID 列表。
 
-        v3 快照沿用绑定的 revision / manual / full_scope 重算；
-        v2 快照沿用旧语义，不静默升级。
+        快照沿用绑定的 revision / manual 重算。
         """
         if not isinstance(existing_scope, dict):
-            existing_scope = {}
+            raise ValueError("会话世界书范围必须是对象")
         if existing_scope.get("schema_version") != SCHEMA_VERSION_V3:
-            refreshed = self.resolve_import_scope(roster_character_ids)
-            manual = [uid for uid in (existing_scope.get("manual_entry_uids") or [])
-                      if isinstance(uid, str)]
-            by_uid = {entry.uid: entry for entry in self.entries}
-            if existing_scope.get("full_scope"):
-                resolved = sorted(uid for uid, entry in by_uid.items()
-                                  if self.enabled and entry.enabled and (entry.content or "").strip())
-                refreshed.update({"resolved_entry_uids": resolved,
-                                  "selection_reasons": {uid: ["full_scope"] for uid in resolved},
-                                  "legacy_full_scope": True, "full_scope": True})
-            else:
-                resolved = list(refreshed.get("resolved_entry_uids") or [])
-                reasons = dict(refreshed.get("selection_reasons") or {})
-                for uid in manual:
-                    entry = by_uid.get(uid)
-                    if entry and self.enabled and entry.enabled and (entry.content or "").strip():
-                        if uid not in resolved:
-                            resolved.append(uid)
-                        reasons.setdefault(uid, []).append("manual")
-                refreshed.update({"resolved_entry_uids": resolved,
-                                  "selection_reasons": reasons,
-                                  "full_scope": False})
-            # 保留 v2 会话级覆盖字段；解析器版本仍保持 v2，不静默升级。
-            return {**existing_scope, **refreshed,
-                    "manual_entry_uids": manual,
-                    "roster_character_ids": sorted(set(roster_character_ids or []))}
+            raise ValueError(f"会话世界书范围仅支持 schema_version={SCHEMA_VERSION_V3}")
         # 会话自带完整规则；即使书的历史版本被移除也能恢复。
         from session_worldbook_dependencies import effective_graph, effective_rules, normalize_scope
         managed = normalize_scope(existing_scope)
@@ -1777,7 +1623,6 @@ class WorldBook:
             roster_character_ids,
             existing_scope.get("manual_entry_uids") or [],
             None,
-            bool(existing_scope.get("full_scope")),
         )
         refreshed.update({
             "inheritance": managed["inheritance"],
@@ -1813,21 +1658,17 @@ class WorldBook:
         """会话候选集 = 会话范围 ∩ 节点作用域（窄化白名单）。
 
         节点作用域来自 overlay.get_active_lore_scope()（冻结在剧情树节点快照里，
-        见 docs/design/worldbook/node-scoped-worldbook-loading.md）。返回 None / 无作用域时行为与
-        旧版一致：None 表示不过滤（collect_matches 对 eligible_uids=None 不过滤）；
-        无节点作用域（书内无 lore_bindings / 自由模式 / 老会话）返回全量会话范围。
+        见 docs/design/worldbook/node-scoped-worldbook-loading.md）。缺少当前 v3 快照时返回空集；
+        无节点作用域（书内无 lore_bindings / 自由模式）时返回完整的会话候选范围。
         with_reasons=True 时返回 (集合, 解释 dict)，供编辑器/调试接口用。
         """
         scope = getattr(overlay, "get_worldbook_scope", lambda: None)()
-        if scope is None:
-            if not hasattr(overlay, "set_worldbook_scope"):
-                return (None, {"node_scope": None, "legacy": True}) if with_reasons else None
-            # 首次使用时为旧会话留存全量兼容快照，之后新增条目不悄悄扩张旧剧情。
-            scope = {"book_id": self.id, "policy_revision": self.import_config["revision"],
-                     "resolved_entry_uids": [e.uid for e in self.entries if e.enabled and e.content.strip()],
-                     "legacy_full_scope": True, "resolved_at": time.time()}
-            overlay.set_worldbook_scope(scope)
-        base = set(scope.get("resolved_entry_uids", [])) if scope.get("book_id") == self.id else set()
+        if (not isinstance(scope, dict)
+                or scope.get("schema_version") != SCHEMA_VERSION_V3
+                or scope.get("book_id") != self.id):
+            empty = EligibleSet()
+            return (empty, {"node_scope": None}) if with_reasons else empty
+        base = set(scope.get("resolved_entry_uids", []))
         enabled_overrides = ((scope.get("local_overrides") or {}).get("entry_enabled") or {})
 
         node_scope = None
@@ -1875,6 +1716,9 @@ class WorldBook:
         eligible_uids_for）：forced_uids 内的条目跳过关键词与掷骰
         （inject="always" 钉入）；position_overrides 在排序/分层时生效。
         """
+        if not self.enabled:
+            return []
+
         scan_text = f"{recent_text or ''}\n{current_input or ''}"
         if not scan_text.strip():
             scan_text = current_input or ""
@@ -1921,7 +1765,7 @@ class WorldBook:
 
         # 排序：position（卡前/卡后）→ group_weight 降序 → depth 升序
         if self.entry_order is None:
-            matched.sort(key=self.legacy_entry_sort_key)
+            matched.sort(key=self.default_entry_sort_key)
         else:
             explicit = {uid: index for index, uid in enumerate(self.entry_order)}
 
@@ -1931,7 +1775,7 @@ class WorldBook:
                 # position override changes an entry's layer.
                 layer = 0 if entry.position == 0 and entry.always_active else 1
                 return (layer, explicit.get(entry.uid, len(explicit)),
-                        *self.legacy_entry_sort_key(entry))
+                        *self.default_entry_sort_key(entry))
 
             matched.sort(key=explicit_key)
         return matched
@@ -2012,6 +1856,29 @@ class WorldBook:
         if mode not in ("narrative", "free"):
             raise ValueError("mode 必须是 narrative 或 free")
 
+        if not self.enabled:
+            return {
+                "mode": mode,
+                "order": [],
+                "stable_text": "",
+                "dynamic_text": "",
+                "sites": _preview_sites(mode),
+                "skeleton": _preview_skeleton(mode),
+                "dropped": [
+                    {"uid": entry.uid, "name": entry.name or entry.uid,
+                     "reason": "disabled" if not entry.enabled else "not_in_scope"}
+                    for entry in self.entries if not is_system_entry(entry)
+                ],
+                "totals": {
+                    "stable_tokens": 0,
+                    "dynamic_tokens": 0,
+                    "budget_tokens": 0,
+                    "truncated": False,
+                    "candidate_count": 0,
+                    "matched_count": 0,
+                },
+            }
+
         candidate = copy.deepcopy(self)
         candidate.budget_tokens = 0
         excluded = {str(uid) for uid in (excluded_entry_uids or ())}
@@ -2073,8 +1940,8 @@ class WorldBook:
 
     def preview_prompt_injection(self, *, mode="narrative", input_text="", recent_text="",
                                  roster_character_ids=None, manual_entry_uids=None,
-                                 full_scope=False, identity="玩家", active_char=None,
-                                 seed=0, lore_scope=None) -> dict:
+                                 identity="玩家", active_char=None, seed=0,
+                                 lore_scope=None) -> dict:
         """只读预览：这一轮**真正会插进提示词**的文本、顺序、位置与未插入原因。
 
         与线上注入复用**同一条执行路径**（不新写分支、不重放第二遍预算循环）：
@@ -2095,17 +1962,8 @@ class WorldBook:
                   if isinstance(c, str) and c.strip()]
         manual = sorted({u for u in (manual_entry_uids or []) if isinstance(u, str) and u})
 
-        # 1) 候选范围：与 scope-preview 走同一入口（v3 用 v3 规则，v2 书不静默升级）
-        if self.v3_enabled:
-            scope = self.preview_v3_scope(roster, manual, None, bool(full_scope))["scope"]
-        else:
-            scope = self.preview_scope(roster)["scope"]
-            # v2 书也要认 `full_scope`（提案 §3.2 的请求字段之一）：与 v3 分支共用同一段
-            # 全量范围构造，否则同一个开关在两个接口/两种书上口径不一致 —— v2 书上
-            # 「全量兼容」会静默无效，`candidate_count` 与 `scope-preview` 的
-            # `entry_count` 对不上。
-            if full_scope:
-                scope = self._full_scope_scope(scope)
+        # 1) 候选范围：与 scope-preview 走同一 v3 解析入口。
+        scope = self.preview_v3_scope(roster, manual)["scope"]
 
         # 2) 合成 overlay（一次性、不触碰真实会话）：候选范围 ∩ 节点作用域
         overlay = _PromptPreviewOverlay(scope, lore_scope)
@@ -2139,8 +1997,6 @@ class WorldBook:
             entry_reasons = [r for r in (scope_reasons.get(uid) or []) if isinstance(r, str)]
             if uid in manual_set and "manual" not in entry_reasons:
                 entry_reasons.append("manual")
-            if full_scope and "full_scope" not in entry_reasons:
-                entry_reasons.append("full_scope")
             override = None
             patch = overrides.get(uid)
             if isinstance(patch, dict) and patch:
@@ -2168,24 +2024,10 @@ class WorldBook:
 
         # 5) dropped[]：全书条目（书内顺序）各报一个原因；已进 order[] 的不再出现
         scope_uids = set(scope.get("resolved_entry_uids") or [])
-        # `not_in_scope` 只对**根本没进过候选范围**的条目成立。范围解析阶段就被排除的
-        # 条目（典型是 v2 的停用 / 空正文——v2 的 `resolve_import_scope` 会把它们从
-        # `resolved_entry_uids` 里过滤掉，因为它们确实不该注入）必须走它们**真正的**
-        # 原因 `disabled` / `empty_content`：它们往往已经在起点里，
-        # 报 `not_in_scope` 会把用户引向错误的修复入口（「去分类与载入把它设为起点」——
-        # 它已经是起点了）。
+        # `not_in_scope` 只对根本没进过候选范围的条目成立；停用/空正文条目仍由
+        # v3 issues 提供真实原因。
         scoped_uids = set(scope_uids)
-        for item in scope.get("excluded_entries") or []:      # v2：{"uid","name","reason"}
-            # 「整本书已停用」是**书级**原因，不是条目级排除：整本书不在候选范围内时
-            # 条目应报 `not_in_scope`（九类里没有「整本书已停用」这一档），否则它们会
-            # 走到 `_preview_drop_reason` 的兜底分支，产出与 `totals.truncated` 矛盾的原因。
-            if (isinstance(item, dict) and isinstance(item.get("uid"), str)
-                    and item.get("reason") != EXCLUDED_REASON_BOOK_DISABLED):
-                scoped_uids.add(item["uid"])
-        for issue in scope.get("issues") or []:               # v3：防御性并集
-            # v3 的 `best` 本就包含停用 / 空正文条目（只以 issues 形式报告），
-            # 因此这一步通常不会新增 uid；留在这里是为了让两套解析器的口径一致，
-            # 将来若 v3 也改成过滤式解析，原因分类不会退化成 not_in_scope。
+        for issue in scope.get("issues") or []:
             if (isinstance(issue, dict)
                     and issue.get("code") in ("disabled_entry", "empty_content")
                     and isinstance(issue.get("uid"), str)):
@@ -2221,8 +2063,7 @@ class WorldBook:
                 "budget_tokens": int(self.budget_tokens or 0),
                 # 截断 = trace 里存在被预算跳过的条目
                 "truncated": bool(stopped_uids),
-                # 「候选」= 范围解析后真正会被考虑注入的条数（v2 的停用 / 空正文
-                # 条目不在其中，它们由 dropped[] 的 disabled / empty_content 解释）。
+                # 「候选」= 范围解析后真正会被考虑注入的条数。
                 "candidate_count": len(scope_uids),
                 "matched_count": len(matched),
             },
@@ -2292,10 +2133,9 @@ class WorldBook:
             extension[EXTENSION_KEY]["character_media"] = copy.deepcopy(self.character_media)
         if self.character_profiles:
             extension[EXTENSION_KEY]["character_profiles"] = copy.deepcopy(self.character_profiles)
-        if self.dependency_rules is not None:
-            extension[EXTENSION_KEY]["dependency_rules"] = copy.deepcopy(self.dependency_rules)
-            extension[EXTENSION_KEY]["related_edges"] = copy.deepcopy(self.related_edges)
-            extension[EXTENSION_KEY]["policy_revisions"] = copy.deepcopy(self.policy_revisions)
+        extension[EXTENSION_KEY]["dependency_rules"] = copy.deepcopy(self.dependency_rules)
+        extension[EXTENSION_KEY]["related_edges"] = copy.deepcopy(self.related_edges)
+        extension[EXTENSION_KEY]["policy_revisions"] = copy.deepcopy(self.policy_revisions)
         return {"entries": entries_map, "extensions": extension}
 
 
@@ -2328,15 +2168,13 @@ def auto_classification_patch(book: WorldBook, result) -> dict:
     return {"categories": categories, "entry_moves": moves, "entry_updates": updates}
 
 
-def apply_auto_classification(book: WorldBook, first_install: bool = False):
+def apply_auto_classification(book: WorldBook):
     """按条目自带的可信元数据重建分类与角色关联。
 
     只改「条目属于哪一类」和随之而来的角色关联，**不碰载入模式、固定导入与依赖策略**。
     调用方负责决定时机：`from_dict` 只在分类形同未分类时自动调用（用户编辑过的分类不会被
     覆盖），接口则用于用户显式点击「自动分类」。
 
-    first_install 仅供预装包首次安装使用：沿用「预装包直接进入按需载入」的既有语义。
-    已存在的旧书只修分类，不隐式切换载入模式（旧书仅编辑分类不自动启用按需载入）。
     """
     result = classify_entries(book.entries)
     if not result.matched:
@@ -2351,8 +2189,6 @@ def apply_auto_classification(book: WorldBook, first_install: bool = False):
             entry.character_id = patch["entry_updates"][entry.uid]["character_id"]
         elif entry.category_id in known and book.category_scope_type(entry.category_id) != "character":
             entry.character_id = ""
-    if first_install:
-        book.scope_mode = "selective"
     return result
 
 
@@ -2621,42 +2457,11 @@ class WorldBookManager:
             raise ValueError("非法世界书 ID")
         return self._packs_dir / f"{book_id}.json"
 
-    def _settings_path(self) -> Path:
-        return self._dir / "settings.json"
-
-    def _load_settings(self) -> dict:
-        path = self._settings_path()
-        if path.is_file():
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning("读取世界书设置失败: %s", e)
-        return {}
-
-    def _save_settings(self, settings: dict):
-        path = self._settings_path()
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(settings, f, ensure_ascii=False, indent=2)
-            f.write("\n")
-
-    # ── 默认书 ──
-
-    def get_default_book_id(self) -> Optional[str]:
-        return None
-
-    def set_default_book_id(self, book_id: Optional[str]):
-        """保留旧 API 名称，但不再允许全局默认书。"""
-        raise ValueError("全局默认世界书已取消，请在会话中绑定世界书")
-
     # ── CRUD ──
 
     def list_books(self) -> list[dict]:
         """列出所有书（统一列表）：预装包在前，导入书按创建时间倒序。"""
         self.scan_inbox()
-        default_id = self.get_default_book_id()
         books = []
 
         preinstalled = []
@@ -2667,7 +2472,7 @@ class WorldBookManager:
             except Exception as e:
                 logger.warning("加载世界书 %s 失败: %s", path.name, e)
                 continue
-            summary = self._summary(book, default_id)
+            summary = self._summary(book)
             (preinstalled if book.source == SOURCE_PREINSTALLED else imported).append(summary)
 
         # 预装包固定顺序在前（与分发源顺序一致），导入书按时间倒序
@@ -2676,7 +2481,7 @@ class WorldBookManager:
         books.extend(imported)
         return books
 
-    def _summary(self, book: "WorldBook", default_id: Optional[str]) -> dict:
+    def _summary(self, book: "WorldBook") -> dict:
         stats = book.entry_stats()
         return {
             "id": book.id,
@@ -2701,7 +2506,6 @@ class WorldBookManager:
             "entry_count": stats.total,
             "created_at": book.created_at,
             "updated_at": book.updated_at,
-            "is_default": book.id == default_id,
         }
 
     def load(self, book_id: str) -> Optional[WorldBook]:
@@ -2785,18 +2589,19 @@ class WorldBookManager:
 
     def install_bundle_file(self, archive: Path) -> WorldBook:
         """Install a complete archive only when its original ID is free."""
-        from worldbook_bundle import MAX_METADATA_SIZE, MAX_TOTAL_SIZE, install_bundle
+        from worldbook_bundle import MAX_BOOK_SIZE, MAX_METADATA_SIZE, MAX_TOTAL_SIZE, install_bundle
 
-        if archive.stat().st_size > MAX_TOTAL_SIZE + 2 * MAX_METADATA_SIZE + 64 * 1024 * 1024:
+        if archive.stat().st_size > MAX_TOTAL_SIZE + MAX_BOOK_SIZE + MAX_METADATA_SIZE + 64 * 1024 * 1024:
             raise ValueError("完整包文件过大")
         with zipfile.ZipFile(archive) as package:
             def read_metadata(name: str) -> dict:
-                if package.getinfo(name).file_size > MAX_METADATA_SIZE:
-                    raise ValueError(f"完整包 {name} 超过 16 MB")
+                limit = MAX_BOOK_SIZE if name == "book.json" else MAX_METADATA_SIZE
+                if package.getinfo(name).file_size > limit:
+                    raise ValueError(f"完整包 {name} 超过大小限制")
                 with package.open(name) as stream:
-                    raw = stream.read(MAX_METADATA_SIZE + 1)
-                if len(raw) > MAX_METADATA_SIZE:
-                    raise ValueError(f"完整包 {name} 超过 16 MB")
+                    raw = stream.read(limit + 1)
+                if len(raw) > limit:
+                    raise ValueError(f"完整包 {name} 超过大小限制")
                 return json.loads(raw)
 
             payload = read_metadata("book.json")
@@ -2925,11 +2730,12 @@ class WorldBookManager:
             # 调用方未表态：把导入物扩展里的用途当作这本书自己的声明
             resolved_type = normalize_book_type(payload_type)
         else:
-            # 两边都没有：旧数据缺字段，按剧情世界书处理
+            # 标准 SillyTavern 格式没有项目用途字段，导入后默认作为剧情世界书。
             resolved_type = DEFAULT_BOOK_TYPE
+        # SillyTavern v1/v2/角色卡只是外部传输格式；进入项目后立即规范为内部 v3。
+        # 没有项目扩展时，每个条目作为 always+none 起点，保持关键词触发语义。
         book = WorldBook(uuid.uuid4().hex[:12], name or "导入的世界书", entries,
-                         source_format=report.source_format, scope_mode="legacy",
-                         book_type=resolved_type)
+                         source_format=report.source_format, book_type=resolved_type)
         if extension:
             book.description = str(extension.get("description", "") or "")
             book.cover_image = str(extension.get("cover_image", "") or "")
@@ -2957,28 +2763,22 @@ class WorldBookManager:
                     book.entry_layout = normalize_entry_layout(
                         requested_layout, book.entry_groups, book.entry_group_map,
                         book.effective_entry_order())
-            if not isinstance(extension.get("import_config", {}), dict):
-                raise ValueError("导入的 import_config 必须是对象")
             book.categories = validate_categories(extension.get("categories", []))
-            mode = extension.get("scope_mode", "legacy")
-            if mode not in ("legacy", "selective"):
-                raise ValueError("导入的范围模式无效")
-            book.scope_mode = mode
-            config, edges = validate_policy({e.uid for e in entries}, {
-                **extension.get("import_config", {}), "dependency_edges": extension.get("dependency_edges", [])})
-            config["revision"] = max(1, _to_int(extension.get("import_config", {}).get("revision"), 1))
-            book.import_config, book.dependency_edges = config, edges
             if any(e.category_id not in {c["id"] for c in book.categories} for e in entries):
                 raise ValueError("导入的条目引用了不存在的分类")
-            # v3 规则随书回灌；旧书（无 dependency_rules）保持 v2 语义不变。
+            config = extension.get("import_config")
+            if isinstance(config, dict):
+                book.import_config = book._normalize_import_config(config)
+            # 只回灌当前项目扩展；旧内部 schema 当作普通 SillyTavern 书规范化。
             rules = extension.get("dependency_rules")
-            if isinstance(rules, dict):
+            if extension.get("schema_version") == SCHEMA_VERSION_V3 and isinstance(rules, dict):
+                if extension.get("scope_mode", "selective") != "selective":
+                    raise ValueError("导入的项目扩展仅支持 selective 范围模式")
                 book.dependency_rules, book.dependency_edges, book.related_edges = (
                     validate_v3_rules({e.uid for e in entries}, {
-                        **rules, "dependency_edges": extension.get("dependency_edges", []),
+                        **rules, "requires_edges": extension.get("dependency_edges", []),
                         "related_edges": extension.get("related_edges", []),
                     }))
-                book.schema_version = 3
                 book.policy_revisions = book._normalize_revisions(extension.get("policy_revisions"))
         # Imported books receive new IDs; give bundled characters matching new
         # private IDs too, so an existing global character is never overwritten.
@@ -3076,7 +2876,7 @@ class WorldBookManager:
         return book
 
     def list_available_packs(self) -> list[dict]:
-        """列出可显式安装的离线内容包，不读取或修改安装副本。"""
+        """列出离线内容包，并只读检查同名安装副本是否符合当前 schema。"""
         result = []
         if not self._packs_dir.is_dir():
             return result
@@ -3088,17 +2888,42 @@ class WorldBookManager:
                 continue
             if not isinstance(data, dict) or data.get("id") != path.stem:
                 continue
+            installed_path = self._installed_path(path.stem)
+            repair_required = False
+            installed = installed_path.is_file()
+            if installed:
+                installed_data = self._read_json(installed_path)
+                try:
+                    if installed_data is None:
+                        raise ValueError("安装副本不是 JSON 对象")
+                    WorldBook.from_dict(installed_data)
+                except (KeyError, TypeError, ValueError):
+                    # 旧内部 schema 不再进入运行时；在示例页提供一次显式修复入口。
+                    installed = False
+                    repair_required = True
             result.append({"id": path.stem, "name": data.get("name", path.stem),
                            "description": data.get("description", ""),
                            "book_type": data.get("book_type", DEFAULT_BOOK_TYPE),
                            "entry_count": len(data.get("entries") or []),
-                           "installed": self._installed_path(path.stem).is_file()})
+                           "installed": installed,
+                           "repair_required": repair_required})
         return result
 
     def install_pack(self, book_id: str) -> WorldBook:
-        """显式安装尚未安装的内容包；不覆盖同名用户书或旧副本。"""
-        if self._installed_path(book_id).is_file():
-            raise ValueError("世界书已经安装；如需恢复出厂内容请使用重装")
+        """显式安装内容包；不符合当前 schema 的同名副本先备份再修复。"""
+        target = self._installed_path(book_id)
+        if target.exists():
+            try:
+                installed_data = self._read_json(target)
+                if installed_data is None:
+                    raise ValueError("安装副本不是 JSON 对象")
+                WorldBook.from_dict(installed_data)
+            except (KeyError, TypeError, ValueError):
+                backup = self._dir / f"{book_id}.unsupported-schema-{uuid.uuid4().hex[:8]}.bak"
+                shutil.copy2(target, backup)
+                logger.warning("旧内部 schema 已备份到 %s，准备从当前内容包重装", backup)
+            else:
+                raise ValueError("世界书已经安装；如需恢复出厂内容请使用重装")
         return self.reinstall_book(book_id)
 
     def delete_book(self, book_id: str) -> bool:
@@ -3175,7 +3000,6 @@ class WorldBookManager:
             wanted = None
         if not q:
             return []
-        default_id = self.get_default_book_id()
         results = []
         paths = self._book_paths()
         for path in paths:
@@ -3198,7 +3022,7 @@ class WorldBookManager:
             if not matched_entries:
                 continue
             results.append({
-                "book": self._summary(book, default_id),
+                "book": self._summary(book),
                 "matches": [e.to_dict() for e in matched_entries[:limit]],
                 "match_count": len(matched_entries),
             })
@@ -3327,7 +3151,7 @@ class WorldBookManager:
 
         return {
             "entries": [e.to_dict() for e in created],
-            "target": self._summary(staged, self.get_default_book_id()),
+            "target": self._summary(staged),
             "revision": staged.import_config["revision"],
             "warnings": warnings,
         }
@@ -3337,19 +3161,15 @@ class WorldBookManager:
     def resolve(self, overlay=None) -> Optional[WorldBook]:
         """解析会话明确绑定、已安装且启用的剧情世界书。
 
-        **资料库（book_type=reference）在这里被无条件排除**，无论它是不是默认书、
-        有没有被会话绑定、或者是不是预装包 —— 资料库只供浏览、检索与摘录。
-        正常情况下接口层已拒绝把资料库设为默认/绑定到会话；这里的判断是防御性的
-        兜底（历史数据、手工改过的 settings、并发改名等），保证「不参与解析」这条
-        硬约束不依赖任何一个入口的校验。
+        **资料库（book_type=reference）在这里被无条件排除**；资料库只供浏览、
+        检索与摘录。接口层会拒绝绑定，这里的判断继续作为防御性约束。
 
         Args:
             overlay: SessionOverlay 实例（可空）。
         """
         if overlay is None:
             return None
-        ids = (overlay.get_worldbook_ids() if hasattr(overlay, "get_worldbook_ids")
-               else [overlay.get_worldbook_id()] if overlay.get_worldbook_id() else [])
+        ids = overlay.get_worldbook_ids()
         books = []
         for book_id in ids:
             try:
@@ -3366,8 +3186,7 @@ class WorldBookManager:
         """Find a copied image in bound books, honoring their binding order."""
         if not overlay or kind not in ("avatar", "skin", "card_face"):
             return None
-        ids = (overlay.get_worldbook_ids() if hasattr(overlay, "get_worldbook_ids")
-               else [overlay.get_worldbook_id()] if overlay.get_worldbook_id() else [])
+        ids = overlay.get_worldbook_ids()
         for book_id in ids:
             book = self.load(book_id)
             if book and book.enabled and not book.is_reference:

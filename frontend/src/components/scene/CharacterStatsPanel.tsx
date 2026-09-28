@@ -92,7 +92,7 @@ export default function CharacterStatsPanel({ ctx }: ScenePanelProps) {
     setCurrentView("worldbook");
   };
 
-  const bookId = ctx.session?.worldbook_id || rows.find((r) => r.worldbook_id)?.worldbook_id || "";
+  const bookId = ctx.session?.worldbook_ids[0] || "";
   const noFields = rows.length > 0 && rows.every((r) => r.fields.length === 0);
 
   return (

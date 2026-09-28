@@ -9,7 +9,6 @@ export interface WorldBookPanelProps {
   draft: WorldBookDraft;
   patch: (changes: Partial<WorldBookDraft>) => void;
   /** 显式改用按需载入（v3）：独立、可撤销的动作，迁移映射由服务端计算 */
-  adoptV3: () => void;
   dirty: boolean;
   saving: boolean;
   saveError: string;
@@ -61,5 +60,4 @@ export const ACTIVATION_LABELS: Record<string, string> = {
 export const EXPANSION_LABELS: Record<string, string> = {
   none: "只含自身",
   requires_closure: "补齐必要依赖",
-  legacy_depth: "按旧深度展开",
 };

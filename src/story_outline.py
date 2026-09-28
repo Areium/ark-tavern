@@ -803,6 +803,7 @@ def delete_outline(book_mgr, book_id: str, plot_id: str) -> bool:
             return False
         for uid in removed_uids:
             book.entry_group_map.pop(uid, None)
+            book.remove_entry_references(uid)
         if hasattr(book, "bump_edit_revision"):
             book.bump_edit_revision()
         book_mgr.save(book)

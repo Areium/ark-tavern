@@ -124,6 +124,19 @@ def test_inbox_native_json_preserves_book_identity_and_metadata(tmp_path):
     assert target.inbox_results()[0]["status"] == "imported"
 
 
+def test_layout_migration_keeps_unsupported_book_and_moves_valid_one(tmp_path):
+    root = tmp_path / "worldbooks"
+    manager = WorldBookManager(root)
+    valid = manager.create_book("可迁移")
+    (root / "books" / f"{valid.id}.json").replace(root / f"{valid.id}.json")
+    unsupported = root / "unsupported.json"
+    unsupported.write_text(json.dumps({"id": "unsupported", "entries": []}), encoding="utf-8")
+
+    assert manager.migrate_legacy_books() == [valid.id]
+    assert (root / "books" / f"{valid.id}.json").exists()
+    assert unsupported.exists()
+
+
 def test_inbox_sillytavern_v2_json_uses_lorebook_parser(tmp_path):
     root = tmp_path / "worldbooks"
     manager = WorldBookManager(root)
@@ -231,3 +244,48 @@ def test_parallel_installs_keep_both_owners(tmp_path):
     assert {book.id for book in installed} == {item[0] for item in archives}
     owners = json.loads((target / "local_content_manifest.json").read_text(encoding="utf-8"))["files"]
     assert len(owners) == 2
+
+
+def test_large_book_and_unmanifested_story_resource_round_trip(tmp_path):
+    source = tmp_path / "source" / "worldbooks"
+    maker = WorldBookManager(source)
+    book = maker.create_book("大容量世界书")
+    book.description = "剧情" * (9 * 1024 * 1024)
+    maker.save(book)
+    story = source / "content" / "plots" / "large.json"
+    _write(story, json.dumps({
+        "worldbook_id": book.id, "text": "剧情" * (9 * 1024 * 1024),
+    }, ensure_ascii=False).encode("utf-8"))
+
+    archive, manifest = maker.export_bundle(book.id)
+    assert {item["path"] for item in manifest["resources"]} == {"plots/large.json"}
+    target = tmp_path / "target" / "worldbooks"
+    installed = WorldBookManager(target).install_bundle_file(archive)
+    assert installed.description == book.description
+    assert (target / "content" / "plots" / "large.json").read_bytes() == story.read_bytes()
+
+
+def test_download_uses_immutable_snapshot_during_later_export(tmp_path):
+    root = tmp_path / "worldbooks"
+    manager = WorldBookManager(root)
+    book = manager.create_book("下载快照")
+    app = Flask(__name__)
+    register(app, {"worldbook": manager})
+    client = app.test_client()
+
+    first = client.get(f"/api/worldbook/{book.id}/bundle")
+    assert first.status_code == 200
+    book.description = "第二版"
+    manager.save(book)
+    second = client.get(f"/api/worldbook/{book.id}/bundle")
+    assert second.status_code == 200
+
+    def description(response):
+        with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+            return json.loads(archive.read("book.json"))["description"]
+
+    assert description(first) == ""
+    assert description(second) == "第二版"
+    first.close()
+    second.close()
+    assert not list((root / "exports").glob(".download-*.arkwb"))

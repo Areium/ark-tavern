@@ -51,7 +51,6 @@ export function DependencyTreeRows({
       {row.requiresChildCount > 0 && <span className="wbd-count" title="requires 出边数">{row.requiresChildCount}</span>}
       {row.viaCycleEdge && <span className="wbd-badge is-cycle">依赖环</span>}
       {row.statusLabel && <span className="wbd-badge is-status">{row.statusLabel}</span>}
-      <span className="wbd-remaining">{row.remainingLabel}</span>
     </div>
 
     {row.repeated && <div className="wbd-dup">
@@ -106,7 +105,7 @@ export default function EntryDependencyTree({ detail, rootUids, draft }: EntryDe
       <div className="wber-dep-row is-missing"><span>•</span><strong>{uid}</strong><small>条目不可用</small></div>
     </div>;
     const cycle = path.includes(uid);
-    const capped = depth >= 8;
+    const displayDepthLimit = depth >= 8;
     const key = `${path.join(">")}>${uid}`;
     const isOpen = opened.has(key);
     const descendants = children.get(uid) || [];
@@ -115,14 +114,14 @@ export default function EntryDependencyTree({ detail, rootUids, draft }: EntryDe
         aria-expanded={!cycle && isOpen} onClick={() => setOpened((current) => {
           const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next;
         })}>
-        <span>{cycle || capped || (!entry.content && !descendants.length) ? "•" : isOpen ? "▾" : "▸"}</span>
+        <span>{cycle || displayDepthLimit || (!entry.content && !descendants.length) ? "•" : isOpen ? "▾" : "▸"}</span>
         <strong>{entry.name || entry.uid}</strong>
-        {cycle && <small>形成环，已停止</small>}{capped && !cycle && <small>已到显示上限</small>}
+        {cycle && <small>形成环，已停止</small>}{displayDepthLimit && !cycle && <small>已到显示上限</small>}
       </button>
       {isOpen && !cycle && <div className="wber-dep-content">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.content || "_（正文为空）_"}</ReactMarkdown>
       </div>}
-      {isOpen && !cycle && !capped && descendants.map((child) => renderRow(child, depth + 1, [...path, uid]))}
+      {isOpen && !cycle && !displayDepthLimit && descendants.map((child) => renderRow(child, depth + 1, [...path, uid]))}
     </div>;
   };
 

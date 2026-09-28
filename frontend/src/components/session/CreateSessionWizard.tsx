@@ -7,7 +7,7 @@
  * 自动选为主控（缺省回退 `initial_characters` 首位），**该世界书的角色花名册**
  * （各书 `character_ids`）与剧情开场角色整批加入预选队友，并在磁贴上标「自动预选」。
  *
- * **「主控与阵容」这一步只选角色**：候选范围、手动追加与全量兼容都不在这里调整
+ * **「主控与阵容」这一步只选角色**：候选范围与手动追加不在这里调整
  * （按书配置在世界书工作台里做）。创建时仍与服务端同口径：预览指纹来自
  * `POST /scope-preview`，前端不自己再走一遍遍历，创建会话本身不调用任何 LLM。
  *
@@ -144,10 +144,9 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   // 阵容变化后重新解析候选范围：防抖 + 过时响应保护（旧响应不会覆盖新结果）。
   // 预览用**完整阵容**（含主控），与服务端 `SceneManager.get_roster()` 同口径，
   // 否则创建时的指纹校验会判定预览过期。
-  // 「手动追加」与「全量兼容」已从向导移除（按书配置在世界书工作台里做），
-  // 创建时仍按空追加、非全量解析，保证预览指纹与提交内容一致。
+  // 书的配置在世界书工作台里调整；创建时按空追加解析，与预览保持一致。
   const { previews: scopePreviews, loading: scopeLoading, error: scopeError } = useRosterScopePreview(
-    worldbookIds, lineup, [], false,
+    worldbookIds, lineup, [],
     open && worldbookIds.length > 0,
   );
 
@@ -258,12 +257,12 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
       // 主控通过 identity 声明（它同时是阵容首位），队友通过 roster_character_ids 入队；
       // 后端把两者合成阵容（`SceneManager.get_roster()`），同一角色只算一次。
       // 世界书绑定、角色入队与候选条目范围由服务端完成，首轮不会全量载入。
-      // 手动追加与全量兼容不在这里调整：提交空追加、非全量，与预览同一口径。
+      // 提交空追加，与预览同一口径。
       // 带上预览指纹：预览已过期时宁可报错，也不静默用一套不同的范围创建会话。
       const session = await api.createSession(
         mode, name.trim(), mode === "story" ? plotId : "", combatMode,
         mainControl, worldbookIds, teammates, [],
-        Object.fromEntries(worldbookIds.map((id) => [id, scopePreviews[id]?.draft_hash || ""])), false,
+        Object.fromEntries(worldbookIds.map((id) => [id, scopePreviews[id]?.draft_hash || ""])),
       );
       onCreated(session);
     } catch (err: any) {

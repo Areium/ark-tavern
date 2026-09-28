@@ -7,8 +7,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from worldbook_scope import (
     ACTIVATION_ALWAYS, ACTIVATION_MANUAL, ACTIVATION_ROSTER_ANY,
-    EXPANSION_LEGACY_DEPTH, EXPANSION_NONE, EXPANSION_REQUIRES_CLOSURE,
-    MAX_CLOSURE_NODES, resolve_v3_scope, validate_v3_rules, v2_rules_from_import_config,
+    EXPANSION_NONE, EXPANSION_REQUIRES_CLOSURE,
+    resolve_v3_scope, validate_v3_rules,
 )
 
 
@@ -111,21 +111,15 @@ def test_cycle_terminates_and_reports_cross_reference():
     assert sorted(parents) == ["a", "b"]
 
 
-def test_expansion_none_and_legacy_depth_keep_v2_semantics():
+def test_expansion_none_and_requires_closure():
     entries = [E("x"), E("y"), E("z")]
     requires = [("x", "y"), ("y", "z")]
 
     none = resolve(entries, [always("x", EXPANSION_NONE)], requires=requires)
     assert set(none["resolved_entry_uids"]) == {"x"}
 
-    depth0 = resolve(entries, [always("x", EXPANSION_LEGACY_DEPTH, max_depth=0)], requires=requires)
-    assert set(depth0["resolved_entry_uids"]) == {"x"}
-
-    depth1 = resolve(entries, [always("x", EXPANSION_LEGACY_DEPTH, max_depth=1)], requires=requires)
-    assert set(depth1["resolved_entry_uids"]) == {"x", "y"}
-
-    depth2 = resolve(entries, [always("x", EXPANSION_LEGACY_DEPTH, max_depth=2)], requires=requires)
-    assert set(depth2["resolved_entry_uids"]) == {"x", "y", "z"}
+    closure = resolve(entries, [always("x", EXPANSION_REQUIRES_CLOSURE)], requires=requires)
+    assert set(closure["resolved_entry_uids"]) == {"x", "y", "z"}
 
 
 def test_requires_closure_is_not_silently_truncated():
@@ -197,9 +191,7 @@ def test_display_tree_has_single_root_per_branch_and_is_deterministic():
     {"roots": [{"entry_uid": "a", "activation": ACTIVATION_ROSTER_ANY}]},
     {"roots": [{"entry_uid": "a", "activation": ACTIVATION_ALWAYS, "character_ids": ["A"]}]},
     {"roots": [always("a"), always("a")]},
-    {"roots": [always("a", EXPANSION_LEGACY_DEPTH, max_depth=33)]},
-    {"roots": [always("a", EXPANSION_LEGACY_DEPTH, max_depth=None)]},
-    {"roots": [always("a", EXPANSION_LEGACY_DEPTH, max_depth=True)]},
+    {"roots": [always("a", "unsupported_expansion")]},
     {"roots": [always("a")], "requires_edges": [{"from_uid": "a", "to_uid": "a"}]},
     {"roots": [always("a")], "requires_edges": [{"from_uid": "a", "to_uid": "missing"}]},
     {"roots": [always("a")], "requires_edges": [{"from_uid": "a", "to_uid": "b"}] * 2},
@@ -213,36 +205,19 @@ def test_v3_validation_rejects_bad_shapes(bad):
         validate_v3_rules({"a", "b"}, bad)
 
 
-def test_v2_config_maps_to_v3_roots_losslessly():
-    """旧 fixed → always+none；旧 sources → always+legacy_depth。"""
-    rules, requires, related = v2_rules_from_import_config(
-        {"fixed_entry_uids": ["f"], "dependency_sources": [{"entry_uid": "s", "max_depth": 3}]},
-        [{"from_uid": "s", "to_uid": "t"}])
-    by_uid = {r["entry_uid"]: r for r in rules["roots"]}
-    assert by_uid["f"]["activation"] == ACTIVATION_ALWAYS
-    assert by_uid["f"]["expansion"] == EXPANSION_NONE
-    assert by_uid["s"]["expansion"] == EXPANSION_LEGACY_DEPTH
-    assert by_uid["s"]["max_depth"] == 3
-    assert requires == [{"from_uid": "s", "to_uid": "t"}]
-    assert related == []
-    assert MAX_CLOSURE_NODES > 0
-
-
 # ── 读时派生字段（提案 §3.4.5 / §4.2；既有字段与语义不变）──
 
 def statuses(result):
     return {(e["from_uid"], e["to_uid"]): e["status"] for e in result["resolved_edges"]}
 
 
-def test_resolved_edge_status_skeleton_cross_capped_idle():
-    """四种 status 各有真实构造：主路径 / 交叉（菱形另一条路）/ 深度用尽 / 上游不在闭包。"""
-    entries = [E(u) for u in ("a", "b", "c", "d", "f", "g")]
+def test_resolved_edge_status_skeleton_cross_idle():
+    """边状态区分主路径、闭包内交叉边和未激活上游。"""
+    entries = [E(u) for u in ("a", "b", "c", "d", "g")]
     result = resolve(
         entries,
-        [always("a", EXPANSION_LEGACY_DEPTH, max_depth=2)],
-        # a → {b, c}；b、c 各自 → d；d 的剩余深度用尽，d → f 不会被遍历；
-        # g 不在闭包里（没有任何路径到达它）。
-        requires=[("a", "b"), ("a", "c"), ("b", "d"), ("c", "d"), ("d", "f"), ("g", "a")],
+        [always("a")],
+        requires=[("a", "b"), ("a", "c"), ("b", "d"), ("c", "d"), ("g", "a")],
     )
     assert set(result["resolved_entry_uids"]) == {"a", "b", "c", "d"}
     by_pair = statuses(result)
@@ -250,14 +225,10 @@ def test_resolved_edge_status_skeleton_cross_capped_idle():
     assert by_pair[("a", "c")] == "skeleton"
     assert by_pair[("b", "d")] == "skeleton"
     assert by_pair[("c", "d")] == "cross"         # 边生效但 d 已被 b 那次到达覆盖
-    assert by_pair[("d", "f")] == "capped"        # d 已到达，但那次剩余深度是 0
     assert by_pair[("g", "a")] == "idle"          # g 不在闭包里
     # 既有字段一个都不能少或改名
     for edge in result["resolved_edges"]:
         assert set(edge) == {"from_uid", "to_uid", "relation", "active", "status"}
-    # capped 的目标确实不在闭包里（前端要画「未展开」小标记）
-    assert "f" not in result["resolved_entry_uids"]
-    assert by_pair[("d", "f")] == "capped"
 
 
 def test_resolved_edge_related_status_is_always_idle():
@@ -309,19 +280,6 @@ def test_display_tree_repeated_marks_multi_parent_arrivals_and_diamonds():
     assert by_uid["a"]["repeated"] is True
     assert by_uid["b"]["repeated"] is False
 
-    # 非根 + 两条入边、但其中一条是 capped（未被遍历）→ 只有 1 次到达 → false
-    # （旧口径按 requires 入边条数会错判成 true）
-    capped = resolve(
-        [E(u) for u in ("r", "d", "w", "y", "c")],
-        [always("r", EXPANSION_LEGACY_DEPTH, max_depth=3)],
-        requires=[("r", "d"), ("d", "w"), ("w", "y"), ("y", "c"), ("d", "c")],
-    )
-    by_uid = {n["uid"]: n for n in capped["display_tree"]}
-    statuses = {(e["from_uid"], e["to_uid"]): e["status"] for e in capped["resolved_edges"]}
-    assert statuses[("y", "c")] == "capped"        # y 的剩余深度已用尽，边没被遍历
-    assert statuses[("d", "c")] == "skeleton"
-    assert by_uid["c"]["repeated"] is False        # 只有 d → c 这一次真实到达
-    assert by_uid["y"]["repeated"] is False
 
 
 def test_repeated_equals_second_traversed_arrival_invariant():
@@ -336,17 +294,14 @@ def test_repeated_equals_second_traversed_arrival_invariant():
     `resolved_edges` 里有一条 `status == "cross"` 的入边，要么自己是根且有一条
     被遍历的入边。
     """
-    entries = [E(u) for u in ("r1", "r2", "p", "d1", "d2", "x", "leaf", "w", "y", "c")]
+    entries = [E(u) for u in ("r1", "r2", "p", "d1", "d2", "x", "leaf")]
     result = resolve(
         entries,
-        [always("r1", EXPANSION_LEGACY_DEPTH, max_depth=3),
-         always("r2", EXPANSION_LEGACY_DEPTH, max_depth=3)],
+        [always("r1"), always("r2")],
         requires=[("r1", "p"), ("p", "r1"),        # 回指起点：根 r1 二次到达
                   ("r1", "d1"), ("r1", "d2"),
                   ("d1", "x"), ("d2", "x"),        # 菱形：x 二次到达
-                  ("x", "leaf"),
-                  ("d1", "c"), ("d1", "w"), ("w", "y"),
-                  ("y", "c")],                     # y 深度用尽 → capped，不算到达
+                  ("x", "leaf")],
     )
     tree = result["display_tree"]
     roots = {root["entry_uid"] for root in result["active_roots"]}
@@ -368,15 +323,12 @@ def test_repeated_equals_second_traversed_arrival_invariant():
             assert cross_in.get(uid) or (node["is_root"] and traversed_in.get(uid)), (
                 f"{uid}: 声称有重复到达，却既没有 cross 入边也不是「根 + 被遍历的入边」")
 
-    # 四类边界在同一份夹具里各自成立
+    # 三类边界在同一份夹具里各自成立
     by_uid = {n["uid"]: n for n in tree}
     assert by_uid["r1"]["repeated"] is True        # 根 + 一条被遍历入边
     assert by_uid["r2"]["repeated"] is False       # 根 + 无入边
     assert by_uid["leaf"]["repeated"] is False     # 非根 + 一条入边（树父）
     assert by_uid["x"]["repeated"] is True         # 非根 + 两条被遍历入边
-    assert by_uid["c"]["repeated"] is False        # 非根 + 一条被遍历 + 一条 capped
-    # 「repeated 为假却存在 cross 灰出现」在本次解析里为 0 条
-    assert [n["uid"] for n in tree if not n["repeated"] and cross_in.get(n["uid"])] == []
 
 
 def test_display_tree_display_index_follows_depth_uid_order():
@@ -415,7 +367,7 @@ def test_existing_result_fields_are_neither_removed_nor_renamed(monkeypatch):
                  "cross_references", "issues", "manual_entry_uids", "resolved_at"}
     edge_fields = {"from_uid", "to_uid", "relation", "active"}
     node_fields = {"uid", "name", "root_uid", "depth", "parent_uid", "child_uids",
-                   "remaining", "is_root"}
+                   "is_root"}
 
     entries = [E("a"), E("b"), E("c")]
     result = resolve(entries, [always("a")], requires=[("a", "b"), ("b", "c")],

@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from SceneManager import SceneManager  # noqa: E402
-from world_book import WorldBook, WorldBookEntry, WorldBookManager  # noqa: E402
+from world_book import WorldBookEntry, WorldBookManager  # noqa: E402
 
 
 def _entry(uid, content, position=0, **kw):
@@ -25,7 +25,8 @@ def test_narration_messages_inject_worldbook(tmp_path, monkeypatch):
         _entry("3", "这是触发型条目。", position=0, trigger_keys=["凯尔希"]),
     ])
     overlay = session_overlay.SessionOverlay("narration", "free")
-    overlay.set_worldbook_id(mgr.list_books()[0]["id"])
+    overlay.set_worldbook_ids([mgr.list_books()[0]["id"]])
+    overlay.set_worldbook_scope(mgr.load(overlay.get_worldbook_id()).session_scope_snapshot([]))
 
     sm = SceneManager(None, None, overlay=overlay, worldbook_manager=mgr,
                       combat_mode="narrative")
@@ -70,7 +71,8 @@ def test_chat_mode_passes_worldbook_to_agent(tmp_path, monkeypatch):
         _entry("1", "聊天场景条目。", position=0, trigger_keys=["凯尔希"]),
     ])
     overlay = session_overlay.SessionOverlay("chat", "free")
-    overlay.set_worldbook_id(mgr.list_books()[0]["id"])
+    overlay.set_worldbook_ids([mgr.list_books()[0]["id"]])
+    overlay.set_worldbook_scope(mgr.load(overlay.get_worldbook_id()).session_scope_snapshot([]))
 
     sm = SceneManager(None, None, overlay=overlay, worldbook_manager=mgr,
                       combat_mode="narrative")
