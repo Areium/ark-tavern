@@ -1,4 +1,4 @@
-"""Validated, self-contained installed worldbook folders and pack resources."""
+"""Validation for self-contained worldbook folders."""
 
 from __future__ import annotations
 
@@ -7,8 +7,6 @@ import os
 import re
 from pathlib import Path, PurePosixPath
 
-MAX_FILES = 10_000
-MAX_FILE_SIZE = 64 * 1024 * 1024
 MAX_BOOK_SIZE = 256 * 1024 * 1024
 _ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 _WINDOWS_DEVICE = re.compile(r"(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\..*)?\Z", re.I)
@@ -68,92 +66,6 @@ def _read_json(raw: bytes) -> dict:
     if not isinstance(value, dict):
         raise ValueError("Expected JSON object")
     return value
-
-
-def _owned_by(value: object, book_id: str) -> bool:
-    return isinstance(value, list) and book_id in value
-
-
-def _source_resources(book_id: str, worldbooks_dir: Path, content_dir: Path) -> list[tuple[str, Path]]:
-    manifest_path = worldbooks_dir / "content_manifest.json"
-    manifest = _read_json(manifest_path.read_bytes()) if manifest_path.exists() else {}
-    directories = manifest.get("directories", {})
-    files = manifest.get("files", {})
-    if not isinstance(directories, dict) or not isinstance(files, dict):
-        raise ValueError("Invalid distribution content manifest")
-    local_path = worldbooks_dir / "local_content_manifest.json"
-    local = _read_json(local_path.read_bytes()) if local_path.exists() else {}
-    local_files = local.get("files", {})
-    if not isinstance(local_files, dict):
-        raise ValueError("Invalid local content manifest")
-
-    selected: dict[str, Path] = {}
-    all_files: list[tuple[str, Path]] = []
-    if content_dir.exists():
-        _no_links(content_dir, content_dir)
-        for base, dirs, names in os.walk(content_dir, followlinks=False):
-            base_path = Path(base)
-            dirs[:] = [name for name in dirs if not (base_path / name).is_symlink()]
-            for name in names:
-                path = base_path / name
-                if path.is_symlink():
-                    continue
-                if not path.is_file():
-                    continue
-                key = path.relative_to(content_dir).as_posix()
-                _relative(key)
-                all_files.append((key, path))
-
-    # Distribution ownership follows the runtime rule: exact files first,
-    # otherwise the longest matching directory prefix.
-    for key, path in all_files:
-        owners = files.get(key)
-        if owners is None:
-            prefixes = [prefix for prefix in directories
-                        if isinstance(prefix, str) and prefix.endswith("/") and key.startswith(prefix)]
-            owners = directories[max(prefixes, key=len)] if prefixes else None
-        if _owned_by(owners, book_id) or _owned_by(local_files.get(key), book_id):
-            selected[key] = path
-
-    # User content outside either manifest can declare ownership on an index
-    # (the whole directory) or a JSON file (that file alone).
-    user_files = {key: path for key, path in all_files
-                  if key not in files and not any(
-                      isinstance(prefix, str) and prefix.endswith("/") and key.startswith(prefix)
-                      for prefix in directories) and key not in local_files}
-    owned_directories: set[str] = set()
-    for key, path in user_files.items():
-        if path.suffix.lower() not in {".md", ".json"}:
-            continue
-        if path.stat().st_size > MAX_FILE_SIZE:
-            raise ValueError(f"Unclassified content exceeds size limit: {key}")
-        if path.suffix.lower() == ".md":
-            try:
-                lines = path.read_text(encoding="utf-8-sig").splitlines()
-            except UnicodeError:
-                continue
-            if lines and lines[0].strip() == "---":
-                for line in lines[1:]:
-                    if line.strip() == "---":
-                        break
-                    match = re.fullmatch(r"\s*worldbook_id\s*:\s*['\"]?([^'\"#\s]+)['\"]?\s*", line)
-                    if match and match.group(1) == book_id:
-                        if path.name == "index.md":
-                            owned_directories.add(path.parent.relative_to(content_dir).as_posix() + "/")
-                        else:
-                            selected[key] = path
-        elif path.suffix.lower() == ".json":
-            try:
-                if _read_json(path.read_bytes()).get("worldbook_id") == book_id:
-                    selected[key] = path
-            except (UnicodeError, ValueError):
-                pass
-    for key, path in user_files.items():
-        if any(key.startswith(prefix) for prefix in owned_directories):
-            selected[key] = path
-    if len(selected) > MAX_FILES:
-        raise ValueError("Too many resources")
-    return sorted(selected.items())
 
 
 def validate_folder(folder: Path, *, expected_id: str | None = None) -> dict:

@@ -20,7 +20,7 @@ import threading
 from pathlib import Path
 
 import frontmatter
-from data_paths import PROJECT_ROOT, content_root, memory_root
+from data_paths import PROJECT_ROOT, memory_root
 from content_scope import is_content_visible
 from worldbook_content import category_roots
 

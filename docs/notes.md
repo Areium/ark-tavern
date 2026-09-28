@@ -205,8 +205,8 @@
 WSL，而本机未安装 WSL。等价做法：
 
 ```powershell
-python -m pytest tests/ perf_tests/test_combat_runtime_v1.py perf_tests/test_combat_data_v1.py `
-  perf_tests/test_settlement_v1.py perf_tests/test_card_json_roundtrip.py perf_tests/test_cv_budget.py
+python -m pytest tests/ perf_tests/test_combat_runtime_v1.py `
+  perf_tests/test_settlement_v1.py
 ```
 
 ### CLI 夹具必须自己钉死 UTF-8（2026-09-19，`f6ea4e7`）
@@ -255,14 +255,13 @@ python -m pytest tests/ perf_tests/test_combat_runtime_v1.py perf_tests/test_com
 
 ## 数据布局
 
-### 世界书内容与运行时书文件分层（2026-09-22，`feat/worldbook-data-layout`）
+### 历史：世界书内容与运行时书文件分层（2026-09-22，`feat/worldbook-data-layout`）
 
 - **现象**：旧布局把随程序分发的角色、剧情、战斗、音频等内容散放在 `data/` 根目录，
   同时把用户书和设置放在 `data/worldbooks/`，路径职责不清且打包、迁移容易漏项。
-- **现状口径**：分发内容目录位于 `data/worldbooks/content/`；预装包位于
-  `data/worldbooks/packs/`；`categories.yaml` 留在 `data/` 根目录；用户书 JSON、
-  `settings.json`、备份和会话数据保持原位。环境内容只有 `Location/` 与 `weather/`，
-  时段预设仍是代码内置列表，不存在 `environment/time/` 目录。
+- **当时的布局记录**：此处关于共享内容目录和预装包的描述记录 2026-09-22 的旧布局，已不代表当前流程。
+  当前 `data/worldbooks/books/` 仅保存用户本地书籍；项目不再分发共享 `content/` 或 `packs/`，
+  新检出后需由用户导入书籍或复制完整书文件夹。`categories.yaml` 仍位于 `data/` 根目录。
 - **证据**：`tests/test_data_layout.py` 覆盖 Document/Wiki 与内容 API、素材 URL、临时候选剧情、
   战斗节点提示刷新、背景引用和生成器临时输出。
 
@@ -296,7 +295,7 @@ python -m pytest tests/ perf_tests/test_combat_runtime_v1.py perf_tests/test_com
 - 没有 `## 章节 N` / `#### beat_` 骨架的剧情，创建会话时用书内 `story_outline_<plot_id>` 系统条目优先、启发式切幕兜底，生成会话自己的节拍骨架。`<current_node>` 提供当前节拍、`must_keep` 和后续候选；玩家选择有 `target_beat_id` 的分支时，叙述前跳到落点。
 - 启发式一幕一节拍默认 `min_rounds=3`，LLM 大纲节拍默认 2，防止模型每轮都标记完成导致过快推进。LLM 大纲解析失败时接口可返回 200 并回落启发式；调用方必须查看 `outline.source` 和 `generation.error`，不能只按 HTTP 状态判断成功。
 - 战术模式只接受绑定当前剧情或世界书的现成战斗节点；其它节点引用按 `combat_scene` 现场生成。生成测试须把节点目录指向临时路径。
-- 偏离分支只写入会话的 `story_outline` 副本，不回写世界书。验证见 `tests/test_story_outline.py`、`tests/test_story_generation_beyond_twin.py`；真实模型检查脚本为 `scripts/verify_beyond_twin_generation.py`。
+- 偏离分支只写入会话的 `story_outline` 副本，不回写世界书。通用行为验证见 `tests/test_story_outline.py`。
 
 ### 节点图演出图片按剧情引用触发（2026-09-27）
 
@@ -310,13 +309,13 @@ python -m pytest tests/ perf_tests/test_combat_runtime_v1.py perf_tests/test_com
 - 大纲生成的节拍不在剧情正文里，双击节点只打开剧情文档，不能让 `StoryBeatEditor` 按 `#### beat_id` 定位。LLM 分析接口即使返回 200 也可能回落启发式，界面须查看 `outline.source` / `generation.error`。
 - 大纲重新生成后章节 ID 或顺序可能变化，已保存的画布节点可能成为“缺失”；需重建布局。验证见 `tests/test_node_graph_worldbook.py`。
 
-## 卡牌剧情内容：灰灯渡口（2026-09-26）
+## 历史内容记录：灰灯渡口（2026-09-26）
 
-- 内容源在 `data/worldbooks/content/plots/grey_lantern/index.md`、`world/灰灯渡口.md` 和三个 `enc_grey_*` 节点，专属敌人是 `enemies/灰灯*.md`；定向重建用 `python scripts/generate_grey_lantern.py`。分发包需与这些源文件同步。
+- 旧共享内容与分发包已从项目移除；本机当前书架不含灰灯渡口。若需恢复，应从项目外副本整理为 `data/worldbooks/books/<book_id>/` 下的完整书文件夹。
 - 确定性选路需结构化大纲 `branches[].target_beat_id`。本书一章一节拍，分叉 `choice_required=true`；模型完成标记和超时均不能替玩家选择，也不能通过模型生成的其它落点跳过分叉。回档需保留树分支的 `target_beat_id`。
 - 固定战斗节拍使用 `min_rounds=1`，声明了节点就不再现场生成第二个节点。合流用三轮，结局只用一个尾声节拍，避免互斥结局顺序串播。
 - 模拟器曾忽略内联敌人造成空场假胜，本次补齐；生产会话仍依赖注册敌人文件，本书已提供。战前绕行缺结构化结算，结局事实仍受模型一致性限制。
-- 设计、问题复现、已修项、未修体验及验证边界见 [灰灯渡口开发记录](grey-lantern-development.md)；不要把接口脚本化验收、180 场策略模拟、13 轮真实模型绕行线当成同一种验证。
+- 不要把接口脚本化验收、180 场策略模拟、13 轮真实模型绕行线当成同一种验证。
 
 ## 横版战斗
 
@@ -334,11 +333,13 @@ python -m pytest tests/ perf_tests/test_combat_runtime_v1.py perf_tests/test_com
 - 护盾 status.value 是新增量；burn.value 是每回合伤害，duration 才是持续时间。净化清理负面状态，最终快照仍是权威来源。
 - 定向检查 `node scripts/test_combat_presentation.cjs` 与 `tests/test_combat_presentation.py`。完整验收和未解决的窄屏/专属演出差距见 [第一轮验收](card-combat-presentation-qa.md)。
 
-## Ark Tavern 通用化与可选内容包（2026-09-27）
+## 历史：Ark Tavern 通用化与可选内容包（2026-09-27）
+
+以下记录描述 2026-09-27 当时的实现与验证；共享分发源、内容归属清单及内容包已移除，不是当前操作流程。
 
 - 启动时不安装或刷新任何离线世界书包。会话未显式绑定剧情世界书时不注入书内容；新会话主控称谓为「玩家」，环境为空。已有本地安装副本保留给用户管理，不自动删除。
-- 分发源仍存于 `data/worldbooks/packs/` 和 `data/worldbooks/content/`。`content_manifest.json` 标记分发资源归属，显式安装示例包时复制归属文件到该书文件夹；运行时只从已安装书读取。停用或删除已安装书使其独占内容退出运行时目录及直达 URL，分发源仍可供再次安装。改动离线资源后运行 `python scripts/generate_content_manifest.py` 并检查 `tests/test_distributed_content_manifest.py`。
-- 战斗 Spine 变体映射作为 `content/spine_variants.json` 分发，经 `/api/assets/spine-variants` 只返回当前可见角色；无模型的角色使用通用几何标记。导入的世界书角色私有副本在卸载时清理，被其他书引用则拒绝卸载。
+- 历史实现曾以 `content_manifest.json` 标记共享分发资源归属，并支持显式安装内容包；当前没有这套内容分发与安装流程。
+- 历史记录中的 Spine 变体映射文件曾随共享内容分发；当前资源按用户的完整世界书文件夹管理。
 ### 可复制的完整世界书（2026-09-28）
 
 - 已安装书以 `data/worldbooks/books/<id>/book.json` 为元数据，`characters/`、`plots/`、`combat/`、`audio/` 等资源目录直接放在同一本书的文件夹内。复制文件夹即完整分享；放入 `books/` 后刷新书架发现。会话按绑定书顺序解析同名资源，无绑定时不读取书内资源。

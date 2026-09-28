@@ -19,7 +19,7 @@ import logging
 
 import yaml
 import frontmatter
-from data_paths import categories_path, content_root, data_root
+from data_paths import categories_path
 from content_scope import is_content_visible
 from worldbook_content import category_roots
 
@@ -74,23 +74,16 @@ class WikiManager:
 
         for cat_name, cat_info in categories.items():
             dir_rel = cat_info if isinstance(cat_info, str) else cat_info.get("dir", "")
-            # 解析相对于 project root 的路径
-            if dir_rel.startswith("data/"):
-                full_dir = os.path.join(self._root, dir_rel)
-            else:
-                full_dir = os.path.join(data_root(self._root), dir_rel)
-            content_base = os.path.abspath(content_root(self._root))
-            full_dir = os.path.abspath(full_dir)
-            relative = os.path.relpath(full_dir, content_base).replace("\\", "/")
-            roots = category_roots(relative, book_ids=self._book_ids,
-                                   project_root=self._root) if (
-                relative not in (".", "..") and not relative.startswith("../")) else []
-            scanned = set()
+            if not isinstance(dir_rel, str):
+                continue
+            try:
+                roots = category_roots(dir_rel.strip("/"), book_ids=self._book_ids,
+                                       project_root=self._root)
+            except ValueError:
+                logger.warning("忽略非法类别目录 %s: %s", cat_name, dir_rel)
+                continue
             for _, root in roots:
                 self._scan_category(cat_name, str(root))
-                scanned.add(os.path.abspath(root))
-            if self._book_ids is None and os.path.isdir(full_dir) and full_dir not in scanned:
-                self._scan_category(cat_name, full_dir)
 
         total = len(self._catalog)
         logger.info("WikiManager: 已索引 %d 个文档, %d 个类别", total, len(self._by_category))

@@ -12,16 +12,11 @@ from __future__ import annotations
 import json
 import logging
 
-from data_paths import CONTENT_ROOT
-from content_scope import is_content_visible
 from worldbook_content import resolve_content
 
 logger = logging.getLogger(__name__)
 
-# 放在 content/combat/rules/（引擎数据），不是 content/rules/（叙事规则文档目录）
-RULES_DIR = CONTENT_ROOT / "combat" / "rules"
-_DEFAULT_RULES_DIR = RULES_DIR
-_CANONICAL_RULES_DIR = RULES_DIR
+RULES_DIR = None  # Explicit test/custom directory only.
 
 DEFAULT_GROWTH: dict = {
     "attribute_points_per_level": 1,
@@ -54,12 +49,9 @@ def _load(name: str, defaults: dict, *, book_id: str | None = None,
     if book_id is not None and book_ids is not None:
         raise ValueError("Specify book_id or book_ids")
     selected = [book_id] if book_id is not None else book_ids
-    path = (resolve_content(f"combat/rules/{name}.json", book_ids=selected)
-            if RULES_DIR == _CANONICAL_RULES_DIR else RULES_DIR / f"{name}.json")
+    path = (RULES_DIR / f"{name}.json" if RULES_DIR is not None else
+            resolve_content(f"combat/rules/{name}.json", book_ids=selected))
     if path is None:
-        return dict(defaults)
-    # Pack rules are optional content. Keep an explicit test/custom rules dir usable.
-    if RULES_DIR == _DEFAULT_RULES_DIR and path.is_relative_to(RULES_DIR) and not is_content_visible(path):
         return dict(defaults)
     try:
         mtime = path.stat().st_mtime

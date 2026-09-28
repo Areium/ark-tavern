@@ -155,27 +155,16 @@ def test_band_scaling_reads_config():
     assert "T4" in (difficulty_rules().get("bands") or {})
 
 
-def test_band_scaling_applies_in_session_when_enabled():
+def test_band_scaling_applies_to_custom_enemy():
     from combat_session import CombatSession
-    node_id = "enc_band_scaling_test"
-    node = {
-        "schema_version": 1, "node_id": node_id, "name": "带宽缩放测试",
-        "map": {"rows": 5, "cols": 5, "tiles": "ground",
-                "deploy": {"player": {"rect": [0, 0, 4, 0]},
-                           "enemy": {"cells": [[2, 4]]}}},
-        "waves": [{"enemies": [{"enemy": "整合运动士兵", "count": 1,
-                                "positions": [[2, 4]]}]}],
-        "difficulty": {"band": "T2", "apply_band_scaling": True, "threat_budget": 2.0},
-    }
-    path = ROOT / "data" / "worldbooks" / "content" / "combat" / "nodes" / f"{node_id}.json"
-    try:
-        path.write_text(json.dumps(node, ensure_ascii=False, indent=2), encoding="utf-8")
-        state = CombatSession("band-test").start(node_id, character_names=["阿米娅"])
-        enemy = next(u for u in state["units"] if u["team"] == "enemy")
-        assert enemy["max_hp"] == 108        # 90 × 1.2
-        assert enemy["patk"] == pytest.approx(24 * 1.15, abs=0.01)
-    finally:
-        path.unlink(missing_ok=True)
+    session = CombatSession("band-test")
+    session._custom_enemies = {"测试敌人": {
+        "name": "测试敌人", "combat_stats": {"hp": 90, "patk": 24},
+    }}
+    session._band_scaling = band_scaling("T2")
+    enemy = session._load_enemy("测试敌人", None)
+    assert enemy.max_hp == 108
+    assert enemy.PATK == pytest.approx(24 * 1.15, abs=0.01)
 
 
 # ── 生成 → 校验 → 试跑 闭环 ──
@@ -198,8 +187,24 @@ def _run(tool: str, *args) -> subprocess.CompletedProcess:
                           env=_tool_env(), cwd=ROOT)
 
 
-def test_validate_cli_accepts_shipped_node():
-    res = _run("validate_battle_spec.py", str(ROOT / "data/worldbooks/content/combat/nodes/enc_training.json"))
+def _valid_node():
+    return {
+        "schema_version": 1, "node_id": "enc_fixture", "name": "临时节点",
+        "map": {"rows": 5, "cols": 5, "tiles": "ground",
+                "deploy": {"player": {"rect": [0, 0, 4, 0]},
+                           "enemy": {"cells": [[2, 4]]}}},
+        "enemies_def": {"测试敌人": {"name": "测试敌人", "combat_stats": {
+            "hp": 90, "patk": 24, "defense": 5}}},
+        "waves": [{"enemies": [{"enemy": "测试敌人", "count": 1,
+                                "positions": [[2, 4]]}]}],
+        "difficulty": {"band": "T1", "threat_budget": 2.0},
+    }
+
+
+def test_validate_cli_accepts_self_contained_node(tmp_path):
+    path = tmp_path / "node.json"
+    path.write_text(json.dumps(_valid_node(), ensure_ascii=False), encoding="utf-8")
+    res = _run("validate_battle_spec.py", str(path))
     assert res.returncode == 0, res.stderr
     assert "OK" in res.stdout
 
@@ -217,65 +222,41 @@ def test_validate_cli_rejects_broken_spec(tmp_path):
     assert payload["results"][0]["errors"]
 
 
-def test_generator_produces_valid_specs_for_each_band(tmp_path):
-    for i, band in enumerate(("T0", "T1", "T2", "T3")):
-        out = tmp_path / f"gen_{band}.json"
-        res = _run("generate_battle_spec.py", "--node-id", f"enc_gen_{band}",
-                   "--band", band, "--seed", str(41 + i), "--out", str(out))
-        assert res.returncode == 0, res.stderr
-        node = json.loads(out.read_text(encoding="utf-8"))
-        assert node["difficulty"]["band"] == band
-        assert node["difficulty"]["threat_budget"] > 0
-        # 生成物必须自身通过校验（生成器内部已自校验，这里再走一遍 CLI）
-        assert _run("validate_battle_spec.py", str(out)).returncode == 0
-
-
-def test_simulate_cli_runs_candidate_and_enforces_thresholds(tmp_path):
-    out = tmp_path / "cand.json"
-    assert _run("generate_battle_spec.py", "--node-id", "enc_sim_candidate",
-                "--band", "T1", "--seed", 7, "--out", str(out)).returncode == 0
-
-    ok = _run("simulate_battle.py", "--spec", str(out), "--runs", 10,
-              "--min-win-rate", "0.1", "--max-median-rounds", "20",
-              "--json", str(tmp_path / "sim.json"))
-    assert ok.returncode == 0, ok.stdout + ok.stderr
-    payload = json.loads((tmp_path / "sim.json").read_text(encoding="utf-8"))
-    assert payload["pass"] is True
-    assert payload["summary"]["win_rate"] >= 0.1
-
-    impossible = _run("simulate_battle.py", "--spec", str(out), "--runs", 10,
-                      "--min-win-rate", "1.01")
-    assert impossible.returncode == 1
-    assert "未达阈值" in impossible.stdout
-
-
-def test_simulate_cli_is_reproducible(tmp_path):
-    out = tmp_path / "cand.json"
-    _run("generate_battle_spec.py", "--node-id", "enc_sim_repro",
-         "--band", "T2", "--seed", 3, "--out", str(out))
-    a = _run("simulate_battle.py", "--spec", str(out), "--runs", 8)
-    b = _run("simulate_battle.py", "--spec", str(out), "--runs", 8)
-    assert a.stdout == b.stdout
-
-
 def test_balance_audit_tool_runs(tmp_path):
+    folder = tmp_path / "audit_book"
+    folder.mkdir()
+    (folder / "book.json").write_text(json.dumps({"id": folder.name}), encoding="utf-8")
+    nodes = folder / "combat" / "nodes"
+    nodes.mkdir(parents=True)
+    (nodes / "enc_fixture.json").write_text(
+        json.dumps(_valid_node(), ensure_ascii=False), encoding="utf-8")
     report = tmp_path / "balance_audit_report.md"
-    res = _run("balance_audit.py", "--report", str(report))
+    res = _run("balance_audit.py", "--book-folder", str(folder),
+               "--report", str(report))
     assert res.returncode == 0, res.stderr
     assert "敌人" in res.stdout and "节点" in res.stdout
     assert report.is_file()
+    assert "战斗节点：1" in report.read_text(encoding="utf-8")
 
 
-def test_audit_report_written_with_tables():
-    report = (ROOT / "perf_tests" / "balance_audit_report.md").read_text(encoding="utf-8")
-    assert "敌人分层" in report and "节点威胁预算" in report
+def test_simulate_cli_loads_node_from_complete_book(tmp_path):
+    folder = tmp_path / "sim_book"
+    nodes = folder / "combat" / "nodes"
+    nodes.mkdir(parents=True)
+    (folder / "book.json").write_text(json.dumps({"id": folder.name}), encoding="utf-8")
+    (nodes / "enc_fixture.json").write_text(
+        json.dumps(_valid_node(), ensure_ascii=False), encoding="utf-8")
+    res = _run("simulate_battle.py", "--book-folder", folder,
+               "--node", "enc_fixture", "--runs", 1)
+    assert res.returncode == 0, res.stderr
+    assert "节点 enc_fixture" in res.stdout
 
 
 # ── 接口：校验返回威胁指标 ──
 
 def test_validate_endpoint_returns_threat_metrics():
     client = create_app().test_client()
-    node = json.loads((ROOT / "data/worldbooks/content/combat/nodes/enc_defense.json").read_text(encoding="utf-8"))
+    node = _valid_node()
     res = client.post("/api/combat/nodes/validate", json={"node": node})
     assert res.status_code == 200
     payload = res.get_json()

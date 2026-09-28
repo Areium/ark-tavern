@@ -136,10 +136,10 @@ def test_preset_categories_are_valid_and_unique():
             assert by_id[category["parent_id"]]["scope_type"] == category["scope_type"]
 
 
-# ── from_dict 迁移守卫 ────────────────────────────────────────────────
+# ── from_dict 分类守卫 ────────────────────────────────────────────────
 
 def raw_pack(entries=None, categories=None):
-    data = {"id": "arknights", "name": "氪金整合包", "source": "preinstalled", "schema_version": 3,
+    data = {"id": "arknights", "name": "测试世界书", "schema_version": 3,
             "scope_mode": "selective", "book_type": "story", "dependency_rules": {},
             "entries": [e.to_dict() for e in (entries or pack_entries())]}
     if categories is not None:
@@ -147,24 +147,17 @@ def raw_pack(entries=None, categories=None):
     return data
 
 
-def test_empty_categories_are_treated_as_unclassified_and_classified(tmp_path):
-    """预装包的空分类会补齐，内部范围模式保持 selective。"""
+def test_empty_categories_remain_unclassified_until_explicit_classification():
     book = WorldBook.from_dict(raw_pack(categories=[]))
     assert book.scope_mode == "selective"
-    assert [e.category_id for e in book.entries][:3] == ["worldview", "rules", "races"]
-    by_uid = {entry.uid: entry for entry in book.entries}
-    assert by_uid["characters_阿米娅_index"].character_id == "阿米娅"
-    names = {c["name"] for c in book.categories}
-    assert {"世界观设定", "规则设定", "种族设定", "角色设定", "物品设定", "节点图", "未分类"} <= names
-    assert by_uid["100"].category_id == "unclassified"
-    assert book.category_scope_type("rules") == "worldview"
+    assert all(e.category_id == "unclassified" for e in book.entries)
+    assert [c["id"] for c in book.categories] == ["unclassified"]
 
 
-def test_first_install_without_categories_key_keeps_entering_selective():
-    """分发源没有 categories 字段：预装包首次安装沿用「直接进入按需载入」的既有语义。"""
+def test_missing_categories_key_keeps_selective_mode():
     book = WorldBook.from_dict(raw_pack())
     assert book.scope_mode == "selective"
-    assert book.entries[0].category_id == "worldview"
+    assert book.entries[0].category_id == "unclassified"
 
 
 def test_saved_taxonomy_is_never_overwritten():
@@ -176,7 +169,7 @@ def test_saved_taxonomy_is_never_overwritten():
 
 
 def test_external_books_without_signals_are_left_alone():
-    data = {"id": "er", "name": "外部书", "source": "imported", "schema_version": 3,
+    data = {"id": "er", "name": "外部书", "schema_version": 3,
             "scope_mode": "selective", "book_type": "story", "dependency_rules": {}, "entries": [
         entry("0", name="abductor virgins").to_dict(),
         entry("1", name="alecto").to_dict()]}
@@ -186,10 +179,8 @@ def test_external_books_without_signals_are_left_alone():
     assert book.scope_mode == "selective"
 
 
-def test_imported_book_with_generator_metadata_is_not_auto_classified_on_load():
-    """自动迁移只服务预装包；导入书要走用户显式的「自动分类」。"""
+def test_book_with_classification_hints_is_not_auto_classified_on_load():
     data = raw_pack(categories=[])
-    data["source"] = "imported"
     book = WorldBook.from_dict(data)
     assert [c["id"] for c in book.categories] == ["unclassified"]
     assert all(e.category_id == "unclassified" for e in book.entries)
@@ -197,8 +188,8 @@ def test_imported_book_with_generator_metadata_is_not_auto_classified_on_load():
 
 def test_missing_parent_is_never_left_behind():
     """只识别出子分类时也要补上父分类，否则 validate_categories 会拒绝整份分类。"""
-    book = WorldBook.from_dict(raw_pack(entries=[entry("rules_buff-pool_index")], categories=[]))
-    assert {c["id"] for c in book.categories} == {"worldview", "rules", "unclassified"}
+    result = classify_entries([entry("rules_buff-pool_index")])
+    assert {c["id"] for c in result.categories()} == {"worldview", "rules", "unclassified"}
 
 
 # ── API ──────────────────────────────────────────────────────────────
@@ -255,7 +246,7 @@ def test_api_auto_classify_revision_conflict_and_no_signal_book(tmp_path):
     manager = WorldBookManager(tmp_path)
     book = WorldBook.from_dict(raw_pack(categories=[]))
     manager.save(book)
-    plain = WorldBook("plain", "外部书", [entry("0", name="abductor virgins")], source="imported")
+    plain = WorldBook("plain", "外部书", [entry("0", name="abductor virgins")])
     manager.save(plain)
     app = Flask(__name__)
     app.config["TESTING"] = True

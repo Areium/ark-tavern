@@ -4,13 +4,14 @@
 工作流（详见 docs/design/combat/combat-background-prompts.md）：
 
   --scaffold   扫描战斗节点(background)与地点(combat_bg)引用了、但
-               data/worldbooks/content/combat/backgrounds/ 下还不存在的背景 ID，自动创建
+               指定世界书 combat/backgrounds/ 下还不存在的背景 ID，自动创建
                index.md 并按地点文档拼好提示词草稿，供人工审修。
   --dry-run    打印所有缺图背景的完整提示词，方便粘贴到任意生图工具。
-  （无参数）   读取 config/image_config.json，调用 OpenAI 兼容的
+  （仅 --book-folder）读取 config/image_config.json，调用 OpenAI 兼容的
                images/generations 接口为所有缺图背景批量出图。
 
 常用附加参数：
+  --book-folder PATH  含 book.json 的完整世界书文件夹（必填）
   --only <bg_id>   只处理指定背景
   --force          已有图也重新生成（默认只处理缺图的）
 """
@@ -30,9 +31,9 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_BG_ROOT = _PROJECT_ROOT / "data" / "worldbooks" / "content" / "combat" / "backgrounds"
-_NODE_ROOT = _PROJECT_ROOT / "data" / "worldbooks" / "content" / "combat" / "nodes"
-_LOC_ROOT = _PROJECT_ROOT / "data" / "worldbooks" / "content" / "environment" / "Location"
+_BG_ROOT: Path
+_NODE_ROOT: Path
+_LOC_ROOT: Path
 _CONFIG_PATH = _PROJECT_ROOT / "config" / "image_config.json"
 
 _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
@@ -130,6 +131,9 @@ def scaffold() -> int:
     refs = _referenced_bg_ids()
     created = 0
     for bg_id, source in sorted(refs.items()):
+        if not bg_id or bg_id in (".", "..") or Path(bg_id).name != bg_id or "\\" in bg_id:
+            logger.warning("跳过无效背景 ID: %s", bg_id)
+            continue
         bg_dir = _BG_ROOT / bg_id
         if (bg_dir / "index.md").is_file():
             continue
@@ -224,11 +228,26 @@ def generate_one(cfg: dict, bg_dir: Path):
 
 def main():
     parser = argparse.ArgumentParser(description="战斗背景 AI 生成工具")
+    parser.add_argument("--book-folder", type=Path, required=True,
+                        help="含 book.json 的完整世界书文件夹")
     parser.add_argument("--scaffold", action="store_true", help="为被引用但缺失的背景建提示词草稿")
     parser.add_argument("--dry-run", action="store_true", help="只打印提示词，不调用 API")
     parser.add_argument("--only", metavar="BG_ID", help="只处理指定背景")
     parser.add_argument("--force", action="store_true", help="已有图也重新生成")
     args = parser.parse_args()
+    if args.scaffold and args.dry_run:
+        parser.error("--scaffold 会写入文件，不能与只读的 --dry-run 同时使用")
+    folder = args.book_folder.resolve()
+    try:
+        book = json.loads((folder / "book.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        parser.error(f"无效世界书文件夹（无法读取 book.json）：{exc}")
+    if not folder.is_dir() or not isinstance(book, dict) or book.get("id") != folder.name:
+        parser.error("book.json 的 id 必须与世界书文件夹名一致")
+    global _BG_ROOT, _NODE_ROOT, _LOC_ROOT
+    _BG_ROOT = folder / "combat" / "backgrounds"
+    _NODE_ROOT = folder / "combat" / "nodes"
+    _LOC_ROOT = folder / "environment" / "Location"
 
     if args.scaffold:
         scaffold()

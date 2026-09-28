@@ -6,20 +6,11 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from app import create_app
 from blueprints.combat import _build_sse_generator
 from combat_engine.engine import CombatEvent
-
-
-@pytest.fixture(scope="module")
-def client():
-    app = create_app()
-    app.config.update(TESTING=True)
-    return app.test_client()
+from test_combat_api import client  # noqa: F401  shared temporary book fixture
 
 
 def _messages(stream):
@@ -55,7 +46,7 @@ def test_suspended_stream_exits_without_draining():
 
 
 def test_practice_batches_are_scoped_and_match_sse_queue(client):
-    started = client.post("/api/combat/test/start", json={"node_id": "enc_training", "characters": ["临光"]})
+    started = client.post("/api/combat/test/start", json={"node_id": "enc_training", "characters": ["Hero"]})
     assert started.status_code == 200, started.get_json()
     test_id = started.get_json()["test_id"]
     combat = client.application._managers["combat_test"].get(test_id)
@@ -88,7 +79,7 @@ def test_practice_batches_are_scoped_and_match_sse_queue(client):
 
 
 def test_action_and_end_turn_always_return_state_and_events(client):
-    started = client.post("/api/combat/test/start", json={"node_id": "enc_training", "characters": ["临光"]})
+    started = client.post("/api/combat/test/start", json={"node_id": "enc_training", "characters": ["Hero"]})
     test_id = started.get_json()["test_id"]
     base = f"/api/combat/test/{test_id}"
     try:
@@ -110,17 +101,18 @@ def test_action_and_end_turn_always_return_state_and_events(client):
 
 
 def test_session_item_returns_heal_batch_and_actions_use_one_dto(client):
-    created = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    created = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical",
+                                                  "worldbook_ids": ["combat_api"]})
     assert created.status_code in (200, 201), created.get_json()
     sid = created.get_json()["id"]
     base = f"/api/sessions/{sid}/combat"
     try:
-        loaded = client.post(f"/api/sessions/{sid}/characters/load", json={"character": "临光"})
+        loaded = client.post(f"/api/sessions/{sid}/characters/load", json={"character": "Hero"})
         assert loaded.status_code == 200, loaded.get_json()
         session = client.application._managers["session"].get_session(sid)
         session.overlay._data.setdefault("inventory", []).append({"name": "急救包", "count": 2})
         session.overlay._save()
-        started = client.post(f"{base}/start", json={"encounter_id": "enc_quick_test_1"})
+        started = client.post(f"{base}/start", json={"encounter_id": "enc_training"})
         assert started.status_code == 200, started.get_json()
         player = next(u for u in session.combat.engine.units.values() if u.team == "player")
         player.hp = max(1, player.hp - 35)

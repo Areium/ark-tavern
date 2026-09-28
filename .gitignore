@@ -4,10 +4,7 @@ logs/
 .history/
 data/memory/
 data/worldbooks/*
-!data/worldbooks/content/
-!data/worldbooks/packs/
 !data/worldbooks/README.md
-!data/worldbooks/content_manifest.json
 data/worldbook_jobs/
 data/worldbook_analysis/
 config/llm_config.json
@@ -17,7 +14,6 @@ venv/
 .dev-pids
 /assets/
 .vite/
-data/worldbooks/content/characters/*/spine/
 perf_tests/results_*.json
 
 # 本地运行时数据/代理临时目录

@@ -8,6 +8,7 @@
 """
 
 import sys
+import json
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,33 @@ import session_overlay as so  # noqa: E402
 from session_overlay import SessionOverlay  # noqa: E402
 from world_book import WorldBook, WorldBookEntry  # noqa: E402
 
-PLOT_ID = "fengxue_guojing"
+PLOT_ID = "fixture_plot"
+BOOK_ID = "fixture-story"
+
+
+def _install_plot(tmp_path, monkeypatch):
+    import world_book
+
+    monkeypatch.setattr(so, "_PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(world_book, "_WORLDBOOKS_DIR", tmp_path / "data" / "worldbooks")
+    folder = tmp_path / "data" / "worldbooks" / "books" / BOOK_ID
+    plot = folder / "plots" / PLOT_ID
+    plot.mkdir(parents=True)
+    (folder / "book.json").write_text(json.dumps(
+        world_book.WorldBook(BOOK_ID, "测试剧情", book_type="story").to_dict(),
+        ensure_ascii=False), encoding="utf-8")
+    chapters = [
+        "## 章节 1：开场\n**ID**：`ch_1`\n#### beat_arrival\n**内容**：抵达关口。\n"
+        "**发现路径**：山道\n### 玩家选项方向\n- 试探向导（谨慎）\n"
+        "#### beat_intro_tension\n**内容**：进一步交谈。\n"
+        "#### beat_convoy_fight\n**内容**：车队遇险。",
+        *[f"## 章节 {i}：第{i}章\n**ID**：`ch_{i}`\n#### beat_ch_{i}\n**内容**：继续前行。"
+          for i in range(2, 7)],
+    ]
+    (plot / "index.md").write_text("---\nid: fixture_plot\nname: 测试剧情\n---\n" +
+                                   "\n".join(chapters) + "\n", encoding="utf-8")
+
+
 
 
 def _make_book(first_beat: str, second_beat: str) -> WorldBook:
@@ -33,7 +60,7 @@ def _make_book(first_beat: str, second_beat: str) -> WorldBook:
                              "inject": "always"},
         },
         "dormant_uids": ["spoiler"],
-    }, "arknights")
+    }, BOOK_ID)
     entries = [
         WorldBookEntry(uid="core", content="核心设定", trigger_keys=["核心"]),
         WorldBookEntry(uid="geo", content="地理设定", trigger_keys=["地理"]),
@@ -42,7 +69,7 @@ def _make_book(first_beat: str, second_beat: str) -> WorldBook:
         WorldBookEntry(uid=binding_data["uid"], content=binding_data["content"],
                        trigger_keys=[], raw=binding_data["raw"]),
     ]
-    return WorldBook("arknights", name="测试书", entries=entries)
+    return WorldBook(BOOK_ID, name="测试书", entries=entries)
 
 
 def _bind_session_scope(ov, book):
@@ -62,7 +89,9 @@ def _eligible(ov, book):
 def env(tmp_path, monkeypatch):
     """全新剧情会话 + 测试世界书（绑定覆盖 root / 第二节拍 / 战斗）。"""
     monkeypatch.setattr(so, "_SESSIONS_DIR", tmp_path / "sessions")
+    _install_plot(tmp_path, monkeypatch)
     ov = SessionOverlay("sess_test_lore_scope", "story")
+    ov.set_worldbook_ids([BOOK_ID])
     ov.load_quests_from_plot(PLOT_ID)
     ov.init_session_docs(PLOT_ID)
     first_beat = ov.get_current_beat_id()
@@ -181,4 +210,4 @@ def test_overlay_without_current_scope_is_empty(env):
     assert book.eligible_uids_for(_Bare()) == set()
     # 当前会话范围存在、没有节点作用域时返回完整会话候选。
     assert _eligible(ov, book) == {"core", "geo", "tactic", "spoiler",
-                                   "lore_bindings_arknights"}
+                                   f"lore_bindings_{BOOK_ID}"}

@@ -405,26 +405,23 @@ def test_import_book_via_manager(tmp_path):
     assert book.name == "导入"
 
 
-def test_unsupported_installed_pack_is_backed_up_before_explicit_reinstall(tmp_path):
+def test_legacy_source_fields_are_ignored_and_dropped_on_save(tmp_path):
     manager = WorldBookManager(tmp_path / "books")
-    manager._packs_dir = tmp_path / "packs"
-    manager._packs_dir.mkdir()
-    source = WorldBook("sample", "当前内容包", [_e("entry")], source="preinstalled")
-    (manager._packs_dir / "sample.json").write_text(
-        json.dumps(source.to_dict(), ensure_ascii=False), encoding="utf-8")
-    old_payload = {**source.to_dict(), "schema_version": 2}
-    installed_path = manager._path("sample")
-    old_bytes = json.dumps(old_payload, ensure_ascii=False).encode("utf-8")
-    installed_path.write_bytes(old_bytes)
+    book = manager.create_book("Local")
+    path = manager._path(book.id)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["source"] = "preinstalled"
+    payload["pack_rev"] = "old-revision"
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
-    listing = {item["id"]: item for item in manager.list_available_packs()}
-    assert listing["sample"]["installed"] is False
-    assert listing["sample"]["repair_required"] is True
-    assert installed_path.read_bytes() == old_bytes
-
-    repaired = manager.install_pack("sample")
-    backups = list(manager._dir.glob("sample.unsupported-schema-*.bak"))
-    assert len(backups) == 1 and backups[0].read_bytes() == old_bytes
-    assert repaired.schema_version == 3
-    assert manager.load("sample").schema_version == 3
-    assert {item["id"]: item for item in manager.list_available_packs()}["sample"]["installed"] is True
+    manager._cache.clear()
+    loaded = manager.load(book.id)
+    assert not hasattr(loaded, "source")
+    assert not hasattr(loaded, "pack_rev")
+    manager.save(loaded)
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert "source" not in saved
+    assert "pack_rev" not in saved
+    summary = manager.list_books()[0]
+    assert "source" not in summary
+    assert "is_preinstalled" not in summary

@@ -292,14 +292,14 @@ pAP  = 1 + floor((MOB - 3) / 3), 钳制 [1, 4]  （个人 AP，玩家移动也�
 
 本项目的卡牌系统采用双轨并行架构：
 
-**叙事卡牌**（`data/worldbooks/content/characters/<name>/index.md` 中的专属卡牌）：
+**叙事卡牌**（`data/worldbooks/books/<book_id>/characters/<name>/index.md` 中的专属卡牌）：
 - 用于角色扮演场景中的行动解决
 - 消耗 SP（技能点），每回合恢复 1 点
 - 判定方式：d20 + 基础数值（由角色属性公式计算）vs 目标 DC
 - 5★ 及以上卡牌附带丰富的剧情/环境影响
 - 编码了角色的身份认同、核心能力和剧情定位
 
-**引擎卡牌**（单一真相源 `data/worldbooks/content/classes/<职业>/cards.json`；`src/combat_engine/card_data.py` 已退化为加载器）：
+**引擎卡牌**（单一真相源 `data/worldbooks/books/<book_id>/classes/<职业>/cards.json`；`src/combat_engine/card_data.py` 已退化为加载器）：
 - 用于网格战术战斗模拟（自由尺寸网格，地形与视线生效）
 - 消耗共享 AP（基础 4 / 最高 5）
 - 判定方式：固定伤害范围 + ATK × 倍率 - 防御，d20 命中系统
@@ -314,7 +314,7 @@ pAP  = 1 + floor((MOB - 3) / 3), 钳制 [1, 4]  （个人 AP，玩家移动也�
 
 | 维度 | 叙事卡牌 | 引擎卡牌 |
 |------|---------|---------|
-| 所在位置 | `data/worldbooks/content/characters/<name>/index.md` | `data/worldbooks/content/classes/<职业>/cards.json` |
+| 所在位置 | `data/worldbooks/books/<book_id>/characters/<name>/index.md` | `data/worldbooks/books/<book_id>/classes/<职业>/cards.json` |
 | 资源系统 | SP（技能点，每回合 +1） | AP（行动点，共享池 4/回合；最高战术规划 ≥8 时 5） |
 | 数值计算 | 角色属性公式 → 基础数值 | 固定伤害范围 + ATK × atk_scale |
 | 判定机制 | d20 + 基础数值 vs DC | d20 + HIT vs 6 + EVA，减防御 |
@@ -341,7 +341,7 @@ pAP  = 1 + floor((MOB - 3) / 3), 钳制 [1, 4]  （个人 AP，玩家移动也�
 ### 6.2 当前敌人实现（初遇整合运动）
 
 首批敌人（士兵 HP 90 / PATK 24、术师 HP 70 / MATK 28、狙击手 HP 75 / HIT 8、
-盾卫 HP 140 / DEF 10）已按 v1 数值基线重排，**逐条数值以 `data/worldbooks/content/enemies/*.md` 的
+盾卫 HP 140 / DEF 10）已按 v1 数值基线重排，**逐条数值以 `data/worldbooks/books/<book_id>/enemies/*.md` 的
 frontmatter `combat_stats`/`xp_reward` 为准**，数值锚点见 `docs/design/combat/battle-spec.md` §4。
 本节不再维护副本表格，避免与敌人库漂移。
 
@@ -351,7 +351,7 @@ frontmatter `combat_stats`/`xp_reward` 为准**，数值锚点见 `docs/design/c
 （士兵 `enemy_atk/enemy_heavy/enemy_aoe`、术师 `enemy_bolt/enemy_storm/enemy_blast`、
 狙击手 `enemy_shot/enemy_barrage`），未声明时回落到该职业/通用默认集；
 `ai_behavior`（aggressive/balanced/defensive）只影响倾向权重。技能清单以
-`data/worldbooks/content/enemies/*.md` 为准，本文档不再列举副本。
+`data/worldbooks/books/<book_id>/enemies/*.md` 为准，本文档不再列举副本。
 
 > 当前实现（`src/combat_engine/engine.py`）：敌人 AI 为**意图驱动**——每回合
 > ROUND_START 计算敌人意图 `{type: 攻击/重击/范围攻击/移动/坚守, target, 强度范围}`
@@ -500,8 +500,8 @@ healing = max(0, round(base + atk_bonus))  // 治疗不受防御影响
 ### 9.2 生存与战斗时长：以模拟实测为准
 
 静态 TTK 推算建立在已废弃的旧行动经济（每人 3AP/回合）之上，结论已失效，故整节删除。
-v1 的生存能力与回合数由固定种子模拟实测：`perf_tests/simulate_combat.py`，
-报告 `perf_tests/progression_report.md`，验收指标见 §14.4。
+v1 的生存能力与回合数由固定种子模拟实测：
+`perf_tests/simulate_combat.py --book-folder PATH`；验收指标见 §14.4。
 
 ---
 
@@ -689,9 +689,9 @@ ATK 加成 = atk_stat × card.atk_scale
 本项目的 Buff/Debuff 分两层运作：
 
 **叙事层**（RP 检定与剧情后果）：
-- Buff 池定义：`data/worldbooks/content/rules/buff-pool/buffs.md`
-- Debuff 池定义：`data/worldbooks/content/rules/buff-pool/debuffs.md`
-- Debuff 系统指南：`data/worldbooks/content/rules/debuff-system/index.md`
+- Buff 池定义：`data/worldbooks/books/<book_id>/rules/buff-pool/buffs.md`
+- Debuff 池定义：`data/worldbooks/books/<book_id>/rules/buff-pool/debuffs.md`
+- Debuff 系统指南：`data/worldbooks/books/<book_id>/rules/debuff-system/index.md`
 
 三层 Debuff 严重度体系（叙事层）：
 
@@ -701,7 +701,7 @@ ATK 加成 = atk_stat × card.atk_scale
 | 中度 | 大诅咒 | +5 | 2-4 | 重伤、中毒、恐惧 |
 | 重度 | 致命诅咒 | +8 或自动失败 | 永久 | 断肢、器官损伤、灵魂创伤 |
 
-抽取机制：使用 d20 随机表从 `data/worldbooks/content/rules/buff-pool/buffs.md` 与 `debuffs.md` 定义的池中抽取（叙事层口径，无独立服务模块）。
+抽取机制：使用 d20 随机表从 `data/worldbooks/books/<book_id>/rules/buff-pool/buffs.md` 与 `debuffs.md` 定义的池中抽取（叙事层口径，无独立服务模块）。
 
 **引擎层**（网格战斗内状态效果，`src/combat_engine/entity.py` 已实装）：
 辅助（Supporter）等职业的减速/削弱/束缚等效果已从「纯伤害文案」落地为运行时状态：
@@ -772,10 +772,10 @@ CV    = V单体 × 目标系数 × 射程系数 × 可靠性系数 × 重复系�
 | 精英 elite | 1.60–2.00 | 1.15–1.35 | 2 | 3.2 |
 | Boss | 3.50–5.00 | 1.20–1.50 | 2+ | 6.0–8.0 |
 
-敌人分类落在 `data/worldbooks/content/enemies/*.md`（`power_tier/role/action_slots/threat_points/
+敌人分类落在 `data/worldbooks/books/<book_id>/enemies/*.md`（`power_tier/role/action_slots/threat_points/
 expected_dpr/expected_effective_hp` 字段）；威胁点模型、五类模板与节点威胁预算由
 `src/combat_balance.py` 维护，阶段带参考区间与威胁容差（25%）配置在
-`data/worldbooks/content/combat/rules/difficulty.json`。
+`data/worldbooks/books/<book_id>/combat/rules/difficulty.json`。
 
 ### 14.3 经验与奖励曲线
 
@@ -792,7 +792,8 @@ T4 120–160/220–300/400–520。
 
 ### 14.4 验收口径
 
-每次数值变更至少运行 200 次固定种子模拟（`perf_tests/simulate_combat.py`），指标与目标：
+每次数值变更对目标完整世界书至少运行 200 次固定种子模拟
+（`perf_tests/simulate_combat.py --book-folder PATH`），指标与目标：
 
 | 指标 | 普通战 | 精英战 | Boss 战 |
 |---|---|---|---|
@@ -804,8 +805,8 @@ T4 120–160/220–300/400–520。
 | 三类队伍中位回合差 | ≤2 | ≤2 | ≤3 |
 
 多波遭遇按「每波目标回合 + 波次切换成本」判定（`target_rounds` 字段）。
-硬性测试见 `perf_tests/test_cv_budget.py`、`test_card_json_roundtrip.py`、
-`test_combat_runtime_v1.py`、`test_combat_data_v1.py`、`test_settlement_v1.py`。
+通用运行验证见 `perf_tests/test_combat_runtime_v1.py`、
+`perf_tests/test_settlement_v1.py`；卡牌数值需对具体世界书另行审计。
 
 ---
 

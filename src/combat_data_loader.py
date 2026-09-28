@@ -18,7 +18,6 @@ import re
 from pathlib import Path
 from urllib.parse import quote
 
-from data_paths import CONTENT_ROOT
 from content_scope import is_content_visible
 from worldbook_content import category_roots
 
@@ -28,7 +27,7 @@ from combat_engine.entity import CombatUnit
 
 logger = logging.getLogger(__name__)
 
-_DATA_DIR = CONTENT_ROOT / "combat"
+_DATA_DIR: Path | None = None  # Explicit test/custom root only.
 
 # 敌人可写字段 → CombatUnit 属性（战斗数值覆盖用）
 _ENEMY_STAT_FIELDS = {
@@ -103,12 +102,12 @@ class CombatDataLoader:
         if book_id is not None and book_ids is not None:
             raise ValueError("Specify book_id or book_ids")
         self._root = Path(data_dir) if data_dir else _DATA_DIR
-        self._custom_dir = bool(data_dir)
+        self._custom_dir = self._root is not None
         self._book_ids = [book_id] if book_id is not None else book_ids
         self._project_root = project_root
-        self._enemy_dir = self._root.parent / "enemies"
-        self._node_dir = self._root / "nodes"
-        self._tiles_dir = self._root / "tiles"
+        self._enemy_dir = self._root.parent / "enemies" if self._root else None
+        self._node_dir = self._root / "nodes" if self._root else None
+        self._tiles_dir = self._root / "tiles" if self._root else None
         self._node_index_cache: dict | None = None
         self._enemy_cache: dict[str, dict] = {}
 
@@ -135,10 +134,10 @@ class CombatDataLoader:
 
     # ── Enemy loading ──
 
-    def enemy_path(self, name: str) -> Path:
+    def enemy_path(self, name: str) -> Path | None:
         paths = self._paths("enemies", f"{name}.md")
         return next((path for path in paths if path.is_file() and self._visible(path)),
-                    self._enemy_dir / f"{name}.md")
+                    self._enemy_dir / f"{name}.md" if self._enemy_dir else None)
 
     def load_enemy(self, name: str, stat_overrides: dict | None = None) -> CombatUnit | None:
         """按名字加载敌人（`data/enemies/<name>.md`），可选逐实例数值覆盖。"""
@@ -151,7 +150,7 @@ class CombatDataLoader:
 
     def _read_enemy_meta(self, name: str) -> dict | None:
         path = self.enemy_path(name)
-        if not self._visible(path):
+        if path is None or not self._visible(path):
             return None
         if self._custom_dir and name in self._enemy_cache:
             return self._enemy_cache[name]
@@ -282,15 +281,15 @@ class CombatDataLoader:
 
     def load_item_meta(self, name: str) -> dict | None:
         """Load an item's frontmatter (name, category, combat_effect) from data/items/."""
-        base = self._root.parent / "items"
-        for path in (base / name / "index.md", base / f"{name}.md"):
-            if path.exists() and self._visible(path):
-                try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        return dict(frontmatter.load(f).metadata)
-                except (OSError, ValueError) as e:
-                    logger.error("Failed to load item %s: %s", path, e)
-                    return None
+        for base in self._roots("items"):
+            for path in (base / name / "index.md", base / f"{name}.md"):
+                if path.exists() and self._visible(path):
+                    try:
+                        with open(path, "r", encoding="utf-8") as f:
+                            return dict(frontmatter.load(f).metadata)
+                    except (OSError, ValueError) as e:
+                        logger.error("Failed to load item %s: %s", path, e)
+                        return None
         return None
 
     # ── Node loading（战斗节点 JSON）──

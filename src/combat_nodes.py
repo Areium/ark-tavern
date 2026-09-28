@@ -27,7 +27,6 @@ import logging
 import re
 from pathlib import Path
 
-from data_paths import CONTENT_ROOT
 from content_scope import is_content_visible
 from worldbook_content import book_directory, category_roots, enabled_book_ids, resolve_content
 
@@ -36,17 +35,14 @@ from shared.json_hash import compute_json_hash
 
 logger = logging.getLogger(__name__)
 
-NODE_DIR = CONTENT_ROOT / "combat" / "nodes"
-TILES_DIR = CONTENT_ROOT / "combat" / "tiles"
-PLOT_DIR = CONTENT_ROOT / "plots"
-_DEFAULT_NODE_DIR = NODE_DIR
-_DEFAULT_PLOT_DIR = PLOT_DIR
+NODE_DIR: Path | None = None  # Explicit test/custom root only.
+PLOT_DIR: Path | None = None  # Explicit test/custom root only.
 
 
 def _visible(path: Path) -> bool:
     """Use the manifest for runtime content, not isolated test registries."""
-    if ((NODE_DIR != _DEFAULT_NODE_DIR and path.is_relative_to(NODE_DIR))
-            or (PLOT_DIR != _DEFAULT_PLOT_DIR and path.is_relative_to(PLOT_DIR))):
+    if ((NODE_DIR is not None and path.is_relative_to(NODE_DIR))
+            or (PLOT_DIR is not None and path.is_relative_to(PLOT_DIR))):
         return True
     return is_content_visible(path)
 
@@ -81,12 +77,14 @@ class NodeConflictError(NodeError):
 # ── 路径与读取 ──
 
 def node_path(node_id: str, *, book_id: str | None = None) -> Path:
+    if NODE_DIR is not None:
+        return NODE_DIR / f"{node_id}.json"
     if book_id:
         if book_id in enabled_book_ids():
             return book_directory(book_id) / "combat" / "nodes" / f"{node_id}.json"
         if (book_directory(book_id) / "book.json").is_file():
             raise NodeError("节点所属世界书未安装或已停用")
-    return NODE_DIR / f"{node_id}.json"
+    raise NodeError("保存战斗节点需要已安装且启用的世界书归属")
 
 
 def node_exists(node_id: str, *, book_id: str | None = None,
@@ -99,7 +97,7 @@ def _read_path(node_id: str, *, book_id: str | None = None,
     if book_id is not None and book_ids is not None:
         raise ValueError("Specify book_id or book_ids")
     selected = [book_id] if book_id is not None else book_ids
-    if NODE_DIR != _DEFAULT_NODE_DIR:
+    if NODE_DIR is not None:
         path = node_path(node_id)
         return path if path.is_file() and _visible(path) else None
     return resolve_content(f"combat/nodes/{node_id}.json", book_ids=selected)
@@ -124,12 +122,12 @@ def list_node_files(*, book_id: str | None = None,
     if book_id is not None and book_ids is not None:
         raise ValueError("Specify book_id or book_ids")
     selected = [book_id] if book_id is not None else book_ids
-    roots = [(None, NODE_DIR)] if NODE_DIR != _DEFAULT_NODE_DIR else [
+    roots = [(None, NODE_DIR)] if NODE_DIR is not None else [
         (owner, root / "nodes") for owner, root in category_roots("combat", book_ids=selected)]
     files: dict[str, Path] = {}
     for owner, root in roots:
         for path in sorted(root.glob("*.json")):
-            visible = (_visible(path) if NODE_DIR != _DEFAULT_NODE_DIR else
+            visible = (_visible(path) if NODE_DIR is not None else
                        is_content_visible(path, allowed_book_ids=selected))
             if not path.stem.upper().startswith("TEMPLATE") and visible:
                 files.setdefault(path.stem, path)
@@ -138,8 +136,8 @@ def list_node_files(*, book_id: str | None = None,
 
 def template_data() -> dict:
     """模板节点（新建时的默认骨架）；模板缺失时给内置最小骨架。"""
-    path = NODE_DIR / f"{TEMPLATE_STEM}.json"
-    if path.is_file():
+    path = NODE_DIR / f"{TEMPLATE_STEM}.json" if NODE_DIR is not None else None
+    if path is not None and path.is_file():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             data.pop("_hash", None)
@@ -193,7 +191,8 @@ def validate_node(data: dict, *, enemy_names: set[str] | None = None,
     try:
         owner = str(data.get("worldbook_id") or "")
         tiles_dir = (book_directory(owner) / "combat" / "tiles"
-                     if owner and owner in enabled_book_ids() else TILES_DIR)
+                     if owner and owner in enabled_book_ids() else
+                     NODE_DIR.parent / "tiles" if NODE_DIR is not None else None)
         battle_map = resolve_map(data.get("map"), tiles_dir=tiles_dir)
         warnings.extend(battle_map.warnings)
     except MapError as e:
@@ -319,7 +318,7 @@ def save_node(data: dict, expected_hash: str = "",
 
     book_id = str(data.get("worldbook_id") or "")
     path = node_path(node_id, book_id=book_id)
-    if path.is_file() and path.is_relative_to(NODE_DIR) and not _visible(path):
+    if path.is_file() and not _visible(path):
         raise NodeError("节点所属世界书未安装或已停用")
     if path.is_file():
         current = json.loads(path.read_text(encoding="utf-8"))
@@ -389,12 +388,12 @@ def _plot_files(*, book_id: str | None = None,
     if book_id is not None and book_ids is not None:
         raise ValueError("Specify book_id or book_ids")
     selected = [book_id] if book_id else book_ids
-    roots = [(None, PLOT_DIR)] if PLOT_DIR != _DEFAULT_PLOT_DIR else category_roots(
+    roots = [(None, PLOT_DIR)] if PLOT_DIR is not None else category_roots(
         "plots", book_ids=selected)
     files: list[tuple[str | None, Path]] = []
     for owner, root in roots:
         files.extend((owner or book_id, path) for path in sorted(root.glob("*/index.md"))
-                     if (_visible(path) if PLOT_DIR != _DEFAULT_PLOT_DIR else
+                     if (_visible(path) if PLOT_DIR is not None else
                          is_content_visible(path, allowed_book_ids=selected)))
     return files
 

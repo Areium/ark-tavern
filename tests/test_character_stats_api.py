@@ -236,7 +236,7 @@ def test_same_named_character_stats_write_to_selected_book(tmp_path):
     data = tmp_path / "data"
     data.mkdir()
     (data / "categories.yaml").write_text(
-        "categories:\n  characters: data/worldbooks/content/characters/\n",
+            "categories:\n  characters: characters/\n",
         encoding="utf-8")
     books = data / "worldbooks"
     manager = WorldBookManager(books)

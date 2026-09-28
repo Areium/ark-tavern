@@ -27,9 +27,6 @@ from combat_engine.card_data import get_starting_deck
 from combat_engine.engine import CombatEngine, CombatEvent
 from combat_data_loader import CombatDataLoader, apply_enemy_overrides
 from combat_rules import band_scaling, difficulty_rules
-import data_paths
-from data_paths import CONTENT_ROOT  # Legacy audit tooling patches this module constant.
-from content_scope import is_content_visible
 from worldbook_content import resolve_content
 
 logger = logging.getLogger(__name__)
@@ -314,10 +311,6 @@ class CombatSession:
             path = resolve_content(f"characters/{name}/index.md", book_ids=self.book_ids)
         except ValueError:
             path = None
-        if path is None and CONTENT_ROOT != data_paths.CONTENT_ROOT:
-            fixture_path = CONTENT_ROOT / "characters" / name / "index.md"
-            if fixture_path.is_file() and is_content_visible(fixture_path, content_base=CONTENT_ROOT):
-                path = fixture_path
         if path is None or not path.is_file():
             logger.warning("Character file not found: %s", path)
             return None

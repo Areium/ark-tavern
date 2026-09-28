@@ -7,20 +7,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from app import create_app  # noqa: E402
 from blueprints.chat import _require_no_combat  # noqa: E402
+from test_combat_resume import ACTOR, BOOK_ID, SESSION_NODE_ID, prepare_combat_book  # noqa: E402
 
 
-def test_sideview_session_routes_and_resume_summary():
+def test_sideview_session_routes_and_resume_summary(tmp_path, monkeypatch):
+    import app as app_module
+    from document_manager import DocumentManager
+    from wiki_manager import WikiManager
+
+    prepare_combat_book(tmp_path, monkeypatch)
+    monkeypatch.setattr(app_module, "DocumentManager", lambda: DocumentManager(str(tmp_path)))
+    monkeypatch.setattr(app_module, "WikiManager", lambda: WikiManager(str(tmp_path)))
     app = create_app()
     app.config.update(TESTING=True)
     client = app.test_client()
     created = client.post("/api/sessions", json={
-        "mode": "free", "combat_mode": "sideview", "identity": "临光",
+        "mode": "free", "combat_mode": "sideview", "identity": ACTOR,
+        "worldbook_ids": [BOOK_ID], "roster_character_ids": [ACTOR],
     })
     assert created.status_code == 201
     session_id = created.get_json()["id"]
     base = f"/api/sessions/{session_id}"
     try:
-        assert client.post(f"{base}/characters/load", json={"character": "临光"}).status_code == 200
+        assert client.post(f"{base}/characters/load", json={"character": ACTOR}).status_code == 200
         missing_encounter = client.post(f"{base}/sideview/start", json={})
         assert missing_encounter.status_code == 400
         assert "encounter_id" in missing_encounter.get_json()["error"]
@@ -28,13 +37,13 @@ def test_sideview_session_routes_and_resume_summary():
         hidden_encounter = client.post(f"{base}/sideview/start", json={"encounter_id": "enc_not_installed"})
         assert hidden_encounter.status_code == 404
 
-        started = client.post(f"{base}/sideview/start", json={"encounter_id": "enc_quick_test_1"})
+        started = client.post(f"{base}/sideview/start", json={"encounter_id": SESSION_NODE_ID})
         assert started.status_code == 200, started.get_json()
         state = started.get_json()["state"]
         summary = client.get(base).get_json()
         assert summary["in_combat"] is True
         assert summary["combat_resumable"] is True
-        assert client.post(f"{base}/combat/start", json={"encounter_id": "enc_quick_test_1"}).status_code == 409
+        assert client.post(f"{base}/combat/start", json={"encounter_id": SESSION_NODE_ID}).status_code == 409
         assert client.post(f"{base}/combat/complete", json={}).status_code == 409
         assert client.post(f"{base}/combat/settlement", json={}).status_code == 409
         session = app._managers["session"].get_session(session_id)
@@ -49,7 +58,7 @@ def test_sideview_session_routes_and_resume_summary():
         assert summary["in_combat"] is False
         assert summary["combat_resumable"] is True
         assert summary["combat_resume"]["engine"] == "sideview"
-        assert summary["combat_resume"]["encounter_id"] == "enc_quick_test_1"
+        assert summary["combat_resume"]["encounter_id"] == SESSION_NODE_ID
         with app.app_context():
             assert _require_no_combat(session)[1] == 423
         assert client.post(f"{base}/sideview/abandon", json={"runId": state["runId"]}).status_code == 200

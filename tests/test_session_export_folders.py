@@ -82,11 +82,9 @@ def test_export_excludes_unbound_and_disabled_book_resources(tmp_path, monkeypat
         assert "session/story/sess_export/backgrounds/forest.png" in names
 
 
-def test_export_preserves_visible_local_fallback(tmp_path, monkeypatch):
+def test_export_ignores_shared_content_without_bound_book(tmp_path, monkeypatch):
     monkeypatch.setattr(session_export, "_REPO_ROOT", tmp_path)
     content = tmp_path / "data" / "worldbooks" / "content"
-    monkeypatch.setattr(session_export, "_CHARS_DIR", content / "characters")
-    monkeypatch.setattr(session_export, "_BG_ROOT", content / "combat" / "backgrounds")
     session = _session(tmp_path)
     _resource(content, b"local")
     out = tmp_path / "session.zip"
@@ -94,8 +92,7 @@ def test_export_preserves_visible_local_fallback(tmp_path, monkeypatch):
     session_export.export_session_zip(session, {"worldbook_ids": []}, out)
 
     with zipfile.ZipFile(out) as archive:
-        assert archive.read("snapshots/characters/Hero/avatar/main.png") == b"local"
-        assert archive.read("snapshots/backgrounds/forest/image.png") == b"local"
+        assert not any(name.startswith("snapshots/") for name in archive.namelist())
 
 
 def test_export_skips_linked_book_files(tmp_path, monkeypatch):

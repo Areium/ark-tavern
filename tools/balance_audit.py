@@ -6,9 +6,9 @@
 
 用法::
 
-    python3 tools/balance_audit.py                      # 打印 + 写报告
-    python3 tools/balance_audit.py --json out.json      # 同时导出机器可读结果
-    python3 tools/balance_audit.py --strict             # 存在偏差时退出码 1（CI 用）
+    python3 tools/balance_audit.py --book-folder PATH
+    python3 tools/balance_audit.py --book-folder PATH --json out.json
+    python3 tools/balance_audit.py --book-folder PATH --strict
 
 审计项：
 1. 每个敌人的自动分类 vs frontmatter 声明（role / power_tier / threat_points）；
@@ -30,13 +30,12 @@ import frontmatter  # noqa: E402
 from combat_balance import classify_enemy, node_budget_report  # noqa: E402
 from combat_data_loader import CombatDataLoader  # noqa: E402
 
-ENEMY_DIR = ROOT / "data" / "worldbooks" / "content" / "enemies"
 REPORT_MD = ROOT / "perf_tests" / "balance_audit_report.md"
 
 
-def audit_enemies(loader: CombatDataLoader) -> list[dict]:
+def audit_enemies(loader: CombatDataLoader, enemy_dir: Path) -> list[dict]:
     rows: list[dict] = []
-    for path in sorted(ENEMY_DIR.glob("*.md")):
+    for path in sorted(enemy_dir.glob("*.md")):
         if path.stem == "TEMPLATE":
             continue
         meta = dict(frontmatter.load(path).metadata)
@@ -152,14 +151,23 @@ def write_report(enemy_rows: list[dict], node_rows: list[dict],
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--book-folder", type=Path, required=True,
+                    help="含 book.json 的完整世界书文件夹")
     ap.add_argument("--json", default="")
     ap.add_argument("--report", type=Path, default=REPORT_MD)
     ap.add_argument("--strict", action="store_true",
                     help="存在敌人分层偏差/XP 单调性问题/节点预算超差时返回退出码 1")
     args = ap.parse_args()
 
-    loader = CombatDataLoader()
-    enemy_rows = audit_enemies(loader)
+    folder = args.book_folder.resolve()
+    try:
+        book = json.loads((folder / "book.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        ap.error(f"无效世界书文件夹（无法读取 book.json）：{exc}")
+    if not folder.is_dir() or not isinstance(book, dict) or book.get("id") != folder.name:
+        ap.error("book.json 的 id 必须与世界书文件夹名一致")
+    loader = CombatDataLoader(data_dir=str(folder / "combat"))
+    enemy_rows = audit_enemies(loader, folder / "enemies")
     node_rows = audit_nodes(loader)
     xp_problems = audit_xp_monotonic(enemy_rows)
     write_report(enemy_rows, node_rows, xp_problems, args.report)

@@ -8,7 +8,7 @@
  *   各自持久化（localStorage），互不干扰。
  *
  * 数据：图文档（布局层）整图存世界书条目（plot_graph_<plot_id>，见
- * src/plot_graphs.py）；剧情/战斗内容仍在 data/worldbooks/content/plots 与 data/worldbooks/content/combat/nodes，
+ * src/plot_graphs.py）；剧情/战斗内容位于所属书内的 plots 与 combat/nodes，
  * 图节点用 ref 引用，点开走既有抽屉编辑器（StoryBeatEditor / BattleNodeForm）。
  * 编辑走快照撤销栈（Ctrl+Z / Ctrl+Shift+Z），保存 Ctrl+S，切剧情时自动落盘。
  *

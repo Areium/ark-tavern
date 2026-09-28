@@ -5,9 +5,8 @@
 
 用法::
 
-    python3 tools/generate_battle_spec.py --node-id enc_gen_1 --band T2 --seed 42
-    python3 tools/generate_battle_spec.py --band T3 --seed 7 --out /tmp/gen.json
-    for i in $(seq 1 5); do python3 tools/generate_battle_spec.py --node-id enc_rg_$i --seed $i --out data/worldbooks/content/combat/nodes/enc_rg_$i.json --force; done
+    python3 tools/generate_battle_spec.py --book-folder PATH --node-id enc_gen_1 --band T2 --seed 42
+    python3 tools/generate_battle_spec.py --book-folder PATH --band T3 --seed 7 --out combat/nodes/gen.json
 
 产物一定通过 `tools/validate_battle_spec.py`（生成后自校验，失败自动换种子重试）。
 """
@@ -144,8 +143,8 @@ def _place(rows: int, cols: int, waves: list[dict], grid: list[list[str]],
                 entry["positions"] = positions
 
 
-def generate(node_id: str, band: str, seed: int, *, waves_hint: int = 0) -> dict:
-    loader = CombatDataLoader()
+def generate(node_id: str, band: str, seed: int, *, loader: CombatDataLoader,
+             waves_hint: int = 0) -> dict:
     rng = random.Random(seed)
     cfg = band_config(band)
     rng_cfg = cfg.get("threat_range") or [3.0, 6.0]
@@ -198,21 +197,36 @@ def generate(node_id: str, band: str, seed: int, *, waves_hint: int = 0) -> dict
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--book-folder", type=Path, required=True,
+                    help="含 book.json 的完整世界书文件夹")
     ap.add_argument("--node-id", default="enc_generated")
     ap.add_argument("--band", default="T1", choices=["T0", "T1", "T2", "T3", "T4"])
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--waves", type=int, default=0, help="0 = 自动（1 或 2 波）")
-    ap.add_argument("--out", default="", help="写入路径（默认打印到 stdout）")
+    ap.add_argument("--out", default="", help="书文件夹内的相对写入路径（默认打印到 stdout）")
     ap.add_argument("--force", action="store_true", help="覆盖已存在的文件")
     ap.add_argument("--attempts", type=int, default=6, help="校验失败时换种子重试次数")
     args = ap.parse_args()
+    folder = args.book_folder.resolve()
+    try:
+        book = json.loads((folder / "book.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        ap.error(f"无效世界书文件夹（无法读取 book.json）：{exc}")
+    if not folder.is_dir() or not isinstance(book, dict) or book.get("id") != folder.name:
+        ap.error("book.json 的 id 必须与世界书文件夹名一致")
+    if args.out:
+        if Path(args.out).is_absolute():
+            ap.error("--out 必须是世界书文件夹内的相对路径")
+        path = (folder / args.out).resolve()
+        if path == folder or folder not in path.parents:
+            ap.error("--out 必须是世界书文件夹内的相对路径")
 
-    loader = CombatDataLoader()
+    loader = CombatDataLoader(data_dir=str(folder / "combat"))
     enemy_names = set(loader.list_enemy_names())
     last_errors: list[str] = []
 
     for attempt in range(max(1, args.attempts)):
-        node = generate(args.node_id, args.band, args.seed + attempt * 977,
+        node = generate(args.node_id, args.band, args.seed + attempt * 977, loader=loader,
                         waves_hint=args.waves)
         report = validate_node(node, enemy_names=enemy_names)
         if not report["errors"]:
@@ -226,7 +240,6 @@ def main() -> int:
 
     text = json.dumps(node, ensure_ascii=False, indent=2) + "\n"
     if args.out:
-        path = Path(args.out)
         if path.exists() and not args.force:
             print(f"目标已存在（加 --force 覆盖）: {path}", file=sys.stderr)
             return 1

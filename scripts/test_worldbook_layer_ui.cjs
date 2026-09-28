@@ -180,8 +180,8 @@ assert.equal(CoverPickerModule.coverCompressSummary({
 
 // ── 6. SSR：Prompt 预览把「系统层已排除」说出来 ──
 const detail = {
-  id: "book", name: "系统层测试书", source_format: "manual", source: "imported",
-  is_preinstalled: false, enabled: true, budget_tokens: 0, created_at: 0, updated_at: 0,
+  id: "book", name: "系统层测试书", source_format: "manual",
+  enabled: true, budget_tokens: 0, created_at: 0, updated_at: 0,
   is_default: false, book_type: "story", entry_count: entries.length,
   import_config: { revision: 1 }, entries,
 };

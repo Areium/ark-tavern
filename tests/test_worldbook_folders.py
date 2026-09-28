@@ -1,6 +1,5 @@
 """A complete worldbook folder is the unit of installation and sharing."""
 
-import json
 import shutil
 import sys
 from pathlib import Path
@@ -98,28 +97,3 @@ def test_folder_rejects_links_and_unsafe_resource_paths(tmp_path):
         pytest.skip("Symlink creation unavailable")
     with pytest.raises(ValueError, match="Symlink"):
         validate_folder(folder)
-
-
-def test_install_pack_copies_its_owned_resources_into_book_folder(tmp_path):
-    donor = WorldBookManager(tmp_path / "donor")
-    book = donor.create_book("Pack")
-    manager = WorldBookManager(tmp_path / "installed")
-    pack_dir = tmp_path / "packs"
-    pack_dir.mkdir()
-    (pack_dir / f"{book.id}.json").write_text(
-        json.dumps(book.to_dict()), encoding="utf-8")
-    manager._packs_dir = pack_dir
-
-    resource = manager._dir / "content" / "characters" / "Hero" / "avatar.png"
-    resource.parent.mkdir(parents=True)
-    resource.write_bytes(b"hero")
-    (manager._dir / "content_manifest.json").write_text(json.dumps({
-        "directories": {},
-        "files": {"characters/Hero/avatar.png": [book.id]},
-    }), encoding="utf-8")
-
-    manager.install_pack(book.id)
-    installed_resource = manager._path(book.id).parent / "characters" / "Hero" / "avatar.png"
-    assert installed_resource.read_bytes() == b"hero"
-    resource.unlink()
-    assert installed_resource.read_bytes() == b"hero"

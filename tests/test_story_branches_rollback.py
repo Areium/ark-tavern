@@ -17,6 +17,7 @@
 """
 
 import sys
+import json
 from pathlib import Path
 
 import pytest
@@ -28,14 +29,42 @@ import session_overlay as so  # noqa: E402
 from session_overlay import SessionOverlay  # noqa: E402
 from SceneManager import _normalize_branches_field  # noqa: E402
 
-PLOT_ID = "fengxue_guojing"
+PLOT_ID = "fixture_plot"
+BOOK_ID = "fixture-story"
+
+
+def _install_plot(tmp_path, monkeypatch):
+    import world_book
+
+    monkeypatch.setattr(so, "_PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(world_book, "_WORLDBOOKS_DIR", tmp_path / "data" / "worldbooks")
+    folder = tmp_path / "data" / "worldbooks" / "books" / BOOK_ID
+    plot = folder / "plots" / PLOT_ID
+    plot.mkdir(parents=True)
+    (folder / "book.json").write_text(json.dumps(
+        world_book.WorldBook(BOOK_ID, "测试剧情", book_type="story").to_dict(),
+        ensure_ascii=False), encoding="utf-8")
+    chapters = [
+        "## 章节 1：开场\n**ID**：`ch_1`\n#### beat_arrival\n**内容**：抵达关口。\n"
+        "**发现路径**：山道\n### 玩家选项方向\n- 试探向导（谨慎）\n"
+        "#### beat_intro_tension\n**内容**：进一步交谈。\n"
+        "#### beat_convoy_fight\n**内容**：车队遇险。",
+        *[f"## 章节 {i}：第{i}章\n**ID**：`ch_{i}`\n#### beat_ch_{i}\n**内容**：继续前行。"
+          for i in range(2, 7)],
+    ]
+    (plot / "index.md").write_text("---\nid: fixture_plot\nname: 测试剧情\n---\n" +
+                                   "\n".join(chapters) + "\n", encoding="utf-8")
+
+
 
 
 @pytest.fixture()
 def overlay(tmp_path, monkeypatch):
     """全新会话（走 init_session_docs，等价于创建时）。"""
     monkeypatch.setattr(so, "_SESSIONS_DIR", tmp_path / "sessions")
+    _install_plot(tmp_path, monkeypatch)
     ov = SessionOverlay("sess_test_branches", "story")
+    ov.set_worldbook_ids([BOOK_ID])
     ov.load_quests_from_plot(PLOT_ID)
     ov.init_session_docs(PLOT_ID)
     return ov
@@ -46,13 +75,13 @@ def overlay(tmp_path, monkeypatch):
 def test_author_branches_parsed(overlay):
     """剧情文件里手写的「玩家选项方向」被解析为结构化作者分支。"""
     chapters = overlay._ensure_narrative_beats()
-    assert len(chapters) >= 6, "风雪过境应有 >= 6 章"
+    assert len(chapters) == 6, "临时剧情应有六章"
 
     authored = overlay.get_authored_branches()
     assert authored, "当前章节应有作者手写分支"
     assert all(b["source"] == "author" for b in authored)
     labels = [b["label"] for b in authored]
-    assert any("银灰" in lb for lb in labels), f"应含试探银灰的选项，实际 {labels}"
+    assert "试探向导" in labels
     assert any(b.get("intent") for b in authored), "括号里的方向标签应被提取为 intent"
 
     # 发现路径也应被解析（供分支上下文参考）
@@ -177,7 +206,9 @@ def test_rollback_unknown_node_raises(overlay):
 def test_restored_session_lazily_loads_beats(tmp_path, monkeypatch):
     """恢复的会话（未走 init_session_docs）惰性加载剧情结构，状态展示仍可用。"""
     monkeypatch.setattr(so, "_SESSIONS_DIR", tmp_path / "sessions")
+    _install_plot(tmp_path, monkeypatch)
     ov = SessionOverlay("sess_restored", "story")
+    ov.set_worldbook_ids([BOOK_ID])
     ov._data["plot_id"] = PLOT_ID
     ov._data["beat_state"] = {
         "chapter_idx": 0, "beat_idx": 1,
@@ -209,6 +240,7 @@ def test_story_api_endpoints(tmp_path, monkeypatch):
     sessions_root = tmp_path / "sessions"
     monkeypatch.setattr(so, "_SESSIONS_DIR", sessions_root)
     monkeypatch.setattr(sm_mod, "_SESSIONS_DIR", sessions_root)
+    _install_plot(tmp_path, monkeypatch)
 
     from app import create_app
     app = create_app()
@@ -218,6 +250,7 @@ def test_story_api_endpoints(tmp_path, monkeypatch):
     # 1) 通过真实 API 创建剧情会话
     res = client.post("/api/sessions", json={
         "mode": "story", "plot_id": PLOT_ID, "name": "回档验证",
+        "worldbook_ids": [BOOK_ID],
     })
     assert res.status_code == 201, res.get_json()
     sid = res.get_json()["id"]

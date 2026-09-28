@@ -37,16 +37,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from data_paths import PACKS_ROOT, WORLDBOOKS_ROOT
+from data_paths import WORLDBOOKS_ROOT
 from worldbook_scope import (
     EXTENSION_KEY, UNCLASSIFIED, validate_categories, find_scope_extension,
     ACTIVATION_ALWAYS, EXPANSION_NONE,
     SCHEMA_VERSION_V3, resolve_v3_scope, validate_v3_rules,
 )
-from worldbook_classify import classify_entries, needs_classification
-from worldbook_folder_store import (
-    _source_resources, _relative, _no_links, validate_folder,
-)
+from worldbook_classify import classify_entries
+from worldbook_folder_store import validate_folder
 from character_stats import normalize_stat_fields
 from worldbook_media import (
     copied_character_id, materialize_character, normalize_character_media,
@@ -58,16 +56,12 @@ logger = logging.getLogger(__name__)
 
 _WORLDBOOKS_DIR = WORLDBOOKS_ROOT
 
-# 可选内容包分发源（随程序分发，git 跟踪）；只在用户显式导入时安装。
-_PACKS_DIR = PACKS_ROOT
-
 # 支持探测的来源格式标签
 SOURCE_V1 = "sillytavern_v1"
 SOURCE_V2 = "sillytavern_v2"
 SOURCE_CARD = "character_card"
 SOURCE_JSONL = "chat_backup_jsonl"
 SOURCE_MANUAL = "manual"
-SOURCE_PREINSTALLED = "preinstalled"
 
 # ── 书用途（book_type）──
 # story     ：剧情世界书，可绑定会话并参与解析
@@ -101,26 +95,6 @@ DEFAULT_CATEGORIES = [
     {"id": "characters", "parent_id": None, "name": "角色", "scope_type": "character", "sort_order": 20},
     {"id": "other", "parent_id": None, "name": "其他", "scope_type": "other", "sort_order": 30},
 ]
-
-
-def _pack_rev(data: dict) -> str:
-    """整合包内容指纹（版本号）。
-
-    只覆盖影响注入结果的字段（id / name / entries），忽略 created_at / updated_at /
-    source / pack_rev 这类易变字段——否则每次重新生成分发包都会「看起来变了」，
-    导致每次启动都白刷一遍。
-    """
-    payload = json.dumps(
-        {
-            "id": data.get("id", ""),
-            "name": data.get("name", ""),
-            "entries": data.get("entries", []),
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass
@@ -1021,20 +995,16 @@ def normalize_entry_layout(layout, groups, group_map, entry_order) -> list[dict]
 class WorldBook:
     """一本世界书：id + 元信息 + 条目集合 + 触发/格式化逻辑。
 
-    source: "preinstalled"（随程序分发的整合包安装副本）| "imported"（用户导入/新建）
     enabled: 书级启用开关，停用的书不参与解析。
     book_type: "story"（剧情世界书，可绑定会话/设为默认/参与解析）|
                "reference"（资料库，只供浏览、检索与摘录，不参与任何解析）。
                缺字段的旧数据一律按 story 读取。
-    pack_rev: 预装包内容指纹（安装/刷新时写入）。用于判断安装副本是否落后于分发源；
-              随书持久化，这样用户在界面上编辑预装书后不会被下次启动误判成「旧版本」而覆盖。
-    所有书统一管理、统一可写；预装包删除后可从分发源一键重装。
+    所有书统一管理、统一可写。
     """
 
     def __init__(self, book_id: str, name: str = "", entries: list = None,
                  source_format: str = SOURCE_MANUAL, budget_tokens: int = 0,
-                 source: str = "imported", enabled: bool = True,
-                 pack_rev: str = "", schema_version: int = SCHEMA_VERSION_V3,
+                 enabled: bool = True, schema_version: int = SCHEMA_VERSION_V3,
                  categories: list = None, dependency_edges: list = None,
                  import_config: dict = None, scope_mode: str = "selective",
                  dependency_rules: dict = None, related_edges: list = None,
@@ -1057,12 +1027,9 @@ class WorldBook:
         self.stat_fields: list[dict] = normalize_stat_fields(stat_fields)
         self.edit_revision = max(0, _to_int(edit_revision, 0))
         self.book_type = normalize_book_type(book_type)
-        # source: "preinstalled"（随程序分发的整合包，安装副本）| "imported"（用户导入）
-        self.source = source if source in (SOURCE_PREINSTALLED, "imported") else "imported"
         self.enabled = bool(enabled)
         self.created_at = time.time()
         self.updated_at = time.time()
-        self.pack_rev = str(pack_rev or "")
         self.entries: list[WorldBookEntry] = list(entries or [])
         self.entry_groups, self.entry_group_map = validate_entry_groups(
             entry_groups if entry_groups is not None else [],
@@ -1317,7 +1284,6 @@ class WorldBook:
             "description": self.description,
             "cover_image": self.cover_image,
             "edit_revision": self.edit_revision,
-            "source": self.source,
             "enabled": self.enabled,
             "book_type": self.book_type,
             "created_at": self.created_at,
@@ -1348,9 +1314,6 @@ class WorldBook:
             data["related_edges"] = self.related_edges
         if self.policy_revisions:
             data["policy_revisions"] = copy.deepcopy(self.policy_revisions)
-        # 仅预装包携带指纹，用户导入/新建的书序列化形态保持不变
-        if self.pack_rev:
-            data["pack_rev"] = self.pack_rev
         return data
 
     @staticmethod
@@ -1382,9 +1345,7 @@ class WorldBook:
             entry_group_map=group_map,
             entry_layout=data.get("entry_layout"),
             edit_revision=data.get("edit_revision", 1),
-            source=str(data.get("source", "imported")),
             enabled=bool(data.get("enabled", True)),
-            pack_rev=str(data.get("pack_rev", "")),
             schema_version=data["schema_version"],
             categories=data.get("categories"),
             dependency_edges=data.get("dependency_edges"),
@@ -1400,10 +1361,6 @@ class WorldBook:
         )
         book.created_at = float(data.get("created_at", time.time()))
         book.updated_at = float(data.get("updated_at", time.time()))
-        # 预装整合包由内置生成器写出，uid 前缀 / group / 名称后缀都是可靠来源元数据；
-        # 外部书没有这类元数据时保持原样，不按名字或关键词猜测。
-        if book.source == SOURCE_PREINSTALLED and needs_classification(data.get("categories")):
-            apply_auto_classification(book)
         return book
 
     def category_scope_type(self, category_id: str) -> str:
@@ -2338,7 +2295,6 @@ class WorldBookBundle:
         self.books = books
         self.id = books[0].id
         self.name = "、".join(book.name for book in books)
-        self.source = "imported" if any(book.source == "imported" for book in books) else books[0].source
         self.stat_fields = books[0].stat_fields
 
     def eligible_uids_for(self, overlay):
@@ -2363,13 +2319,7 @@ class WorldBookBundle:
 
 
 class WorldBookManager:
-    """世界书存储管理器：统一管理 data/worldbooks/（全部可写）。
-
-    整合包（Content Pack）机制：
-    - data/worldbooks/packs/<id>.json 是可选分发源，启动不安装。
-    - 用户显式安装后复制到 data/worldbooks/books/<id>/book.json（source=preinstalled），
-      与用户导入的书在同一列表、同一套规则下管理（启用/停用、编辑、删除、重装）。
-    - 预装包被删除后，可通过 reinstall_book() 从分发源一键重装还原。
+    """世界书存储管理器：统一管理 data/worldbooks/books/ 下的完整书文件夹。
 
     绑定解析规则：只解析会话 overlay 明确绑定且已启用的剧情世界书；无绑定时返回 None。
     """
@@ -2379,12 +2329,10 @@ class WorldBookManager:
         self._dir.mkdir(parents=True, exist_ok=True)
         self._books_dir = self._dir / "books"
         self._books_dir.mkdir(exist_ok=True)
-        self._packs_dir = _PACKS_DIR
         self._cache: dict[str, WorldBook] = {}
         # 按书锁：覆盖「读修订 → 校验 → 提交」整段，避免原子替换仍然丢更新。
         self._book_locks: dict[str, threading.RLock] = {}
         self._locks_guard = threading.Lock()
-        # 分发包是可选导入源；启动时不安装任何世界观内容。
 
     def book_lock(self, book_id: str) -> threading.RLock:
         """取这本书的写锁（可重入）。同一本书的读-改-写必须整体持锁。"""
@@ -2395,41 +2343,12 @@ class WorldBookManager:
                 self._book_locks[book_id] = lock
             return lock
 
-    # ── 整合包安装 ──
-
-    @staticmethod
-    def _read_json(path: Path) -> Optional[dict]:
-        """读 JSON 对象；解析失败或不是对象时返回 None。"""
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return None
-        return data if isinstance(data, dict) else None
-
-    def _write_pack(self, target: Path, data: dict, rev: str):
-        """把整合包内容写入安装副本（统一补 source/enabled/pack_rev）。"""
-        payload = dict(data)
-        payload["source"] = SOURCE_PREINSTALLED
-        payload.setdefault("enabled", True)
-        payload["pack_rev"] = rev
-        self._cache.pop(payload["id"], None)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-
-    def is_preinstalled(self, book_id: str) -> bool:
-        """该书是否存在分发源（可一键重装）。"""
-        return (self._packs_dir / f"{book_id}.json").is_file()
-
     # ── 路径 ──
 
     def _path(self, book_id: str) -> Path:
         """Self-contained book metadata path."""
         if (not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", book_id)
-                or book_id in {"settings", "content_manifest"}
+                or book_id == "settings"
                 or book_id.upper() in {"CON", "PRN", "AUX", "NUL", *[f"COM{i}" for i in range(10)],
                                        *[f"LPT{i}" for i in range(10)]}):
             raise ValueError("非法世界书 ID")
@@ -2453,35 +2372,20 @@ class WorldBookManager:
                  (folder / "book.json").is_file()]
         return sorted(paths, key=lambda path: path.stat().st_mtime, reverse=True)
 
-    def _pack_path(self, book_id: str) -> Path:
-        """整合包分发源路径。"""
-        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", book_id):
-            raise ValueError("非法世界书 ID")
-        return self._packs_dir / f"{book_id}.json"
-
     # ── CRUD ──
 
     def list_books(self) -> list[dict]:
-        """列出所有书（统一列表）：预装包在前，导入书按创建时间倒序。"""
+        """按书文件修改时间倒序列出完整书文件夹。"""
         # Copied folders can change without passing through this manager.
         self._cache.clear()
         books = []
-
-        preinstalled = []
-        imported = []
         for path in self._book_paths():
             try:
                 book = self.load(path.parent.name)
             except Exception as e:
                 logger.warning("加载世界书 %s 失败: %s", path.name, e)
                 continue
-            summary = self._summary(book)
-            (preinstalled if book.source == SOURCE_PREINSTALLED else imported).append(summary)
-
-        # 预装包固定顺序在前（与分发源顺序一致），导入书按时间倒序
-        preinstalled.sort(key=lambda s: s["name"])
-        books.extend(preinstalled)
-        books.extend(imported)
+            books.append(self._summary(book))
         return books
 
     def _summary(self, book: "WorldBook") -> dict:
@@ -2492,10 +2396,8 @@ class WorldBookManager:
             "description": book.description,
             "cover_image": book.cover_image,
             "source_format": book.source_format,
-            "source": book.source,
             "book_type": book.book_type,
             "is_reference": book.is_reference,
-            "is_preinstalled": self.is_preinstalled(book.id),
             "enabled": book.enabled,
             "budget_tokens": book.budget_tokens,
             "estimated_tokens": stats.tokens,
@@ -2524,14 +2426,11 @@ class WorldBookManager:
         book = WorldBook.from_dict(data)
         if book.id != book_id:
             raise ValueError("世界书文件名与内部 ID 不一致")
-        if self.is_preinstalled(book_id):
-            # 有分发源的书一律视为预装包安装副本（防旧数据缺字段）
-            book.source = SOURCE_PREINSTALLED
         self._cache[book_id] = book
         return book
 
     def save(self, book: WorldBook):
-        """统一保存（预装包安装副本与导入书同样可写）。"""
+        """保存完整书文件夹中的元数据。"""
         target = self._path(book.id)
         if target.parent.exists() and not target.is_file():
             raise FileExistsError(f"世界书文件夹已存在但没有 book.json：{target.parent}")
@@ -2567,7 +2466,7 @@ class WorldBookManager:
         book_id = uuid.uuid4().hex[:12]
         book = WorldBook(book_id, name=name, entries=entries,
                          source_format=source_format, budget_tokens=budget_tokens,
-                         source="imported", categories=copy.deepcopy(DEFAULT_CATEGORIES),
+                         categories=copy.deepcopy(DEFAULT_CATEGORIES),
                          book_type=book_type)
         self.save(book)
         return book
@@ -2688,7 +2587,6 @@ class WorldBookManager:
             entries=copy.deepcopy(book.entries),
             source_format=book.source_format,
             budget_tokens=book.budget_tokens,
-            source="imported",
             enabled=book.enabled,
             categories=copy.deepcopy(book.categories),
             dependency_edges=copy.deepcopy(book.dependency_edges),
@@ -2745,110 +2643,8 @@ class WorldBookManager:
             raise
         return new_book
 
-    def reinstall_book(self, book_id: str) -> WorldBook:
-        """从分发源一键重装预装整合包（恢复出厂内容，覆盖现有安装副本）。"""
-        pack_path = self._pack_path(book_id)
-        if not pack_path.is_file():
-            raise ValueError(f"{book_id} 不是预装整合包，无法重装")
-        with open(pack_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        data["source"] = SOURCE_PREINSTALLED
-        data.setdefault("enabled", True)
-        target = self._path(book_id).parent
-        if target.is_symlink() or (target.exists() and not target.is_dir()):
-            raise ValueError("世界书目标文件夹不可用")
-        # Distribution packs still ship their resources in the legacy content
-        # tree. Materialize those owned files in the book before exposing it.
-        resources = _source_resources(book_id, self._dir, self._dir / "content")
-        temporary = self._books_dir / f".install-{uuid.uuid4().hex}"
-        backup = self._books_dir / f".reinstall-{uuid.uuid4().hex}"
-        temporary.mkdir()
-        moved_old = False
-        try:
-            self._write_pack(temporary / "book.json", data, _pack_rev(data))
-            for name, resource in resources:
-                relative = _relative(name)
-                if relative.as_posix() == "book.json":
-                    raise ValueError("内容资源不能覆盖世界书元数据")
-                _no_links(resource, self._dir / "content")
-                destination = temporary.joinpath(*relative.parts)
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(resource, destination)
-            WorldBook.from_dict(validate_folder(temporary, expected_id=book_id))
-            with self.book_lock(book_id):
-                if target.exists():
-                    target.rename(backup)
-                    moved_old = True
-                try:
-                    temporary.rename(target)
-                except Exception:
-                    if moved_old:
-                        backup.rename(target)
-                        moved_old = False
-                    raise
-                self._cache.pop(book_id, None)
-            book = self.load(book_id)
-        finally:
-            if temporary.exists():
-                shutil.rmtree(temporary)
-            if moved_old and backup.exists():
-                shutil.rmtree(backup)
-        logger.info("已重装预装整合包: %s (%s)", book.name, book_id)
-        return book
-
-    def list_available_packs(self) -> list[dict]:
-        """列出离线内容包，并只读检查同名安装副本是否符合当前 schema。"""
-        result = []
-        if not self._packs_dir.is_dir():
-            return result
-        for path in sorted(self._packs_dir.glob("*.json")):
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                logger.warning("忽略无法解析的内容包 %s", path.name)
-                continue
-            if not isinstance(data, dict) or data.get("id") != path.stem:
-                continue
-            installed_path = self._installed_path(path.stem)
-            repair_required = False
-            installed = installed_path.is_file()
-            if installed:
-                installed_data = self._read_json(installed_path)
-                try:
-                    if installed_data is None:
-                        raise ValueError("安装副本不是 JSON 对象")
-                    WorldBook.from_dict(installed_data)
-                except (KeyError, TypeError, ValueError):
-                    # 旧内部 schema 不再进入运行时；在示例页提供一次显式修复入口。
-                    installed = False
-                    repair_required = True
-            result.append({"id": path.stem, "name": data.get("name", path.stem),
-                           "description": data.get("description", ""),
-                           "book_type": data.get("book_type", DEFAULT_BOOK_TYPE),
-                           "entry_count": len(data.get("entries") or []),
-                           "installed": installed,
-                           "repair_required": repair_required})
-        return result
-
-    def install_pack(self, book_id: str) -> WorldBook:
-        """显式安装内容包；不符合当前 schema 的同名副本先备份再修复。"""
-        target = self._installed_path(book_id)
-        if target.exists():
-            try:
-                installed_data = self._read_json(target)
-                if installed_data is None:
-                    raise ValueError("安装副本不是 JSON 对象")
-                WorldBook.from_dict(installed_data)
-            except (KeyError, TypeError, ValueError):
-                backup = self._dir / f"{book_id}.unsupported-schema-{uuid.uuid4().hex[:8]}.bak"
-                shutil.copy2(target, backup)
-                logger.warning("旧内部 schema 已备份到 %s，准备从当前内容包重装", backup)
-            else:
-                raise ValueError("世界书已经安装；如需恢复出厂内容请使用重装")
-        return self.reinstall_book(book_id)
-
     def delete_book(self, book_id: str) -> bool:
-        """卸载自包含书文件夹；分发源仍可供再次导入。"""
+        """删除自包含书文件夹。"""
         book = self.load(book_id)
         if book is None:
             return False

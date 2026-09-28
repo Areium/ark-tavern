@@ -84,15 +84,8 @@ def test_slugify():
 def test_import_creates_character(tmp_path, monkeypatch):
     import app as app_mod
     import world_book as wb_mod
-    import character_card as cc_mod
-
-    # 隔离数据目录：角色写入 character_card._DEFAULT_CHARS_DIR；世界书同样隔离
-    from pathlib import Path
-    tmp_char = tmp_path / "data" / "worldbooks" / "content" / "characters"
-    tmp_char.mkdir(parents=True)
+    # 导入角色与内嵌世界书共用一个自包含书文件夹。
     monkeypatch.setattr(wb_mod, "_WORLDBOOKS_DIR", tmp_path / "worldbooks")
-
-    monkeypatch.setattr(cc_mod, "_DEFAULT_CHARS_DIR", tmp_char)
     client = app_mod.create_app().test_client()
     raw = json.dumps(CARD, ensure_ascii=False).encode("utf-8")
     resp = client.post(
@@ -104,8 +97,10 @@ def test_import_creates_character(tmp_path, monkeypatch):
     body = resp.get_json()
     assert body["character"]["source"] == "imported"
     assert body["worldbook"] is not None
-    index = tmp_char / body["character"]["slug"] / "index.md"
+    index = (tmp_path / "worldbooks" / "books" / body["worldbook"]["id"]
+             / "characters" / body["character"]["slug"] / "index.md")
     assert index.is_file()
     text = index.read_text(encoding="utf-8")
     assert "source: imported" in text
     assert "测试角色A" in text
+    assert f"worldbook_id: {body['worldbook']['id']}" in text

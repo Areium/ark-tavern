@@ -5,13 +5,38 @@
 """
 
 import os
+import json
 import sys
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from combat_session import CombatSession  # noqa: E402
 from combat_engine.card_data import get_cards_for_class  # noqa: E402
 from combat_settlement import generate_card_choices, squad_card_pool  # noqa: E402
+from combat_engine import card_json_loader  # noqa: E402
+from test_combat_resume import prepare_combat_book  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def combat_cards(tmp_path, monkeypatch):
+    folder = prepare_combat_book(tmp_path, monkeypatch)
+    classes = folder / "classes"
+    for class_name, card_ids in (("近卫", ("guard_slash", "guard_block", "guard_charge", "guard_rally")),
+                                 ("医疗", ("medic_heal",))):
+        path = classes / class_name / "cards.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"cards": [{
+            "card_id": card_id, "name": card_id, "description": "",
+            "damage_type": "physical", "min_damage": 1, "max_damage": 1,
+            "atk_scale": 0, "target": "SINGLE", "range": 1, "cost": 1,
+            "tier": "basic", "class_required": class_name,
+        } for card_id in card_ids]}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(card_json_loader, "_CLASS_DIR", classes)
+    card_json_loader.clear_cache()
+    yield
+    card_json_loader.clear_cache()
 
 
 class _FakeOverlay:
@@ -60,21 +85,25 @@ def _bonus_card(card_id="test_bonus_card", class_required="近卫"):
 
 def test_bonus_cards_appended_with_owner():
     cs = CombatSession("deck-test")
-    cs.start("enc_training", character_names=["阿米娅", "银灰", "霜星", "陈"],
+    cs.start("enc_training", character_metas=[
+        {"name": "Medic", "class": "医疗", "combat_stats": {"hp": 80}},
+        {"name": "Guard", "class": "近卫", "combat_stats": {"hp": 80}}],
              bonus_cards=[_bonus_card()])
     pool = cs.engine.shared_pool
     all_cards = pool.deck + pool.hand + pool.discard + pool.exhaust
     bonus = [c for c in all_cards if c.card_id == "test_bonus_card"]
     assert len(bonus) == 1
-    assert bonus[0].owner in ("银灰", "陈")  # 近卫角色
+    assert bonus[0].owner == "Guard"
 
 
 def test_bonus_card_unmatched_class_uses_first_player():
     cs = CombatSession("deck-test3")
-    cs.start("enc_training", character_names=["阿米娅", "银灰", "霜星", "陈"],
+    cs.start("enc_training", character_metas=[
+        {"name": "Medic", "class": "医疗", "combat_stats": {"hp": 80}},
+        {"name": "Guard", "class": "近卫", "combat_stats": {"hp": 80}}],
              bonus_cards=[_bonus_card(card_id="test_sniper_card", class_required="狙击")])
     pool = cs.engine.shared_pool
     all_cards = pool.deck + pool.hand + pool.discard + pool.exhaust
     added = [c for c in all_cards if c.card_id == "test_sniper_card"]
     assert len(added) == 1
-    assert added[0].owner == "阿米娅"  # 无匹配 → 第一个角色
+    assert added[0].owner == "Medic"  # 无匹配 → 第一个角色

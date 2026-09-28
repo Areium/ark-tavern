@@ -11,7 +11,7 @@ SillyTavern 角色卡解析与导入。
 - 内嵌世界书原始数据（若有 character_book，可交给世界书导入）
 
 导入流水线（/api/characters/import 与 /api/worldbook/import 共用）：
-- write_character_dir() — 写入 data/characters/<slug>/index.md（frontmatter 含
+- write_character_dir() — 写入 books/<id>/characters/<slug>/index.md（frontmatter 含
   first_mes/scenario，供首轮叙述注入）+ 头像
 - import_character_card() — 解析 + 写角色 + 导入内嵌世界书
 """
@@ -22,13 +22,9 @@ import logging
 import re
 from pathlib import Path
 
-from data_paths import CONTENT_ROOT
-
 import yaml
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_CHARS_DIR = CONTENT_ROOT / "characters"
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -209,13 +205,13 @@ def build_index_md(meta: dict) -> str:
 
 
 def write_character_dir(meta: dict, image_bytes: bytes | None,
-                        chars_dir: str | Path | None = None) -> dict:
-    """把角色卡元数据写入 data/characters/<slug>/ 目录（index.md + 头像）。
+                        chars_dir: str | Path) -> dict:
+    """把角色卡元数据写入指定书的 characters/<slug>/ 目录。
 
     Returns:
         {"name", "slug", "path", "source", "has_avatar"}
     """
-    base_dir = Path(chars_dir) if chars_dir else _DEFAULT_CHARS_DIR
+    base_dir = Path(chars_dir)
     name = meta["name"]
     slug = slugify(name)
     target = base_dir / slug
@@ -257,8 +253,8 @@ def import_character_card(raw: bytes, wb_mgr=None, chars_dir: str | Path | None 
 
     Args:
         raw: 角色卡文件字节（PNG 或 JSON）。
-        wb_mgr: WorldBookManager 实例（可空，为空则不导入内嵌世界书）。
-        chars_dir: 角色数据目录（默认 data/characters）。
+        wb_mgr: WorldBookManager 实例；提供时为角色创建或导入所属书。
+        chars_dir: 未提供管理器时必须指定的角色数据目录。
         book_name: 内嵌世界书命名（默认 "<角色名>（角色卡）"）。
 
     Returns:
@@ -266,33 +262,37 @@ def import_character_card(raw: bytes, wb_mgr=None, chars_dir: str | Path | None 
     """
     parsed = parse_character_card(raw)
     meta = parsed["meta"]
-    character = write_character_dir(meta, parsed["image_bytes"], chars_dir=chars_dir)
-
     book_summary = None
-    if parsed["book_data"] and wb_mgr is not None:
-        book, _report = wb_mgr.import_book(
-            book_name or f"{meta['name']}（角色卡）", parsed["book_data"])
+    if wb_mgr is not None:
+        name = book_name or f"{meta['name']}（角色卡）"
+        if parsed["book_data"]:
+            book, _report = wb_mgr.import_book(name, parsed["book_data"])
+        else:
+            book = wb_mgr.create_book(name)
+        chars_dir = wb_mgr._path(book.id).parent / "characters"
         book_summary = {
             "id": book.id,
             "name": book.name,
-            "source": book.source,
             "entry_count": len(book.entries),
         }
-        # 来源标注：角色目录记录其世界书，资产/卡牌界面据此展示与筛选
-        _stamp_worldbook_id(character["path"], book.id, chars_dir)
+    if chars_dir is None:
+        raise ValueError("导入角色卡需要指定世界书或角色目录")
+    character = write_character_dir(meta, parsed["image_bytes"], chars_dir=chars_dir)
+    if book_summary:
+        _stamp_worldbook_id(character["path"], book_summary["id"], chars_dir)
 
     return {"character": character, "worldbook": book_summary}
 
 
 def _stamp_worldbook_id(entity_path: str, book_id: str,
-                        chars_dir: str | Path | None = None) -> None:
+                        chars_dir: str | Path) -> None:
     """把 worldbook_id 写入实体 index.md frontmatter（无 index.md 或写入失败时静默跳过）。
 
-    entity_path 形如 "characters/<slug>"，目录基于角色根（默认 data/characters）。
+    entity_path 形如 "characters/<slug>"，目录基于指定书的角色根。
     """
     import frontmatter as _fm
 
-    base = Path(chars_dir) if chars_dir else _DEFAULT_CHARS_DIR
+    base = Path(chars_dir)
     target = base / Path(entity_path).name / "index.md"
     try:
         if target.is_file():

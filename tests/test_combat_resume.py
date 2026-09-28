@@ -29,12 +29,71 @@ from combat_resume import (  # noqa: E402
 NODE_ID = "enc_training"
 #: 会话战用节点（同上，且被 test_combat_complete_timeout 复用为稳定夹具）
 SESSION_NODE_ID = "enc_quick_test_1"
+BOOK_ID = "combat_fixture"
+ACTOR = "Hero"
 #: 恢复前后允许变化的字段：依赖 selected_unit / 回合内临时计算，不属战斗态势
 VOLATILE = ("valid_moves", "valid_targets")
 
 
-@pytest.fixture(scope="module")
-def client():
+def prepare_combat_book(tmp_path, monkeypatch):
+    """创建供战术战与横版战复用的完整临时世界书。"""
+    import data_paths
+    import world_book
+    import session_manager
+    import session_overlay
+    import combat_resume
+    import blueprints.sessions as sessions_blueprint
+
+    monkeypatch.setattr(data_paths, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(world_book, "_WORLDBOOKS_DIR", tmp_path / "data" / "worldbooks")
+    monkeypatch.setattr(session_manager, "_SESSIONS_DIR", tmp_path / "sessions")
+    monkeypatch.setattr(session_overlay, "_SESSIONS_DIR", tmp_path / "sessions")
+    monkeypatch.setattr(combat_resume, "TEST_RESUME_DIR", tmp_path / "resumes")
+    monkeypatch.setattr(sessions_blueprint, "_REPO_ROOT", tmp_path)
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "categories.yaml").write_text(
+        "categories:\n  characters: characters/\n  enemies: enemies/\n",
+        encoding="utf-8")
+    manager = world_book.WorldBookManager(data / "worldbooks")
+    manager.save(world_book.WorldBook(BOOK_ID, "Combat fixture", []))
+    folder = data / "worldbooks" / "books" / BOOK_ID
+    actor = folder / "characters" / ACTOR
+    actor.mkdir(parents=True)
+    (actor / "index.md").write_text(
+        "---\nname: Hero\nclass: 近卫\ncombat_stats:\n  hp: 80\n  patk: 12\n---\n",
+        encoding="utf-8")
+    enemies = folder / "enemies"
+    enemies.mkdir()
+    (enemies / "Dummy.md").write_text(
+        "---\nname: Dummy\nclass: 近卫\ncombat_stats:\n  hp: 40\n  patk: 8\n---\n",
+        encoding="utf-8")
+    nodes = folder / "combat" / "nodes"
+    nodes.mkdir(parents=True)
+    for node_id in (NODE_ID, SESSION_NODE_ID):
+        (nodes / f"{node_id}.json").write_text(json.dumps({
+            "schema_version": 1, "node_id": node_id, "name": "Fixture battle",
+            "rules": {"range_metric": "manhattan", "allow_corner_cut": False},
+            "map": {"rows": 5, "cols": 5, "tiles": "ground", "deploy": {
+                "player": {"rect": [0, 0, 4, 0]},
+                "enemy": {"rect": [0, 4, 4, 4]}}},
+            "waves": [{"enemies": [{"enemy": "Dummy", "count": 1,
+                                      "positions": [[2, 4]]}]}],
+            "conditions": {"max_rounds": 6}, "rewards": {"xp": 0, "items": []},
+            "difficulty": {"category": "test", "encounter_type": "normal", "band": "T1"},
+        }), encoding="utf-8")
+    return folder
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    import app as app_module
+    from document_manager import DocumentManager
+    from wiki_manager import WikiManager
+
+    prepare_combat_book(tmp_path, monkeypatch)
+    monkeypatch.setattr(app_module, "DocumentManager", lambda: DocumentManager(str(tmp_path)))
+    monkeypatch.setattr(app_module, "WikiManager", lambda: WikiManager(str(tmp_path)))
     app = create_app()
     app.config.update(TESTING=True)
     return app.test_client()
@@ -74,7 +133,7 @@ def _diff(a, b, path="") -> list[str]:
 # ── 战斗测试（无会话）──
 
 def test_test_battle_suspend_resume_round_trip(client):
-    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID, "characters": ["临光"]})
+    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID, "characters": [ACTOR]})
     assert start.status_code == 200, start.get_json()
     test_id = start.get_json()["test_id"]
     before = start.get_json()["state"]
@@ -122,7 +181,7 @@ def test_resume_without_snapshot_is_404(client):
 
 def test_resume_twice_returns_in_memory_state(client):
     """第二次恢复不重建：战斗已在内存，直接返回当前态势（resumed=False）。"""
-    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID, "characters": ["临光"]})
+    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID, "characters": [ACTOR]})
     test_id = start.get_json()["test_id"]
     clear_resume(_test_resume_path(test_id))
 
@@ -136,7 +195,7 @@ def test_resume_twice_returns_in_memory_state(client):
 
 
 def test_discard_suspend_removes_entry(client):
-    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID, "characters": ["临光"]})
+    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID, "characters": [ACTOR]})
     test_id = start.get_json()["test_id"]
     clear_resume(_test_resume_path(test_id))
 
@@ -149,7 +208,7 @@ def test_discard_suspend_removes_entry(client):
 
 
 def test_resumes_list_reports_suspended_tests(client):
-    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID, "characters": ["临光"]})
+    start = client.post("/api/combat/test/start", json={"node_id": NODE_ID, "characters": [ACTOR]})
     test_id = start.get_json()["test_id"]
     clear_resume(_test_resume_path(test_id))
     client.post(f"/api/combat/test/{test_id}/suspend")
@@ -177,10 +236,10 @@ def session_id(client):
     读 scene_manager），创建会话时传 `characters` 并不进场景，必须显式
     `characters/load`，否则 start 直接 400「没有可用角色」。
     """
-    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical", "worldbook_ids": [BOOK_ID]})
     assert res.status_code in (200, 201), res.get_json()
     sid = res.get_json()["id"]
-    loaded = client.post(f"/api/sessions/{sid}/characters/load", json={"character": "临光"})
+    loaded = client.post(f"/api/sessions/{sid}/characters/load", json={"character": ACTOR})
     assert loaded.status_code == 200, loaded.get_json()
     try:
         yield sid
@@ -292,9 +351,9 @@ def test_delete_session_cascades_suspended_combat(client):
     落在会话目录内而被 `rmtree` 顺带带走；一旦目录删除失败（占用/权限），
     存档就残留成孤儿入口。
     """
-    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical", "worldbook_ids": [BOOK_ID]})
     sid = res.get_json()["id"]
-    client.post(f"/api/sessions/{sid}/characters/load", json={"character": "临光"})
+    client.post(f"/api/sessions/{sid}/characters/load", json={"character": ACTOR})
     try:
         client.post(f"/api/sessions/{sid}/combat/start",
                     json={"encounter_id": SESSION_NODE_ID})
@@ -329,9 +388,9 @@ def test_delete_session_removes_resume_even_if_dir_survives(client, monkeypatch)
     """
     from session_overlay import SessionOverlay
 
-    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical", "worldbook_ids": [BOOK_ID]})
     sid = res.get_json()["id"]
-    client.post(f"/api/sessions/{sid}/characters/load", json={"character": "临光"})
+    client.post(f"/api/sessions/{sid}/characters/load", json={"character": ACTOR})
     try:
         client.post(f"/api/sessions/{sid}/combat/start",
                     json={"encounter_id": SESSION_NODE_ID})
@@ -370,9 +429,9 @@ def test_delete_session_releases_in_memory_combat(client):
     `suspended` 标记不只是记账——它让阻塞在 `event_queue.get(timeout=30)`
     的 SSE 线程立刻退出，否则线程会攥着已删会话的战斗对象多活 30 秒。
     """
-    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical", "worldbook_ids": [BOOK_ID]})
     sid = res.get_json()["id"]
-    client.post(f"/api/sessions/{sid}/characters/load", json={"character": "临光"})
+    client.post(f"/api/sessions/{sid}/characters/load", json={"character": ACTOR})
     try:
         client.post(f"/api/sessions/{sid}/combat/start",
                     json={"encounter_id": SESSION_NODE_ID})
@@ -396,9 +455,9 @@ def test_delete_session_failure_keeps_session_and_reports_error(client, monkeypa
     """
     from session_overlay import SessionOverlay
 
-    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical", "worldbook_ids": [BOOK_ID]})
     sid = res.get_json()["id"]
-    client.post(f"/api/sessions/{sid}/characters/load", json={"character": "临光"})
+    client.post(f"/api/sessions/{sid}/characters/load", json={"character": ACTOR})
     try:
         client.post(f"/api/sessions/{sid}/combat/start",
                     json={"encounter_id": SESSION_NODE_ID})
@@ -434,7 +493,7 @@ def test_delete_session_rejects_bogus_mode_without_touching_disk(client):
     """
     from session_manager import SessionCleanupError
 
-    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical", "worldbook_ids": [BOOK_ID]})
     sid = res.get_json()["id"]
     try:
         session_dir = _session_dir(client, sid)
@@ -455,7 +514,7 @@ def test_delete_session_rejects_bogus_mode_without_touching_disk(client):
 
 
 def test_delete_session_twice_is_404(client):
-    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical", "worldbook_ids": [BOOK_ID]})
     sid = res.get_json()["id"]
     assert client.delete(f"/api/sessions/{sid}").status_code == 200
     assert client.delete(f"/api/sessions/{sid}").status_code == 404

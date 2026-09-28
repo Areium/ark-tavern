@@ -12,15 +12,14 @@
 
 import logging
 
-from data_paths import CONTENT_ROOT
-from content_scope import is_content_visible
+from pathlib import Path
 
 import frontmatter
 from worldbook_content import resolve_content
 
 logger = logging.getLogger(__name__)
 
-_CHARS_DIR = CONTENT_ROOT / "characters"
+_CHARS_DIR: Path | None = None  # Explicit test/custom root only.
 
 # identity → 档案文本 | None（不存在/解析失败），进程内缓存
 _profile_cache: dict[tuple[str, str], str | None] = {}
@@ -43,9 +42,9 @@ def load_player_profile(identity: str, book_ids: list[str] | None = None) -> str
         path = resolve_content(f"characters/{identity}/index.md", book_ids=book_ids)
     except ValueError:
         path = None
-    if path is None and _CHARS_DIR != CONTENT_ROOT / "characters":
+    if path is None and _CHARS_DIR is not None:
         fixture_path = _CHARS_DIR / identity / "index.md"
-        if fixture_path.is_file() and is_content_visible(fixture_path, content_base=_CHARS_DIR.parent):
+        if fixture_path.is_file() and not fixture_path.is_symlink():
             path = fixture_path
     if path is None or not path.is_file():
         return None

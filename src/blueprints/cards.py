@@ -22,7 +22,6 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request
 
 from shared.json_hash import compute_json_hash
-from data_paths import CONTENT_ROOT
 from content_scope import is_content_visible
 from worldbook_content import category_roots, resolve_content
 
@@ -37,8 +36,8 @@ def _invalidate_card_cache() -> None:
     except Exception:  # 模块未加载时忽略（引擎未初始化）
         pass
 
-CHAR_DIR = CONTENT_ROOT / "characters"
-CLASS_DIR = CONTENT_ROOT / "classes"
+CHAR_DIR = Path("characters")
+CLASS_DIR = Path("classes")
 
 
 def _card_path(base: Path, entity_name: str, filename: str,
@@ -48,39 +47,29 @@ def _card_path(base: Path, entity_name: str, filename: str,
             or "/" in entity_name or "\\" in entity_name
             or Path(entity_name).name != entity_name):
         return None
-    if base == CONTENT_ROOT / base.name and worldbook_id != "":
-        selected = [worldbook_id] if worldbook_id is not None else None
-        try:
-            path = resolve_content(f"{base.name}/{entity_name}/{filename}",
-                                   book_ids=selected)
-            if path is not None:
-                return path
-            # PUT may add a card file to an existing entity in its owning book.
-            folder = resolve_content(f"{base.name}/{entity_name}", book_ids=selected)
-            if folder is not None:
-                return folder / filename
-        except ValueError:
-            return None
-        if worldbook_id is not None:
-            return None
-    path = base / entity_name / filename
-    try:
-        if path.resolve() != path.absolute() or not path.resolve().is_relative_to(base.resolve()):
-            return None
-    except (OSError, ValueError):
+    if worldbook_id == "":
         return None
-    return path if is_content_visible(path, content_base=base.parent) else None
+    selected = [worldbook_id] if worldbook_id is not None else None
+    try:
+        path = resolve_content(f"{base.as_posix()}/{entity_name}/{filename}",
+                               book_ids=selected)
+        if path is not None:
+            return path
+        # PUT may add a card file to an existing entity in its owning book.
+        folder = resolve_content(f"{base.as_posix()}/{entity_name}", book_ids=selected)
+        if folder is not None:
+            candidate = folder / filename
+            return candidate if is_content_visible(candidate) else None
+    except ValueError:
+        return None
+    return None
 
 
 def _card_entries(base: Path, filename: str,
                   worldbook_id: str | None = None) -> list[tuple[str, Path]]:
     selected = [worldbook_id] if worldbook_id is not None else None
     try:
-        roots = ([(None, base)] if worldbook_id == "" else
-                 category_roots(base.name, book_ids=selected)
-                 if base == CONTENT_ROOT / base.name else [(None, base)])
-        if base == CONTENT_ROOT / base.name and worldbook_id is None:
-            roots.append((None, base))
+        roots = category_roots(base.as_posix(), book_ids=selected)
     except ValueError:
         return []
     entries = {}
@@ -91,7 +80,7 @@ def _card_entries(base: Path, filename: str,
             path = subdir / filename
             if (subdir.name not in entries and path.is_file()
                     and _card_path(base, subdir.name, filename, worldbook_id) == path):
-                entries[subdir.name] = (owner or "", path)
+                entries[subdir.name] = (owner, path)
     return [(name, *entry) for name, entry in entries.items()]
 
 

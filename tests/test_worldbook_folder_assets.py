@@ -21,8 +21,8 @@ def asset_client(tmp_path):
     data.mkdir()
     (data / "categories.yaml").write_text(
         "categories:\n"
-        "  characters: data/worldbooks/content/characters/\n"
-        "  locations: data/worldbooks/content/environment/Location/\n",
+        "  characters: characters/\n"
+        "  locations: environment/Location/\n",
         encoding="utf-8",
     )
     app = Flask(__name__)
@@ -70,35 +70,11 @@ def test_category_uses_configured_physical_path(asset_client):
     assert client.get("/api/assets/locations/Ship/map.png").data == b"map"
 
 
-def test_legacy_shared_asset_is_not_a_runtime_source(asset_client):
-    client, root = asset_client
-    books = root / "data" / "worldbooks"
-    image = books / "content" / "characters" / "Hero" / "avatar.png"
-    image.parent.mkdir(parents=True)
-    image.write_bytes(b"legacy")
-    (books / "content_manifest.json").write_text(json.dumps({
-        "directories": {}, "files": {"characters/Hero/avatar.png": ["one"]},
-    }), encoding="utf-8")
-    (books / "one.json").write_text(json.dumps({"id": "one", "enabled": True}),
-                                    encoding="utf-8")
+def test_empty_bookshelf_has_no_assets(asset_client):
+    client, _ = asset_client
     assert client.get("/api/assets/characters/Hero/avatar.png").status_code == 404
-    assert client.get("/api/assets/characters/Hero/avatar.png?worldbook_id=one").status_code == 404
-    assert client.get("/api/assets/characters/Hero/avatar.png?worldbook_id=two").status_code == 404
-
-
-def test_unowned_local_asset_remains_global(asset_client):
-    client, root = asset_client
-    actor = root / "data" / "worldbooks" / "content" / "characters" / "Custom"
-    actor.mkdir(parents=True)
-    (actor / "index.md").write_text("---\nname: Custom\n---\n", encoding="utf-8")
-    (actor / "avatar.png").write_bytes(b"custom")
-    url = "/api/assets/characters/Custom/avatar.png"
-    assert client.get(url).data == b"custom"
-    assert client.get(url + "?worldbook_id=one").status_code == 404
-    groups = client.get("/api/assets/images").json
-    assert len(groups) == 1 and groups[0]["worldbook_id"] == ""
-    assert client.get(groups[0]["images"][0]["url"]).data == b"custom"
-    assert client.get("/api/assets/images?worldbook_id=one").json == []
+    assert client.get("/api/assets/images").json == []
+    assert client.get("/api/assets/spine-variants").json == {"variants": {}}
 
 
 def test_traversal_and_symlink_are_rejected(asset_client):
@@ -143,7 +119,21 @@ def test_book_asset_write_endpoints_stay_in_selected_book(asset_client):
         "default_avatar"] == "new.png"
     assert client.delete("/api/assets/characters/Hero/avatar/new.png?worldbook_id=one").status_code == 200
     assert not (entity / "avatar" / "new.png").exists()
-    assert not (root / "data" / "worldbooks" / "content" / "characters" / "Hero").exists()
+    assert (folder / "characters" / "Hero" / "avatar" / "old.png").is_file()
+
+
+def test_upload_and_delete_require_worldbook_id(asset_client):
+    client, root = asset_client
+    folder = _book(root, "one", "characters/Hero/avatar.png", b"old")
+    upload = client.post(
+        "/api/assets/characters/upload",
+        data={"subdir": "Hero", "file": (BytesIO(b"new"), "new.png")},
+        content_type="multipart/form-data",
+    )
+    assert upload.status_code == 400
+    assert not (folder / "characters" / "Hero" / "new.png").exists()
+    assert client.delete("/api/assets/characters/Hero/avatar.png").status_code == 400
+    assert (folder / "characters" / "Hero" / "avatar.png").read_bytes() == b"old"
 
 
 def test_book_writes_reject_unsafe_paths(asset_client):
@@ -171,10 +161,6 @@ def test_image_library_lists_book_images_with_scoped_urls(asset_client):
     for folder in (one, two):
         (folder / "characters" / "Hero" / "index.md").write_text(
             "---\nname: Hero\n---\n", encoding="utf-8")
-    legacy = root / "data" / "worldbooks" / "content" / "characters" / "Hero"
-    legacy.mkdir(parents=True)
-    (legacy / "index.md").write_text("---\nname: Legacy\n---\n", encoding="utf-8")
-    (legacy / "avatar.png").write_bytes(b"legacy")
     groups = client.get("/api/assets/images").json
     assert [group["worldbook_id"] for group in groups] == ["one", "two"]
     assert [client.get(group["images"][0]["url"]).data for group in groups] == [b"one", b"two"]
@@ -200,24 +186,3 @@ def test_spine_variants_use_same_book_as_character(asset_client):
     (one / "book.json").write_text(json.dumps({"id": "one", "enabled": False}),
                                    encoding="utf-8")
     assert client.get("/api/assets/spine-variants").json == {"variants": {"Hero": "two/default"}}
-
-
-def test_old_manifest_content_never_enters_image_or_spine_catalog(asset_client):
-    client, root = asset_client
-    books = root / "data" / "worldbooks"
-    actor = books / "content" / "characters" / "OldHero"
-    actor.mkdir(parents=True)
-    (actor / "index.md").write_text("---\nname: OldHero\n---\n", encoding="utf-8")
-    (actor / "avatar.png").write_bytes(b"old")
-    (books / "content" / "spine_variants.json").write_text(
-        json.dumps({"OldHero": "old/model"}), encoding="utf-8")
-    (books / "content_manifest.json").write_text(json.dumps({
-        "directories": {"characters/OldHero/": ["old"]},
-        "files": {"spine_variants.json": ["old"]},
-    }), encoding="utf-8")
-    (books / "old.json").write_text(json.dumps({"id": "old", "enabled": True}),
-                                    encoding="utf-8")
-    assert client.get("/api/assets/images").json == []
-    assert client.get("/api/assets/images?worldbook_id=old").json == []
-    assert client.get("/api/assets/spine-variants").json == {"variants": {}}
-    assert client.get("/api/assets/spine-variants?worldbook_id=old").json == {"variants": {}}

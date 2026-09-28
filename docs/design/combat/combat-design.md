@@ -3,7 +3,6 @@
 > 本文是战斗系统的**架构与集成总纲**，内容已按当前代码校准（2026-08 审计）。
 > 数值公式与平衡参数详见 [`combat-numerical-design.md`](combat-numerical-design.md)；
 > 界面交互与布局详见 [`combat-ui-design.md`](combat-ui-design.md)；
-> 背景图提示词规范见 [`combat-background-prompts.md`](combat-background-prompts.md)。
 > 章节战斗化改造方案（战前简报/Approach 打法/敌人意图等）见 [`archive/combat-core-design.md`](../../archive/combat-core-design.md)（**已实现并归档**；其"7×7 网格明确不改"条款已作废）。
 > 代码权威源：`src/combat_engine/`、`src/combat_session.py`、`src/combat_data_loader.py`、`src/blueprints/combat.py`。
 
@@ -18,19 +17,19 @@ combat_session.py（会话包装：生命周期/玩家操作/奖励回写/SSE �
         │       ├── entity.py         —— CombatUnit（属性→战斗数值、个人 AP）
         │       ├── grid.py           —— 战场网格、Dijkstra 寻路、视线与目标形状（曼哈顿度量）
         │       ├── card.py           —— Card / CardPool（抽牌堆/手牌/弃牌/消耗）
-        │       ├── card_data.py      —— 9 职业 × 8 张基础卡牌（5 basic + 3 elite）
+        │       ├── card_data.py      —— 书内职业卡牌加载与起始卡组
         │       ├── card_json_loader.py —— cards.json → 卡牌实例（唯一真相源，带缓存）
         │       └── dice.py           —— d20 命中/伤害/治疗判定
         │
-        └── combat_data_loader.py —— 敌人/节点/背景加载（节点与背景 `data/worldbooks/content/combat/` · 敌人 `data/worldbooks/content/enemies/`）
+        └── combat_data_loader.py —— 敌人/节点/背景加载（节点与背景 `data/worldbooks/books/<book_id>/combat/` · 敌人 `data/worldbooks/books/<book_id>/enemies/`）
 ```
 
 数据源：
-- 敌人：`data/worldbooks/content/enemies/*.md`（frontmatter `name/class/combat_stats/drop_items/drop_rate/xp_reward`）
-- 战斗节点：`data/worldbooks/content/combat/nodes/<node_id>.json`（地图/波次/条件/奖励/打法/剧情节拍绑定）
-- 格子类型：`data/worldbooks/content/combat/tiles/<tile_id>.json`（可扩展地形与格子效果；内置 ground/wall/cover/high_ground/hazard_fire）
-- 背景：`data/worldbooks/content/combat/backgrounds/<bg_id>/index.md` + 图片
-- 卡牌：`data/worldbooks/content/characters/<角色>/combat.json`（专属）+ `data/worldbooks/content/classes/<职业>/cards.json`（职业池）
+- 敌人：`data/worldbooks/books/<book_id>/enemies/*.md`（frontmatter `name/class/combat_stats/drop_items/drop_rate/xp_reward`）
+- 战斗节点：`data/worldbooks/books/<book_id>/combat/nodes/<node_id>.json`（地图/波次/条件/奖励/打法/剧情节拍绑定）
+- 格子类型：`data/worldbooks/books/<book_id>/combat/tiles/<tile_id>.json`（可扩展地形与格子效果；内置 ground/wall/cover/high_ground/hazard_fire）
+- 背景：`data/worldbooks/books/<book_id>/combat/backgrounds/<bg_id>/index.md` + 图片
+- 卡牌：`data/worldbooks/books/<book_id>/characters/<角色>/combat.json`（专属）+ `data/worldbooks/books/<book_id>/classes/<职业>/cards.json`（职业池）
 
 ## 2. 战场（自由尺寸 + 地形）
 
@@ -42,8 +41,7 @@ combat_session.py（会话包装：生命周期/玩家操作/奖励回写/SSE �
 - **距离 = 统一曼哈顿**：8 向移动，直向步代价 = 目标格 `move_cost`，**斜向 ×2**；
   预算 `mobility // 2`。攻击范围同样按曼哈顿判定（节点可写 `rules.range_metric:
   "chebyshev"` 覆盖，仅作对照）。射程覆盖：曼哈顿 `r` 覆盖 `2r²+2r+1` 格，
-  约为切比雪夫 `(2r+1)²` 的一半；近战单体卡已按 1 → 2 迁移补回斜角邻格
-  （见 `perf_tests/metric_migration_report.md`）。
+  约为切比雪夫 `(2r+1)²` 的一半；历史内置卡牌曾按 1 → 2 调整射程以补回斜角邻格。
 - **地形语义**：`blocks_movement`（不可通行）、`move_cost`（通行代价，Dijkstra）、
   `blocks_los`（阻挡视线，Bresenham + 拐角）、`defense_bonus`/`evasion_bonus`
   （守方减伤/加闪避）、`damage_bonus`（攻方加伤）、`on_enter` / `on_round_start`
@@ -72,7 +70,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 - 移动：**1 个人 AP 可移动最多 `mobility // 2`（曼哈顿格）**；斜向一步记 2 格，绕地形按 Dijkstra 代价。
 - 出牌/移动都先经 `validate_card_play` / `validate_move` 预检（AP、回合、卡牌归属、职业限制、
   射程与合法目标）；拒绝时不消耗任何资源、不弃牌。
-- 战斗态不跨进程保存；升级收益与难度参数由 `data/worldbooks/content/combat/rules/{growth,difficulty}.json` 配置（按 mtime 热加载）。
+- 战斗态不跨进程保存；升级收益与难度参数由 `data/worldbooks/books/<book_id>/combat/rules/{growth,difficulty}.json` 配置（按 mtime 热加载）。
 
 ## 5. 命中 / 伤害 / 治疗
 
@@ -88,12 +86,10 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 
 ## 7. 卡牌
 
-- **9 职业 × 8 张（5 basic + 3 elite）= 72 张**；每角色起始卡组 7 张（5 basic + 2 elite）。
-- **单一真相源（v1）**：运行时卡表只读 `data/worldbooks/content/classes/<职业>/cards.json`
-  （`card_json_loader.py` 带缓存，`card_data.py` 为薄封装）。
-  `blueprints/cards.py` 写盘后调用 `clear_cache()` 刷新；`perf_tests/test_card_json_roundtrip.py`
-  验证 JSON 与迁移前硬编码表的结构等价，`perf_tests/fixtures/cards_python_snapshot.json` 是迁移基线。
-  （旧文档提到的 `card_loader.py` 三层回落为死代码，已在冗余清理中删除。）
+- **单一真相源（v1）**：运行时卡表从已绑定世界书的
+  `classes/<职业>/cards.json` 读取；新检出项目不内置职业卡牌。
+  `card_json_loader.py` 带缓存，`card_data.py` 为薄封装；
+  `blueprints/cards.py` 写盘后调用 `clear_cache()` 刷新。
 - **v1 卡牌字段**：在 `damage_type/min_damage/max_damage/atk_scale/target/range/cost/tier/
   class_required/owner/effects/ignore_def/cleanse` 之外新增
   `rank`（R0–R3）、`upgrade_branch`（stable/burst/synergy/tactical）、`exhaust`（显式耗竭覆盖，
@@ -131,7 +127,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 
 ## 10. 消耗品与奖励
 
-- **已实现战斗消耗品**：物品 frontmatter `combat_effect: {type: heal}`，使用消耗 1 共享 AP（如 `data/worldbooks/content/items/急救包.md`）。
+- **已实现战斗消耗品**：物品 frontmatter `combat_effect: {type: heal}`，使用消耗 1 共享 AP（如 `data/worldbooks/books/<book_id>/items/急救包.md`）。
 - **奖励结算（v1）**：
   `XP = (遭遇 rewards.xp + 0.35 × Σ 敌人 xp_reward) × 打法倍率`；
   打法倍率钳制在 **0.75–1.20**（突袭上限 1.20、谈判下限 0.75；撤退 ≤0.25 保留低倍率）。
@@ -219,9 +215,5 @@ LLM 生成闭环（`docs/design/combat/battle-spec.md` + `tools/validate_battle_
 | 遭遇难度 | `difficulty` 自由整数 | `encounter_type`/`recommended_power_tier`/`threat_budget`/`target_rounds` + 威胁带重排 |
 | 战斗态持久化 | 字段级重建（无版本） | **不再持久化**：战斗态只在内存（`session.combat`），结算用 `CombatSession.snapshot()`；若将来要"战斗中恢复"，用「节点 spec + 命令流重放」 |
 
-机器生成的审计与模拟报告（每次数值变更后重跑）：
-
-- `perf_tests/cv_audit_report.md` — 全卡 CV 审计与例外清单（`scripts/cv_audit.py`）
-- `perf_tests/balance_audit_report.md` — 敌人分层/威胁点与节点 XP 审计（`tools/balance_audit.py`）
-- `perf_tests/metric_migration_report.md` — 切比雪夫 → 曼哈顿度量的对跑对照（`tools/metric_migration_report.py`）
-- `perf_tests/progression_report.md` — 固定种子模拟与验收偏差（`perf_tests/simulate_combat.py`）
+数值变更后，对目标完整世界书运行 `tools/balance_audit.py --book-folder PATH` 与
+`perf_tests/simulate_combat.py --book-folder PATH`，报告按需生成，不随空书架项目分发。

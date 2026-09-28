@@ -16,14 +16,7 @@ from combat_nodes import (  # noqa: E402
     validate_node,
 )
 
-NODE_DIR = ROOT / "data" / "worldbooks" / "content" / "combat" / "nodes"
-
-
-@pytest.fixture(scope="module")
-def client():
-    app = create_app()
-    app.config.update(TESTING=True)
-    return app.test_client()
+from test_combat_api import client  # noqa: F401  shared temporary book fixture
 
 
 @pytest.fixture
@@ -155,11 +148,11 @@ def test_duplicate_create_is_rejected(client):
 
 
 def test_delete_refuses_when_plot_references_node(client):
-    # enc_snow_convoy 被 fengxue_guojing 的节拍引用
-    res = client.delete("/api/combat/nodes/enc_snow_convoy")
+    res = client.delete("/api/combat/nodes/enc_training?book_id=combat_api")
     assert res.status_code == 409
     assert "剧情引用" in res.get_json()["error"]
-    assert (NODE_DIR / "enc_snow_convoy.json").is_file()
+    folder = client.application._managers["worldbook"]._path("combat_api").parent
+    assert (folder / "combat" / "nodes" / "enc_training.json").is_file()
 
 
 def test_delete_missing_node_returns_404(client):
@@ -171,20 +164,20 @@ def test_delete_missing_node_returns_404(client):
 def test_overview_lists_nodes_with_markers(client):
     payload = client.get("/api/combat/nodes").get_json()
     nodes = {n["node_id"]: n for n in payload["nodes"]}
-    assert "enc_snow_convoy" in nodes
-    assert nodes["enc_snow_convoy"]["markers"][0]["plot_id"] == "fengxue_guojing"
-    assert payload["meta"]["bindings"] >= 8
+    assert "enc_training" in nodes
+    assert nodes["enc_training"]["markers"][0]["plot_id"] == "test_plot"
+    assert payload["meta"]["bindings"] >= 1
 
 
-def test_bindings_scan_plot_markers():
+def test_bindings_scan_plot_markers(client):
     bindings = node_bindings()
-    assert bindings["enc_snow_convoy"][0]["beat_id"] == "beat_convoy_fight"
+    assert bindings["enc_training"][0]["beat_id"] == "beat_enc"
     assert all(not node_id.startswith("ID") for node_id in bindings)
 
 
 def test_session_progress_reports_beat_states(client):
     created = client.post("/api/sessions", json={
-        "mode": "story", "plot_id": "fengxue_guojing",
+        "mode": "story", "plot_id": "test_plot", "worldbook_ids": ["combat_api"],
         "combat_mode": "tactical", "name": "节点进度测试",
     })
     assert created.status_code in (200, 201), created.get_json()

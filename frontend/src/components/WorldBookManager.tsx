@@ -2,7 +2,6 @@ import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useS
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useApi } from "../hooks/useApi";
-import { confirmAction } from "../stores/confirmStore";
 import { useAppStore, type WorldBookTab } from "../stores/appStore";
 import type { StatFieldDTO, WorldBookDetail, WorldBookEntryDTO, WorldBookEntryGroupDTO, WorldBookEntryLayoutItemDTO, WorldBookSearchHit, WorldBookSummary, WorldBookType } from "../types";
 import { useScopePreview, useWorldbookDraft } from "../hooks/useWorldbookDraft";
@@ -976,12 +975,6 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     } finally { setStatFieldsSaving(false); }
   };
 
-  const reinstallBook = async () => {
-    if (!detail || !await confirmAction("从整合包恢复会覆盖当前内容，确定继续？", { title: "恢复世界书", confirmLabel: "覆盖并恢复" })) return;
-    try { await flushBook(detail.id); await api.reinstallWorldbook(detail.id); await loadBooks(); await loadDetail(detail.id); }
-    catch (reason: any) { setError(reason?.message || "重装失败"); }
-  };
-
   const importPastedJson = async () => {
     if (!pasteJson.trim() || pasteBusy) return;
     setPasteBusy(true);
@@ -1618,7 +1611,6 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
               <button type="button" onClick={() => void exportLegacyBook()}>导出酒馆 JSON</button>
               <button type="button" onClick={() => void updateBookOption({ book_type: isReference(detail) ? "story" : "reference" })}>
                 {isReference(detail) ? "改为剧情世界书" : "移入资料库"}</button>
-              {detail.is_preinstalled && <button type="button" onClick={() => void reinstallBook()}>重装整合包</button>}
               <button type="button" className="is-danger app-danger-button" onClick={() => setDeleteTarget({ kind: "book", bookId: detail.id, name: detail.name })}><AppIcon name="trash" size={14} />删除</button>
             </div></details></div>
         </section>

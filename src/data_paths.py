@@ -23,14 +23,6 @@ def installed_books_root(project_root: str | Path | None = None) -> Path:
     return worldbooks_root(project_root) / "books"
 
 
-def content_root(project_root: str | Path | None = None) -> Path:
-    return worldbooks_root(project_root) / "content"
-
-
-def packs_root(project_root: str | Path | None = None) -> Path:
-    return worldbooks_root(project_root) / "packs"
-
-
 def memory_root(project_root: str | Path | None = None) -> Path:
     return data_root(project_root) / "memory"
 
@@ -42,7 +34,5 @@ def categories_path(project_root: str | Path | None = None) -> Path:
 DATA_ROOT = data_root()
 WORLDBOOKS_ROOT = worldbooks_root()
 INSTALLED_BOOKS_ROOT = installed_books_root()
-CONTENT_ROOT = content_root()
-PACKS_ROOT = packs_root()
 MEMORY_ROOT = memory_root()
 CATEGORIES_PATH = categories_path()

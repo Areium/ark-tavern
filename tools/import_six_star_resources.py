@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把「明日方舟」全部六星干员的资源落进 data/worldbooks/content/characters/。
+"""把「明日方舟」全部六星干员的资源落进指定世界书的 characters/。
 
 素材来源（本地镜像，gitignored）：assets/ArknightsGameResource/
   - avatar/<cid>.png / <cid>_2.png     —— 精英0 / 精英2 头像（180×180）
@@ -11,7 +11,7 @@
 六星口径：character_table.json 中 rarity == 5（0 起算）且 profession 不属于
 TOKEN / TRAP（召唤物、装置、陷阱不是干员）。
 
-实体口径（写入 data/worldbooks/content/characters/<中文名>/）：
+实体口径（写入 <book-folder>/characters/<中文名>/）：
   - index.md       —— frontmatter（name/class/race/summary/tags/theme_color/
                       default_avatar/default_skin/worldbook_id）+ 官方档案正文
   - avatar/        —— 头像（default_avatar 指向 <cid>.png）
@@ -22,10 +22,10 @@ TOKEN / TRAP（召唤物、装置、陷阱不是干员）。
 已存在 index.md 的实体一律不覆盖（保留手写内容），只补缺失的图像文件。
 
 用法：
-    python tools/import_six_star_resources.py --dry-run          # 只报告，不落盘
-    python tools/import_six_star_resources.py --scope standard   # 头像 + 精英2 立绘
-    python tools/import_six_star_resources.py --scope full       # 全部皮肤/换装
-    python tools/import_six_star_resources.py --json report.json # 覆盖度报告
+    python tools/import_six_star_resources.py --book-folder PATH --dry-run
+    python tools/import_six_star_resources.py --book-folder PATH --scope standard
+    python tools/import_six_star_resources.py --book-folder PATH --scope full
+    python tools/import_six_star_resources.py --book-folder PATH --json report.json
 """
 from __future__ import annotations
 
@@ -38,10 +38,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MIRROR = REPO_ROOT / "assets" / "ArknightsGameResource"
-CHAR_DIR = REPO_ROOT / "data" / "worldbooks" / "content" / "characters"
 EXCEL = MIRROR / "gamedata" / "excel"
 
-# profession（character_table）→ data/worldbooks/content/classes/ 目录名
+# profession（character_table）→ 世界书 classes/ 目录名
 CLASS_CN = {
     "PIONEER": "先锋",
     "WARRIOR": "近卫",
@@ -166,7 +165,8 @@ def _yaml_scalar(value: str) -> str:
 
 
 def _render_index(char: dict, cid: str, sections: list[tuple[str, str]],
-                  cls_cn: str, race: str, theme: str, default_skin: str) -> str:
+                  cls_cn: str, race: str, theme: str, default_skin: str,
+                  book_folder: Path) -> str:
     name = str(char["name"])
     summary = _summary_of(char, sections)
     tags = [t for t in (char.get("tagList") or []) if str(t).strip()]
@@ -179,7 +179,7 @@ def _render_index(char: dict, cid: str, sections: list[tuple[str, str]],
     lines.append(f"default_skin: {default_skin}")
     lines.append("imports:")
     lines.append(f"- classes/{cls_cn}")
-    if race and (REPO_ROOT / "data" / "worldbooks" / "content" / "races" / race).is_dir():
+    if race and (book_folder / "races" / race).is_dir():
         lines.append(f"- races/{race}")
     lines.append(f"name: {_yaml_scalar(name)}")
     if race:
@@ -189,7 +189,7 @@ def _render_index(char: dict, cid: str, sections: list[tuple[str, str]],
     for t in tags:
         lines.append(f"- {_yaml_scalar(str(t))}")
     lines.append(f"theme_color: '{theme}'")
-    lines.append("worldbook_id: arknights")
+    lines.append(f"worldbook_id: {_yaml_scalar(book_folder.name)}")
     lines.append("---")
     lines.append("")
     lines.append(f"# {name}")
@@ -219,11 +219,29 @@ def _write_text_lf(path: Path, text: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--book-folder", type=Path, required=True,
+                    help="含 book.json 的完整世界书文件夹")
     ap.add_argument("--scope", choices=["core", "standard", "e1", "full"], default="standard",
                     help="core=仅头像；standard=头像+精英2立绘（默认）；e1=再加精英1立绘；full=全部皮肤")
     ap.add_argument("--dry-run", action="store_true", help="只统计与报告，不落盘")
-    ap.add_argument("--json", metavar="PATH", help="把覆盖度报告写入 JSON")
+    ap.add_argument("--json", metavar="PATH", help="把覆盖度报告写入书文件夹内的相对路径")
     args = ap.parse_args()
+    book_folder = args.book_folder.resolve()
+    try:
+        book = json.loads((book_folder / "book.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        ap.error(f"无效世界书文件夹（无法读取 book.json）：{exc}")
+    if not book_folder.is_dir() or not isinstance(book, dict) or book.get("id") != book_folder.name:
+        ap.error("book.json 的 id 必须与世界书文件夹名一致")
+    if args.json and args.dry_run:
+        ap.error("--dry-run 只读，不能与写文件的 --json 同时使用")
+    if args.json:
+        if Path(args.json).is_absolute():
+            ap.error("--json 必须是世界书文件夹内的相对路径")
+        report_path = (book_folder / args.json).resolve()
+        if report_path == book_folder or book_folder not in report_path.parents:
+            ap.error("--json 必须是世界书文件夹内的相对路径")
+    char_dir = book_folder / "characters"
 
     if not (EXCEL / "character_table.json").is_file():
         print(f"素材镜像缺失：{EXCEL}/character_table.json", file=sys.stderr)
@@ -241,7 +259,7 @@ def main() -> int:
     rows: list[dict] = []
     for cid, char in sorted(operators, key=lambda kv: kv[1].get("name", "")):
         name = str(char["name"])
-        target = CHAR_DIR / name
+        target = char_dir / name
         has_index = (target / "index.md").is_file()
         av_sel = _picked(av_pool, cid, args.scope)
         sk_sel = _picked(sk_pool, cid, args.scope)
@@ -282,7 +300,8 @@ def main() -> int:
         if not has_index:
             avatar0 = target / "avatar" / f"{cid}.png"
             theme = _theme_color(avatar0) if (not args.dry_run and avatar0.is_file()) else "#8b5ca8"
-            text = _render_index(char, cid, sections, cls_cn, race, theme, default_skin)
+            text = _render_index(char, cid, sections, cls_cn, race, theme, default_skin,
+                                 book_folder)
             if not args.dry_run:
                 import frontmatter as _fm
                 parsed = _fm.loads(text)  # frontmatter 不合法则立刻抛错
@@ -325,8 +344,8 @@ def main() -> int:
     }
 
     if args.json:
-        Path(args.json).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n",
-                                   encoding="utf-8")
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+                               encoding="utf-8")
 
     print(f"=== 六星资源落地 · scope={args.scope}{'（dry-run）' if args.dry_run else ''} ===")
     print(f"六星干员总数：{len(operators)}（另有 {tokens} 条召唤物/装置已排除）")

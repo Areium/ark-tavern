@@ -404,9 +404,6 @@ export function useApi() {
           method: "POST",
           body: JSON.stringify({ name: name || "" }),
         }),
-    reinstallWorldbook: (id: string) =>
-      request<{ book: import("../types").WorldBookSummary }>(
-        `/api/worldbook/${encodeURIComponent(id)}/reinstall`, { method: "POST" }),
     searchWorldbooks: (q: string, limit = 30, bookType?: import("../types").WorldBookType) =>
       request<{ results: import("../types").WorldBookSearchHit[] }>(
         `/api/worldbook/search?q=${encodeURIComponent(q)}&limit=${limit}` +
@@ -760,7 +757,7 @@ export function useApi() {
         `/api/plot-graphs/${encodeURIComponent(plotId)}`,
         { method: "PUT", body: JSON.stringify({ book_id: bookId, graph: doc, display_name: displayName }) }),
 
-    /** 格子类型注册表（内置 + data/worldbooks/content/combat/tiles/*.json） */
+    /** 格子类型注册表（内置 + 已安装书内的 combat/tiles/*.json） */
     listCombatTiles: () =>
       request<{ tiles: any[]; warnings: string[] }>("/api/combat/tiles"),
 

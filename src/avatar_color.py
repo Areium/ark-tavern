@@ -5,7 +5,6 @@ import logging
 from collections import Counter
 from pathlib import Path
 
-from data_paths import CONTENT_ROOT
 from content_scope import is_content_visible
 from worldbook_content import resolve_content
 
@@ -14,12 +13,12 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-_CHARS_ROOT = CONTENT_ROOT / "characters"
+_CHARS_ROOT: Path | None = None  # Explicit test/custom root only.
 
 
 def _visible(path: Path) -> bool:
-    if path.is_relative_to(_CHARS_ROOT):
-        return is_content_visible(path, content_base=_CHARS_ROOT.parent)
+    if _CHARS_ROOT is not None and path.is_relative_to(_CHARS_ROOT):
+        return not path.is_symlink()
     return is_content_visible(path)
 
 
@@ -27,14 +26,13 @@ def _character_dir(name: str, book_ids: list[str] | None = None, *, local_only: 
     if not name or Path(name).name != name:
         return None
     if local_only:
+        return _CHARS_ROOT / name if _CHARS_ROOT is not None else None
+    if _CHARS_ROOT is not None:
         return _CHARS_ROOT / name
     found = resolve_content(f"characters/{name}", book_ids=book_ids)
     if found is not None:
         return found
-    if book_ids is not None:
-        return None
-    # Custom test roots and legacy installations still use the old directory.
-    return _CHARS_ROOT / name
+    return None
 
 
 def extract_theme_color(image_path: str | Path) -> str:

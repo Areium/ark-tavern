@@ -11,13 +11,14 @@ import os
 import hashlib
 import logging
 import shutil
+from pathlib import PurePosixPath
 from typing import Optional
 
 import frontmatter
 import yaml
-from data_paths import categories_path, content_root
+from data_paths import categories_path
 from content_scope import is_content_visible
-from worldbook_content import category_roots
+from worldbook_content import book_directory, category_roots, enabled_book_ids
 
 logger = logging.getLogger(__name__)
 
@@ -132,10 +133,11 @@ class DocumentManager:
             cat_data = data.get("categories", {})
             for cat_id, cat_info in cat_data.items():
                 dir_path = cat_info if isinstance(cat_info, str) else cat_info.get("dir", "")
-                self._categories[cat_id] = DocumentCategory(
-                    category_id=cat_id,
-                    directory=os.path.join(self._root, dir_path),
-                )
+                relative = PurePosixPath(str(dir_path).strip("/"))
+                if (relative.is_absolute() or not relative.parts or
+                        any(part in ("", ".", "..") for part in relative.parts)):
+                    raise ValueError(f"非法类别目录: {dir_path}")
+                self._categories[cat_id] = DocumentCategory(cat_id, relative.as_posix())
             h_data = data.get("hierarchy", {})
             self._hierarchy = h_data.get("levels", [])
             logger.info("加载了 %d 个文档类别", len(self._categories))
@@ -158,24 +160,27 @@ class DocumentManager:
     def _selected_book_ids(book_id: str | None):
         if book_id is not None and not isinstance(book_id, str):
             raise ValueError("worldbook_id 必须是字符串")
-        return [book_id] if book_id else None
+        return [book_id] if book_id else ([] if book_id == "" else None)
 
     def _category_roots(self, category_id: str, book_ids=None) -> list[tuple[str | None, str]]:
         cat = self._categories[category_id]
-        content_base = os.path.abspath(content_root(self._root))
-        directory = os.path.abspath(cat.directory)
-        try:
-            relative = os.path.relpath(directory, content_base).replace("\\", "/")
-            inside = relative != ".." and not relative.startswith("../")
-        except ValueError:
-            inside = False
-        roots = ([(owner, str(path)) for owner, path in category_roots(
-            relative, book_ids=book_ids, project_root=self._root)]
-            if inside and relative != "." else [])
-        # User-authored files in the shared tree remain available without a binding.
-        if book_ids is None and os.path.isdir(directory) and directory not in [path for _, path in roots]:
-            roots.append((None, directory))
-        return roots
+        return [(owner, str(path)) for owner, path in category_roots(
+            cat.directory, book_ids=book_ids, project_root=self._root)]
+
+    def _book_category_root(self, category_id: str, book_id: str) -> str:
+        if category_id not in self._categories:
+            raise ValueError(f"未知文档类别: {category_id}")
+        if not book_id or book_id not in enabled_book_ids(self._root):
+            raise ValueError("必须指定已启用的世界书")
+        folder = book_directory(book_id, self._root)
+        root = folder
+        for part in PurePosixPath(self._categories[category_id].directory).parts:
+            root /= part
+            if root.is_symlink():
+                raise ValueError("世界书类别目录不可用")
+        if folder.is_symlink() or not root.resolve().is_relative_to(folder.resolve()):
+            raise ValueError("世界书类别目录不可用")
+        return str(root)
 
     # ── 文档列举 ──
 
@@ -202,9 +207,8 @@ class DocumentManager:
         docs = []
         seen = set()
         selected = self._selected_book_ids(book_id)
-        roots = ([(None, cat.directory)] if book_id == "" else
-                 self._category_roots(category_id,
-                                      selected if book_id is not None else book_ids))
+        roots = self._category_roots(category_id,
+                                     selected if book_id is not None else book_ids)
         for owner, base in roots:
             for doc in self._list_documents_in_root(category_id, base, include_content, owner):
                 if include_duplicates or doc["id"] not in seen:
@@ -450,8 +454,7 @@ class DocumentManager:
              "filepath": "...", "frontmatter_raw": "..."}
         """
         selected = self._selected_book_ids(book_id) if book_id is not None else book_ids
-        filepath = self._resolve_path(category_id, doc_path, book_ids=selected,
-                                      local_only=book_id == "")
+        filepath = self._resolve_path(category_id, doc_path, book_ids=selected)
         if not filepath or not os.path.isfile(filepath) or not is_content_visible(filepath, project_root=self._root):
             raise DocumentNotFoundError(
                 f"文档不存在: {category_id}/{doc_path}"
@@ -502,8 +505,7 @@ class DocumentManager:
             {"hash": "...", "path": "..."}
         """
         filepath = self._resolve_path(category_id, doc_path,
-                                      book_ids=self._selected_book_ids(book_id),
-                                      local_only=book_id == "")
+                                      book_ids=self._selected_book_ids(book_id))
         if (not filepath or (book_id is not None and not os.path.isfile(filepath))
                 or not is_content_visible(filepath, project_root=self._root)):
             raise DocumentNotFoundError(
@@ -558,7 +560,8 @@ class DocumentManager:
         return {"hash": new_hash, "path": rel_path}
 
     def create_document(self, category_id: str, doc_id: str,
-                        content: str = "", metadata: dict = None) -> dict:
+                        content: str = "", metadata: dict = None, *,
+                        book_id: str) -> dict:
         """创建新文档（实体文件夹模式：创建 {doc_id}/index.md）。
 
         Args:
@@ -570,7 +573,9 @@ class DocumentManager:
         Returns:
             {"hash": "...", "path": "..."}
         """
-        filepath = self._resolve_path(category_id, doc_id)
+        base = self._book_category_root(category_id, book_id)
+        candidates = self._document_candidates(category_id, doc_id, base=base)
+        filepath = candidates[0] if candidates else None
         if not filepath:
             if category_id not in self._categories:
                 raise ValueError(f"未知文档类别: {category_id}")
@@ -606,8 +611,7 @@ class DocumentManager:
         传统文件模式：仅删除 .md 文件。
         """
         filepath = self._resolve_path(category_id, doc_path,
-                                      book_ids=self._selected_book_ids(book_id),
-                                      local_only=book_id == "")
+                                      book_ids=self._selected_book_ids(book_id))
         if not filepath or not os.path.isfile(filepath) or not is_content_visible(filepath, project_root=self._root):
             raise DocumentNotFoundError(
                 f"文档不存在: {category_id}/{doc_path}"
@@ -624,24 +628,20 @@ class DocumentManager:
 
     # ── 文件夹操作 ──
 
-    def create_folder(self, category_id: str, folder_path: str) -> dict:
+    def create_folder(self, category_id: str, folder_path: str, *, book_id: str) -> dict:
         """在类别目录中创建空文件夹。"""
-        cat = self._categories.get(category_id)
-        if not cat:
-            raise ValueError(f"未知文档类别: {category_id}")
-        full_path = os.path.join(cat.directory, folder_path)
+        base = self._book_category_root(category_id, book_id)
+        full_path = self._safe_folder_path(base, folder_path)
         if os.path.exists(full_path):
             raise FileExistsError(f"文件夹已存在: {folder_path}")
         os.makedirs(full_path, exist_ok=True)
         logger.info("文件夹已创建: %s", full_path)
         return {"path": folder_path, "category": category_id}
 
-    def delete_folder(self, category_id: str, folder_path: str) -> dict:
+    def delete_folder(self, category_id: str, folder_path: str, *, book_id: str) -> dict:
         """删除空文件夹（仅当为空时允许）。"""
-        cat = self._categories.get(category_id)
-        if not cat:
-            raise ValueError(f"未知文档类别: {category_id}")
-        full_path = os.path.join(cat.directory, folder_path)
+        base = self._book_category_root(category_id, book_id)
+        full_path = self._safe_folder_path(base, folder_path)
         if not os.path.isdir(full_path):
             raise DocumentNotFoundError(f"文件夹不存在: {folder_path}")
         if os.listdir(full_path):
@@ -661,15 +661,16 @@ class DocumentManager:
         new_path 为新的相对路径（相对于类别目录，不含 .md）。
         """
         old_filepath = self._resolve_path(category_id, doc_path,
-                                          book_ids=self._selected_book_ids(book_id),
-                                          local_only=book_id == "")
+                                          book_ids=self._selected_book_ids(book_id))
         if not old_filepath or not os.path.isfile(old_filepath) or not is_content_visible(old_filepath, project_root=self._root):
             raise DocumentNotFoundError(f"文档不存在: {category_id}/{doc_path}")
 
         target_rel = new_path or doc_path
-        cat = self._categories[category_id]
-        source_base = next((base for _, base in self._category_roots(category_id)
-                            if os.path.commonpath((base, old_filepath)) == base), cat.directory)
+        source_base = next((base for _, base in self._category_roots(category_id,
+                           self._selected_book_ids(book_id))
+                            if os.path.commonpath((base, old_filepath)) == base), None)
+        if source_base is None:
+            raise DocumentNotFoundError(f"文档不存在: {category_id}/{doc_path}")
         target_candidates = self._document_candidates(category_id, target_rel, base=source_base)
         if not target_candidates:
             raise ValueError(f"非法目标路径: {target_rel}")
@@ -693,7 +694,7 @@ class DocumentManager:
 
             os.makedirs(os.path.dirname(new_entity_dir), exist_ok=True)
             os.rename(old_entity_dir, new_entity_dir)
-            self._cleanup_empty_dirs(os.path.dirname(old_entity_dir), cat.directory)
+            self._cleanup_empty_dirs(os.path.dirname(old_entity_dir), source_base)
             logger.info("实体文件夹已移动: %s → %s", old_entity_dir, new_entity_dir)
         else:
             new_filepath = target_flat_file
@@ -706,7 +707,7 @@ class DocumentManager:
 
             os.makedirs(os.path.dirname(new_filepath), exist_ok=True)
             os.rename(old_filepath, new_filepath)
-            self._cleanup_empty_dirs(os.path.dirname(old_filepath), cat.directory)
+            self._cleanup_empty_dirs(os.path.dirname(old_filepath), source_base)
             logger.info("文档已移动: %s → %s", old_filepath, new_filepath)
 
         return {
@@ -716,18 +717,15 @@ class DocumentManager:
         }
 
     def move_folder(self, category_id: str, folder_path: str,
-                    new_path: str = None) -> dict:
+                    new_path: str = None, *, book_id: str) -> dict:
         """移动/重命名文件夹。"""
-        cat = self._categories.get(category_id)
-        if not cat:
-            raise ValueError(f"未知文档类别: {category_id}")
-
-        old_full = os.path.join(cat.directory, folder_path)
+        base = self._book_category_root(category_id, book_id)
+        old_full = self._safe_folder_path(base, folder_path)
         if not os.path.isdir(old_full):
             raise DocumentNotFoundError(f"文件夹不存在: {folder_path}")
 
         target_rel = new_path or folder_path
-        new_full = os.path.join(cat.directory, target_rel)
+        new_full = self._safe_folder_path(base, target_rel)
 
         if old_full == new_full:
             raise ValueError("源路径和目标路径相同")
@@ -738,7 +736,7 @@ class DocumentManager:
         os.makedirs(os.path.dirname(new_full), exist_ok=True)
         os.rename(old_full, new_full)
 
-        self._cleanup_empty_dirs(os.path.dirname(old_full), cat.directory)
+        self._cleanup_empty_dirs(os.path.dirname(old_full), base)
 
         logger.info("文件夹已移动: %s → %s", old_full, new_full)
         return {
@@ -768,11 +766,11 @@ class DocumentManager:
                              doc_path: str, *, base: str | None = None) -> Optional[tuple[str, str]]:
         """Return safe entity and flat-file candidates for a document id."""
         cat = self._categories.get(category_id)
-        if not cat or not isinstance(doc_path, str) or not doc_path.strip():
+        if not cat or base is None or not isinstance(doc_path, str) or not doc_path.strip():
             return None
 
         relative = doc_path.strip().replace("\\", os.sep).replace("/", os.sep)
-        base = os.path.realpath(base or cat.directory)
+        base = os.path.realpath(base)
         entity_raw = os.path.abspath(os.path.join(base, relative, "index.md"))
         flat_raw = os.path.abspath(os.path.join(base, f"{relative}.md"))
         entity_path = os.path.realpath(entity_raw)
@@ -786,19 +784,16 @@ class DocumentManager:
             return None
         return entity_path, flat_path
 
-    def _resolve_path(self, category_id: str, doc_path: str, *, book_ids=None,
-                      local_only: bool = False) -> Optional[str]:
+    def _resolve_path(self, category_id: str, doc_path: str, *, book_ids=None) -> Optional[str]:
         """将 category_id + doc_path 解析为实际文件路径。
 
         实体文件夹 `{dir}/{doc_path}/index.md` 优先；若不存在则回退到
         传统平铺文件 `{dir}/{doc_path}.md`。两者都不存在时返回实体路径，
         供保存/创建沿用默认的实体文件夹格式。
         """
-        local_candidates = self._document_candidates(category_id, doc_path)
-        if not local_candidates:
+        if category_id not in self._categories:
             return None
-        roots = ([(None, self._categories[category_id].directory)] if local_only else
-                 self._category_roots(category_id, book_ids))
+        roots = self._category_roots(category_id, book_ids)
         for _, base in roots:
             candidates = self._document_candidates(category_id, doc_path, base=base)
             if not candidates:
@@ -808,7 +803,18 @@ class DocumentManager:
                 return entity_path
             if os.path.isfile(flat_path):
                 return flat_path
-        return local_candidates[0] if book_ids is None and not local_only else None
+        return None
+
+    @staticmethod
+    def _safe_folder_path(base: str, folder_path: str) -> str:
+        if not isinstance(folder_path, str) or not folder_path.strip():
+            raise ValueError("非法文件夹路径")
+        base = os.path.abspath(base)
+        raw = os.path.abspath(os.path.join(base, folder_path))
+        resolved = os.path.realpath(raw)
+        if raw != resolved or not os.path.commonpath((base, raw)) == base or raw == base:
+            raise ValueError("非法文件夹路径")
+        return raw
 
     @staticmethod
     def _hash_file(filepath: str) -> str:

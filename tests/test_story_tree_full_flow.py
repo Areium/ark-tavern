@@ -24,6 +24,7 @@
 """
 
 import sys
+import json
 from pathlib import Path
 
 import pytest
@@ -34,7 +35,33 @@ sys.path.insert(0, str(ROOT / "src"))
 import session_overlay as so  # noqa: E402
 import session_manager as sm_mod  # noqa: E402
 
-PLOT_ID = "fengxue_guojing"
+PLOT_ID = "fixture_plot"
+BOOK_ID = "fixture-story"
+
+
+def _install_plot(tmp_path, monkeypatch):
+    import world_book
+
+    monkeypatch.setattr(so, "_PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(world_book, "_WORLDBOOKS_DIR", tmp_path / "data" / "worldbooks")
+    folder = tmp_path / "data" / "worldbooks" / "books" / BOOK_ID
+    plot = folder / "plots" / PLOT_ID
+    plot.mkdir(parents=True)
+    (folder / "book.json").write_text(json.dumps(
+        world_book.WorldBook(BOOK_ID, "测试剧情", book_type="story").to_dict(),
+        ensure_ascii=False), encoding="utf-8")
+    chapters = [
+        "## 章节 1：开场\n**ID**：`ch_1`\n#### beat_arrival\n**内容**：抵达关口。\n"
+        "**发现路径**：山道\n### 玩家选项方向\n- 试探向导（谨慎）\n"
+        "#### beat_intro_tension\n**内容**：进一步交谈。\n"
+        "#### beat_convoy_fight\n**内容**：车队遇险。",
+        *[f"## 章节 {i}：第{i}章\n**ID**：`ch_{i}`\n#### beat_ch_{i}\n**内容**：继续前行。"
+          for i in range(2, 7)],
+    ]
+    (plot / "index.md").write_text("---\nid: fixture_plot\nname: 测试剧情\n---\n" +
+                                   "\n".join(chapters) + "\n", encoding="utf-8")
+
+
 
 
 @pytest.fixture()
@@ -43,6 +70,7 @@ def flow(tmp_path, monkeypatch):
     sessions_root = tmp_path / "sessions"
     monkeypatch.setattr(so, "_SESSIONS_DIR", sessions_root)
     monkeypatch.setattr(sm_mod, "_SESSIONS_DIR", sessions_root)
+    _install_plot(tmp_path, monkeypatch)
 
     from app import create_app
     app = create_app()
@@ -58,6 +86,7 @@ def flow(tmp_path, monkeypatch):
 
     res = client.post("/api/sessions", json={
         "mode": "story", "plot_id": PLOT_ID, "name": "完整流程验证",
+        "worldbook_ids": [BOOK_ID],
     })
     assert res.status_code == 201, res.get_json()
     sid = res.get_json()["id"]

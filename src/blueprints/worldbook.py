@@ -213,12 +213,14 @@ def _parse_card_or_error(raw: bytes):
         return None
 
 
-def _import_card_character(card_result: dict, managers: dict):
-    """把角色卡中的角色写入 data/characters（连带导入内嵌世界书场景共用）。"""
-    from character_card import write_character_dir
+def _import_card_character(card_result: dict, managers: dict, book):
+    """把角色卡中的角色写入本次导入的书文件夹。"""
+    from character_card import write_character_dir, _stamp_worldbook_id
     from shared.cache import invalidate_all_caches
+    chars_dir = managers["worldbook"]._path(book.id).parent / "characters"
     character = write_character_dir(
-        card_result["meta"], card_result["image_bytes"])
+        card_result["meta"], card_result["image_bytes"], chars_dir=chars_dir)
+    _stamp_worldbook_id(character["path"], book.id, chars_dir)
     try:
         import index_manager as idxmgr
         invalidate_all_caches(idxmgr, managers.get("wiki"))
@@ -406,10 +408,8 @@ def register(app, managers):
             "description": book.description,
             "cover_image": book.cover_image,
             "source_format": book.source_format,
-            "source": book.source,
             "book_type": book.book_type,
             "is_reference": book.is_reference,
-            "is_preinstalled": wb_mgr.is_preinstalled(book.id),
             "enabled": book.enabled,
             "budget_tokens": book.budget_tokens,
             "estimated_tokens": stats.tokens,
@@ -474,20 +474,6 @@ def register(app, managers):
             return jsonify({"path": str(installed.parent.resolve())})
         except ValueError:
             return json_error("世界书 ID 无效", 400)
-
-    @bp.route("/api/worldbook/available-packs", methods=["GET"])
-    def list_available_packs():
-        return jsonify({"packs": wb_mgr.list_available_packs()})
-
-    @bp.route("/api/worldbook/available-packs/<book_id>/install", methods=["POST"])
-    def install_available_pack(book_id):
-        with wb_mgr.book_lock(book_id):
-            try:
-                book = wb_mgr.install_pack(book_id)
-            except ValueError as exc:
-                status = 409 if "已经安装" in str(exc) else 404
-                return json_error(str(exc), status)
-        return jsonify({"book": _book_detail(book, include_entries=False)}), 201
 
     @bp.route("/api/worldbook", methods=["POST"])
     def create_book():
@@ -583,7 +569,7 @@ def register(app, managers):
         character = None
         if card_result is not None:
             try:
-                character = _import_card_character(card_result, managers)
+                character = _import_card_character(card_result, managers, book)
             except Exception as exc:
                 logger.warning("角色卡连带导入角色失败: %s", exc)
 
@@ -710,15 +696,6 @@ def register(app, managers):
         except ValueError as e:
             return json_error(str(e), 404)
         return jsonify({"book": _book_detail(new_book, include_entries=False)}), 201
-
-    @bp.route("/api/worldbook/<book_id>/reinstall", methods=["POST"])
-    def reinstall_book(book_id):
-        """从分发源一键重装预装整合包（恢复出厂内容）。"""
-        try:
-            book = wb_mgr.reinstall_book(book_id)
-        except ValueError as e:
-            return json_error(str(e), 404)
-        return jsonify({"book": _book_detail(book, include_entries=False)})
 
     @bp.route("/api/worldbook/<book_id>/export", methods=["GET"])
     def export_book(book_id):

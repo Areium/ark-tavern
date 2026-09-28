@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""角色资源补全验证器 —— 逐条核对四个子项。
+"""角色资源补全验证器 —— 逐条核对书文件夹内角色资源。
 
 用法：
-    python tools/verify_character_resources.py [--book arknights] [--json]
+    python tools/verify_character_resources.py --book-folder PATH [--json]
 
 核对项：
-  1. 世界书条目覆盖：每个角色实体在 data/worldbooks/packs/<book>.json 中都有对应条目
+  1. 世界书条目覆盖：每个角色实体在该文件夹 book.json 中都有对应条目
   2. 立绘：每个角色实体都有 avatar / skin / card_face 三类图像
   3. Spine：每个角色实体的 spine/ 目录含完整的 Front|Back × (skel|atlas|png)
   4. 世界书归属：每个角色实体 index.md frontmatter 的 worldbook_id == <book>
   5. 前端生效：有 spine 素材的角色必须在 PixiCombatScene.tsx 的 SPINE_VARIANT
      中注册，且注册的变体目录确实存在（文件就位 ≠ 生效，未注册则回退令牌）
+  6. 图像指针：frontmatter 的图像字段必须指向真实文件
 
 退出码 0 表示「必需项」全部通过（已知例外单独列出，不计为失败）。
 """
@@ -25,9 +26,6 @@ from pathlib import Path
 import frontmatter
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DATA_CHARS = REPO_ROOT / "data" / "worldbooks" / "content" / "characters"
-PACKS_DIR = REPO_ROOT / "data" / "worldbooks" / "packs"
-WORLDBOOKS_DIR = REPO_ROOT / "data" / "worldbooks"
 PIXI_SCENE = REPO_ROOT / "frontend" / "src" / "components" / "combat" / "PixiCombatScene.tsx"
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
 
@@ -97,41 +95,19 @@ def _variant_files_exist(char_dir: Path, variant: str) -> bool:
     )
 
 
-def _runtime_drift(book: str, pack_uids: set[str]) -> dict:
-    """运行时世界书（data/worldbooks/，首次启动自动安装）是否落后于分发包。
-
-    未安装 → 首次启动会自动安装，不算漂移。
-    已安装但缺 uid → 该内容不会生效（需重装：POST /api/worldbook/<id>/reinstall）。
-    """
-    p = WORLDBOOKS_DIR / f"{book}.json"
-    if not p.is_file():
-        return {"installed": False, "total": 0, "missing_uids": []}
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {"installed": False, "total": 0, "missing_uids": []}
-    rt = {e.get("uid", "") for e in data.get("entries", [])}
-    return {
-        "installed": True,
-        "total": len(rt),
-        "missing_uids": sorted(pack_uids - rt),
-    }
-
-
-def collect(book: str) -> dict:
+def collect(folder: Path, book_data: dict) -> dict:
+    book = folder.name
+    data_chars = folder / "characters"
     entities = sorted(
-        d for d in DATA_CHARS.iterdir()
+        d for d in data_chars.iterdir()
         if d.is_dir() and (d / "index.md").is_file()
-    )
+    ) if data_chars.is_dir() else []
 
     # 世界书条目
-    pack_path = PACKS_DIR / f"{book}.json"
-    pack_entries = []
-    if pack_path.is_file():
-        pack = json.loads(pack_path.read_text(encoding="utf-8"))
-        pack_entries = pack.get("entries", [])
-    char_uids = {e.get("uid", "") for e in pack_entries if e.get("group") == "角色"}
-    all_pack_uids = {e.get("uid", "") for e in pack_entries if e.get("uid")}
+    entries = book_data.get("entries", [])
+    if not isinstance(entries, list):
+        raise ValueError("book.json 的 entries 必须是数组")
+    char_uids = {e.get("uid", "") for e in entries if isinstance(e, dict) and e.get("group") == "角色"}
 
     # 前端注册表（有 spine 素材但未注册 = 不生效）
     spine_map = (
@@ -187,20 +163,31 @@ def collect(book: str) -> dict:
         })
     return {
         "book": book,
-        "pack": str(pack_path.relative_to(REPO_ROOT)),
+        "book_folder": str(folder),
         "entities": rows,
         "spine_map_size": len(spine_map),
-        "all_pack_uids": all_pack_uids,
     }
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--book", default="arknights")
+    ap.add_argument("--book-folder", type=Path, required=True,
+                    help="含 book.json 的完整世界书文件夹")
     ap.add_argument("--json", action="store_true", help="仅输出 JSON")
     args = ap.parse_args()
+    folder = args.book_folder.resolve()
+    try:
+        book_data = json.loads((folder / "book.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        ap.error(f"无效世界书文件夹（无法读取 book.json）：{exc}")
+    if not folder.is_dir() or not isinstance(book_data, dict) or book_data.get("id") != folder.name:
+        ap.error("book.json 的 id 必须与世界书文件夹名一致")
+    book = folder.name
 
-    data = collect(args.book)
+    try:
+        data = collect(folder, book_data)
+    except ValueError as exc:
+        ap.error(str(exc))
     rows = data["entities"]
     total = len(rows)
 
@@ -222,8 +209,8 @@ def main() -> int:
     spine_missing_hard = [n for n in spine_missing if n not in NO_SPINE_EXCEPTIONS]
 
     # ── 4. 世界书归属 ──
-    attributed = [r["name"] for r in rows if r["worldbook_id"] == args.book]
-    unattributed = [r["name"] for r in rows if r["worldbook_id"] != args.book]
+    attributed = [r["name"] for r in rows if r["worldbook_id"] == book]
+    unattributed = [r["name"] for r in rows if r["worldbook_id"] != book]
 
     # ── 5. 前端生效（有 spine 素材 → 必须在 SPINE_VARIANT 注册且变体齐全）──
     spine_unregistered = [r["name"] for r in rows
@@ -232,11 +219,7 @@ def main() -> int:
                     if r["spine_registered"] and not r["spine_registered_ok"]]
     spine_live = [r["name"] for r in rows if r["spine_registered_ok"]]
 
-    # ── 6. 运行时同步（分发包 → 已安装世界书）──
-    drift = _runtime_drift(args.book, data["all_pack_uids"])
-    runtime_synced = (not drift["installed"]) or (not drift["missing_uids"])
-
-    # ── 7. 图像指针（frontmatter 字段必须指向真实文件）──
+    # ── 6. 图像指针（frontmatter 字段必须指向真实文件）──
     dead_card_face = [r["name"] for r in rows if r["card_face_dead"]]
     broken_pointers = [(r["name"], f) for r in rows for f in r["pointer_broken"]]
     pointers_ok = not dead_card_face and not broken_pointers
@@ -247,13 +230,12 @@ def main() -> int:
         "spine": not spine_missing_hard,
         "attribution": not unattributed,
         "spine_registered": not spine_unregistered and not spine_broken,
-        "runtime_synced": runtime_synced,
         "image_pointers": pointers_ok,
     }
     ok = all(checks.values())
 
     result = {
-        "book": args.book,
+        "book": book,
         "total_characters": total,
         "checks": checks,
         "worldbook_entries": {
@@ -276,11 +258,6 @@ def main() -> int:
             "unregistered": spine_unregistered, "broken": spine_broken,
             "map_size": data["spine_map_size"],
         },
-        "runtime_sync": {
-            "installed": drift["installed"], "total": drift["total"],
-            "pack_total": len(data["all_pack_uids"]),
-            "missing_uids": drift["missing_uids"],
-        },
         "image_pointers": {
             "card_face_set": sum(1 for r in rows if r["pointers"]["card_face"]["set"]),
             "dead_card_face": dead_card_face,
@@ -293,7 +270,7 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if ok else 1
 
-    print(f"=== 角色资源验证 · 世界书「{args.book}」 ===")
+    print(f"=== 角色资源验证 · 世界书「{book}」 ===")
     print(f"角色实体总数：{total}\n")
 
     print(f"[1] 世界书条目覆盖：{len(covered)}/{total} "
@@ -317,7 +294,7 @@ def main() -> int:
         print(f"    缺 Spine：{spine_missing}")
         print(f"    已知例外（官方无素材）：{sorted(NO_SPINE_EXCEPTIONS)}")
 
-    print(f"[4] 世界书归属 worldbook_id={args.book}：{len(attributed)}/{total} "
+    print(f"[4] 世界书归属 worldbook_id={book}：{len(attributed)}/{total} "
           f"{'PASS' if checks['attribution'] else 'FAIL'}")
     if unattributed:
         print(f"    未归属：{unattributed}")
@@ -329,18 +306,8 @@ def main() -> int:
     if spine_broken:
         print(f"    已注册但变体文件不全：{spine_broken}")
 
-    rt = drift
-    if not rt["installed"]:
-        print(f"[6] 运行时世界书同步：未安装（首次启动自动安装）SKIP")
-    else:
-        print(f"[6] 运行时世界书同步：{rt['total']}/{len(data['all_pack_uids'])} 条 "
-              f"{'PASS' if runtime_synced else 'FAIL'}")
-        if rt["missing_uids"]:
-            print(f"    已安装副本缺 {len(rt['missing_uids'])} 条（不会生效）：{rt['missing_uids'][:8]}")
-            print(f"    修复：POST /api/worldbook/{args.book}/reinstall")
-
     n_cf = sum(1 for r in rows if r["pointers"]["card_face"]["set"])
-    print(f"[7] 图像指针（default_avatar/default_skin/card_face）：{n_cf}/{total} 已设 card_face "
+    print(f"[6] 图像指针（default_avatar/default_skin/card_face）：{n_cf}/{total} 已设 card_face "
           f"{'PASS' if pointers_ok else 'FAIL'}")
     if dead_card_face:
         print(f"    card_face/ 有图但字段未设（不会被读取）：{dead_card_face}")

@@ -102,12 +102,31 @@ def test_enemy_turns_ordered_by_spd(monkeypatch):
     assert damage_casters[0] == "fast", f"高 SPD 敌人应先行动，实际 {damage_casters}"
 
 
-def test_get_state_exposes_enemy_intents():
+def test_get_state_exposes_enemy_intents(tmp_path):
+    import json
     from combat_session import CombatSession
+    from combat_data_loader import CombatDataLoader
+    combat = tmp_path / "combat"
+    nodes = combat / "nodes"
+    nodes.mkdir(parents=True)
+    (nodes / "enc_training.json").write_text(json.dumps({
+        "node_id": "enc_training", "name": "Intents test",
+        "map": {"rows": 5, "cols": 5, "tiles": "ground", "deploy": {
+            "player": {"rect": [0, 0, 4, 0]}, "enemy": {"rect": [0, 4, 4, 4]}}},
+        "waves": [{"enemies": [{"enemy": "Dummy", "count": 1,
+                                  "positions": [[2, 4]]}]}],
+    }), encoding="utf-8")
+    enemies = tmp_path / "enemies"
+    enemies.mkdir()
+    (enemies / "Dummy.md").write_text(
+        "---\nname: Dummy\nclass: 近卫\ncombat_stats:\n  hp: 40\n  patk: 8\n---\n",
+        encoding="utf-8")
     cs = CombatSession("sess-test")
+    cs.loader = CombatDataLoader(data_dir=str(combat))
     state = cs.start(
         "enc_training",
-        character_names=["阿米娅", "银灰", "霜星", "陈"],
+        character_metas=[{"name": "Hero", "class": "近卫",
+                          "combat_stats": {"hp": 80, "patk": 12}}],
     )
     intents = state.get("enemy_intents", {})
     assert isinstance(intents, dict) and intents
