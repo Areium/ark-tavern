@@ -1,6 +1,6 @@
 // 对话页舞台 / 场景面板插件 / 角色数值的验证（不启动浏览器）：
 //   A. 舞台脚本纯逻辑 —— 消息流折算成逐句步骤、长句拆分、选项收尾、流式态、立绘落位、程序化背景；
-//   B. 场景面板注册表 —— 注册 / 覆盖 / 排序 / 按模式过滤 / 页签兜底 / 非法 id 拒绝；内置八个面板已登记；
+//   B. 场景面板注册表 —— 注册 / 覆盖 / 排序 / 按模式过滤 / 页签兜底 / 非法 id 拒绝；内置四个分组已登记；
 //   C. 统一数值字段编辑器的行 → 字段折算与校验；数值表单的分组与自定义键；
 //   D. 服务端渲染：ScenePanel 图标栏按模式出页签、StageView 骨架（对话框 / 立绘牌 / 选项）、
 //      ChatView 顶栏的布局切换与面板开合按钮在左侧、气泡外观类映射。
@@ -104,14 +104,14 @@ assert.notEqual(proceduralBackground("清晨", "晴天"), proceduralBackground("
 const registry = require(src("plugins/scenePanels.tsx"));
 require(src("plugins/builtin.tsx"));
 const builtin = registry.listScenePanels();
-assert.deepEqual(builtin.map((p) => p.id), ["characters", "items", "environment", "story", "memory", "quests", "stats", "resources"],
+assert.deepEqual(builtin.map((p) => p.id), ["characters", "story", "quests", "resources"],
   "内置面板按 order 排好");
 const storyVisible = registry.visibleScenePanels(builtin, "story").map((p) => p.id);
 const freeVisible = registry.visibleScenePanels(builtin, "free").map((p) => p.id);
 assert.ok(storyVisible.includes("story") && storyVisible.includes("quests"));
 assert.ok(!freeVisible.includes("story") && !freeVisible.includes("memory") && !freeVisible.includes("quests"), "自由模式没有剧情类面板");
-assert.ok(freeVisible.includes("stats") && freeVisible.includes("resources"));
-assert.equal(registry.resolveScenePanelTab(builtin, "stats"), "stats");
+assert.deepEqual(freeVisible, ["characters", "resources"]);
+assert.equal(registry.resolveScenePanelTab(builtin, "resources"), "resources");
 assert.equal(registry.resolveScenePanelTab(registry.visibleScenePanels(builtin, "free"), "story"), "characters", "页签不可见时兜底到第一个");
 
 const Dummy = () => React.createElement("div", null, "dummy");
@@ -159,8 +159,8 @@ assert.deepEqual(customKeys([{ key: "a", label: "a", type: "number" }], { a: 1, 
 // zustand 只读得到初始快照（docs/notes.md），因此只断言不随 store 变化的结构。
 const ScenePanel = require(src("components/scene/ScenePanel.tsx")).default;
 let markup = renderToStaticMarkup(React.createElement(ScenePanel));
-// 初始 chatMode = story → 八个内置页签都在图标栏；面板默认展开、无会话时给提示
-for (const label of ["角色", "物品", "环境", "剧情", "回忆", "任务", "数值", "资源"]) {
+// 初始 chatMode = story → 四个内置分组都在图标栏；面板默认展开、无会话时给提示
+for (const label of ["场景", "剧情", "任务", "资源"]) {
   assert.ok(markup.includes(`aria-label="${label}"`), `图标栏包含「${label}」`);
 }
 assert.ok(markup.includes("scene-rail-btn is-toggle"), "图标栏底部有收起按钮");
@@ -183,9 +183,8 @@ const stageProps = {
   fontSize: 15, waiting: false, elapsedSeconds: 0, choicesDisabled: false, onChoice: () => {}, onOpenLog: () => {}, onStart: () => {}, chatMode: "story",
 };
 markup = renderToStaticMarkup(React.createElement(StageView, stageProps));
-assert.ok(markup.includes('class="stage"') || markup.includes('class="stage" '), "舞台根节点");
+assert.match(markup, /class="stage(?:\s[^"]*)?"/, "舞台根节点");
 assert.ok(markup.includes("stage-dialog"), "对话框");
-assert.ok(markup.includes("风雪停了。临光收起长枪。") === false || true, "首步文本由打字机逐字出现，SSR 不断言具体字数");
 assert.ok(markup.includes("stage-sprite-card") && markup.includes("临光") && markup.includes("瑕光"), "没有立绘 URL 时退回头像牌");
 assert.ok(!markup.includes("stage-choices"), "脚本未走到末尾时选项不显示");
 assert.ok(markup.includes("stage-env") === false, "没有舞台数据时不显示环境角标");

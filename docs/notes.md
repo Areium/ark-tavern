@@ -10,6 +10,13 @@
 
 ## 会话
 
+### 会话实时节点图（核对于 2026-09-28）
+
+- **数据口径**：会话「节点图」使用 `/story-state` 的实际 `tree`（`parent_id`、`current_id`、`path`），不是世界书编辑器的参考 `plot_graph`。头像代表主控和当前场景角色共同所在的会话节点，不推断角色各自的历史位置；节点详情只读，不执行回档。
+- **刷新边界**：`ChatPanel.triggerNarrate` 在请求开始就增加轮次，单靠 `sessionNarrationCount` 会提前读到旧树。节点图须在 `sessionStreaming` / `sessionSending` 结束后读取已提交状态；回档、场景与角色变化同样刷新，失效请求不得覆盖新会话。
+- **验证入口**：`node scripts/test_session_graph_ui.cjs` 覆盖布局、分叉、回档位置、异常图与 12,000 节点深链；`python scripts/test_session_graph_browser.py` 默认使用独立 Vite `:5178`（可通过 `SESSION_GRAPH_URL` 指定），拦截 API，不操作用户存档。浏览器覆盖剧情子栏入口、1440×960 / 390×844、缩屏自动定位、头像降级、生成完成刷新、缩放边界、键盘、错误重试、空状态和自由模式退出。启动命令为 `npm run dev:web -- --host 127.0.0.1 --port 5178 --strictPort`。
+- **验收边界**：截图位于工作树 `.impeccable/review/`，不提交合成图片；未验证真实 LLM / SSE、真实回档写入、独立角色历史轨迹或万级节点浏览器性能。`scripts/test_stage_ui.cjs` 按当前四分组（场景、剧情、任务、资源）清理旧八页签断言，并移除一条恒真断言，不恢复已删除的旧面板。
+
 ### 新建向导：选中剧情即自动选中世界书与该书全部角色（2026-09-27，`feat/plot-autoselect-roster` / `feat/worldbook-roster-autoselect`）
 
 - **现象**：剧情书与角色卡的来源书不同，向导曾漏掉角色和开场阵容。

@@ -10,6 +10,8 @@ import NarrationText from "./chat/NarrationText";
 import LoadingIndicator from "./chat/LoadingIndicator";
 import TokenUsage from "./chat/TokenUsage";
 import StageView from "./stage/StageView";
+import SessionStoryGraph from "./story/SessionStoryGraph";
+import { isChoiceMessage } from "../utils/stageScript";
 import AppIcon from "./AppIcon";
 
 const EMPTY_MSGS: ChatMessage[] = [];
@@ -42,9 +44,11 @@ interface ChatPanelProps {
 export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onToggleMusic }: ChatPanelProps) {
   const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, setCurrentView, setCombatContext, pendingAutoNarrate, setPendingAutoNarrate, pendingBriefing, setPendingBriefing, chatFontSize, setChatFontSize, chatLayout } = useAppStore();
   const stageMode = chatLayout === "stage";
+  const graphMode = chatLayout === "graph" && chatMode === "story" && sessions.find(s => s.id === activeSessionId)?.mode === "story";
+  const visualMode = stageMode || graphMode;
   const [logOverlayOpen, setLogOverlayOpen] = useState(false);
   // 切回消息流 / 换会话时收起记录抽屉
-  useEffect(() => { setLogOverlayOpen(false); }, [stageMode, activeSessionId]);
+  useEffect(() => { setLogOverlayOpen(false); }, [chatLayout, activeSessionId]);
   const activeMode = sessions.find((s) => s.id === activeSessionId)?.mode || "free";
 
   const sceneCharacters: string[] = (() => {
@@ -641,6 +645,10 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   }
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const lastMessage = messages[messages.length - 1];
+  const graphChoice = isChoiceMessage(lastMessage) ? lastMessage : null;
+  const graphChoicesDisabled = sending || streaming || choiceLocked || !!activeSession?.in_combat
+    || (graphChoice?.round != null && graphChoice.round < narrationCount);
   const sessionTokens = activeSession?.total_usage;
   const actionInput = stageInputReady && (!stageMode || (!sending && !streaming && !choiceLocked)) ? (
     <div className={`chat-input-bar ${stageOnly && stageMode ? "stage-action-input" : ""}`}>
@@ -802,15 +810,31 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
           chatMode={chatMode}
         />
       )}
+      {graphMode && activeSessionId && (
+        <>
+          <SessionStoryGraph key={activeSessionId} sessionId={activeSessionId}
+            onOpenLog={() => setLogOverlayOpen(true)} onExit={() => useAppStore.getState().setChatLayout("stage")} />
+          {graphChoice && (
+            <div className="session-graph-choices" role="group" aria-label="剧情分支选项">
+              <span>选择一项，或在下方输入行动</span>
+              {graphChoice.branches?.length ? graphChoice.branches.map(branch => (
+                <button type="button" key={branch.id} className="chat-choice" disabled={graphChoicesDisabled} onClick={() => handleChoiceClick(branch.label, branch)}>{branch.label}</button>
+              )) : graphChoice.choices?.map((choice, index) => (
+                <button type="button" key={index} className="chat-choice" disabled={graphChoicesDisabled} onClick={() => handleChoiceClick(choice)}>{choice}</button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
       {/* 消息流：舞台模式下变成覆盖在舞台上的「记录」抽屉（同一份 DOM，只换外观） */}
       <div
-        className={stageMode
+        className={visualMode
           ? (logOverlayOpen ? "stage-log-overlay space-y-3" : "hidden")
           : "chat-log flex-1 overflow-y-auto px-4 py-4 space-y-3"}
         style={{ fontSize: `${chatFontSize}px` }}
         onKeyDown={(e) => { if (e.key === "Escape") setLogOverlayOpen(false); }}
       >
-        {stageMode && logOverlayOpen && (
+        {visualMode && logOverlayOpen && (
           <div className="stage-log-head">
             <span>对话记录</span>
             <button type="button" onClick={() => setLogOverlayOpen(false)}><AppIcon name="close" size={12} />关闭</button>
