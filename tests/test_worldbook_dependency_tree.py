@@ -14,8 +14,7 @@ from flask import Flask
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from world_book import DEFAULT_CATEGORIES, WorldBook, WorldBookEntry, WorldBookManager
 from worldbook_scope import (
-    ACTIVATION_ALWAYS, EXPANSION_LEGACY_DEPTH, EXPANSION_NONE,
-    EXPANSION_REQUIRES_CLOSURE,
+    ACTIVATION_ALWAYS, EXPANSION_REQUIRES_CLOSURE,
 )
 
 
@@ -41,7 +40,7 @@ def book_fixture(requires, related=(), roots=None):
         related_edges=[{"from_uid": a, "to_uid": b} for a, b in related],
         dependency_rules={"roots": roots,
                           "root_rule": {"entry_uids": [r["entry_uid"] for r in roots]},
-                          "rejected": [], "edge_meta": {}},
+                          },
         scope_mode="selective",
     )
 
@@ -62,10 +61,8 @@ def make_api(tmp_path):
     return build
 
 
-def tree_of(client, entry_uids, max_depth=None):
+def tree_of(client, entry_uids):
     url = "/api/worldbook/book/dependency-tree?entry_uids=" + ",".join(entry_uids)
-    if max_depth is not None:
-        url += f"&max_depth={max_depth}"
     response = client.get(url)
     assert response.status_code == 200, response.json
     return response.json
@@ -95,7 +92,7 @@ def test_nodes_are_isomorphic_with_scope_preview_display_tree(make_api):
     for node, expected in zip(tree["nodes"], display):
         # nodes[] 是 display_tree 的**投影**：契约冻结的 7 个节点字段逐字段一致，另补 relation
         assert set(node) == {"uid", "name", "parent_uid", "child_uids", "depth",
-                             "remaining", "is_root", "relation"}
+                             "is_root", "relation"}
         assert {k: node[k] for k in node if k != "relation"} == {
             k: expected[k] for k in node if k != "relation"}
         assert node["relation"] == "requires"
@@ -142,9 +139,9 @@ def test_derived_fields_are_consistent_with_depth_uid_order(make_api):
 
     # 依赖树端点用同一起点集合时，nodes[] 就是这份 display_tree 的投影
     tree = tree_of(client, ["a", "z"])
-    assert [(n["uid"], n["parent_uid"], n["depth"], n["remaining"], n["is_root"])
+    assert [(n["uid"], n["parent_uid"], n["depth"], n["is_root"])
             for n in tree["nodes"]] == [(n["uid"], n["parent_uid"], n["depth"],
-                                         n["remaining"], n["is_root"]) for n in display]
+                                         n["is_root"]) for n in display]
     # 同一份请求重复发起结果完全相同（确定性）
     assert tree_of(client, ["a", "z"]) == tree
 
@@ -159,39 +156,17 @@ def test_single_chain_has_no_repeated_nodes(make_api):
     assert all(node["first_parent_uid"] == node["parent_uid"] for node in display)
 
 
-# ── 2. 多源到达保留最大剩余深度 ──
+# ── 2. 多源闭包与主路径 ──
 
-def test_multi_arrival_keeps_the_largest_remaining_depth(make_api):
-    """同一个节点被两条不同长度的路径到达时，保留剩余深度**最大**的那次。
-
-    接口对同一次请求的所有起点使用同一个 `max_depth`，因此这里用两种真实构造覆盖：
-    - 端点内（max_depth=2）：`a → m → n` 与 `a → n` 两条到达，remaining 取 1 的那次；
-    - 书规则内（scope-preview）：起点一条 `requires_closure`（无限）、一条
-      `legacy_depth=1`，无限那次胜出（remaining 为 None）。
-    """
+def test_multi_arrival_uses_stable_shortest_display_path(make_api):
+    """同一节点被长短两路到达时只显示一次，并采用先到的最短展示路径。"""
     client, _, _ = make_api(book_fixture([("a", "m"), ("m", "n"), ("a", "n")]))
-    tree = tree_of(client, ["a"], max_depth=2)
+    tree = tree_of(client, ["a"])
     node = next(n for n in tree["nodes"] if n["uid"] == "n")
-    assert node["remaining"] == 1               # 走 a → n（剩余 1），不是 a → m → n（剩余 0）
     assert node["depth"] == 1
     assert node["parent_uid"] == "a"
     assert edge_status(tree, "a", "n") == "skeleton"
     assert edge_status(tree, "m", "n") == "cross"   # 边生效但目标已被更强的到达覆盖
-
-    # 混合深度：同一份 BFS 里「无限」压过「legacy_depth=1」（经书的规则走 scope-preview）
-    mixed = book_fixture([("a", "m"), ("m", "n"), ("c", "n")], roots=[
-        {"entry_uid": "a", "activation": ACTIVATION_ALWAYS,
-         "expansion": EXPANSION_REQUIRES_CLOSURE, "character_ids": []},
-        {"entry_uid": "c", "activation": ACTIVATION_ALWAYS,
-         "expansion": EXPANSION_LEGACY_DEPTH, "max_depth": 1, "character_ids": []},
-    ])
-    client2, _, _ = make_api(mixed)
-    response = client2.post("/api/worldbook/book/scope-preview", json={})
-    display = {n["uid"]: n for n in response.json["display_tree"]}
-    assert display["n"]["remaining"] is None    # 无限深那次胜出
-    assert display["n"]["parent_uid"] == "m"
-    # 有限那条路径上的到达被覆盖 → c → n 成为交叉引用
-    assert {"from_uid": "c", "to_uid": "n"} in response.json["cross_references"]
 
 
 # ── 3. 环终止与 cycles 格式 ──
@@ -219,13 +194,12 @@ def test_self_loop_is_reported_as_two_identical_uids(make_api):
     assert _dependency_cycles({"a", "b"}, [{"from_uid": "a", "to_uid": "b"}]) == []
 
 
-def test_cycle_that_leaves_closure_does_not_break_termination(make_api):
-    """环的一部分在闭包外（max_depth 截断）时同样终止，且不误报环。"""
+def test_cycle_closure_terminates_and_reports_the_full_cycle(make_api):
+    """requires 闭包完整包含环后仍有限终止，并报告该环。"""
     client, _, _ = make_api(book_fixture([("a", "b"), ("b", "c"), ("c", "a")]))
-    tree = tree_of(client, ["a"], max_depth=1)
-    assert node_uids(tree) == ["a", "b"]
-    assert tree["cycles"] == []
-    assert edge_status(tree, "b", "c") == "capped"
+    tree = tree_of(client, ["a"])
+    assert node_uids(tree) == ["a", "b", "c"]
+    assert len(tree["cycles"]) == 1
 
 
 # ── 4. related 不参与展开 ──
@@ -246,35 +220,13 @@ def test_related_edges_never_expand_but_stay_in_edges(make_api):
     assert all(node["relation"] == "requires" for node in tree["nodes"])
 
 
-# ── 5. capped 边（R-25）──
-
-def test_capped_edge_is_kept_although_its_target_is_outside_closure(make_api):
-    """max_depth=1 时深度 2 的那条边为 capped，且其 to_uid 不在 nodes[] 里。"""
-    client, _, _ = make_api(book_fixture([("a", "b"), ("b", "c")]))
-    tree = tree_of(client, ["a"], max_depth=1)
-    assert node_uids(tree) == ["a", "b"]
-    assert edge_status(tree, "b", "c") == "capped"
-    assert "c" not in node_uids(tree)
-    # R-25：from_uid 在闭包内的边必须保留（否则灰虚线画不出来）
-    assert {"from_uid": "b", "to_uid": "c", "relation": "requires", "status": "capped"} in tree["edges"]
-    node = next(n for n in tree["nodes"] if n["uid"] == "b")
-    assert node["remaining"] == 0
-    # 无 max_depth 时同一条边变成主路径
-    unlimited = tree_of(client, ["a"])
-    assert edge_status(unlimited, "b", "c") == "skeleton"
-    assert node_uids(unlimited) == ["a", "b", "c"]
-    # 四种 status 的字段形状固定
-    assert all(set(edge) == {"from_uid", "to_uid", "relation", "status"}
-               for edge in unlimited["edges"])
-
-
 def test_edges_are_never_dangling_from_outside_closure(make_api):
-    """闭包外节点的出边不返回（R-25 只保留 from_uid 在闭包内的边）。"""
+    """与所选 UID 无关的边不返回（R-25 只保留 from_uid 在闭包内的边）。"""
     client, _, _ = make_api(book_fixture([("a", "b"), ("b", "c"), ("c", "d")]))
-    tree = tree_of(client, ["a"], max_depth=1)
-    assert node_uids(tree) == ["a", "b"]
-    assert [e["from_uid"] for e in tree["edges"]] == ["a", "b"]
-    assert not any(e["from_uid"] == "c" for e in tree["edges"])
+    tree = tree_of(client, ["a"])
+    assert node_uids(tree) == ["a", "b", "c", "d"]
+    assert [e["from_uid"] for e in tree["edges"]] == ["a", "b", "c"]
+    assert all(e["from_uid"] in set(node_uids(tree)) for e in tree["edges"])
 
 
 # ── 6. 参数校验与只读 ──
@@ -296,16 +248,6 @@ def test_missing_or_unknown_entry_uids_return_400_without_writing(make_api):
     assert mixed["entry_uids"] == ["b", "a"]
     assert sorted(node_uids(mixed)) == ["a", "b"]
     assert (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns) == before
-
-
-def test_max_depth_is_clamped_and_validated(make_api):
-    """max_depth 钳制到 0..32；非法值 400。"""
-    client, _, _ = make_api(book_fixture([("a", "b"), ("b", "c"), ("c", "d")]))
-    assert node_uids(tree_of(client, ["a"], max_depth=0)) == ["a"]
-    assert node_uids(tree_of(client, ["a"], max_depth=-5)) == ["a"]        # 钳到 0
-    assert node_uids(tree_of(client, ["a"], max_depth=999)) == ["a", "b", "c", "d"]
-    assert client.get("/api/worldbook/book/dependency-tree?entry_uids=a&max_depth=abc"
-                      ).status_code == 400
 
 
 def test_issues_are_forwarded_from_scope_resolution(make_api):

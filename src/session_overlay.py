@@ -226,15 +226,12 @@ class SessionOverlay:
     # ── 世界书绑定 ──
 
     def get_worldbook_id(self) -> str | None:
-        """兼容旧调用方：返回首本绑定书。"""
+        """返回首本绑定书，供仍只需要单书上下文的内部逻辑使用。"""
         return next(iter(self.get_worldbook_ids()), None)
 
     def get_worldbook_ids(self) -> list[str]:
         ids = self._data.get("worldbook_ids")
-        if isinstance(ids, list):
-            return [x for x in ids if isinstance(x, str) and x]
-        legacy = self._data.get("worldbook_id")
-        return [legacy] if isinstance(legacy, str) and legacy else []
+        return [x for x in ids if isinstance(x, str) and x] if isinstance(ids, list) else []
 
     def set_worldbook_ids(self, worldbook_ids: list[str]):
         self.set_worldbook_bindings(worldbook_ids, {})
@@ -245,81 +242,64 @@ class SessionOverlay:
         with self._lock:
             original = copy.deepcopy(self._data)
             try:
-                old_first = self.get_worldbook_id()
                 scopes = dict(self._data.get("worldbook_scopes") or {})
-                if old_first and isinstance(self._data.get("worldbook_scope"), dict):
-                    scopes[old_first] = self._data["worldbook_scope"]
                 scopes.update(new_scopes)
                 self._data["worldbook_ids"] = ids
-                if ids:
-                    self._data["worldbook_id"] = ids[0]
-                    self._data["worldbook_scope"] = copy.deepcopy(scopes.get(ids[0]))
-                    if self._data["worldbook_scope"] is None:
-                        self._data.pop("worldbook_scope", None)
-                else:
-                    self._data.pop("worldbook_id", None)
-                    self._data["worldbook_scope"] = {"book_id": None, "resolved_entry_uids": []}
                 self._data["worldbook_scopes"] = {
-                    bid: copy.deepcopy(scopes[bid]) for bid in ids[1:] if bid in scopes}
+                    bid: copy.deepcopy(scopes[bid]) for bid in ids if bid in scopes}
                 self._save()
             except Exception:
                 self._data = original
                 raise
 
-    def set_worldbook_id(self, worldbook_id: str | None):
-        """绑定/解绑会话的世界书。"""
-        self.set_worldbook_ids([worldbook_id] if worldbook_id else [])
-
     def get_worldbook_scope(self, book_id: str | None = None) -> dict | None:
-        """返回会话固定的世界书候选范围；旧会话返回 None 以保持兼容。"""
+        """返回指定书（省略时为首本书）的固定候选范围。"""
         with self._lock:
-            scope = ((self._data.get("worldbook_scopes") or {}).get(book_id)
-                     if book_id and book_id != self.get_worldbook_id()
-                     else self._data.get("worldbook_scope"))
+            selected = book_id or self.get_worldbook_id()
+            scope = (self._data.get("worldbook_scopes") or {}).get(selected)
             return copy.deepcopy(scope) if isinstance(scope, dict) else None
 
     def set_worldbook_scope(self, scope: dict | None, book_id: str | None = None):
         with self._lock:
-            if book_id and book_id != self.get_worldbook_id():
-                scopes = self._data.setdefault("worldbook_scopes", {})
+            selected = book_id or self.get_worldbook_id()
+            if not selected:
                 if scope:
-                    scopes[book_id] = copy.deepcopy(scope)
-                else:
-                    scopes.pop(book_id, None)
-                self._save()
+                    raise ValueError("设置世界书范围前必须先绑定世界书")
                 return
+            scopes = self._data.setdefault("worldbook_scopes", {})
             if scope:
-                self._data["worldbook_scope"] = copy.deepcopy(scope)
+                scopes[selected] = copy.deepcopy(scope)
             else:
-                self._data.pop("worldbook_scope", None)
+                scopes.pop(selected, None)
             self._save()
 
     def update_worldbook_scope(self, updater, book_id: str | None = None):
         """在单个 overlay 内读取、替换并一次保存世界书范围。"""
         with self._lock:
-            secondary = bool(book_id and book_id != self.get_worldbook_id())
-            scopes = self._data.setdefault("worldbook_scopes", {}) if secondary else self._data
-            key = book_id if secondary else "worldbook_scope"
-            original = copy.deepcopy(scopes.get(key))
+            selected = book_id or self.get_worldbook_id()
+            if not selected:
+                raise ValueError("更新世界书范围前必须先绑定世界书")
+            scopes = self._data.setdefault("worldbook_scopes", {})
+            original = copy.deepcopy(scopes.get(selected))
             updated = updater(copy.deepcopy(original))
             try:
                 if updated:
-                    scopes[key] = copy.deepcopy(updated)
+                    scopes[selected] = copy.deepcopy(updated)
                 else:
-                    scopes.pop(key, None)
+                    scopes.pop(selected, None)
                 self._save()
             except Exception:
                 if original is not None:
-                    scopes[key] = original
+                    scopes[selected] = original
                 else:
-                    scopes.pop(key, None)
+                    scopes.pop(selected, None)
                 raise
             return copy.deepcopy(updated)
 
     # ── 节点级世界书作用域（docs/design/worldbook/node-scoped-worldbook-loading.md） ──
 
     def get_active_lore_scope(self) -> dict | None:
-        """当前生效的节点级世界书作用域；无（功能未启用/自由模式/老会话）返回 None。"""
+        """当前生效的节点级世界书作用域；功能未启用或自由模式时返回 None。"""
         with self._lock:
             scope = self._data.get("lore_scope_active")
             return copy.deepcopy(scope) if isinstance(scope, dict) else None
@@ -822,7 +802,7 @@ class SessionOverlay:
             if chosen is None and result:
                 try:
                     from story_outline import heuristic_outline
-                    chosen = heuristic_outline(meta, body, worldbook_id=self._data.get("worldbook_id") or "")
+                    chosen = heuristic_outline(meta, body, worldbook_id=self.get_worldbook_id() or "")
                 except Exception:
                     logger.warning("会话 %s: 启发式参考大纲构建失败", self.session_id, exc_info=True)
                     chosen = None
@@ -1339,7 +1319,7 @@ class SessionOverlay:
         `ref_chapter_id` / `ref_beat_id` 记录落盘时所处的参考章节 / 节拍。
 
         lore_resolver：node_lore_scope.build_overlay_resolver 构造的闭包
-        （书内无 lore_bindings 条目时为 None，整条链路跳过，行为与旧版一致）。
+        （书内无 lore_bindings 条目时为 None，整条链路跳过）。
         combat_id_hint：本轮推进节拍【之前】读到的 [COMBAT:id]（chat.py 透传），
         供 combat: 绑定键激活——不能从节点快照的 beat_state 反查（那是新节拍）。
         combat_node_id：本轮实际触发的战斗节点 id（有则追加 combat 子节点并进入）。
@@ -1440,7 +1420,7 @@ class SessionOverlay:
 
         # 节点级世界书作用域：在节点落盘的同一帧冻结（复用或重算由 resolver 内部
         # 按 bindings_fingerprint 决定）。resolver 为 None 表示书内无绑定条目——
-        # 清掉可能残留的旧作用域后整链路关闭，注入行为与旧版字节一致。
+        # 清掉不再生效的节点作用域后关闭整条链路。
         if lore_resolver is not None:
             try:
                 resolved = lore_resolver(
@@ -2366,9 +2346,7 @@ class SessionOverlay:
         result = {
             "session_id": self.session_id,
             "plot_id": self._data.get("plot_id"),
-            "worldbook_id": self._data.get("worldbook_id"),
             "worldbook_ids": self.get_worldbook_ids(),
-            "worldbook_scope": self._data.get("worldbook_scope"),
             "worldbook_scopes": self._data.get("worldbook_scopes", {}),
             "lore_scope_active": self._data.get("lore_scope_active"),
             "characters": self._data.get("characters", {}),
@@ -2451,16 +2429,10 @@ def _read_plot_file(plot_id: str) -> tuple[dict, str] | None:
 def plot_initial_characters(meta: dict) -> list[str]:
     """剧情声明的开场角色列表（去重保序、去空白）。
 
-    口径：`initial_characters` 优先；**没有这个字段**时才回退旧字段 `characters` —— 早期
-    剧情文件把阵容写在 `characters`（如「灰灯渡口」「战斗功能测试」的 `characters: [...]`）。
-    显式 `initial_characters: []` 表示「没有开场角色」，不回退。
-
     两处读取方必须共用这一个函数：新建向导按它预选队友，服务端按它加载开场角色，
     口径分叉会让「界面预选的人」和「服务端实际载入的人」对不上。
     """
     raw = meta.get("initial_characters")
-    if not isinstance(raw, list):
-        raw = meta.get("characters")
     if not isinstance(raw, list):
         return []
     names: list[str] = []

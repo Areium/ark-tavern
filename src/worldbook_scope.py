@@ -4,7 +4,6 @@ from collections import deque
 import copy
 import time
 
-MAX_DEPENDENCY_DEPTH = 32
 EXTENSION_KEY = "arknights_tavern"
 UNCLASSIFIED = {"id": "unclassified", "parent_id": None, "name": "未分类",
                 "scope_type": "other", "sort_order": 1000}
@@ -54,64 +53,8 @@ def validate_categories(value):
     return result
 
 
-def validate_policy(known, value, default_edges=()):
-    """写入接口严格拒绝坏引用，不能用静默过滤掩盖用户配置错误。"""
-    if not isinstance(value, dict):
-        raise ValueError("导入配置必须是对象")
-    fixed, sources = value.get("fixed_entry_uids", []), value.get("dependency_sources", [])
-    edges = value.get("dependency_edges", list(default_edges))
-    if not all(isinstance(items, list) for items in (fixed, sources, edges)):
-        raise ValueError("固定导入、依赖源和依赖边必须是数组")
-    seen = set()
-    for uid in fixed:
-        if not isinstance(uid, str) or uid not in known or uid in seen:
-            raise ValueError(f"固定导入包含不存在或重复的条目：{uid}")
-        seen.add(uid)
-    seen = set()
-    normalized_sources = []
-    for source in sources:
-        if not isinstance(source, dict):
-            raise ValueError("依赖源必须是对象")
-        uid, depth = source.get("entry_uid"), source.get("max_depth")
-        if not isinstance(uid, str) or uid not in known or uid in seen:
-            raise ValueError(f"依赖源包含不存在或重复的条目：{uid}")
-        if type(depth) is not int or not 0 <= depth <= MAX_DEPENDENCY_DEPTH:
-            raise ValueError(f"依赖源 {uid} 深度必须是 0-{MAX_DEPENDENCY_DEPTH} 的整数")
-        seen.add(uid)
-        normalized_sources.append({"entry_uid": uid, "max_depth": depth})
-    seen, normalized_edges = set(), []
-    for edge in edges:
-        if not isinstance(edge, dict):
-            raise ValueError("依赖边必须是对象")
-        a, b = edge.get("from_uid"), edge.get("to_uid")
-        if not isinstance(a, str) or not isinstance(b, str) or a not in known or b not in known:
-            raise ValueError(f"依赖边包含不存在的节点：{a} → {b}")
-        if a == b or (a, b) in seen:
-            raise ValueError(f"依赖边不能为自环或重复边：{a} → {b}")
-        seen.add((a, b))
-        normalized_edges.append({"from_uid": a, "to_uid": b})
-    return {"fixed_entry_uids": list(fixed), "dependency_sources": normalized_sources}, normalized_edges
-
-
-def expand_sources(sources, edges):
-    """按最大剩余深度去重的 BFS；固定条目不作为隐式遍历起点。"""
-    adjacency = {}
-    for edge in edges:
-        adjacency.setdefault(edge["from_uid"], []).append(edge["to_uid"])
-    queue = deque((s["entry_uid"], s["max_depth"]) for s in sources)
-    best_remaining = {}
-    while queue:
-        uid, remaining = queue.popleft()
-        if remaining <= best_remaining.get(uid, -1):
-            continue
-        best_remaining[uid] = remaining
-        if remaining:
-            queue.extend((target, remaining - 1) for target in sorted(adjacency.get(uid, [])))
-    return set(best_remaining)
-
-
 def find_scope_extension(value):
-    """只恢复所属世界书的命名空间扩展；普通酒馆/JSONL 导入仍按旧策略。"""
+    """提取本项目的命名空间扩展；标准酒馆/JSONL 仍按外部格式导入。"""
     if not isinstance(value, dict):
         return None
     if "entries" in value:
@@ -128,11 +71,10 @@ def find_scope_extension(value):
 # ─────────────────────────────────────────────────────────────
 # v3：全书底层有向图 + 条件起点
 #
-# v3 与 v2 的核心区别是「谁进候选」与「怎么组织」彻底分开：
+# 当前规则把「谁进候选」与「怎么组织」彻底分开：
 #   - 分类只负责组织（改名/移动分类**不**隐式改变候选范围）；
 #   - 起点由 activation 决定，展开由 expansion 决定；
 #   - requires 边参与遍历，related 边只供浏览。
-# v2 的 fixed / dependency_sources / max_depth 语义由 legacy_depth 精确保留。
 # ─────────────────────────────────────────────────────────────
 
 SCHEMA_VERSION_V3 = 3
@@ -144,8 +86,7 @@ ACTIVATIONS = (ACTIVATION_ALWAYS, ACTIVATION_ROSTER_ANY, ACTIVATION_MANUAL)
 
 EXPANSION_NONE = "none"
 EXPANSION_REQUIRES_CLOSURE = "requires_closure"
-EXPANSION_LEGACY_DEPTH = "legacy_depth"
-EXPANSIONS = (EXPANSION_NONE, EXPANSION_REQUIRES_CLOSURE, EXPANSION_LEGACY_DEPTH)
+EXPANSIONS = (EXPANSION_NONE, EXPANSION_REQUIRES_CLOSURE)
 
 # 必要闭包的保护上限：超过即报「来源过大」，**不做静默截断**。
 MAX_CLOSURE_NODES = 20000
@@ -171,58 +112,17 @@ def _norm_edge_list(known, value, label):
     return result
 
 
-def _norm_edge_meta(known, value) -> dict:
-    """规范化边元数据（证据 / 来源 / 审核身份），键为 "from|to"。
-
-    人工锁定与已拒绝建议必须**持久化**，否则「删掉一条 AI 边再保存」会因为
-    重新叠加旧建议而复活。这里只做结构校验，不改语义。
-    """
-    if value in (None, {}):
-        return {}
-    if not isinstance(value, dict):
-        raise ValueError("边元数据必须是对象")
-    result = {}
-    for key, raw in value.items():
-        if not isinstance(key, str) or "|" not in key:
-            raise ValueError(f"边元数据键必须是 from|to：{key}")
-        a, b = key.split("|", 1)
-        if a not in known or b not in known:
-            raise ValueError(f"边元数据引用了不存在的节点：{a} → {b}")
-        if not isinstance(raw, dict):
-            raise ValueError(f"边元数据 {key} 必须是对象")
-        item = {}
-        for field in ("origin", "model", "prompt_version", "review_status"):
-            text = raw.get(field)
-            if isinstance(text, str) and text:
-                item[field] = text[:64]
-        for field in ("evidence_hash", "source_content_hash", "target_content_hash"):
-            text = raw.get(field)
-            if isinstance(text, str) and text:
-                item[field] = text[:64]
-        evidence = raw.get("evidence")
-        if isinstance(evidence, str) and evidence:
-            item["evidence"] = evidence[:600]
-        if raw.get("locked"):
-            item["locked"] = True
-        if raw.get("job_id"):
-            item["job_id"] = str(raw["job_id"])[:64]
-        result[key] = item
-    return result
-
-
-def validate_v3_rules(known, value, default_requires=()):
+def validate_v3_rules(known, value):
     """校验 v3 规则集，返回规范化后的 (rules, requires_edges, related_edges)。
 
     `known` 是合法 UID 集合。写入接口严格拒绝坏引用——配置错误必须暴露给用户，
     不能被静默丢弃成「看起来生效了」。
 
-    规则集同时持久化**人工决定**：`locked` 起点、`rejected` 已拒绝建议、
-    `edge_meta` 正式边的证据与审核身份。这些都是用户意图，不能只活在单次请求里。
     """
     if not isinstance(value, dict):
         raise ValueError("v3 规则必须是对象")
     raw_roots = value.get("roots", [])
-    requires = value.get("requires_edges", value.get("dependency_edges", list(default_requires)))
+    requires = value.get("requires_edges", [])
     related = value.get("related_edges", [])
     if not isinstance(raw_roots, list):
         raise ValueError("起点必须是数组")
@@ -256,20 +156,6 @@ def validate_v3_rules(known, value, default_requires=()):
 
         item = {"entry_uid": uid, "activation": activation, "expansion": expansion,
                 "character_ids": sorted({c.strip() for c in chars})}
-        if raw.get("locked"):
-            item["locked"] = True
-        origin = raw.get("origin")
-        if isinstance(origin, str) and origin:
-            item["origin"] = origin[:32]
-        for field in ("model", "prompt_version", "source_content_hash", "evidence", "review_status", "job_id"):
-            if isinstance(raw.get(field), str):
-                item[field] = raw[field][:600]
-        if expansion == EXPANSION_LEGACY_DEPTH:
-            depth = raw.get("max_depth")
-            if type(depth) is not int or not 0 <= depth <= MAX_DEPENDENCY_DEPTH:
-                raise ValueError(
-                    f"起点 {uid} 深度必须是 0-{MAX_DEPENDENCY_DEPTH} 的整数")
-            item["max_depth"] = depth
         roots.append(item)
 
     requires_edges = _norm_edge_list(known, requires, "必要依赖边")
@@ -292,17 +178,8 @@ def validate_v3_rules(known, value, default_requires=()):
     if len(set(rule_uids)) != len(rule_uids):
         raise ValueError("root_rule.entry_uids 不能重复")
 
-    rejected = _norm_edge_list(known, value.get("rejected", []), "已拒绝建议")
-    edge_meta = _norm_edge_meta(known, value.get("edge_meta"))
-
-    return ({"roots": roots, "root_rule": {"entry_uids": sorted(set(rule_uids))},
-             "rejected": rejected, "edge_meta": edge_meta},
+    return ({"roots": roots, "root_rule": {"entry_uids": sorted(set(rule_uids))}},
             requires_edges, related_edges)
-
-
-def _rank_remaining(remaining):
-    """剩余深度排序键：None（不限深度）最大，其余按数值。"""
-    return (1, 0) if remaining is None else (0, remaining)
 
 
 def resolve_v3_scope(entries, rules, requires_edges, related_edges,
@@ -317,7 +194,7 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
     - `related` 边**不参与遍历**，只作为浏览信息返回；
     - 被依赖带入的条目**不会**反过来激活它所属角色的整组条目
       （激活只看起点自身的 activation，依赖只负责补齐）；
-    - 环可终止；新必要闭包不会被随意深度静默截断，超限报「来源过大」；
+    - 环可终止；必要闭包超限时报「来源过大」；
     - `manual_entry_uids`（本次会话的手动追加）作为**临时起点**参与同一次解析：
       它同样沿 requires 闭包补齐、带 manual 原因、进入展示树，
       而不是解析完之后做一次并集（那样会漏掉它需要的依赖，也没有解释）。
@@ -376,14 +253,14 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
                              "character_ids": []})
         mark_root(uid, "manual")
 
-    # ── 2. 沿 requires 闭包展开（多源、最大剩余深度去重）──
+    # ── 2. 沿 requires 闭包展开 ──
     adjacency = {}
     for edge in requires_edges:
         adjacency.setdefault(edge["from_uid"], []).append(edge["to_uid"])
     for targets in adjacency.values():
         targets.sort()
 
-    best = {}          # uid -> remaining（None = 不限）
+    expanded = {}      # uid -> 是否按 requires_closure 展开
     path_of = {}       # uid -> {"root","depth","parent"}
     used_edges = set() # 真正参与展开的边
     oversized = None
@@ -392,31 +269,22 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
     for root in active_roots:
         uid = root["entry_uid"]
         expansion = root["expansion"]
-        if expansion == EXPANSION_NONE:
-            remaining = 0
-        elif expansion == EXPANSION_LEGACY_DEPTH:
-            remaining = root["max_depth"]
-        else:
-            remaining = None
-        queue.append((uid, remaining, uid, 0, None))
+        queue.append((uid, expansion == EXPANSION_REQUIRES_CLOSURE, uid, 0, None))
 
     while queue:
-        uid, remaining, root_uid, depth, parent = queue.popleft()
-        known_remaining = best.get(uid, "absent")
-        if known_remaining != "absent" and _rank_remaining(known_remaining) >= _rank_remaining(remaining):
+        uid, should_expand, root_uid, depth, parent = queue.popleft()
+        known = expanded.get(uid)
+        if known is True or known is should_expand:
             continue
-        best[uid] = remaining
+        expanded[uid] = should_expand
         path_of[uid] = {"root": root_uid, "depth": depth, "parent": parent}
-        if remaining == 0:
+        if not should_expand:
             continue
         for target in adjacency.get(uid, []):
             used_edges.add((uid, target))
-            if remaining is None:
-                queue.append((target, None, root_uid, depth + 1, uid))
-            else:
-                queue.append((target, remaining - 1, root_uid, depth + 1, uid))
-        if oversized is None and len(best) > MAX_CLOSURE_NODES:
-            oversized = len(best)
+            queue.append((target, True, root_uid, depth + 1, uid))
+        if oversized is None and len(expanded) > MAX_CLOSURE_NODES:
+            oversized = len(expanded)
 
     if oversized is not None:
         # 超限时不做静默截断：节点、边与展示树的字段形状与正常返回一致（空数组），
@@ -435,14 +303,13 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
 
     # ── 3. 选用原因 ──
     reasons = {}
-    for uid in best:
+    for uid in expanded:
         entry_reasons = list(root_reasons.get(uid, []))
         if path_of[uid]["root"] != uid:
             entry_reasons.append("requires")
         reasons[uid] = entry_reasons
 
-    # 主路径边：`path_of` 记的是每个 uid **最优**（最大剩余深度）的那次到达，
-    # 因此同一 uid 只有一个父，树边天然无重复。
+    # 主路径边：闭包展开优先于 `none` 起点；同一 uid 只有一个父，树边天然无重复。
     tree_edges = {(info["parent"], uid) for uid, info in path_of.items() if info["parent"]}
 
     def _requires_edge_status(a, b):
@@ -450,16 +317,12 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
 
         - `skeleton`：这条边就是主路径（`display_tree` 的父子关系）；
         - `cross`：边生效但目标已被别处覆盖（环内边 / 非树边）；
-        - `capped`：上游已到达，但那次到达的剩余深度是 0，边**没有**被遍历
-          ——目标因此不在闭包里（前端画灰虚线「上游到了、深度用尽」）；
         - `idle`：上游根本不在闭包里（或其余情况）。
         """
         if (a, b) in tree_edges:
             return "skeleton"
         if (a, b) in used_edges:
             return "cross"
-        if a in best and best[a] == 0:
-            return "capped"
         return "idle"
 
     resolved_edges = [{"from_uid": a, "to_uid": b, "relation": "requires",
@@ -474,17 +337,17 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
     # ── 4. 稳定主路径树 ──
     # 按 (深度, uid) 排序：父节点深度必然小于子节点，因此父总在子之前，
     # 同一层内按 uid 稳定排序 → 同一份输入永远得到同一棵树。
-    ordered = sorted(best, key=lambda u: (path_of[u]["depth"], u))
+    ordered = sorted(expanded, key=lambda u: (path_of[u]["depth"], u))
     children = {}
     for uid in ordered:
         parent = path_of[uid]["parent"]
-        if parent is not None and parent in best:
+        if parent is not None and parent in expanded:
             children.setdefault(parent, []).append(uid)
 
     display_tree = []
     for display_index, uid in enumerate(ordered):
         info = path_of[uid]
-        # `display_tree` 是「每个 uid 一行」（由 best 表生成），同 uid 不会重复出现，
+        # `display_tree` 是「每个 uid 一行」（由 expanded 表生成），同 uid 不会重复出现，
         # 所以「repeated = 是否非首次出现」的字面读法恒为 false、没有意义。这里按
         # **可用于灰节点渲染**的语义实现：
         # - `display_index`：该 uid 在 `display_tree` 里的 0-based 位次（树已按
@@ -498,14 +361,13 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
         #              + 它自己作为起点被激活的那一次（`root_reasons`）
         #
         #   两个边界必须守住，否则会误判：
-        #   1. 用 `used_edges` 而不是 `requires_edges`：`capped` 边（上游那次到达的
-        #      剩余深度是 0，边没被遍历）**不构成一次到达**，不能算进来；
+        #   1. 用 `used_edges` 而不是 `requires_edges`：`none` 起点不会展开它的出边；
         #   2. 起点被激活本身也是一次到达：一个根若还被一条被遍历的边指向，
         #      它就有 2 次到达（自己作为根 + 来自那条边），不能只看入边条数。
         #
         #   五类边界：根+无入边=1(false)；根+一条被遍历入边=2(true)；
         #   非根+一条入边（它的树父）=1(false)；非根+两条被遍历入边=2(true)；
-        #   非根+两条入边但其中一条 capped（未遍历）=1(false)。
+        #   非根+两条被遍历入边=2(true)。
         #
         #   ⚠ 它与节点视图的「灰出现」只是**单向**关系，`repeated` 是灰出现的**下界**：
         #   `repeated == true` ⟹ 一定有第二次到达；但**反向不成立** —— 按提案
@@ -522,7 +384,6 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
             "uid": uid, "name": field(uid, "name", "") or uid,
             "root_uid": info["root"], "depth": info["depth"], "parent_uid": info["parent"],
             "child_uids": sorted(children.get(uid, [])),
-            "remaining": best[uid],
             "is_root": uid in root_reasons,
             "repeated": arrivals > 1,
             "first_parent_uid": info["parent"],
@@ -534,7 +395,7 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
 
     # ── 6. 问题清单（已激活必要依赖的停用/缺失/空正文必须可解释）──
     issues = []
-    for uid in sorted(best):
+    for uid in sorted(expanded):
         if uid not in by_uid:
             issues.append({"code": "missing_entry", "severity": "error", "uid": uid,
                            "message": f"依赖引用了不存在的条目 {uid}"})
@@ -553,10 +414,9 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
             "active_roots": [{"entry_uid": r["entry_uid"],
                               "activation": r["activation"],
                               "expansion": r["expansion"],
-                              "character_ids": r["character_ids"],
-                              **({"max_depth": r["max_depth"]} if "max_depth" in r else {})}
+                              "character_ids": r["character_ids"]}
                              for r in active_roots],
-            "resolved_entry_uids": sorted(best),
+            "resolved_entry_uids": sorted(expanded),
             "resolved_edges": resolved_edges,
             "selection_reasons": {uid: reasons[uid] for uid in sorted(reasons)},
             "display_tree": display_tree,
@@ -564,57 +424,3 @@ def resolve_v3_scope(entries, rules, requires_edges, related_edges,
             "issues": issues,
             "manual_entry_uids": manual_uids,
             "resolved_at": time.time()}
-
-
-def v2_rules_from_import_config(import_config, edges):
-    """把 v2 配置无损映射为 v3 起点：fixed → always+none，sources → always+legacy_depth。
-
-    世界观 / 阵容来源在 v2 里不是显式起点，先按等价保留——只有用户显式预览并保存后
-    才采纳新的按需规则（旧 v2 会话不静默改变语义）。
-    """
-    roots = []
-    for uid in import_config.get("fixed_entry_uids", []):
-        roots.append({"entry_uid": uid, "activation": ACTIVATION_ALWAYS,
-                      "expansion": EXPANSION_NONE, "character_ids": []})
-    for source in import_config.get("dependency_sources", []):
-        roots = [root for root in roots if root["entry_uid"] != source["entry_uid"]]
-        roots.append({"entry_uid": source["entry_uid"], "activation": ACTIVATION_ALWAYS,
-                      "expansion": EXPANSION_LEGACY_DEPTH, "character_ids": [],
-                      "max_depth": source["max_depth"]})
-    known = {r["entry_uid"] for r in roots}
-    return ({"roots": roots, "root_rule": {"entry_uids": sorted(known)},
-             "rejected": [], "edge_meta": {}},
-            list(edges), [])
-
-
-def equivalent_v3_roots(entries, categories, scope_mode, category_scope_type):
-    """v2 → v3 的**等价**起点映射：范围一模一样，只是换了表达方式。
-
-    - legacy 书：全部条目都是候选 → 每条都是 always + none；
-    - selective 书：世界观分类 → always + none，角色分类且已关联角色 →
-      roster_any + none（等价于「该角色入队时选中」）；
-    - 固定导入 / 导入源由调用方按 `v2_rules_from_import_config` 追加。
-
-    这里刻意用 `expansion=none`：v2 没有「跟随依赖展开」这一层，
-    迁移必须先保证范围不变，是否展开交给用户显式选择。
-    """
-    roots, seen = [], set()
-
-    def add(uid, activation, character_ids=()):
-        if uid in seen:
-            return
-        seen.add(uid)
-        roots.append({"entry_uid": uid, "activation": activation,
-                      "expansion": EXPANSION_NONE,
-                      "character_ids": sorted(set(character_ids))})
-
-    for entry in entries:
-        if scope_mode == "legacy":
-            add(entry.uid, ACTIVATION_ALWAYS)
-            continue
-        kind = category_scope_type(entry.category_id)
-        if kind == "worldview":
-            add(entry.uid, ACTIVATION_ALWAYS)
-        elif kind == "character" and entry.character_id:
-            add(entry.uid, ACTIVATION_ROSTER_ANY, [entry.character_id])
-    return roots

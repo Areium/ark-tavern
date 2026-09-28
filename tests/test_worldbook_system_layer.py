@@ -153,20 +153,6 @@ def test_summary_exposes_book_character_roster(tmp_path):
     assert summary["character_ids"] == ["临光", "瑕光"]
 
 
-def test_full_scope_compatibility_also_skips_system_entries():
-    """「显式全量兼容」放宽的是候选，不是把永不注入的系统层条目也算进去。
-
-    `full_scope_uids` 是 full_scope 语义的唯一真源（预览 / scope-preview / 会话快照
-    共用），因此这里排掉一次，三处口径同时正确。
-    """
-    book = WorldBook("book", "全量测试书", _entries())
-    assert book.full_scope_uids() == ["lore", "world"], "系统层与停用条目都不在「全量」里"
-    # 停用条目也不该出现在全量候选里（与 _full_scope_entries 的既有口径一致）
-    for entry in book.entries:
-        entry.enabled = True
-    assert book.full_scope_uids() == ["lore", "off", "world"]
-
-
 # ── 3. 接口：摘要 / 详情与预览 ──
 
 @pytest.fixture
@@ -179,8 +165,7 @@ def api(tmp_path):
                      categories=copy.deepcopy(DEFAULT_CATEGORIES),
                      related_edges=[],
                      dependency_rules={"roots": [root],
-                                       "root_rule": {"entry_uids": ["world"]},
-                                       "rejected": [], "edge_meta": {}},
+                                       "root_rule": {"entry_uids": ["world"]}},
                      scope_mode="selective")
     manager.save(book)
     app = Flask(__name__)
@@ -233,18 +218,14 @@ def test_all_entries_preview_excludes_system_entries_without_a_hint(api):
     assert "lore_bindings" not in payload["stable_text"] + payload["dynamic_text"]
 
 
-def test_scope_preview_full_scope_agrees_with_the_single_turn_preview(api):
-    """「全量兼容」下的候选数在三处必须一致：scope-preview / 单轮预览 / 摘要口径。
-
-    系统层条目既不进候选也不进 token —— 三处都用 `full_scope_uids()`，一处排掉即可。
-    """
+def test_scope_preview_excludes_system_entries(api):
+    """选择范围只统计常规条目；系统层始终不参与候选。"""
     client, _, _ = api
     scope = client.post("/api/worldbook/book/scope-preview",
-                        json={"roster_character_ids": [], "full_scope": True})
+                        json={"roster_character_ids": []})
     assert scope.status_code == 200, scope.json
     body = scope.json
-    assert body["full_entry_count"] == 2, "world + lore；节点图 / 节点绑定不算"
-    assert body["entry_count"] == 2
+    assert body["entry_count"] == 1
 
-    payload = _preview(client, input_text="", recent_text="", full_scope=True)
+    payload = _preview(client, input_text="", recent_text="")
     assert payload["totals"]["candidate_count"] == body["entry_count"]

@@ -44,7 +44,8 @@ def create_story(ctx, *, combat_mode="narrative", roster=None, worldbook_id=""):
     """Create the candidate story with its authored player identity explicitly."""
     response = ctx["client"].post("/api/sessions", json={
         "name": "灰桥回声·隔离验收", "mode": "story", "combat_mode": combat_mode,
-        "plot_id": ctx["manifest"]["plot_id"], "worldbook_id": worldbook_id,
+        "plot_id": ctx["manifest"]["plot_id"],
+        "worldbook_ids": [worldbook_id] if worldbook_id else [],
         "identity": "博士",
         "roster_character_ids": ctx["manifest"]["roster"] if roster is None else roster,
     })

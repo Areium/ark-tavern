@@ -13,11 +13,11 @@ const entry = (uid,name,content) => ({uid,name,content,category_id:'unclassified
 const detail = {id:'review',name:'返修验收书',enabled:true,book_type:'story',schema_version:3,scope_mode:'selective',
   updated_at:1,categories,import_config:{revision:1,fixed_entry_uids:[],dependency_sources:[]},
   dependency_rules:{roots:[{entry_uid:'a',activation:'roster_any',expansion:'requires_closure',character_ids:['A']}],
-    rejected:[],edge_meta:{'a|b':{origin:'manual',locked:true}}},
+    },
   dependency_edges:[],related_edges:[{from_uid:'a',to_uid:'b'}],
   entries:[entry('a','角色甲设定','角色甲使用术式。'),entry('b','术式定义','术式的基础规则。')]};
 const secondBook = {...detail,id:'second',name:'第二本书',updated_at:2,
-  dependency_rules:{roots:[],rejected:[],edge_meta:{}},related_edges:[]};
+  dependency_rules:{roots:[]},related_edges:[]};
 (async()=>{
   const browser = await chromium.launch({headless:true,channel:process.env.WB_BROWSER || 'chrome'});
   const page = await browser.newPage({viewport:{width:1400,height:1000}});

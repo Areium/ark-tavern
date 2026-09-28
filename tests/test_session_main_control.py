@@ -2,14 +2,12 @@
 
 契约（`blueprints/sessions.py` + `SceneManager.get_roster()`）：
 
-1. 走新流程的客户端**总是**显式带 `identity`；显式传空 = 明确没选 → 400，不允许
-   建出一个没有主控的会话。完全不传该字段仍回落中性身份「玩家」，只服务于不使用该流程的
-   调用方（集成脚本 / 老用例），这部分行为在本文件里被钉住，避免以后被顺手改掉。
+1. 图形界面显式提交 `identity`；显式传空 = 明确没选 → 400，不允许建出一个没有主控的会话。
+   API 省略该字段时使用当前平台的中性身份「玩家」。
 2. 主控是**阵容成员**：它进 `worldbook_scope.roster_character_ids`，属于它的世界书
    条目按 roster 规则载入。
 3. 主控**不是场景 NPC**：它不进 `scene_manager` 的场景角色（模型不替玩家说话），
-   见 `tests/legacy/player_identity_opening.py`；同一角色也绝不会因为「身份」与
-   「入队」两条路径在阵容里出现两次。
+   同一角色也绝不会因为「身份」与「入队」两条路径在阵容里出现两次。
 """
 import copy
 import sys
@@ -41,17 +39,26 @@ def book_fixture():
          "scope_type": "character", "sort_order": 1},
         {"id": "squad", "name": "队伍", "parent_id": "faction",
          "scope_type": "character", "sort_order": 1},
-    ])
+    ], dependency_rules={"roots": [
+        {"entry_uid": "world", "activation": "always", "expansion": "none"},
+        {"entry_uid": "a", "activation": "roster_any", "expansion": "none", "character_ids": ["A"]},
+        {"entry_uid": "mc", "activation": "roster_any", "expansion": "none",
+         "character_ids": [MAIN_CONTROL]},
+    ], "root_rule": {"entry_uids": ["world", "a", "mc"]}})
 
 
 class Overlay:
     def __init__(self):
         self.scope, self.book_id = None, None
 
-    def get_worldbook_scope(self): return copy.deepcopy(self.scope)
-    def set_worldbook_scope(self, value): self.scope = copy.deepcopy(value)
+    def get_worldbook_scope(self, book_id=None): return copy.deepcopy(self.scope)
+    def set_worldbook_scope(self, value, book_id=None): self.scope = copy.deepcopy(value)
+    def get_worldbook_ids(self): return [self.book_id] if self.book_id else []
     def get_worldbook_id(self): return self.book_id
-    def set_worldbook_id(self, value): self.book_id = value
+    def set_worldbook_ids(self, values): self.book_id = values[0] if values else None
+    def update_worldbook_scope(self, updater, book_id=None):
+        self.scope = copy.deepcopy(updater(copy.deepcopy(self.scope)))
+        return copy.deepcopy(self.scope)
 
 
 class FakeSceneManager:
@@ -100,7 +107,9 @@ class FakeSession:
             "player_identity": self.player_identity,
             "characters": self.scene_manager.get_scene_characters(),
             "roster": self.scene_manager.get_roster(),
-            "worldbook_scope": self.overlay.get_worldbook_scope(),
+            "worldbook_ids": self.overlay.get_worldbook_ids(),
+            "worldbook_scopes": {bid: self.overlay.get_worldbook_scope(bid)
+                                 for bid in self.overlay.get_worldbook_ids()},
         }
 
 
@@ -132,7 +141,7 @@ def test_explicit_empty_identity_is_rejected(session_api):
     """新流程显式传空 identity = 没选主控 → 明确拒绝，不留半成品。"""
     client, manager, _, cleaned, _ = session_api
     response = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": ["A"], "identity": ""})
+        "worldbook_ids": ["book"], "roster_character_ids": ["A"], "identity": ""})
     assert response.status_code == 400
     assert "必须选择主控角色" in response.json["error"]
     assert not manager._sessions and not cleaned
@@ -142,15 +151,15 @@ def test_explicit_empty_identity_is_rejected(session_api):
 def test_any_blank_identity_is_rejected(session_api, blank):
     client, _, _, _, _ = session_api
     response = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": ["A"], "identity": blank})
+        "worldbook_ids": ["book"], "roster_character_ids": ["A"], "identity": blank})
     assert response.status_code == 400
 
 
 def test_absent_identity_still_falls_back_for_other_callers(session_api):
-    """不传该字段的调用方（集成脚本 / 老用例）仍回落中性身份「玩家」。"""
+    """省略身份时使用平台当前的中性身份「玩家」。"""
     client, _, _, _, _ = session_api
     response = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": ["A"]})
+        "worldbook_ids": ["book"], "roster_character_ids": ["A"]})
     assert response.status_code == 201, response.json
     assert response.json["player_identity"] == "玩家"
 
@@ -160,7 +169,7 @@ def test_absent_identity_still_falls_back_for_other_callers(session_api):
 def test_main_control_joins_roster_but_is_not_a_scene_character(session_api):
     client, _, _, _, _ = session_api
     response = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": ["A"], "identity": MAIN_CONTROL})
+        "worldbook_ids": ["book"], "roster_character_ids": ["A"], "identity": MAIN_CONTROL})
     assert response.status_code == 201, response.json
     body = response.json
 
@@ -170,7 +179,7 @@ def test_main_control_joins_roster_but_is_not_a_scene_character(session_api):
     # 场景角色只有队友：主控由玩家扮演，模型不替玩家说话
     assert body["characters"] == ["A"]
     # 主控的世界书条目按 roster 规则载入
-    scope = body["worldbook_scope"]
+    scope = body["worldbook_scopes"]["book"]
     assert MAIN_CONTROL in scope["roster_character_ids"]
     assert "mc" in scope["resolved_entry_uids"]
 
@@ -179,12 +188,12 @@ def test_same_character_is_not_added_twice(session_api):
     """阵容里既写主控又写队友时，只保留一条（身份与入队不重复）。"""
     client, _, _, _, _ = session_api
     response = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": [MAIN_CONTROL, "A", MAIN_CONTROL],
+        "worldbook_ids": ["book"], "roster_character_ids": [MAIN_CONTROL, "A", MAIN_CONTROL],
         "identity": MAIN_CONTROL})
     assert response.status_code == 201, response.json
     assert response.json["roster"] == [MAIN_CONTROL, "A"]
     assert response.json["characters"] == ["A"]
-    assert response.json["worldbook_scope"]["roster_character_ids"] == sorted([MAIN_CONTROL, "A"])
+    assert response.json["worldbook_scopes"]["book"]["roster_character_ids"] == sorted([MAIN_CONTROL, "A"])
 
 
 def test_main_control_does_not_go_through_the_npc_loading_path(session_api):
@@ -193,7 +202,7 @@ def test_main_control_does_not_go_through_the_npc_loading_path(session_api):
     client, _, _, _, _ = session_api
     assert MAIN_CONTROL not in FakeSceneManager.LOADABLE
     response = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": [], "identity": MAIN_CONTROL})
+        "worldbook_ids": ["book"], "roster_character_ids": [], "identity": MAIN_CONTROL})
     assert response.status_code == 201, response.json
     assert response.json["characters"] == []
     assert response.json["roster"] == [MAIN_CONTROL]
@@ -202,7 +211,7 @@ def test_main_control_does_not_go_through_the_npc_loading_path(session_api):
 def test_teammate_loading_failure_still_rejects_and_cleans_up(session_api):
     client, manager, _, cleaned, persisted = session_api
     response = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": ["A", "missing"],
+        "worldbook_ids": ["book"], "roster_character_ids": ["A", "missing"],
         "identity": MAIN_CONTROL})
     assert response.status_code == 400
     assert "无法加载入队角色" in response.json["error"]
@@ -213,7 +222,7 @@ def test_switching_main_control_keeps_roster_in_sync(session_api):
     """换主控后，会话与场景管理器的阵容口径保持一致（旧主控退出、新主控进入）。"""
     client, manager, _, _, _ = session_api
     created = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": ["A"], "identity": MAIN_CONTROL})
+        "worldbook_ids": ["book"], "roster_character_ids": ["A"], "identity": MAIN_CONTROL})
     session_id = created.json["id"]
 
     assert manager.set_player_identity(session_id, "B")
@@ -249,7 +258,7 @@ def test_scene_manager_roster_drives_the_worldbook_scope_refresh(tmp_path, monke
     book = book_fixture()
     manager.save(book)
     overlay = Overlay()
-    overlay.scope = book.resolve_import_scope([MAIN_CONTROL])
+    overlay.scope = book.session_scope_snapshot([MAIN_CONTROL])
     overlay.book_id = book.id
 
     scene = SceneManager(None, None, overlay=overlay, worldbook_manager=manager,

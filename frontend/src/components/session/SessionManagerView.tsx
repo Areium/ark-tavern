@@ -123,7 +123,7 @@ export default function SessionManagerView() {
   }, [sessions, tab, search]);
 
   const selected = sessions.find((s) => s.id === selectedId) || null;
-  const selectedBookIds = selected?.worldbook_ids || (selected?.worldbook_id ? [selected.worldbook_id] : []);
+  const selectedBookIds = selected?.worldbook_ids || [];
   const activeDependencyBookId = selectedBookIds.includes(dependencyBookId) ? dependencyBookId : selectedBookIds[0];
   const plotName = (plotId: string | null) => plots.find((p) => p.id === plotId)?.name || plotId || "";
 
@@ -289,8 +289,8 @@ export default function SessionManagerView() {
       const ids = selectedBookIds.includes(bookId)
         ? selectedBookIds.filter((id) => id !== bookId) : [...selectedBookIds, bookId];
       const res = await api.setSessionWorldbooks(selected.id, ids);
-      setSessions(sessions.map((s) => (s.id === selected.id ? { ...s, worldbook_id: res.worldbook_id,
-        worldbook_ids: res.worldbook_ids, worldbook_scope: res.worldbook_scope,
+      setSessions(sessions.map((s) => (s.id === selected.id ? { ...s,
+        worldbook_ids: res.worldbook_ids,
         worldbook_scopes: res.worldbook_scopes } : s)));
     } catch (err: any) {
       alert("绑定失败: " + (err?.message || "未知错误"));
@@ -610,7 +610,7 @@ export default function SessionManagerView() {
                     {s.combat_mode === "tactical" ? "⚔ 战术" : s.combat_mode === "sideview" ? "✦ 横版动作" : "📜 纯剧情"}
                   </span>
                   {s.plot_id && <span className="badge badge-plot">🗺 {plotName(s.plot_id)}</span>}
-                  {s.worldbook_id && <span className="badge badge-wb">📖 世界书</span>}
+                  {s.worldbook_ids.length > 0 && <span className="badge badge-wb">📖 世界书</span>}
                 </div>
 
                 {(s.characters?.length > 0) && (
@@ -862,11 +862,10 @@ export default function SessionManagerView() {
                   </div>
                 )}
                 <p className="text-[11px] text-gray-600 mt-2.5">
-                  {!selected.worldbook_id && selected.worldbook_scope ? "当前未绑定世界书，角色条目不会载入。" :
-                    selected.worldbook_scope?.legacy_full_scope || !selected.worldbook_scope ? "当前会话沿用旧版全量范围；启用按需策略并重新绑定后，角色条目才按阵容载入。" :
+                  {!selectedBookIds.length ? "当前未绑定世界书，角色条目不会载入。" :
                     "提示：阵容成员（含主控）的世界书条目随会话载入；世界观及固定/依赖条目按策略生效。未入队角色不会自动导入，可在此调整阵容。"}
                   {" "}<button className="text-blue-400 hover:underline" onClick={() => {
-                    setWorldbookScopeJumpId(selected.worldbook_id || null); setWorldbookTab("entries"); setCurrentView("worldbook");
+                    setWorldbookScopeJumpId(selectedBookIds[0] || null); setWorldbookTab("entries"); setCurrentView("worldbook");
                   }}>前往世界书配置依赖 →</button>
                 </p>
               </div>
@@ -887,7 +886,7 @@ export default function SessionManagerView() {
                   >
                     💾 导出存档
                   </button>
-                  {selected.worldbook_id && (
+                  {selectedBookIds.length > 0 && (
                     <button
                       onClick={() => { setIndexSessionId(selected.id); setWorldbookTab("index"); setCurrentView("worldbook"); }}
                       className="text-xs px-3 py-1.5 rounded-lg bg-gray-700/60 text-gray-300 hover:bg-gray-700 transition-colors"
@@ -956,7 +955,7 @@ export default function SessionManagerView() {
                 onSelect={(key) => { if (!busyAction) void addCharacter(key); }}
                 lockedKeys={lineup}
                 lockedLabel="已在阵容"
-                preferredBookId={selected?.worldbook_id || null}
+                preferredBookId={selectedBookIds[0] || null}
                 skippedCount={catalog.skipped}
                 searchPlaceholder="搜索角色（自建 / 世界书）..."
                 emptyText="暂无可用角色，请先在「角色」页面导入角色卡"
@@ -1012,7 +1011,7 @@ export default function SessionManagerView() {
                 mode="single"
                 selected={[selected.player_identity || "玩家"]}
                 onSelect={(key) => { if (!busyAction) void setIdentity(key); }}
-                preferredBookId={selected.worldbook_id || null}
+                preferredBookId={selectedBookIds[0] || null}
                 skippedCount={catalog.skipped}
                 selectedBadge="当前主控"
                 searchPlaceholder="搜索角色（自建 / 世界书）..."

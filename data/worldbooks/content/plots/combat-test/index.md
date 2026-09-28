@@ -1,6 +1,6 @@
 ---
 category: test
-characters:
+initial_characters:
 - 阿米娅
 - 银灰
 - 灵知

@@ -380,78 +380,67 @@
         "entry_uid": "world_灰灯渡口",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "enemies_灰灯仓库弩手",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "enemies_灰灯渡桥护卫",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "enemies_灰灯路障兵",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "enemies_灰灯雇佣哨兵",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_临光_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_博士_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_砾_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_闪灵_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_阿米娅_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "plots_grey_lantern_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       }
     ],
     "root_rule": {
@@ -468,13 +457,9 @@
         "plots_grey_lantern_index",
         "world_灰灯渡口"
       ]
-    },
-    "rejected": [],
-    "edge_meta": {}
+    }
   },
   "import_config": {
-    "fixed_entry_uids": [],
-    "dependency_sources": [],
     "revision": 1
   },
   "policy_revisions": [],

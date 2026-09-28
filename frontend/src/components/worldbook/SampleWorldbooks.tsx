@@ -26,9 +26,11 @@ export default function SampleWorldbooks({ api, onInstalled, onClose }: {
     locked.current = true; setInstalling(pack.id); setError(""); setNotice("");
     try {
       const result = await api.installWorldbookPack(pack.id);
-      setPacks(current => current.map(item => item.id === pack.id ? { ...item, installed: true } : item));
+      setPacks(current => current.map(item => item.id === pack.id ? { ...item, installed: true, repair_required: false } : item));
       await onInstalled(result.book.id);
-      setNotice(`已导入《${pack.name}》，可从书架打开。`);
+      setNotice(pack.repair_required
+        ? `已备份旧副本并修复《${pack.name}》，可从书架打开。`
+        : `已导入《${pack.name}》，可从书架打开。`);
     } catch (reason: any) {
       if (reason?.status === 409) {
         setPacks(current => current.map(item => item.id === pack.id ? { ...item, installed: true } : item));
@@ -50,8 +52,9 @@ export default function SampleWorldbooks({ api, onInstalled, onClose }: {
     {!loading && <ul>{available.map(pack => <li key={pack.id}>
       <div><h3>{pack.name}</h3><p>{pack.description || "暂无简介"}</p>
         <small>{pack.book_type === "reference" ? "资料世界书" : "剧情世界书"} · {pack.entry_count} 条目</small></div>
-      <button type="button" className="is-primary" disabled={!!installing} aria-label={`导入${pack.name}`} onClick={() => void install(pack)}>
-        {installing === pack.id ? "正在导入…" : "导入"}
+      <button type="button" className="is-primary" disabled={!!installing}
+        aria-label={`${pack.repair_required ? "修复" : "导入"}${pack.name}`} onClick={() => void install(pack)}>
+        {installing === pack.id ? (pack.repair_required ? "正在修复…" : "正在导入…") : (pack.repair_required ? "备份并修复" : "导入")}
       </button>
     </li>)}</ul>}
   </section>;

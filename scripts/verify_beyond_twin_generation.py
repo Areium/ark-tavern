@@ -177,7 +177,7 @@ def main() -> int:
     print("== 2. 创建战术剧情会话 ==")
     res = client.post("/api/sessions", json={
         "mode": "story", "plot_id": PLOT_ID, "name": "彼岸双生 LLM 冒烟",
-        "combat_mode": "tactical", "worldbook_id": BOOK_ID,
+        "combat_mode": "tactical", "worldbook_ids": [BOOK_ID],
     })
     if res.status_code != 201:
         print("[FATAL] 会话创建失败", res.get_json())

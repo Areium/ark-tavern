@@ -109,7 +109,7 @@ def test_create_session_freezes_each_selected_book(tmp_path, monkeypatch):
     app.config["TESTING"] = True
     register_sessions(app, {"session": manager, "worldbook": books})
     response = app.test_client().post("/api/sessions", json={
-        "identity": "博士", "worldbook_ids": ["one", "two"],
+        "worldbook_ids": ["one", "two"],
         "roster_character_ids": [],
     })
     assert response.status_code == 201, response.json

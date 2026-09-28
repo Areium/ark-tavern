@@ -198,7 +198,7 @@ cd frontend && npm run dev:web   # 然后手动打开 http://localhost:5173
 ### 运行测试（可选，开发者向）
 
 ```bash
-bash scripts/run_tests.sh          # pytest + tests/legacy/ 脚本式检查
+bash scripts/run_tests.sh          # pytest + 无外部依赖的 perf_tests 子集
 ```
 
 Windows 上该脚本默认调用 `python3`，可用 `PYTHON=python bash scripts/run_tests.sh` 指定解释器。

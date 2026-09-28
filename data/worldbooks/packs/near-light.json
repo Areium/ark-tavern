@@ -968,239 +968,205 @@
         "entry_uid": "factions_临光家族_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "factions_商业联合会_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "factions_无胄盟_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "factions_监证会_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "factions_红松骑士团_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "factions_罗德岛_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "items_临光的旧铠甲",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "items_商业联合会内部会议纪要",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "items_商业联合会内部清洗的证据",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "items_感染者合同数据",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "items_托兰的雇佣证明",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "items_指挥官护甲",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "items_焰尾的感染者合同数据",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "items_瑕光工坊外的监视照片",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "enemies_无胄盟清洗小队",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "enemies_锈铜骑士",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_临光_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_佐菲娅_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_托兰_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_焰尾_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_玄铁大位_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_玛恩纳·临光_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_瑕光_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_白金_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_砾_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_罗素_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_薇薇安娜_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_血骑士_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_逐魇骑士_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_闪灵_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_阿米娅_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_青金罗伊_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "characters_青金莫妮克_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       },
       {
         "entry_uid": "plots_near-light_index",
         "activation": "always",
         "expansion": "none",
-        "character_ids": [],
-        "origin": "split"
+        "character_ids": []
       }
     ],
     "root_rule": {
@@ -1240,13 +1206,9 @@
         "items_瑕光工坊外的监视照片",
         "plots_near-light_index"
       ]
-    },
-    "rejected": [],
-    "edge_meta": {}
+    }
   },
   "import_config": {
-    "fixed_entry_uids": [],
-    "dependency_sources": [],
     "revision": 1
   },
   "policy_revisions": [],

@@ -48,7 +48,7 @@ def _inheritance_from_scope(scope: dict) -> dict:
         "content_revision": str(scope.get("content_revision") or ""),
         "resolver_version": scope.get("resolver_version"),
         "rules": copy.deepcopy(scope.get("rules") or {"roots": []}),
-        "requires_edges": _edges(scope.get("requires_edges") or scope.get("dependency_edges")),
+        "requires_edges": _edges(scope.get("requires_edges")),
         "related_edges": _edges(scope.get("related_edges")),
         "captured_at": float(scope.get("resolved_at") or time.time()),
     }
@@ -72,7 +72,7 @@ def normalize_scope(scope: dict | None) -> dict:
             "related_edges": _edges(overrides.get("related_edges")),
             "root_expansions": {str(uid): expansion for uid, expansion in
                 (overrides.get("root_expansions") or {}).items()
-                if expansion in ("none", "requires_closure", "legacy_depth")},
+                if expansion in ("none", "requires_closure")},
             "entry_enabled": {str(uid): enabled for uid, enabled in
                 (overrides.get("entry_enabled") or {}).items()
                 if isinstance(uid, str) and uid and isinstance(enabled, bool)},
@@ -85,20 +85,12 @@ def normalize_scope(scope: dict | None) -> dict:
 
 
 def ensure_editable_scope(scope: dict | None, book, roster_character_ids=None) -> dict:
-    """把旧书/旧会话范围只在本会话内升级成范围等价的 v3 快照。"""
-    value = copy.deepcopy(scope) if isinstance(scope, dict) else {}
-    if value.get("schema_version") == 3 and value.get("rules"):
-        return normalize_scope(value)
-    local_book = copy.deepcopy(book)
-    if not local_book.v3_enabled:
-        local_book.adopt_v2_as_v3()
-    manual = value.get("manual_entry_uids") or []
-    full_scope = bool(value.get("full_scope") or value.get("legacy_full_scope")
-                      and value.get("scope_mode") == "legacy")
-    upgraded = local_book.session_scope_snapshot(
-        roster_character_ids or value.get("roster_character_ids") or [], manual,
-        full_scope=full_scope)
-    return normalize_scope(upgraded)
+    """校验并规范当前 v3 会话范围。"""
+    if not isinstance(scope, dict) or scope.get("schema_version") != 3:
+        raise ValueError("会话世界书范围必须使用 schema_version=3")
+    if not scope.get("rules"):
+        raise ValueError("会话世界书范围缺少规则快照")
+    return normalize_scope(scope)
 
 
 def effective_graph(scope: dict | None) -> dict:
@@ -137,8 +129,6 @@ def effective_rules(scope: dict | None) -> dict:
         if uid in expansions:
             root["expansion"] = expansions[uid]
             root["session_override"] = True
-            if expansions[uid] != "legacy_depth":
-                root.pop("max_depth", None)
     return rules
 
 
@@ -247,10 +237,8 @@ def restore_inheritance(scope: dict, expected_revision: int,
 def preview_inheritance_update(scope: dict, book) -> dict:
     value = normalize_scope(scope)
     current_book = copy.deepcopy(book)
-    if not current_book.v3_enabled:
-        current_book.adopt_v2_as_v3()
     fresh = current_book.session_scope_snapshot(value.get("roster_character_ids") or [],
-        value.get("manual_entry_uids") or [], None, bool(value.get("full_scope")))
+        value.get("manual_entry_uids") or [])
     old, new = value["inheritance"], _inheritance_from_scope(fresh)
     changes, conflicts, rule_changes = [], [], []
     local = {}

@@ -202,18 +202,7 @@ def test_import_filters_mapping_for_skipped_entry(api):
     assert restored.entry_group_map == {"a": "g"}
 
 
-def test_load_filters_stale_mapping_from_older_writer():
-    book = WorldBook("book", "测试书", [WorldBookEntry("a", content="A")],
-                     entry_groups=[{"id": "g", "name": "文件夹"}],
-                     entry_group_map={"a": "g"})
-    raw = book.to_dict()
-    raw["entries"] = []
-    restored = WorldBook.from_dict(raw)
-    assert restored.entry_groups == [{"id": "g", "name": "文件夹"}]
-    assert restored.entry_group_map == {}
-
-
-def test_legacy_layout_and_empty_group_can_precede_first_entry(api):
+def test_implicit_layout_and_empty_group_can_precede_first_entry(api):
     client, manager = api
     before = manager.load("book")
     default = [{"kind": "entry", "uid": uid} for uid in before.effective_entry_order()]
@@ -286,6 +275,14 @@ def test_stale_layout_normalized_after_entry_changes():
     raw = book.to_dict()
     raw["entries"] = [entry for entry in raw["entries"] if entry["uid"] != "a"]
     raw["entries"].append(WorldBookEntry("c", "C").to_dict())
+    raw["dependency_rules"] = {
+        "roots": [
+            {"entry_uid": uid, "activation": "always", "expansion": "none",
+             "character_ids": []}
+            for uid in ("b", "c")
+        ],
+        "root_rule": {"entry_uids": ["b", "c"]},
+    }
     raw["entry_layout"].insert(0, {"kind": "entry", "uid": "missing"})
     restored = WorldBook.from_dict(raw)
     assert restored.effective_entry_layout() == [
@@ -293,7 +290,7 @@ def test_stale_layout_normalized_after_entry_changes():
         {"kind": "entry", "uid": "c"}]
 
 
-def test_added_entry_and_legacy_group_edit_reconcile_layout(api):
+def test_added_entry_and_metadata_only_group_edit_reconcile_layout(api):
     client, manager = api
     before = manager.load("book")
     created = client.put("/api/worldbook/book/entry-groups", json={
@@ -308,10 +305,10 @@ def test_added_entry_and_legacy_group_edit_reconcile_layout(api):
     assert manager.load("book").effective_entry_layout() == [
         {"kind": "group", "id": "g"}, {"kind": "entry", "uid": "b"},
         {"kind": "entry", "uid": "c"}]
-    legacy = put(client, [{"id": "g", "name": "组"}], {},
-                 manager.load("book").edit_revision)
-    assert legacy.status_code == 200, legacy.json
-    assert "entry_layout" not in legacy.json
+    metadata_only = put(client, [{"id": "g", "name": "组"}], {},
+                        manager.load("book").edit_revision)
+    assert metadata_only.status_code == 200, metadata_only.json
+    assert "entry_layout" not in metadata_only.json
     assert manager.load("book").effective_entry_layout() == [
         {"kind": "group", "id": "g"}, {"kind": "entry", "uid": "b"},
         {"kind": "entry", "uid": "c"}, {"kind": "entry", "uid": "a"}]

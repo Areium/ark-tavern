@@ -530,9 +530,7 @@ def register(app, managers):
         if not result.get("ok"):
             return json_error(result.get("error", "操作失败"), 400)
 
-        if request.args.get("presentation") == "1":
-            return jsonify({"state": result.get("state", {}), "events": result.get("events", [])})
-        return jsonify(result.get("state", {}))
+        return jsonify({"state": result.get("state", {}), "events": result.get("events", [])})
 
     @bp.route("/api/sessions/<session_id>/combat/end-turn", methods=["POST"])
     def combat_end_turn(session_id: str):
@@ -553,9 +551,7 @@ def register(app, managers):
         if not result.get("ok"):
             return json_error(result.get("error", "操作失败"), 400)
 
-        if request.args.get("presentation") == "1":
-            return jsonify({"state": result.get("state", {}), "events": result.get("events", [])})
-        return jsonify(result.get("state", {}))
+        return jsonify({"state": result.get("state", {}), "events": result.get("events", [])})
 
     @bp.route("/api/sessions/<session_id>/combat/complete", methods=["POST"])
     def combat_complete(session_id: str):
@@ -935,9 +931,7 @@ def register(app, managers):
         if not result.get("ok"):
             return json_error(result.get("error", "操作失败"), 400)
 
-        if request.args.get("presentation") == "1":
-            return jsonify({"state": result.get("state", {}), "events": result.get("events", [])})
-        return jsonify(result.get("state", {}))
+        return jsonify({"state": result.get("state", {}), "events": result.get("events", [])})
 
     @bp.route("/api/combat/test/<test_id>/end-turn", methods=["POST"])
     def combat_test_end_turn(test_id: str):
@@ -951,9 +945,7 @@ def register(app, managers):
         if not result.get("ok"):
             return json_error(result.get("error", "操作失败"), 400)
 
-        if request.args.get("presentation") == "1":
-            return jsonify({"state": result.get("state", {}), "events": result.get("events", [])})
-        return jsonify(result.get("state", {}))
+        return jsonify({"state": result.get("state", {}), "events": result.get("events", [])})
 
     @bp.route("/api/combat/test/<test_id>/events")
     def combat_test_events(test_id: str):

@@ -77,7 +77,7 @@ function usePromptPreview(
 export default function PromptPreviewTab({ ctx, onNotice }: WorldBookTabProps) {
   const { detail, draft } = ctx;
   const [layer, setLayer] = useState<WorldBookPromptLayer>("stable");
-  const policy = useMemo(() => buildSaveBody(draft, null), [draft]);
+  const policy = useMemo(() => buildSaveBody(draft), [draft]);
   const requestBody = useMemo<WorldBookPromptPreviewRequest>(() => ({
     mode: "narrative", all_entries: true, policy,
   }), [policy]);

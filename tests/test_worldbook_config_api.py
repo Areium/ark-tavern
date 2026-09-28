@@ -65,18 +65,8 @@ def api(tmp_path):
 
 
 def adopt_v3(client, roots=None, **extra):
-    """v2 → v3 显式迁移（等价保留旧来源），可选地再收窄起点。
-
-    两步都是真实用户路径：先显式启用按需规则（不能丢内容），
-    再按需要收窄。返回第二次保存的响应。
-    """
-    body = {"expected_revision": 1, "adopt_v3": True, "roots": [], "requires_edges": []}
-    first = client.put("/api/worldbook/book/configuration", json=body)
-    assert first.status_code == 200, first.json
-    if roots is None and not extra:
-        return first
-    revision = first.json["policy_revision"]
-    payload = {"expected_revision": revision, "roots": roots if roots is not None else [], **extra}
+    """保存当前 v3 起点与依赖边。"""
+    payload = {"expected_revision": 1, "roots": roots if roots is not None else [], **extra}
     response = client.put("/api/worldbook/book/configuration", json=payload)
     assert response.status_code == 200, response.json
     return response
@@ -88,7 +78,6 @@ def test_put_configuration_applies_v3_rules_atomically(api):
     client, manager, _ = api
     body = {
         "expected_revision": 1,
-        "adopt_v3": True,
         "roots": [
             {"entry_uid": "world", "activation": ACTIVATION_ALWAYS,
              "expansion": EXPANSION_REQUIRES_CLOSURE},
@@ -102,93 +91,41 @@ def test_put_configuration_applies_v3_rules_atomically(api):
     assert response.status_code == 200, response.json
     assert response.json["policy_revision"] == 2
     stored = manager.load("book")
-    assert stored.schema_version == 3 and stored.v3_enabled
+    assert stored.schema_version == 3 and stored.scope_mode == "selective"
     roots = {r["entry_uid"]: r for r in stored.dependency_rules["roots"]}
-    # 显式迁移：客户端草稿优先，旧来源按等价映射补齐（角色 B 不会因为迁移被丢下）
+    # 保存的起点和边按草稿原样生效。
     assert roots["world"]["expansion"] == EXPANSION_REQUIRES_CLOSURE
     assert roots["a"]["expansion"] == EXPANSION_REQUIRES_CLOSURE
-    assert roots["b"]["activation"] == ACTIVATION_ROSTER_ANY
+    assert set(roots) == {"world", "a"}
     assert stored.related_edges == [{"from_uid": "b", "to_uid": "a"}]
-    # v2 字段与 v3 起点保持同步，旧消费者仍可读
     assert stored.import_config["revision"] == 2
     assert stored.policy_revisions and stored.policy_revisions[-1]["revision"] == 2
 
 
-def test_v2_ordinary_save_never_changes_scope_and_never_enables_v3(api):
-    """普通保存（改分类 / 改边）不得隐式切到 v3，更不得把候选清空。
-
-    预装书就是这种形态：selective + fixed/sources 都为空，候选完全由
-    世界观分类与角色关联决定。旧实现里任何一次保存都会发 roots，
-    于是「保存一次」= 启用 v3 且起点为空 = 候选变空集。
-    """
+def test_delete_entry_cleans_current_and_historical_rule_references(api):
     client, manager, _ = api
-    before = manager.load("book")
-    scope_before = before.resolve_import_scope(["A"])
-    assert set(scope_before["resolved_entry_uids"]) == {"world", "a"}
-
-    response = client.put("/api/worldbook/book/configuration", json={
+    saved = client.put("/api/worldbook/book/configuration", json={
         "expected_revision": 1,
-        "categories": before.categories,
-        "entry_moves": {"tech": "other"},
-        "entry_updates": {},
-        "scope_mode": "selective",
-        # 前端统一草稿总会带上这三项：它们**不能**触发隐式迁移
-        "roots": [],
-        "requires_edges": [],
-        "related_edges": [],
+        "roots": [{"entry_uid": "world", "activation": ACTIVATION_ALWAYS,
+                   "expansion": EXPANSION_REQUIRES_CLOSURE}],
+        "requires_edges": [{"from_uid": "world", "to_uid": "tech"}],
+        "related_edges": [{"from_uid": "a", "to_uid": "world"}],
     })
-    assert response.status_code == 200, response.json
-    stored = manager.load("book")
-    assert stored.dependency_rules is None, "普通保存不该隐式启用 v3"
-    assert stored.schema_version == 2
-    scope_after = stored.resolve_import_scope(["A"])
-    assert set(scope_after["resolved_entry_uids"]) == {"world", "a"}, "普通保存改变了候选范围"
+    assert saved.status_code == 200, saved.json
 
+    deleted = client.delete("/api/worldbook/book/entries/world")
+    assert deleted.status_code == 200, deleted.json
+    assert deleted.json["affected"]["policy_revisions"] == 3
 
-def test_legacy_book_save_keeps_full_scope_and_legacy_mode(api):
-    """legacy 书（全量兼容）保存后仍然是全量：不能被隐式切成空候选。"""
-    client, manager, _ = api
-    book = manager.load("book")
-    book.scope_mode = "legacy"
-    book.import_config["fixed_entry_uids"] = []
-    book.import_config["dependency_sources"] = []
-    manager.save(book)
-    before = set(manager.load("book").resolve_import_scope([])["resolved_entry_uids"])
-    assert before == {"world", "a", "b", "tech"}
-
-    response = client.put("/api/worldbook/book/configuration", json={
-        "expected_revision": manager.load("book").import_config["revision"],
-        "scope_mode": "legacy", "roots": [], "requires_edges": [], "related_edges": [],
-    })
-    assert response.status_code == 200, response.json
-    stored = manager.load("book")
-    assert stored.dependency_rules is None and stored.scope_mode == "legacy"
-    assert set(stored.resolve_import_scope([])["resolved_entry_uids"]) == before
-
-
-def test_explicit_adoption_preserves_all_old_sources(api):
-    """显式启用按需规则时，旧来源必须逐条等价保留（世界观 / 角色 / 固定 / 导入源）。"""
-    client, manager, _ = api
-    book = manager.load("book")
-    book.import_config["fixed_entry_uids"] = ["tech"]
-    book.import_config["dependency_sources"] = [{"entry_uid": "b", "max_depth": 1}]
-    manager.save(book)
-    revision = manager.load("book").import_config["revision"]
-    before = set(manager.load("book").resolve_import_scope(["A"])["resolved_entry_uids"])
-
-    response = client.put("/api/worldbook/book/configuration", json={
-        "expected_revision": revision, "adopt_v3": True, "roots": [],
-    })
-    assert response.status_code == 200, response.json
-    stored = manager.load("book")
-    assert stored.v3_enabled
-    after = set(stored.resolve_v3_import_scope(["A"])["resolved_entry_uids"])
-    assert before <= after, f"迁移后丢条目：{sorted(before - after)}"
-    roots = {r["entry_uid"]: r for r in stored.dependency_rules["roots"]}
-    assert roots["world"]["activation"] == ACTIVATION_ALWAYS          # 世界观分类
-    assert roots["a"]["activation"] == ACTIVATION_ROSTER_ANY          # 角色关联
-    assert roots["tech"]["activation"] == ACTIVATION_ALWAYS           # 固定导入
-    assert roots["b"]["expansion"] == "legacy_depth"                  # 导入源保留深度
+    reloaded = WorldBookManager(manager._dir).load("book")
+    assert reloaded is not None
+    assert all(root["entry_uid"] != "world" for root in reloaded.dependency_rules["roots"])
+    assert reloaded.dependency_edges == []
+    assert reloaded.related_edges == []
+    for revision in reloaded.policy_revisions:
+        assert all(root["entry_uid"] != "world" for root in revision["rules"]["roots"])
+        assert revision["requires_edges"] == []
+        assert revision["related_edges"] == []
 
 
 def test_put_configuration_conflict_returns_409_and_keeps_draft(api):
@@ -204,11 +141,11 @@ def test_put_configuration_rejects_invalid_and_writes_nothing(api):
     client, manager, _ = api
     before = manager._path("book").read_bytes()
     for body in (
-        {"adopt_v3": True, "roots": [{"entry_uid": "missing", "activation": ACTIVATION_ALWAYS}]},
-        {"adopt_v3": True, "roots": [{"entry_uid": "a", "activation": "sometimes"}]},
-        {"adopt_v3": True, "roots": [{"entry_uid": "a", "activation": ACTIVATION_ALWAYS}],
+        {"roots": [{"entry_uid": "missing", "activation": ACTIVATION_ALWAYS}]},
+        {"roots": [{"entry_uid": "a", "activation": "sometimes"}]},
+        {"roots": [{"entry_uid": "a", "activation": ACTIVATION_ALWAYS}],
          "requires_edges": [{"from_uid": "a", "to_uid": "a"}]},
-        {"adopt_v3": True, "roots": [{"entry_uid": "a", "activation": ACTIVATION_ALWAYS}],
+        {"roots": [{"entry_uid": "a", "activation": ACTIVATION_ALWAYS}],
          "requires_edges": [{"from_uid": "a", "to_uid": "b"}],
          "related_edges": [{"from_uid": "a", "to_uid": "b"}]},
         {"entry_moves": {"missing": "other"}},
@@ -232,7 +169,7 @@ def test_scope_preview_returns_v3_explanations_and_is_read_only(api):
     assert body["active_roots"][0]["entry_uid"] == "a"
     assert body["selection_reasons"]["tech"] == ["requires"]
     assert body["display_tree"] and body["display_tree"][0]["uid"] == "a"
-    assert body["draft_hash"] and body["policy_revision"] == 3
+    assert body["draft_hash"] and body["policy_revision"] == 2
     assert body["content_revision"] and body["resolver_version"] == 3
     assert manager._path("book").read_bytes() == before
 
@@ -303,10 +240,12 @@ def session_api(tmp_path, monkeypatch):
             self.mode = kwargs.get("mode", "free")
             self.overlay = type("O", (), {
                 "_scope": None,
-                "get_worldbook_scope": lambda s: copy.deepcopy(s._scope),
-                "set_worldbook_scope": lambda s, v: setattr(s, "_scope", copy.deepcopy(v)),
-                "get_worldbook_id": lambda s: None,
-                "set_worldbook_id": lambda s, v: None,
+                "_ids": [],
+                "get_worldbook_scope": lambda s, book_id=None: copy.deepcopy(s._scope),
+                "set_worldbook_scope": lambda s, v, book_id=None: setattr(s, "_scope", copy.deepcopy(v)),
+                "get_worldbook_ids": lambda s: list(s._ids),
+                "get_worldbook_id": lambda s: next(iter(s._ids), None),
+                "set_worldbook_ids": lambda s, ids: setattr(s, "_ids", list(ids)),
             })()
             self.characters = []
             def load(name):
@@ -324,7 +263,9 @@ def session_api(tmp_path, monkeypatch):
 
         def to_dict(self):
             return {"id": self.id, "characters": self.characters,
-                    "worldbook_scope": self.overlay.get_worldbook_scope()}
+                    "worldbook_ids": self.overlay.get_worldbook_ids(),
+                    "worldbook_scopes": {bid: self.overlay.get_worldbook_scope(bid)
+                                         for bid in self.overlay.get_worldbook_ids()}}
 
     monkeypatch.setattr(module, "Session", FakeSession)
     monkeypatch.setattr(module.SessionOverlay, "delete_session_overlays", lambda *a: None)
@@ -351,9 +292,9 @@ def test_session_creation_uses_v3_snapshot_and_calls_no_llm(session_api):
              requires_edges=[{"from_uid": "a", "to_uid": "tech"}])
     calls_before = llm.calls
     response = client.post("/api/sessions",
-                           json={"worldbook_id": "book", "roster_character_ids": ["A"]})
+                           json={"worldbook_ids": ["book"], "roster_character_ids": ["A"]})
     assert response.status_code == 201
-    scope = response.json["worldbook_scope"]
+    scope = response.json["worldbook_scopes"]["book"]
     assert set(scope["resolved_entry_uids"]) == {"a", "tech"}
     assert scope["resolver_version"] == 3
     assert scope["rules"] and scope["requires_edges"]
@@ -371,8 +312,8 @@ def test_session_creation_snapshot_restores_bound_rules_after_book_edit(session_
                              "expansion": EXPANSION_REQUIRES_CLOSURE, "character_ids": ["A"]}],
              requires_edges=[{"from_uid": "a", "to_uid": "tech"}])
     created = client.post("/api/sessions",
-                          json={"worldbook_id": "book", "roster_character_ids": ["A"]})
-    bound = created.json["worldbook_scope"]
+                          json={"worldbook_ids": ["book"], "roster_character_ids": ["A"]})
+    bound = created.json["worldbook_scopes"]["book"]
     assert set(bound["resolved_entry_uids"]) == {"a", "tech"}
 
     # 书改成不再依赖 tech
@@ -389,60 +330,8 @@ def test_session_creation_snapshot_restores_bound_rules_after_book_edit(session_
 def test_session_creation_failure_leaves_no_partial_session(session_api):
     client, manager, _, _ = session_api
     assert client.post("/api/sessions",
-                       json={"worldbook_id": "book", "roster_character_ids": ["A", "missing"]}
+                       json={"worldbook_ids": ["book"], "roster_character_ids": ["A", "missing"]}
                        ).status_code == 400
-    assert not manager._sessions
-
-
-def test_full_scope_preview_and_session_creation_are_explicit_and_consistent(session_api):
-    """显式全量兼容：预览与创建一致，只影响本会话，不改这本书的规则。"""
-    client, _, books, _ = session_api
-    adopt_v3(client, roots=[{"entry_uid": "a", "activation": ACTIVATION_ROSTER_ANY,
-                             "expansion": EXPANSION_REQUIRES_CLOSURE, "character_ids": ["A"]}])
-    before = copy.deepcopy(books.load("book").dependency_rules)
-
-    preview = client.post("/api/worldbook/book/scope-preview",
-                          json={"roster_character_ids": ["A"], "full_scope": True})
-    assert preview.status_code == 200
-    body = preview.json
-    assert body["full_scope"] is True
-    # 全量：所有启用且有正文的条目都在候选里
-    assert set(body["scope"]["resolved_entry_uids"]) == {"world", "a", "b", "tech"}
-    assert body["saved_estimated_tokens"] == 0
-
-    created = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": ["A"],
-        "full_scope": True, "expected_draft_hash": body["draft_hash"]})
-    assert created.status_code == 201, created.json
-    scope = created.json["worldbook_scope"]
-    assert scope["full_scope"] is True
-    assert set(scope["resolved_entry_uids"]) == {"world", "a", "b", "tech"}
-    # 规则没被改动
-    assert books.load("book").dependency_rules == before
-
-
-def test_full_scope_hash_differs_and_stale_preview_is_rejected(session_api):
-    """指纹区分是否全量兼容；预览过期时创建直接报错，不静默换范围。"""
-    client, manager, books, _ = session_api
-    book = books.load("book")
-    book.dependency_rules = {"roots": [{"entry_uid": "a", "activation": ACTIVATION_ROSTER_ANY,
-                                        "expansion": EXPANSION_REQUIRES_CLOSURE,
-                                        "character_ids": ["A"]}]}
-    book.schema_version = 3
-    books.save(book)
-
-    partial = client.post("/api/worldbook/book/scope-preview",
-                          json={"roster_character_ids": ["A"]}).json
-    full = client.post("/api/worldbook/book/scope-preview",
-                       json={"roster_character_ids": ["A"], "full_scope": True}).json
-    assert partial["draft_hash"] != full["draft_hash"]
-
-    # 用「全量」的指纹去创建一个「非全量」的会话 → 必须被拒绝
-    rejected = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": ["A"],
-        "expected_draft_hash": full["draft_hash"]})
-    assert rejected.status_code == 400
-    assert "预览已过期" in rejected.json["error"]
     assert not manager._sessions
 
 
@@ -460,18 +349,19 @@ def test_manual_append_is_session_scoped_and_cancellable(session_api):
     assert preview["scope"]["selection_reasons"]["world"] == ["manual"]
 
     created = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": ["A"],
-        "manual_entry_uids": ["world"], "expected_draft_hash": preview["draft_hash"]})
+        "worldbook_ids": ["book"], "roster_character_ids": ["A"],
+        "manual_entry_uids_by_book": {"book": ["world"]},
+        "expected_draft_hashes": {"book": preview["draft_hash"]}})
     assert created.status_code == 201, created.json
-    assert "world" in created.json["worldbook_scope"]["resolved_entry_uids"]
-    assert created.json["worldbook_scope"]["manual_entry_uids"] == ["world"]
+    assert "world" in created.json["worldbook_scopes"]["book"]["resolved_entry_uids"]
+    assert created.json["worldbook_scopes"]["book"]["manual_entry_uids"] == ["world"]
     assert books.load("book").dependency_rules == before      # 书规则没被写回
 
     # 取消追加（不带 manual）→ 新会话不再包含，且没有破坏书上的配置
     again = client.post("/api/sessions", json={
-        "worldbook_id": "book", "roster_character_ids": ["A"]})
+        "worldbook_ids": ["book"], "roster_character_ids": ["A"]})
     assert again.status_code == 201
-    assert "world" not in again.json["worldbook_scope"]["resolved_entry_uids"]
+    assert "world" not in again.json["worldbook_scopes"]["book"]["resolved_entry_uids"]
     assert books.load("book").dependency_rules == before
 
 def test_old_entry_route_and_configuration_share_transaction_lock(api, monkeypatch):
@@ -505,99 +395,17 @@ def test_old_entry_route_and_configuration_share_transaction_lock(api, monkeypat
     assert any(r['entry_uid']=='tech' for r in stored.dependency_rules['roots'])
 
 
-def test_locked_manual_relation_wins_over_opposite_draft_relation(api):
-    """旧书读回后行为不变：`edge_meta.locked` 标过的边，关系类型由持久化数据说了算，
-    草稿提交相反类型也不能把它改掉。
-
-    本用例只保证「旧书读回后行为不变」；该字段停写不删、不产生新值
-    （AI 构建下线后不再有新值写入，见提案 §4.4）。
-    """
+def test_preinstalled_ordinary_save_preserves_candidates(api):
     client, manager, _ = api
-    book = manager.load("book")
-    book.schema_version = 3
-    book.dependency_rules = {
-        "roots": [], "root_rule": {"entry_uids": []}, "rejected": [],
-        "edge_meta": {"a|tech": {"origin": "manual", "locked": True}},
-    }
-    book.related_edges = [{"from_uid": "a", "to_uid": "tech"}]
-    book.dependency_edges = []
-    manager.save(book)
+    original = manager.load("book")
+    original.source = "preinstalled"
+    manager.save(original)
+    before = original.resolve_v3_import_scope([])["resolved_entry_uids"]
     response = client.put("/api/worldbook/book/configuration", json={
-        "expected_revision": 1,
-        "roots": [],
-        "requires_edges": [{"from_uid": "a", "to_uid": "tech"},
-                           {"from_uid": "b", "to_uid": "tech"}],
-        "related_edges": [{"from_uid": "a", "to_uid": "tech"}],
+        "expected_revision": original.import_config["revision"],
+        "categories": original.categories,
     })
     assert response.status_code == 200, response.json
-    stored = manager.load("book")
-    assert {"from_uid": "a", "to_uid": "tech"} in stored.related_edges
-    assert {"from_uid": "a", "to_uid": "tech"} not in stored.dependency_edges
-    assert {"from_uid": "b", "to_uid": "tech"} in stored.dependency_edges
-
-
-def test_ai_only_fields_are_passthrough_and_never_grow(api):
-    """守提案 §4.4 的口径：AI 专属字段**保留为兼容透传、只停写、新写入不再产生新值**。
-
-    人工删掉一条旧 AI 边之后：`rejected` 不得被追加新记录（历史上那条「把删掉的
-    AI 边记进 rejected」的 `removed_ai` 追写逻辑已随 AI 自动构建一起删除），
-    而 `edge_meta` 的既有值必须原样透传，删边本身照常生效。
-    """
-    client, manager, _ = api
-    book = manager.load("book")
-    book.schema_version = 3
-    book.dependency_edges = [{"from_uid": "a", "to_uid": "tech"}]
-    book.related_edges = []
-    book.dependency_rules = {
-        "roots": [], "root_rule": {"entry_uids": []}, "rejected": [],
-        "edge_meta": {"a|tech": {"origin": "llm", "model": "m", "evidence": "e"}},
-    }
-    manager.save(book)
-
-    response = client.put("/api/worldbook/book/configuration", json={
-        "expected_revision": 1,
-        "roots": [],
-        "requires_edges": [],
-    })
-    assert response.status_code == 200, response.json
-    stored = manager.load("book")
-    # 1) 删边不产生新的 rejected
-    assert "rejected" not in stored.dependency_rules or stored.dependency_rules["rejected"] == []
-    # 2) AI 时代的 edge_meta 原样透传
-    assert stored.dependency_rules["edge_meta"] == {
-        "a|tech": {"origin": "llm", "model": "m", "evidence": "e"}}
-    # 3) 删边本身生效
-    assert {"from_uid": "a", "to_uid": "tech"} not in stored.dependency_edges
-    assert response.json["book"]["dependency_edges"] == []
-
-
-def test_v3_legacy_mode_and_v2_session_are_preserved(api):
-    client, manager, _ = api
-    previous=manager.load('book').resolve_import_scope(['A'])
-    adopt_v3(client,roots=[])
-    book=manager.load('book')
-    assert book.refresh_session_scope(previous,['A'])['resolved_entry_uids']
-    assert book.refresh_session_scope(previous,['A']).get('schema_version') != 3
-    response=client.put('/api/worldbook/book/configuration',json={'scope_mode':'legacy','roots':[]})
-    assert response.status_code==200
-    book=manager.load('book')
-    assert set(book.session_scope_snapshot([])['resolved_entry_uids'])=={e.uid for e in book.entries}
-
-
-def test_preinstalled_ordinary_save_preserves_candidates(tmp_path):
-    import blueprints.worldbook as module
-    original=WorldBookManager(Path(__file__).resolve().parents[1]/'data/worldbooks').load('arknights')
-    if original is None:
-        pytest.skip('preinstalled book unavailable')
-    manager=WorldBookManager(tmp_path/'books');manager.save(copy.deepcopy(original))
-    app=Flask(__name__);module.register(app,{'worldbook':manager})
-    before=manager.load(original.id).resolve_import_scope([])['resolved_entry_uids']
-    response=app.test_client().put(f'/api/worldbook/{original.id}/configuration',json={
-        'expected_revision':original.import_config['revision'],'categories':original.categories})
-    assert response.status_code==200,response.json
-    after=manager.load(original.id)
-    # 普通保存**不能悄悄改变 v3 状态**。预装书本就是 v3（本地 data/worldbooks 是
-    # gitignored 的运行数据），硬编码 `not after.v3_enabled` 只在书还是 v2 时成立，
-    # 属于把「保存前后一致」写成了「保存后必须是 v2」。
-    assert after.v3_enabled == original.v3_enabled
-    assert after.resolve_import_scope([])['resolved_entry_uids']==before
+    after = manager.load("book")
+    assert after.schema_version == 3 and after.scope_mode == "selective"
+    assert after.resolve_v3_import_scope([])["resolved_entry_uids"] == before

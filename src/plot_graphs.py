@@ -336,6 +336,7 @@ def delete_graph(book_mgr, book_id: str, plot_id: str) -> bool:
             return False
         book.entries.remove(entry)
         book.entry_group_map.pop(entry.uid, None)
+        book.remove_entry_references(entry.uid)
         book_mgr.save(book)
     logger.info("剧情节点图已删除: %s ← 世界书 %s", plot_id, book_id)
     return True

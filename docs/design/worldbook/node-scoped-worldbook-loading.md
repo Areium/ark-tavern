@@ -23,7 +23,7 @@
 | 触发与位置 | 绑定默认只**解锁候选资格**（仍需关键词命中）；target 可设 `inject:"always"` **到达即注入**动态层、`inject_position` **按节点覆盖** position/depth/group_weight（就近原则，且永远落不进稳定层） |
 | 优先级，冲突 | 同一条目被多个节点载入是**正常态不是冲突**。`dormant_uids` 是**书级**的"默认休眠"，任何 target 把它显式写进 `entry_uids` 即当场解禁 |
 | 幂等性 | 冻结作用域内存 `bindings_fingerprint`（= 绑定条目的 `content_revision`）+ 求解器版本号；指纹未变 → 重入/同节点多轮直接复用，不重算 |
-| 兼容性 | **默认关闭**：书内没有 `lore_bindings` 条目 → `get_active_lore_scope()` 恒为 `None`，注入行为与现状**字节不变**；老会话 `worldbook_scope is None` → 走现有 `legacy_full_scope` 全量兼容路径；自由模式（无剧情树）恒为 `None` |
+| 默认行为 | **默认关闭**：书内没有 `lore_bindings` 条目 → `get_active_lore_scope()` 恒为 `None`；自由模式（无剧情树）恒为 `None`。会话级候选仍必须来自当前 v3 快照 |
 
 一句话概括：
 
@@ -396,7 +396,7 @@ else:
   `probability` 掷骰，其余过滤（`enabled`、候选集成员）不变。
   为守住"调用点零改动"的收益，`pinned` 随候选集一起传递：
   `eligible_uids_for` 返回的 set 上附带 `forced_uids` 属性
-  （普通 set 无此属性 → 默认空，向后兼容），`collect_matches` 用
+  （普通 set 无此属性时按空集合处理），`collect_matches` 用
   `getattr(eligible_uids, "forced_uids", frozenset())` 读取。
 - `overrides` 在排序与分层时生效：`collect_matches` 排序前对命中的绑定条目
   做轻量拷贝（`copy.copy` + 属性替换，不改 `self.entries` 里的原条目），
@@ -541,7 +541,7 @@ def _resolve_or_reuse(self, node, prev_scope):
 `src/session_overlay.py:1156`），所以 `state.lore_scope` 不会因裁剪丢失。**但**要注意：
 若未来给 `state` 做字段级裁剪，`lore_scope` 必须在保留名单里。
 
-### 5.5 老会话兼容与"默认关闭"原则
+### 5.5 "默认关闭"原则
 
 功能必须**默认关闭**，三种情形 `overlay.get_active_lore_scope()` 一律返回 `None`，
 注入行为与现状字节一致：
@@ -549,15 +549,9 @@ def _resolve_or_reuse(self, node, prev_scope):
 1. **书内没有 `lore_bindings` 条目**（`find_bindings` 返回 None）——
    绝大多数世界书永远不会有绑定条目，它们的行为必须零变化；
 2. **会话无剧情树**（自由模式 / 沙盒）——自由模式不在覆盖范围内；
-3. **老会话** `overlay.get_worldbook_scope()` 返回 `None`——
-   `eligible_uids_for` 里 `scope is None` 分支会写一份 `legacy_full_scope: True`
-   的快照（`src/world_book.py:1189-1196`），**这个分支一行都不改**；
-   `overlay` 连 `set_worldbook_scope` 都没有时现状返回 `None`，
-   `collect_matches` 对 `eligible_uids=None` 不过滤 —— 该语义同样保留。
+3. **会话没有当前 v3 世界书快照**——不产生节点作用域，也不扩大为全书候选。
 
-老会话想启用节点作用域 → 走一个显式的"升级"入口（PUT 一次 `lore_bindings` 并重算 scope），
-不做静默升级。这与 v2→v3 的既有纪律一致
-（`equivalent_v3_rules` / `adopt_v2_as_v3`，**显式**迁移）。
+节点作用域只能窄化会话级 v3 候选，不能绕过会话绑定或把未在快照中的条目重新放入候选。
 
 ### 5.6 世界书被编辑 / 条目被删
 

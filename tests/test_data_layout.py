@@ -1,6 +1,6 @@
 """Integration checks for the worldbook-centred data layout.
 
-These tests read shipped content and use temporary roots for generators/audits.
+These tests use temporary roots for generators, audits, and data APIs.
 They never call an LLM or rewrite the installed ``arknights`` worldbook.
 """
 
@@ -56,78 +56,20 @@ def content_client():
     return app.test_client()
 
 
-@pytest.mark.parametrize(
-    ("category", "doc_id", "expected"),
-    [
-        ("characters", "博士", "博士"),
-        ("classes", "先锋", "先锋"),
-        ("enemies", "整合运动士兵", "整合运动士兵"),
-        ("items", "急救包", "急救包"),
-        ("locations", "Kjerag/雪山大典广场", "雪山大典广场"),
-        ("plots", "near-light", "长夜临光"),
-    ],
-)
-def test_document_and_wiki_read_shipped_content(content_client, category, doc_id, expected):
-    response = content_client.get(f"/api/documents/{category}/{doc_id}")
-    assert response.status_code == 200, response.get_json()
-    assert expected in json.dumps(response.get_json(), ensure_ascii=False)
-
-    response = content_client.get("/api/wiki/query", query_string={"q": f"{category}/{doc_id}"})
-    assert response.status_code == 200, response.get_json()
-    assert expected in response.get_json()["result"]
-
-
-def test_runtime_content_apis_read_new_paths(content_client):
-    character = content_client.get("/api/characters/博士")
-    assert character.status_code == 200
-    assert character.get_json()["metadata"]["name"] == "博士"
-
-    cards = content_client.get("/api/cards/classes/先锋")
-    assert cards.status_code == 200
-    assert cards.get_json()["class_name"] == "先锋"
-    assert cards.get_json()["cards"]
-
-    item = content_client.get("/api/items/急救包")
-    assert item.status_code == 200
-    assert item.get_json()["metadata"]["name"] == "急救包"
-
-    presets = content_client.get("/api/environment/presets")
-    assert presets.status_code == 200
-    preset_data = presets.get_json()
-    assert any(row["name"] == "雪山大典广场" for row in preset_data["locations"])
-    assert any(row["id"] == "sunny" for row in preset_data["weathers"])
-    assert preset_data["times"] == ["清晨", "上午", "中午", "下午", "傍晚", "夜晚", "深夜"]
-
-    plots = content_client.get("/api/plots")
-    assert plots.status_code == 200
-    rows = {row["id"]: row for row in plots.get_json()}
-    assert "near_light" in rows
-    # 新建向导按剧情声明自动选中：绑定世界书 + 默认主控（都是可选字段，缺失为空串）
-    assert rows["near_light"]["worldbook_id"] == "near-light"
-    assert rows["near_light"]["player_identity"] == "博士"
-    assert rows["near_light"]["initial_characters"][:2] == ["临光", "瑕光"]
-    from session_overlay import _resolve_plot_dir
-    assert _resolve_plot_dir("near_light") == "near-light"
-
-    node = content_client.get("/api/combat/nodes/enc_training")
-    assert node.status_code == 200, node.get_json()
-    assert node.get_json()["node"]["node_id"] == "enc_training"
-
-
-def test_plot_roster_prefers_initial_characters_and_falls_back_to_legacy_field():
-    """剧情阵容口径：`initial_characters` 优先，没有该字段时才回退 `characters`。
+def test_plot_roster_uses_only_initial_characters():
+    """剧情阵容口径只读取 `initial_characters`。
 
     新建向导的预选与服务端开场角色加载共用 `session_overlay.plot_initial_characters`，
-    回退口径只有一份；这里钉住去重保序与「非列表 / 非字符串」兜底，不依赖本地安装状态。
+    这里钉住去重保序与「非列表 / 非字符串」兜底，不依赖本地安装状态。
     """
     from session_overlay import plot_initial_characters
 
     assert plot_initial_characters({"initial_characters": ["临光", "瑕光"]}) == ["临光", "瑕光"]
-    # 旧字段回退（灰灯渡口 / 战斗功能测试把阵容写在 characters）并去重保序
-    assert plot_initial_characters({"characters": ["博士", "阿米娅", "博士"]}) == ["博士", "阿米娅"]
-    # initial_characters 存在时优先，不与 characters 合并
+    # 仅显式 initial_characters 参与开场阵容。
+    assert plot_initial_characters({"characters": ["博士", "阿米娅", "博士"]}) == []
+    # 不与其它字段合并
     assert plot_initial_characters({"initial_characters": ["A"], "characters": ["B"]}) == ["A"]
-    # 显式空列表 = 没有开场角色，不回退
+    # 显式空列表 = 没有开场角色
     assert plot_initial_characters({"initial_characters": [], "characters": ["B"]}) == []
     # 缺字段 / 类型不对：空列表，不抛异常
     assert plot_initial_characters({}) == []
@@ -177,21 +119,6 @@ def test_flat_markdown_crud_hash_and_entity_precedence(tmp_path):
     assert asset.read_bytes() == b"asset"
     assert sibling.is_file()
     assert (entity / "index.md").is_file()
-
-
-@pytest.mark.parametrize(
-    "url",
-    [
-        "/api/assets/characters/博士/avatar/npc_001_doctor.png",
-        "/api/characters/博士/avatar",
-        "/api/assets/audio/bgm/menu_1.mp3",
-        "/api/assets/combat_backgrounds/default/bg.jpg",
-    ],
-)
-def test_existing_asset_urls_serve_files_from_content_root(content_client, url):
-    response = content_client.get(url)
-    assert response.status_code == 200, url
-    assert response.data
 
 
 def test_scene_prompt_uses_real_book_nodes_refreshes_and_never_invents(tmp_path, monkeypatch):

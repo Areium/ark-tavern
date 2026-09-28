@@ -70,7 +70,7 @@ def flow(tmp_path, monkeypatch):
 
     res = client.post("/api/sessions", json={
         "mode": "story", "plot_id": PLOT_ID, "name": "彼岸双生生成验证",
-        "combat_mode": "tactical", "worldbook_id": BOOK_ID,
+        "combat_mode": "tactical", "worldbook_ids": [BOOK_ID],
     })
     assert res.status_code == 201, res.get_json()
     sid = res.get_json()["id"]

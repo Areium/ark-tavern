@@ -652,9 +652,7 @@ class Session:
             "combat_mode": self.combat_mode,
             "player_identity": self.player_identity,
             "plot_id": self.overlay.get_plot_id(),
-            "worldbook_id": self.overlay.get_worldbook_id(),
             "worldbook_ids": self.overlay.get_worldbook_ids(),
-            "worldbook_scope": self.overlay.get_worldbook_scope(),
             "worldbook_scopes": {bid: self.overlay.get_worldbook_scope(bid)
                                   for bid in self.overlay.get_worldbook_ids()},
             "custom_prompt": self.overlay.get_custom_prompt(),
@@ -774,13 +772,13 @@ class SessionManager:
         self._restore_sessions()
 
     def create_session(self, name: str = "", mode: str = "free", plot_name: str = "",
-                        combat_mode: str = "narrative", worldbook_id: str = "",
+                        combat_mode: str = "narrative", worldbook_ids: list[str] | None = None,
                         player_identity: str = DEFAULT_PLAYER_IDENTITY, plot_id: str = "",
                         initializer: Callable[[Session], None] | None = None) -> Session:
         """创建新会话。
 
         Args:
-            worldbook_id: 可选，创建时绑定世界书（未绑定则回落全局默认书）。
+            worldbook_ids: 可选，创建时按顺序绑定世界书。
             player_identity: 玩家身份角色名（用户自身，默认"玩家"）。
             plot_id: 可选，创建时绑定的剧情 ID；用于决定无剧情会话是否留空初始场景。
         """
@@ -807,8 +805,8 @@ class SessionManager:
                               wiki_manager=self._wiki_manager,
                               worldbook_manager=self._worldbook_manager,
                               empty_environment=(mode == "story" and not plot_id))
-            if worldbook_id:
-                session.overlay.set_worldbook_id(worldbook_id)
+            if worldbook_ids:
+                session.overlay.set_worldbook_ids(worldbook_ids)
             if initializer:
                 initializer(session)
             self._save_session_meta(session)

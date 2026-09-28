@@ -187,10 +187,10 @@ const detail = {
 };
 const draft = {
   categories: [], entry_moves: {}, entry_updates: {}, scope_mode: "selective",
-  roots: [], requires_edges: [], related_edges: [], rejected: [], adopt_v3: false,
+  roots: [], requires_edges: [], related_edges: [],
 };
 const previewMarkup = renderToStaticMarkup(React.createElement(PromptPreviewTab, {
-  ctx: { detail, draft, patch: () => {}, adoptV3: () => {}, dirty: false, saving: false,
+  ctx: { detail, draft, patch: () => {}, dirty: false, saving: false,
     save: async () => true, undo: () => {}, saveError: "", conflict: false,
     preview: null, previewing: false, previewError: "", roster: [], setRoster: () => {} },
   onNotice: () => {}, onReload: async () => {},

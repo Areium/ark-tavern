@@ -14,8 +14,6 @@ import { categoryDescendants } from "./worldbookScope";
 export type EdgeDraft = WorldBookDraft["requires_edges"][number];
 
 const edgeKey = (from: string, to: string) => JSON.stringify([from, to]);
-/** `legacy_depth` 起点未指定深度时的默认值（与旧格式 `dependency_sources[].max_depth` 缺省口径一致）。 */
-const DEFAULT_LEGACY_DEPTH = 1;
 
 /** 分类（含子分类）下的全部条目 UID；`unclassified` 同样适用。 */
 export function categoryEntryUids(detail: WorldBookDetail, categoryId: string): string[] {
@@ -36,10 +34,8 @@ export function knownUids(detail: WorldBookDetail, uids: string[]): string[] {
  * 批量设置 / 移除起点（R-17，取代 v2 的「固定条目」与「依赖来源」两次批量写）。
  *
  * 对 `knownUids(detail, uids)` 里的每个 uid，**替换**草稿 `roots` 中该 uid 的既有起点为
- * `{ entry_uid, activation, expansion, max_depth? }`：
+ * `{ entry_uid, activation, expansion }`：
  *  - `activation === null` 表示**移除**这些 uid 的起点；
- *  - `expansion === "legacy_depth"` 时带上 `max_depth`，并钳制到 `0..32`
- *    （未给出时按 `1` 处理）；
  *  - 起点顺序按 `(entry_uid, activation, expansion)` 稳定排序，避免每次批量操作
  *    都产生无意义的草稿差异。
  *
@@ -47,7 +43,7 @@ export function knownUids(detail: WorldBookDetail, uids: string[]): string[] {
  */
 export function batchRoots(
   draft: WorldBookDraft, detail: WorldBookDetail, uids: string[],
-  activation: WorldBookActivation | null, expansion: WorldBookExpansion, maxDepth: number | null = null,
+  activation: WorldBookActivation | null, expansion: WorldBookExpansion,
 ): WorldBookDraft {
   const targets = knownUids(detail, uids);
   if (!targets.length) return draft;
@@ -57,12 +53,7 @@ export function batchRoots(
     const roots = [...kept].sort((a, b) => a.entry_uid.localeCompare(b.entry_uid));
     return { ...draft, roots };
   }
-  const depth = expansion === "legacy_depth"
-    ? Math.max(0, Math.min(32, Math.floor(maxDepth ?? DEFAULT_LEGACY_DEPTH)))
-    : null;
-  const added: WorldBookRootDTO[] = targets.map((entry_uid) => (depth === null
-    ? { entry_uid, activation, expansion }
-    : { entry_uid, activation, expansion, max_depth: depth }));
+  const added: WorldBookRootDTO[] = targets.map((entry_uid) => ({ entry_uid, activation, expansion }));
   const roots = [...kept, ...added].sort((a, b) =>
     a.entry_uid.localeCompare(b.entry_uid)
     || a.activation.localeCompare(b.activation)

@@ -106,7 +106,7 @@ def setup(api):
     assert status == 200, f"写数值字段失败 {status} {res}"
     status, res = api_call(api, "/api/sessions", "POST", {
         "mode": "story", "name": SESSION_NAME, "plot_id": "near_light", "combat_mode": "narrative",
-        "identity": "博士", "worldbook_id": book_id, "roster_character_ids": ROSTER,
+        "identity": "博士", "worldbook_ids": [book_id], "roster_character_ids": ROSTER,
     })
     assert status == 201, f"建临时会话失败 {status} {res}"
     session_id = res["id"]

@@ -64,7 +64,6 @@ const draft = {
   roots: [{ entry_uid: "world", activation: "always", expansion: "none" }],
   requires_edges: detail.dependency_edges.map((edge) => ({ ...edge })),
   related_edges: detail.related_edges.map((edge) => ({ ...edge })),
-  rejected: [], adopt_v3: true,
 };
 const untouched = JSON.stringify(draft);
 const rootOf = (value, uid) => value.roots.find((root) => root.entry_uid === uid);
@@ -77,14 +76,10 @@ assert.deepEqual(rooted.roots.map((root) => [root.entry_uid, root.activation, ro
 assert.notEqual(rooted, draft, "产出新草稿而不是就地改入参");
 assert.equal(batchRoots(draft, detail, ["nope"], "always", "none"), draft, "没有有效 uid 时原样返回");
 assert.equal(batchRoots(draft, detail, [], "always", "none"), draft);
-assert.deepEqual(rootOf(batchRoots(draft, detail, ["amiya"], "roster_any", "legacy_depth", 99), "amiya"),
-  { entry_uid: "amiya", activation: "roster_any", expansion: "legacy_depth", max_depth: 32 }, "深度上限钳到 32");
-assert.equal(rootOf(batchRoots(draft, detail, ["amiya"], "always", "legacy_depth", -5), "amiya").max_depth, 0,
-  "深度下限钳到 0");
-assert.equal(rootOf(batchRoots(draft, detail, ["amiya"], "always", "legacy_depth"), "amiya").max_depth, 1,
-  "legacy_depth 未给深度时按 1");
+assert.deepEqual(rootOf(batchRoots(draft, detail, ["amiya"], "roster_any", "none"), "amiya"),
+  { entry_uid: "amiya", activation: "roster_any", expansion: "none" }, "roster_any 可选择不展开");
 assert.deepEqual(rootOf(batchRoots(draft, detail, ["amiya"], "always", "requires_closure"), "amiya"),
-  { entry_uid: "amiya", activation: "always", expansion: "requires_closure" }, "requires_closure 不带 max_depth");
+  { entry_uid: "amiya", activation: "always", expansion: "requires_closure" }, "闭包展开规则不携带深度字段");
 assert.deepEqual(batchRoots(draft, detail, ["world"], null, "none").roots, [], "activation=null 表示移除起点");
 assert.deepEqual(batchRoots(rooted, detail, ["amiya"], "manual", "none").roots.filter((root) => root.entry_uid === "amiya"),
   [{ entry_uid: "amiya", activation: "manual", expansion: "none" }], "同一 uid 只保留一个起点");
@@ -115,16 +110,16 @@ assert.deepEqual(knownUids(detail, ["world", "nope", "world", "", "amiya"]), ["w
   "批量目标要过滤未知 UID 与重复");
 assert.equal(JSON.stringify(draft), untouched, "批量操作不得就地修改统一草稿");
 
-const aiRoot = { entry_uid: "ai", activation: "always", expansion: "requires_closure",
-  origin: "llm", model: "stub", prompt_version: "p", source_content_hash: "hash",
-  evidence: "evidence", review_status: "proposed", job_id: "job", reason: "AI reason", locked: true };
-assert.deepEqual(withManualExpansion(aiRoot, "none"), {
-  entry_uid: "ai", activation: "always", expansion: "none", origin: "manual", locked: true,
-}, "概览按钮修改 AI 根语义时必须转人工来源并移除 AI 专属元数据");
+const rosterRoot = { entry_uid: "operator", activation: "roster_any",
+  expansion: "requires_closure", character_ids: ["临光"] };
+assert.deepEqual(withManualExpansion(rosterRoot, "none"), {
+  entry_uid: "operator", activation: "roster_any", expansion: "none",
+  character_ids: ["临光"],
+}, "概览按钮修改起点语义时保留当前规则字段");
 
 // ── SSR：分类结构工作台（原 taxonomy 视图） ─────────────────────────────────
 const panel = {
-  detail, draft, patch() {}, adoptV3() {}, dirty: false, saving: false, saveError: "", conflict: false,
+  detail, draft, patch() {}, dirty: false, saving: false, saveError: "", conflict: false,
   save: async () => {}, undo() {}, preview: null, previewing: false, previewError: "", roster: [], setRoster() {},
 };
 const markup = renderToStaticMarkup(React.createElement(ScopeManager, { ...panel, view: "taxonomy", onChanged() {} }));
@@ -147,7 +142,7 @@ assert.equal(legacyView, markup, "非 taxonomy 的 view 取值也按分类结构
 
 // ── SSR：候选范围预览 ───────────────────────────────────────────────────────
 const preview = renderToStaticMarkup(React.createElement(Preview, { value: {
-  scope: { resolved_entry_uids: ["a"], legacy_full_scope: false, excluded_entries: [{ uid: "x", name: "停用节点", reason: "已停用" }] },
+  scope: { resolved_entry_uids: ["a"], excluded_entries: [{ uid: "x", name: "停用节点", reason: "已停用" }] },
   entry_count: 1, full_entry_count: 10, full_estimated_tokens: 1000, resolved_estimated_tokens: 100,
   saved_estimated_tokens: 900, saved_percent: 90, breakdown: { fixed: { entry_count: 1, estimated_tokens: 100 } }, warnings: [],
 } }));
@@ -162,11 +157,11 @@ assert.ok(!managerMarkup.includes(managerModule.WORLDBOOK_INDEX_SUBTITLE),
   "未选中世界书时不提前渲染本家索引内容");
 assert.ok(!managerMarkup.includes("高级配置"), "「高级配置」这个说法不再出现");
 assert.ok(!managerMarkup.includes("世界书图谱"), "R-22：旧说法不出现在任何 UI 文案里");
-assert.equal(managerModule.WORLDBOOK_INDEX_SUBTITLE, "内置语料索引 · 依赖完整性 · 会话白名单");
+assert.equal(managerModule.WORLDBOOK_INDEX_SUBTITLE, "世界书默认 · 单会话条目开关");
 assert.deepEqual(managerModule.WORLDBOOK_PANEL_TABS.map((tab) => tab.id),
   ["entries", "prompt", "graph", "index"], "分类与载入页签已移除；节点视图换为迁入的节点图");
 assert.deepEqual(managerModule.visibleWorldbookTabs({ book_type: "reference" }).map((tab) => tab.id),
-  ["entries", "index"], "R-4：资料库只显示 条目 / 本家索引");
+  ["entries", "index"], "资料库只显示 条目 / 会话条目");
 assert.deepEqual(managerModule.visibleWorldbookTabs({ book_type: "story" }).map((tab) => tab.id),
   ["entries", "prompt", "graph", "index"], "剧情书的四个页签都可达");
 
@@ -295,7 +290,7 @@ assert.deepEqual(describeReasons(["always", "requires"], ["阿米娅"]),
   ["起点：基础设定", "依赖带出", "关键词命中：阿米娅"]);
 assert.deepEqual(describeReasons(["roster:阿米娅,凯尔希"]), ["起点：角色入队（阿米娅、凯尔希）"]);
 assert.deepEqual(describeReasons(["roster:"]), ["起点：角色入队"]);
-assert.deepEqual(describeReasons(["manual", "full_scope"]), ["手动追加", "全量兼容"]);
+assert.deepEqual(describeReasons(["manual"]), ["手动追加"]);
 assert.deepEqual(describeReasons(["weird_code"]), ["weird_code"], "未知原因原样透出，不乱翻译");
 assert.deepEqual(describeReasons(null, null), []);
 const siteFixture = [
@@ -328,41 +323,31 @@ const depModule = require(path.join(root, "frontend/src/utils/worldbookDependenc
 const {
   CYCLE_STOP_NOTE, MAX_DEPENDENCY_TREE_ROWS, RELATION_LABELS, STATIC_RELATION_NOTE,
   breadcrumbLabel, breadcrumbUids, buildDependencyTree, cycleEdgeSet, cycleNodeSet, edgeKey,
-  entryStatusOf, normalizeArrivals, pickStrongestArrival, rankRemaining, remainingLabel,
+  entryStatusOf, normalizeArrivals,
 } = depModule;
-
-assert.equal(remainingLabel(null), "不限深度", "无限剩余深度显示成人话而不是 null");
-assert.equal(remainingLabel(undefined), "不限深度");
-assert.equal(remainingLabel(3), "还剩 3 跳");
-assert.ok(remainingLabel(0).includes("用尽"));
-assert.equal(rankRemaining(null), Number.POSITIVE_INFINITY);
-assert.ok(rankRemaining(0) < rankRemaining(null));
 assert.equal(edgeKey("a", "b"), "a\u0000b");
 
-// 多源到达：保留最大剩余深度
+// 多源到达：保留输入顺序中的首次到达，并记录后续重复
 const multiArrival = [
-  { uid: "x", name: "X", parent_uid: "a", child_uids: [], depth: 2, remaining: 0, is_root: false, relation: "requires" },
-  { uid: "x", name: "X", parent_uid: "b", child_uids: [], depth: 1, remaining: 3, is_root: false, relation: "requires" },
+  { uid: "x", name: "X", parent_uid: "a", child_uids: [], depth: 2, is_root: false, relation: "requires" },
+  { uid: "x", name: "X", parent_uid: "b", child_uids: [], depth: 1, is_root: false, relation: "requires" },
 ];
 const arrival = normalizeArrivals(multiArrival);
-assert.equal(arrival.primary.get("x").remaining, 3, "同一 uid 保留剩余深度最大的那次到达");
-assert.equal(arrival.primary.get("x").parent_uid, "b");
-assert.equal(arrival.repeated.length, 1, "被覆盖的到达进 repeated");
-assert.equal(pickStrongestArrival(multiArrival).remaining, 3);
-assert.equal(pickStrongestArrival([{ remaining: 3 }, { remaining: null }]).remaining, null,
-  "不限深度是最强的一次到达");
-assert.equal(pickStrongestArrival([]), null);
+assert.equal(arrival.primary.get("x"), multiArrival[0], "同一 uid 保留输入顺序中的首次到达");
+assert.equal(arrival.primary.get("x").parent_uid, "a");
+assert.equal(arrival.repeated.length, 1, "重复到达独立标记");
+assert.equal(arrival.repeated[0], multiArrival[1]);
 assert.equal(normalizeArrivals([multiArrival[0], { ...multiArrival[1] }]).primary.size, 1);
 
 // 主夹具：多源到达 + 状态徽标 + 环外的 related
 const depFixture = {
   entry_uids: ["a"],
   nodes: [
-    { uid: "a", name: "A", parent_uid: null, child_uids: ["b", "c"], depth: 0, remaining: null, is_root: true, relation: "requires" },
-    { uid: "b", name: "B", parent_uid: "a", child_uids: ["d"], depth: 1, remaining: null, is_root: false, relation: "requires" },
-    { uid: "c", name: "C", parent_uid: "a", child_uids: ["d"], depth: 1, remaining: 2, is_root: false, relation: "requires" },
-    { uid: "d", name: "D", parent_uid: "b", child_uids: ["e"], depth: 2, remaining: null, is_root: false, relation: "requires" },
-    { uid: "e", name: "E", parent_uid: "d", child_uids: [], depth: 3, remaining: 0, is_root: false, relation: "requires" },
+    { uid: "a", name: "A", parent_uid: null, child_uids: ["b", "c"], depth: 0, is_root: true, relation: "requires" },
+    { uid: "b", name: "B", parent_uid: "a", child_uids: ["d"], depth: 1, is_root: false, relation: "requires" },
+    { uid: "c", name: "C", parent_uid: "a", child_uids: ["d"], depth: 1, is_root: false, relation: "requires" },
+    { uid: "d", name: "D", parent_uid: "b", child_uids: ["e"], depth: 2, is_root: false, relation: "requires" },
+    { uid: "e", name: "E", parent_uid: "d", child_uids: [], depth: 3, is_root: false, relation: "requires" },
   ],
   edges: [
     { from_uid: "a", to_uid: "b", relation: "requires", status: "skeleton" },
@@ -387,8 +372,6 @@ assert.deepEqual(shallow.rows[0].children.map((row) => row.uid), ["b", "c"], "�
 assert.deepEqual(shallow.rows[0].children.map((row) => row.depth), [1, 1]);
 assert.equal(shallow.rows[0].requiresChildCount, 2, "徽标显示 requires 出边数");
 assert.equal(shallow.rows[0].children[0].expanded, false, "默认只展开一层");
-assert.equal(shallow.rows[0].children[0].remainingLabel, "不限深度");
-assert.equal(shallow.rows[0].children[1].remainingLabel, "还剩 2 跳");
 assert.equal(shallow.rows[0].children[1].statusLabel, "停用", "issues.disabled_entry → 停用徽标");
 assert.deepEqual(shallow.rows[0].children[0].relatedUids, [{ uid: "z", name: "z" }],
   "related 出边只作行内提示");
@@ -416,7 +399,6 @@ assert.ok(forcedRow.children.length >= 1);
 assert.ok(forcedRow.children.every((row) => row.dimmed), "被强制展开的重复子树整棵同为灰色");
 const leafRow = deepRows.find((row) => row.uid === "e");
 assert.equal(leafRow.expandable, false);
-assert.ok(leafRow.stopNote.includes("用尽"), "remaining==0 由服务端终止，前端只说明原因");
 assert.equal(leafRow.statusLabel, "正文为空");
 const onlyRequires = buildDependencyTree(depFixture, { rootUids: ["a"], expandedDepth: 4, requiresOnly: true });
 assert.deepEqual(flatRows(onlyRequires.rows).find((row) => row.uid === "b").relatedUids, [],
@@ -440,9 +422,9 @@ assert.ok(breadcrumbUids(parentCycle, "p").length <= 2, "父链成环时立即�
 const cycleFixture = {
   entry_uids: ["r"],
   nodes: [
-    { uid: "r", name: "R", parent_uid: null, child_uids: ["p"], depth: 0, remaining: null, is_root: true, relation: "requires" },
-    { uid: "p", name: "P", parent_uid: "r", child_uids: ["q"], depth: 1, remaining: null, is_root: false, relation: "requires" },
-    { uid: "q", name: "Q", parent_uid: "p", child_uids: ["p"], depth: 2, remaining: null, is_root: false, relation: "requires" },
+    { uid: "r", name: "R", parent_uid: null, child_uids: ["p"], depth: 0, is_root: true, relation: "requires" },
+    { uid: "p", name: "P", parent_uid: "r", child_uids: ["q"], depth: 1, is_root: false, relation: "requires" },
+    { uid: "q", name: "Q", parent_uid: "p", child_uids: ["p"], depth: 2, is_root: false, relation: "requires" },
   ],
   edges: [
     { from_uid: "r", to_uid: "p", relation: "requires", status: "skeleton" },
@@ -488,7 +470,7 @@ for (let index = 0; index < 460; index += 1) {
   chainNodes.push({
     uid: `c${index}`, name: `C${index}`, parent_uid: index ? `c${index - 1}` : null,
     child_uids: index + 1 < 460 ? [`c${index + 1}`] : [], depth: index,
-    remaining: null, is_root: index === 0, relation: "requires",
+    is_root: index === 0, relation: "requires",
   });
   if (index) chainEdges.push({ from_uid: `c${index - 1}`, to_uid: `c${index}`, relation: "requires", status: "skeleton" });
 }
@@ -531,7 +513,7 @@ const rowsMarkup = renderToStaticMarkup(React.createElement(entryTreeModule.Depe
   tree: deep, requiresOnly: false,
 }));
 for (const expected of [STATIC_RELATION_NOTE, "这是静态依赖关系", "不代表该条目本轮一定载入",
-  "已在上层展开（路径：", "A → B → D", "仍要展开（仅查看）", "不限深度", "必要依赖", "仅提示相关",
+  "已在上层展开（路径：", "A → B → D", "仍要展开（仅查看）", "必要依赖", "仅提示相关",
   "wbd-row is-dim", "wbd-children"]) {
   assert.ok(rowsMarkup.includes(expected), `依赖树渲染应包含「${expected}」`);
 }

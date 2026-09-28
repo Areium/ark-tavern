@@ -317,10 +317,11 @@ def build_resolver(book, *, known_uids, beat_id: str = "",
 def build_overlay_resolver(book, overlay):
     """用 overlay 当前状态构造 lore_resolver；功能关闭时返回 None。
 
-    关闭情形（调用方按 None 跳过整条链路，注入行为与旧版一致）：
-    书为 None / overlay 为 None / 书内无 lore_bindings 条目 / 会话无剧情树。
+    关闭情形（调用方按 None 跳过整条链路）：
+    书为 None / overlay 为 None / 书内无 lore_bindings 条目 / 会话无剧情树 /
+    会话没有当前 v3 世界书范围。
     known_uids = 会话范围 resolved_entry_uids ∩（enabled 且正文非空）；
-    老会话无 scope 快照时退化为「全书 enabled 且非空」。
+    空候选保持为空，不得扩大成全书。
     """
     if book is None or overlay is None:
         return None
@@ -328,9 +329,11 @@ def build_overlay_resolver(book, overlay):
         return None
     enabled = {e.uid for e in (getattr(book, "entries", None) or [])
                if e.enabled and (e.content or "").strip()}
-    scope = overlay.get_worldbook_scope() or {}
+    scope = overlay.get_worldbook_scope()
+    if not isinstance(scope, dict) or scope.get("schema_version") != 3:
+        return None
     scope_uids = set(scope.get("resolved_entry_uids") or [])
-    known = (scope_uids & enabled) if scope_uids else enabled
+    known = scope_uids & enabled
     return build_resolver(
         book, known_uids=known,
         beat_id=overlay.get_current_beat_id(),

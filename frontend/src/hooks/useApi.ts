@@ -79,15 +79,14 @@ export function useApi() {
     createSession: (mode: "free" | "story" = "free", name = "", plotId = "",
       combatMode: "narrative" | "tactical" | "sideview" = "narrative", identity = "玩家",
       worldbookIds: string[] = [], rosterCharacterIds: string[] = [],
-      manualEntryUids: string[] = [], expectedDraftHashes: Record<string, string> = {}, fullScope = false) =>
+      manualEntryUids: string[] = [], expectedDraftHashes: Record<string, string> = {}) =>
       request<any>("/api/sessions", {
         method: "POST",
         body: JSON.stringify({ mode, name, plot_id: plotId, combat_mode: combatMode, identity,
           worldbook_ids: worldbookIds, roster_character_ids: rosterCharacterIds,
           // 手动追加只作用于本会话；draft_hash 让服务端校验「预览与创建一致」
           manual_entry_uids: manualEntryUids, expected_draft_hashes: expectedDraftHashes,
-          // 显式全量兼容：只影响本会话，不改变这本书的规则
-          full_scope: fullScope || undefined }),
+        }),
       }),
     getSession: (id: string) => request<any>(`/api/sessions/${id}`),
     deleteSession: (id: string) =>
@@ -382,7 +381,7 @@ export function useApi() {
     listWorldbooks: () =>
       request<{ books: import("../types").WorldBookSummary[] }>("/api/worldbook"),
     listAvailableWorldbookPacks: () =>
-      request<{ packs: { id: string; name: string; description: string; book_type: string; entry_count: number; installed: boolean }[] }>("/api/worldbook/available-packs"),
+      request<{ packs: { id: string; name: string; description: string; book_type: string; entry_count: number; installed: boolean; repair_required: boolean }[] }>("/api/worldbook/available-packs"),
     installWorldbookPack: (id: string) =>
       request<{ book: import("../types").WorldBookSummary }>(`/api/worldbook/available-packs/${encodeURIComponent(id)}/install`, { method: "POST" }),
     createWorldbook: (name: string, budgetTokens = 0, bookType?: import("../types").WorldBookType,
@@ -467,14 +466,6 @@ export function useApi() {
             expected_revision: expectedRevision, ...(entryOrder ? { entry_order: entryOrder } : {}),
             ...(entryLayout ? { entry_layout: entryLayout } : {}) }),
         }),
-    updateWorldbookTaxonomy: (bookId: string, categories: import("../types").WorldBookCategoryDTO[],
-      entryMoves: Record<string, string> = {}, expectedRevision?: number) =>
-      request<import("../types").WorldBookDetail>(`/api/worldbook/${encodeURIComponent(bookId)}/taxonomy`, {
-        method: "PUT", body: JSON.stringify({ categories, entry_moves: entryMoves, expected_revision: expectedRevision }),
-      }),
-    updateWorldbookImportConfig: (bookId: string, data: import("../types").WorldBookPolicyDraft) => request<import("../types").WorldBookDetail>(`/api/worldbook/${encodeURIComponent(bookId)}/import-config`, {
-      method: "PUT", body: JSON.stringify(data),
-    }),
     previewWorldbookClassification: (bookId: string) =>
       request<import("../types").WorldBookClassificationDTO>(`/api/worldbook/${encodeURIComponent(bookId)}/auto-classify`, {
         method: "POST", body: JSON.stringify({ apply: false }),
@@ -484,14 +475,14 @@ export function useApi() {
         method: "POST", body: JSON.stringify({ apply: true, expected_revision: expectedRevision }),
       }),
     previewWorldbookScope: (bookId: string, rosterCharacterIds: string[],
-      draft?: import("../types").WorldBookConfigurationDraft | import("../types").WorldBookPolicyDraft,
-      options?: { manual_entry_uids?: string[]; policy_revision?: number; full_scope?: boolean }) =>
+      draft?: import("../types").WorldBookConfigurationDraft,
+      options?: { manual_entry_uids?: string[]; policy_revision?: number }) =>
       request<import("../types").WorldBookScopePreviewDTO>(`/api/worldbook/${encodeURIComponent(bookId)}/scope-preview`, {
         method: "POST",
         body: JSON.stringify({ ...draft, roster_character_ids: rosterCharacterIds,
           manual_entry_uids: options?.manual_entry_uids || [],
           policy_revision: options?.policy_revision,
-          full_scope: options?.full_scope || undefined }),
+        }),
       }),
     /** 统一配置写入：分类 / 角色关联 / 起点 / 依赖边，一次原子提交。 */
     putWorldbookConfiguration: (bookId: string, draft: import("../types").WorldBookConfigurationDraft) =>
@@ -505,20 +496,12 @@ export function useApi() {
         method: "POST", body: JSON.stringify(body),
       }),
     /** 条目依赖树（A-3）：与 resolve_v3_scope 的 display_tree 同构，支持一次拿回多棵子树。 */
-    getWorldbookDependencyTree: (bookId: string, entryUids: string[], maxDepth?: number) =>
+    getWorldbookDependencyTree: (bookId: string, entryUids: string[]) =>
       request<import("../types").WorldBookDependencyTreeDTO>(
         `/api/worldbook/${encodeURIComponent(bookId)}/dependency-tree` +
-        `?entry_uids=${entryUids.map(encodeURIComponent).join(",")}` +
-        (maxDepth === undefined ? "" : `&max_depth=${maxDepth}`)),
-    bindWorldbook: (id: string, sessionId: string, bound: boolean) =>
-      request<{ session_id: string; worldbook_id: string | null; worldbook_scope: import("../types").WorldBookScopeDTO }>(
-        `/api/worldbook/${encodeURIComponent(id)}/bind`, {
-          method: "POST",
-          body: JSON.stringify({ session_id: sessionId, bound }),
-        }),
+        `?entry_uids=${entryUids.map(encodeURIComponent).join(",")}`),
     setSessionWorldbooks: (sessionId: string, worldbookIds: string[]) =>
-      request<{ session_id: string; worldbook_id: string | null; worldbook_ids: string[];
-        worldbook_scope: import("../types").WorldBookScopeDTO;
+      request<{ session_id: string; worldbook_ids: string[];
         worldbook_scopes: Record<string, import("../types").WorldBookScopeDTO | null> }>(
         `/api/sessions/${encodeURIComponent(sessionId)}/worldbooks`, {
           method: "PUT", body: JSON.stringify({ worldbook_ids: worldbookIds }),
@@ -783,14 +766,14 @@ export function useApi() {
     listCombatEnemies: () =>
       request<{ enemies: any[] }>("/api/combat/enemies"),
 
-    combatAction: (sessionId: string, action: { action: string; card_index?: number; target?: [number, number]; item_name?: string; unit_id?: string }, presentation = false) =>
-      request<any>(`/api/sessions/${sessionId}/combat/action${presentation ? "?presentation=1" : ""}`, {
+    combatAction: (sessionId: string, action: { action: string; card_index?: number; target?: [number, number]; item_name?: string; unit_id?: string }) =>
+      request<import("../components/combat/combatPresentation").CombatPresentationResponse>(`/api/sessions/${sessionId}/combat/action`, {
         method: "POST",
         body: JSON.stringify(action),
       }),
 
-    combatEndTurn: (sessionId: string, presentation = false) =>
-      request<any>(`/api/sessions/${sessionId}/combat/end-turn${presentation ? "?presentation=1" : ""}`, {
+    combatEndTurn: (sessionId: string) =>
+      request<import("../components/combat/combatPresentation").CombatPresentationResponse>(`/api/sessions/${sessionId}/combat/end-turn`, {
         method: "POST",
       }),
 
@@ -864,14 +847,14 @@ export function useApi() {
         (selectedUnit ? `?selected_unit=${encodeURIComponent(selectedUnit)}` : ""),
       ),
 
-    combatTestAction: (testId: string, action: { action: string; card_index?: number; target?: [number, number]; item_name?: string; unit_id?: string }, presentation = false) =>
-      request<any>(`/api/combat/test/${testId}/action${presentation ? "?presentation=1" : ""}`, {
+    combatTestAction: (testId: string, action: { action: string; card_index?: number; target?: [number, number]; item_name?: string; unit_id?: string }) =>
+      request<import("../components/combat/combatPresentation").CombatPresentationResponse>(`/api/combat/test/${testId}/action`, {
         method: "POST",
         body: JSON.stringify(action),
       }),
 
-    combatTestEndTurn: (testId: string, presentation = false) =>
-      request<any>(`/api/combat/test/${testId}/end-turn${presentation ? "?presentation=1" : ""}`, {
+    combatTestEndTurn: (testId: string) =>
+      request<import("../components/combat/combatPresentation").CombatPresentationResponse>(`/api/combat/test/${testId}/end-turn`, {
         method: "POST",
       }),
 

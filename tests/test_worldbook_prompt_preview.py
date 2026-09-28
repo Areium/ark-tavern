@@ -88,8 +88,7 @@ def book_fixture():
         dependency_edges=[{"from_uid": "world", "to_uid": "lore"}],
         related_edges=[],
         dependency_rules={"roots": roots,
-                          "root_rule": {"entry_uids": sorted(r["entry_uid"] for r in roots)},
-                          "rejected": [], "edge_meta": {}},
+                          "root_rule": {"entry_uids": sorted(r["entry_uid"] for r in roots)}},
         scope_mode="selective",
     )
 
@@ -491,7 +490,7 @@ def test_invalid_payload_is_rejected_without_writing(api):
 # 未插入原因的**真实性**（提案 §3.2）：v2 / v3 两套解析器的原因口径必须一致
 # ─────────────────────────────────────────────────────────────
 
-def _reason_book(book_id, v3):
+def _reason_book(book_id):
     """同一形状的原因书：停用 / 空正文条目**已经是起点**（不是「没进范围」）。
 
     - `off`：停用；`blank`：正文空白且关键词不命中；两者都在起点里；
@@ -507,54 +506,27 @@ def _reason_book(book_id, v3):
         entry("outsider", always_active=True),
     ]
     roots = [uid for uid in ("world", "kw", "off", "blank")]
-    if not v3:
-        return WorldBook(book_id, "v2 原因书", entries,
-                         categories=copy.deepcopy(DEFAULT_CATEGORIES),
-                         import_config={"fixed_entry_uids": roots,
-                                        "dependency_sources": [], "revision": 1},
-                         scope_mode="selective")
     return WorldBook(
-        book_id, "v3 原因书", entries, categories=copy.deepcopy(DEFAULT_CATEGORIES),
+        book_id, "原因书", entries, categories=copy.deepcopy(DEFAULT_CATEGORIES),
         dependency_rules={"roots": [{"entry_uid": uid, "activation": ACTIVATION_ALWAYS,
                                      "expansion": EXPANSION_NONE, "character_ids": []}
                                     for uid in roots],
-                          "root_rule": {"entry_uids": sorted(roots)},
-                          "rejected": [], "edge_meta": {}},
+                          "root_rule": {"entry_uids": sorted(roots)}},
         scope_mode="selective")
 
 
 def test_drop_reasons_stay_truthful_for_scope_excluded_entries(tmp_path):
-    """提案 §3.2「未插入原因」的真实性：停用 / 空正文条目不得被报成 `not_in_scope`。
-
-    v2 的范围解析会在候选阶段就把停用 / 空正文条目过滤掉（这是既有且正确的行为，
-    它们确实不该注入），于是 `resolved_entry_uids` 里没有它们；若照此报
-    `not_in_scope`，界面给出的修复入口会是「去『分类与载入』把它设为起点」——
-    而它在 v2 里**已经是固定导入起点**，这个引导是错的，也与「哪些条目因为本身就是
-    停用的而没被插进去」的要求相矛盾。因此 `not_in_scope` 只对**从未进过候选范围**
-    的条目成立，范围解析阶段被排除的条目必须报它们真正的原因。
-    v3 的 `best` 本就保留这两类条目（只以 `issues` 形式报告），本用例同时对 v3 做
-    对照固化，确保两套解析器的原因口径一致。
-    """
+    """停用和空正文条目报告真实原因，范围外条目报告 not_in_scope。"""
     from blueprints.worldbook import register
     manager = WorldBookManager(tmp_path)
-    for book in (_reason_book("v2book", v3=False), _reason_book("v3book", v3=True)):
-        manager.save(book)
+    manager.save(_reason_book("book"))
     app = Flask(__name__)
     app.config["TESTING"] = True
     register(app, {"worldbook": manager})
     client = app.test_client()
 
-    # v2 的停用 / 空正文条目在范围解析阶段就被过滤（根因证据），但原因必须真实
-    v2_scope = manager.load("v2book").resolve_import_scope([])
-    assert {item["uid"] for item in v2_scope["excluded_entries"]} == {"off", "blank"}
-    assert "off" not in v2_scope["resolved_entry_uids"]
-    assert "blank" not in v2_scope["resolved_entry_uids"]
-
     expected = {"off": "disabled", "blank": "empty_content", "outsider": "not_in_scope"}
-    # candidate_count 口径：v2 的 resolved 过滤掉停用 / 空正文（world + kw = 2）；
-    # v3 的 best 保留它们（world + kw + off + blank = 4）。这是诚实的「候选」口径，
-    # 本用例只修原因分类，不改这个计数。
-    for book_id, candidate_count in (("v2book", 2), ("v3book", 4)):
+    for book_id, candidate_count in (("book", 4),):
         response = client.post(f"/api/worldbook/{book_id}/prompt-preview",
                                json={"mode": "narrative", "input_text": "阿米娅", "seed": 0})
         assert response.status_code == 200, (book_id, response.json)
@@ -584,9 +556,9 @@ def test_disabled_book_reports_no_reason_that_contradicts_totals(tmp_path):
     """
     from blueprints.worldbook import register
     manager = WorldBookManager(tmp_path)
-    disabled = _reason_book("disabledbook", v3=False)
+    disabled = _reason_book("disabledbook")
     disabled.enabled = False
-    enabled = _reason_book("enabledbook", v3=False)
+    enabled = _reason_book("enabledbook")
     for book in (disabled, enabled):
         manager.save(book)
     app = Flask(__name__)
@@ -620,101 +592,5 @@ def test_disabled_book_reports_no_reason_that_contradicts_totals(tmp_path):
     assert dropped_map(control) == {"off": "disabled", "blank": "empty_content",
                                     "outsider": "not_in_scope"}
     assert set(order_uids(control)) == {"world", "kw"}
-    assert control["totals"]["candidate_count"] == 2
+    assert control["totals"]["candidate_count"] == 4
     assert control["totals"]["truncated"] is False
-
-
-# ─────────────────────────────────────────────────────────────
-# `full_scope`（显式全量兼容）：v2 与 v3 语义一致，且与 `scope-preview` 同口径
-# ─────────────────────────────────────────────────────────────
-
-def _full_scope_book(book_id, v3):
-    """起点范围**严格小于**全量的书：`extra_a` / `extra_b` 启用且有正文但不在起点里。
-
-    `off`（停用）/ `blank`（正文空白）放进起点，用来确认「全量」只放宽到
-    「启用且有正文」的条目为止。
-    """
-    entries = [
-        entry("world", always_active=True, category_id="worldview"),
-        entry("extra_a", always_active=True),
-        entry("extra_b", always_active=True),
-        entry("off", enabled=False),
-        entry("blank", content="   "),
-    ]
-    if not v3:
-        return WorldBook(book_id, "full_scope v2 书", entries,
-                         categories=copy.deepcopy(DEFAULT_CATEGORIES),
-                         import_config={"fixed_entry_uids": ["world", "off", "blank"],
-                                        "dependency_sources": [], "revision": 1},
-                         scope_mode="selective")
-    return WorldBook(
-        book_id, "full_scope v3 书", entries, categories=copy.deepcopy(DEFAULT_CATEGORIES),
-        dependency_rules={"roots": [{"entry_uid": "world", "activation": ACTIVATION_ALWAYS,
-                                     "expansion": EXPANSION_NONE, "character_ids": []}],
-                          "root_rule": {"entry_uids": ["world"]},
-                          "rejected": [], "edge_meta": {}},
-        scope_mode="selective")
-
-
-def test_full_scope_widens_v2_range_and_matches_scope_preview(tmp_path):
-    """提案 §3.2 的 `full_scope` 在 v2 与 v3 上语义一致、且与 `scope-preview` 同口径。
-
-    `full_scope=True` = 「本次会话显式全量兼容」：候选范围换成全部**启用且有正文**的
-    条目。这条在 v2 书上曾经**静默无效**（`preview_prompt_injection` 的 v2 分支完全没
-    处理这个开关，只有 v3 分支把它透传下去），于是同一个开关在两个接口上口径不一致：
-    「Prompt 预览」的 `candidate_count` 与同书 `scope-preview` 的 `entry_count` 对不上，
-    页签左栏的「全量兼容」开关点了没有任何反应（静默无效比报错更糟）。
-    本用例固化：① v2 的 `candidate_count` == 同书 `scope-preview` 在
-    `full_scope=True` 下的 `entry_count`；② `order[]` 里出现**起点范围之外**的条目
-    （真的放宽了范围，而不是碰巧相等）；③ `full_scope=False` 的对照与 v3 书的行为
-    逐条不变（v3 本来就正确，作为回归对照）。
-    """
-    from blueprints.worldbook import register
-    manager = WorldBookManager(tmp_path)
-    for book in (_full_scope_book("v2fullbook", v3=False),
-                 _full_scope_book("v3fullbook", v3=True)):
-        manager.save(book)
-    app = Flask(__name__)
-    app.config["TESTING"] = True
-    register(app, {"worldbook": manager})
-    client = app.test_client()
-
-    def ask(book_id, full_scope=False):
-        response = client.post(f"/api/worldbook/{book_id}/prompt-preview",
-                               json={"mode": "narrative", "input_text": "阿米娅",
-                                     "seed": 0, "full_scope": full_scope})
-        assert response.status_code == 200, (book_id, response.json)
-        return response.json
-
-    for book_id in ("v2fullbook", "v3fullbook"):
-        base = ask(book_id)
-        widened = ask(book_id, full_scope=True)
-        # 同书 scope-preview（路由侧另一条实现）在同一个开关下的口径
-        scope_response = client.post(f"/api/worldbook/{book_id}/scope-preview",
-                                     json={"full_scope": True})
-        assert scope_response.status_code == 200, scope_response.json
-        scope_payload = scope_response.json
-
-        # ① 起点范围只有 world 一条 → 全量是 world + extra_a + extra_b
-        assert base["totals"]["candidate_count"] == 1, book_id
-        assert set(order_uids(base)) == {"world"}, book_id
-        assert widened["totals"]["candidate_count"] == 3, book_id
-        assert scope_payload["full_scope"] is True, book_id
-        assert scope_payload["full_entry_count"] == 3, book_id
-        assert scope_payload["entry_count"] == widened["totals"]["candidate_count"], book_id
-        # ② 真的放宽了范围：起点范围之外的条目进了 order[]，且理由带 full_scope
-        assert set(order_uids(widened)) == {"world", "extra_a", "extra_b"}, book_id
-        assert {item["uid"] for item in widened["order"]
-                if "full_scope" in item["reasons"]} == {"world", "extra_a", "extra_b"}, book_id
-        # ③ 「全量」只到「启用且有正文」为止；order ∪ dropped 仍覆盖全书
-        assert set(dropped_map(widened)) == {"off", "blank"}, book_id
-        assert len(widened["order"]) + len(widened["dropped"]) == 5, book_id
-
-    # v2 的对照：不开 full_scope 时回到起点范围，条目级原因照旧
-    assert dropped_map(ask("v2fullbook")) == {
-        "extra_a": "not_in_scope", "extra_b": "not_in_scope",
-        "off": "disabled", "blank": "empty_content"}
-    # v3 的回归对照：起点范围之外的两条在未开 full_scope 时报 not_in_scope
-    assert dropped_map(ask("v3fullbook")) == {
-        "extra_a": "not_in_scope", "extra_b": "not_in_scope",
-        "off": "not_in_scope", "blank": "not_in_scope"}

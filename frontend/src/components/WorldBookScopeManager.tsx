@@ -100,7 +100,6 @@ export default function WorldBookScopeManager(props: WorldBookScopeManagerProps)
   const [picked, setPicked] = useState<string[]>([]);
   const [batchActivation, setBatchActivation] = useState<WorldBookActivation>("always");
   const [batchExpansion, setBatchExpansion] = useState<WorldBookExpansion>("none");
-  const [batchDepth, setBatchDepth] = useState(1);
   const [batchTarget, setBatchTarget] = useState("");
   const [batchCategory, setBatchCategory] = useState("unclassified");
   const [rowMenu, setRowMenu] = useState<string | null>(null);
@@ -168,19 +167,11 @@ export default function WorldBookScopeManager(props: WorldBookScopeManagerProps)
   }, [api]);
 
   /** 草稿写回：只改这一份统一草稿，不写盘。 */
-  const rootPatch = (next: WorldBookDraft): Partial<WorldBookDraft> => {
-    // v2 书里可表达的起点（always + none / legacy_depth）仍按旧口径只改 roots，
-    // 保存一次的载入范围逐条等价；v3 专属组合（roster_any / manual /
-    // requires_closure）在 v2 里没有等价表示，必须显式改用按需载入，
-    // 否则服务端会按 v2 形态把它们丢掉（与「条目与角色」页签同一口径）。
-    const v2Compatible = next.roots.every((root) => root.activation === "always"
-      && (root.expansion === "none" || root.expansion === "legacy_depth"));
-    return v2Compatible ? { roots: next.roots } : { roots: next.roots, adopt_v3: true };
-  };
+  const rootPatch = (next: WorldBookDraft): Partial<WorldBookDraft> => ({ roots: next.roots });
   /** 起点批量写回（R-17）：`activation === null` 表示移除这些条目的起点。 */
   const applyRoots = (uids: string[], activation: WorldBookActivation | null,
-    expansion: WorldBookExpansion, maxDepth?: number | null) => {
-    const next = batchRoots(draft, detail, uids, activation, expansion, maxDepth);
+    expansion: WorldBookExpansion) => {
+    const next = batchRoots(draft, detail, uids, activation, expansion);
     // 起点已处于目标状态时不写草稿：避免无意义的脏标记（batchRoots 会稳定排序）。
     if (JSON.stringify(next.roots) === JSON.stringify(draft.roots)) return false;
     patch(rootPatch(next));
@@ -227,11 +218,11 @@ export default function WorldBookScopeManager(props: WorldBookScopeManagerProps)
   // ── 批量操作：全部只改统一草稿，照常走页头那一次保存 ──
   const runBatchRoots = (activation: WorldBookActivation | null) => {
     const expansion: WorldBookExpansion = activation === null ? "none" : batchExpansion;
-    const changed = applyRoots(picked, activation, expansion, expansion === "legacy_depth" ? batchDepth : null);
+    const changed = applyRoots(picked, activation, expansion);
     setBatchNote(!changed ? "所选条目已处于该状态。"
       : activation === null ? `已移除 ${picked.length} 个条目的起点。`
         : `已把 ${picked.length} 个条目设为起点：${ACTIVATION_SHORT[activation]} · ${EXPANSION_LABELS[expansion]}`
-          + (expansion === "legacy_depth" ? `（深度 ${batchDepth}）` : "") + "。");
+          + "。");
   };
   const runBatchLink = (direction: "to" | "from") => {
     if (!batchTarget) { setError("请先选择批量依赖的目标条目。"); return; }
@@ -331,8 +322,7 @@ export default function WorldBookScopeManager(props: WorldBookScopeManagerProps)
     if (!root) return { text: "未配置起点", title: "不参与遍历展开；仍可能由关键词触发" };
     return {
       text: ACTIVATION_SHORT[root.activation],
-      title: `${ACTIVATION_LABELS[root.activation] || root.activation} · ${EXPANSION_LABELS[root.expansion] || root.expansion}`
-        + (root.expansion === "legacy_depth" ? `（深度 ${root.max_depth ?? 1}）` : ""),
+      title: `${ACTIVATION_LABELS[root.activation] || root.activation} · ${EXPANSION_LABELS[root.expansion] || root.expansion}`,
     };
   };
 
@@ -382,10 +372,6 @@ export default function WorldBookScopeManager(props: WorldBookScopeManagerProps)
             {Object.entries(EXPANSION_LABELS).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
           </select>
         </label>
-        {batchExpansion === "legacy_depth" && <label className="wbg-form-label wbg-inline-field">深度
-          <input className="wbg-field wbg-depth" type="number" aria-label="批量起点展开深度" min={0} max={32} step={1}
-            value={batchDepth} onChange={(event) => setBatchDepth(Math.max(0, Math.min(32, Number(event.target.value) || 0)))} />
-        </label>}
         <button className="wbg-button wbg-button-quiet" onClick={() => runBatchRoots(batchActivation)}>设为起点</button>
         <button className="wbg-button wbg-button-quiet" onClick={() => runBatchRoots(null)}>移除起点</button>
         {batchActivation === "roster_any" && <small className="wbg-help">
@@ -573,7 +559,7 @@ export default function WorldBookScopeManager(props: WorldBookScopeManagerProps)
                 <button className="wbg-text-button" onClick={() => inspectEntry(root.entry_uid)}>{label(root.entry_uid)}</button>
                 <span className="wbg-chip" title={ACTIVATION_LABELS[root.activation] || root.activation}>{ACTIVATION_SHORT[root.activation]}</span>
                 <span className="wbg-chip" title="展开方式">{EXPANSION_LABELS[root.expansion] || root.expansion}
-                  {root.expansion === "legacy_depth" ? ` ${root.max_depth ?? 1}` : ""}</span>
+                  </span>
                 <button className="wbg-icon-button" aria-label={"移除起点 " + label(root.entry_uid)}
                   onClick={() => { applyRoots([root.entry_uid], null, "none"); }}>×</button>
               </div>)}
@@ -637,7 +623,7 @@ export default function WorldBookScopeManager(props: WorldBookScopeManagerProps)
                       if (!value) { applyRoots([focused.uid], null, "none"); return; }
                       const expansion = rootOf(focused.uid)?.expansion
                         || (value === "roster_any" ? "requires_closure" : "none");
-                      applyRoots([focused.uid], value, expansion, rootOf(focused.uid)?.max_depth ?? 1);
+                      applyRoots([focused.uid], value, expansion);
                     }}>
                     <option value="">不作为起点</option>
                     {(["always", "roster_any", "manual"] as WorldBookActivation[]).map((value) =>
@@ -647,17 +633,10 @@ export default function WorldBookScopeManager(props: WorldBookScopeManagerProps)
                     value={rootOf(focused.uid)?.expansion || "none"} onChange={(event) => {
                       const root = rootOf(focused.uid);
                       if (!root) return;
-                      applyRoots([focused.uid], root.activation, event.target.value as WorldBookExpansion, root.max_depth ?? 1);
+                      applyRoots([focused.uid], root.activation, event.target.value as WorldBookExpansion);
                     }}>
                     {Object.entries(EXPANSION_LABELS).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
                   </select></label>
-                  {rootOf(focused.uid)?.expansion === "legacy_depth" && <label className="wbg-form-label">展开深度
-                    <input className="wbg-field" aria-label="起点展开深度" type="number" step={1} min={0} max={32}
-                      value={rootOf(focused.uid)?.max_depth ?? 1} onChange={(event) => {
-                        const root = rootOf(focused.uid);
-                        if (!root) return;
-                        applyRoots([focused.uid], root.activation, "legacy_depth", Number(event.target.value));
-                      }} /><small>0 只包含自身，最大 32 层。</small></label>}
                   {rootOf(focused.uid)?.activation === "roster_any" && <p className="wbg-warning">
                     这条起点只在指定角色入队时激活：请到「条目与角色」页签为它选择角色，否则保存会被拒绝。
                   </p>}
@@ -711,7 +690,7 @@ export default function WorldBookScopeManager(props: WorldBookScopeManagerProps)
       </aside>}
     </div>
     <footer className="wbg-taxonomy-foot">
-      分类调整不会自动改变旧书的载入模式；起点与依赖在「条目与角色」里逐条配置，
+      分类调整不会自动改变候选范围；起点与依赖在「条目与角色」里逐条配置，
       保存前可用「导入预览」核对候选范围。
     </footer>
   </section>;
