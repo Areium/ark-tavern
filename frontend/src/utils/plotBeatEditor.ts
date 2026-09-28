@@ -1,5 +1,5 @@
 /**
- * 剧情节拍编辑 — 对 data/worldbooks/content/plots/<plot_id>/index.md 的章节/节拍结构做文本手术。
+ * 剧情节拍编辑 — 对所属书内 plots/<plot_id>/index.md 的章节/节拍结构做文本手术。
  *
  * 剧情叙述区的结构约定（与后端 combat_nodes.plot_flows / session_overlay 的
  * 节拍解析一致）：

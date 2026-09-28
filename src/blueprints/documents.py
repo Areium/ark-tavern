@@ -168,7 +168,9 @@ def register(app, managers):
             return json_error("需要 id 参数")
 
         try:
-            result = doc_mgr.create_document(category, doc_id, content=content)
+            result = doc_mgr.create_document(
+                category, doc_id, content=content,
+                book_id=data.get("worldbook_id", request.args.get("worldbook_id")))
         except FileExistsError:
             return json_error(f"文档已存在: {doc_id}", 409)
         except ValueError as e:
@@ -209,7 +211,9 @@ def register(app, managers):
         if not path:
             return json_error("需要 path 参数")
         try:
-            result = doc_mgr.create_folder(category, path)
+            result = doc_mgr.create_folder(
+                category, path,
+                book_id=data.get("worldbook_id", request.args.get("worldbook_id")))
         except (FileExistsError, ValueError) as e:
             return json_error(str(e), 409)
         return jsonify(result), 201
@@ -219,7 +223,8 @@ def register(app, managers):
     def delete_folder(category: str, path: str):
         """删除空文件夹。"""
         try:
-            result = doc_mgr.delete_folder(category, path)
+            result = doc_mgr.delete_folder(
+                category, path, book_id=request.args.get("worldbook_id"))
         except (DocumentNotFoundError, ValueError) as e:
             return json_error(str(e), 400)
         return jsonify(result)
@@ -250,7 +255,9 @@ def register(app, managers):
         if not new_path:
             return json_error("需要 new_path 参数")
         try:
-            result = doc_mgr.move_folder(category, path, new_path)
+            result = doc_mgr.move_folder(
+                category, path, new_path,
+                book_id=data.get("worldbook_id", request.args.get("worldbook_id")))
         except (DocumentNotFoundError, FileExistsError, ValueError) as e:
             code = 404 if isinstance(e, DocumentNotFoundError) else 409
             return json_error(str(e), code)

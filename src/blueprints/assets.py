@@ -6,33 +6,19 @@ import json
 from pathlib import Path
 from urllib.parse import quote
 from flask import Blueprint, jsonify, request, send_from_directory
-from data_paths import CONTENT_ROOT, content_root
+from data_paths import INSTALLED_BOOKS_ROOT
 from content_scope import is_content_visible
-from worldbook_content import book_directory, category_roots, content_candidates, enabled_book_ids
+from worldbook_content import (
+    _safe_relative, book_directory, category_roots, content_candidates,
+    enabled_book_ids,
+)
 
 
-def _visible_category_path(cat, filename, *, project_root=None):
-    """Validate a local file path; old manifest-owned files stay hidden."""
-    from pathlib import Path
-
-    base = Path(cat.directory).resolve()
-    candidate = Path(cat.directory) / filename
-    try:
-        candidate.resolve().relative_to(base)
-    except ValueError:
-        return None
-    if not is_content_visible(candidate, project_root=project_root):
-        return None
-    return candidate
-
-
-def _book_category_key(cat, *, project_root):
+def _book_category_key(cat, *, project_root=None):
     """Map an API category to its configured path inside a book's content tree."""
     try:
-        relative = Path(cat.directory).absolute().relative_to(content_root(project_root).absolute())
+        relative = _safe_relative(str(cat.directory).strip("/"))
     except ValueError:
-        return None
-    if not relative.parts or any(part in ("", ".", "..") for part in relative.parts):
         return None
     return relative.as_posix()
 
@@ -67,11 +53,11 @@ def register(app, managers):
 
     @bp.route("/api/assets/data-dir", methods=["GET"])
     def get_data_dir():
-        return jsonify({"path": str(CONTENT_ROOT)})
+        return jsonify({"path": str(INSTALLED_BOOKS_ROOT)})
 
     @bp.route("/api/assets/spine-variants", methods=["GET"])
     def spine_variants():
-        """Expose optional content-pack animation mappings for visible actors only."""
+        """Expose book-owned animation mappings for visible actors only."""
         selected_book = request.args.get("worldbook_id")
         try:
             catalogs = content_candidates(
@@ -81,10 +67,6 @@ def register(app, managers):
             )
         except ValueError:
             return jsonify({"variants": {}})
-        if selected_book is None:
-            local_catalog = content_root(doc_mgr._root) / "spine_variants.json"
-            if local_catalog.is_file():
-                catalogs.append((None, local_catalog))
         visible = {}
         for owner, catalog in catalogs:
             allowed = [selected_book] if selected_book is not None else None
@@ -114,36 +96,25 @@ def register(app, managers):
 
     @bp.route("/api/assets/<category>/<path:filename>", methods=["GET"])
     def serve_asset(category, filename):
-        import os as _os
         cat = doc_mgr.get_category(category)
         if not cat:
             return jsonify({"error": f"未知类别: {category}"}), 404
         selected_book = request.args.get("worldbook_id")
         category_key = _book_category_key(cat, project_root=doc_mgr._root)
-        if selected_book is not None and category_key is None:
+        if category_key is None:
             return jsonify({"error": "文件不存在"}), 404
-        if category_key is not None:
-            try:
-                candidates = content_candidates(
-                    f"{category_key}/{filename}",
-                    book_ids=[selected_book] if selected_book is not None else None,
-                    project_root=doc_mgr._root,
-                )
-            except ValueError:
-                return jsonify({"error": "无效的文件路径"}), 404
-            for _, path in candidates:
-                if (path.is_file() and (selected_book is None or is_content_visible(
-                        path, project_root=doc_mgr._root,
-                        allowed_book_ids=[selected_book]))):
-                    return send_from_directory(path.parent, path.name)
-            if selected_book is not None:
-                return jsonify({"error": "文件不存在"}), 404
-        filepath = _visible_category_path(cat, filename, project_root=doc_mgr._root)
-        if filepath is None or not filepath.is_file():
-            return jsonify({"error": "文件不存在"}), 404
-        directory = _os.path.dirname(filepath)
-        basename = _os.path.basename(filepath)
-        return send_from_directory(directory, basename)
+        try:
+            candidates = content_candidates(
+                f"{category_key}/{filename}",
+                book_ids=[selected_book] if selected_book is not None else None,
+                project_root=doc_mgr._root,
+            )
+        except ValueError:
+            return jsonify({"error": "无效的文件路径"}), 404
+        for _, path in candidates:
+            if path.is_file():
+                return send_from_directory(path.parent, path.name)
+        return jsonify({"error": "文件不存在"}), 404
 
     @bp.route("/api/assets/<category>/upload", methods=["POST"])
     def upload_asset(category):
@@ -174,20 +145,15 @@ def register(app, managers):
 
         selected_book = (request.form.get("worldbook_id") if "worldbook_id" in request.form
                          else request.args.get("worldbook_id"))
-        if selected_book is not None:
-            filepath = _book_asset_path(
-                cat, "/".join(part for part in (subdir, file.filename) if part),
-                project_root=doc_mgr._root, book_id=selected_book)
-            if filepath is None:
-                return jsonify({"error": "目标路径不可用"}), 403
-            target_dir = str(filepath.parent)
-            category_dir = book_directory(selected_book, doc_mgr._root) / _book_category_key(cat, project_root=doc_mgr._root)
-        else:
-            target_dir = _os.path.join(cat.directory, subdir) if subdir else cat.directory
-            category_dir = cat.directory
-            if _visible_category_path(cat, _os.path.join(subdir, file.filename), project_root=doc_mgr._root) is None:
-                return jsonify({"error": "目标路径不可用"}), 403
-            filepath = Path(target_dir) / file.filename
+        if not selected_book:
+            return jsonify({"error": "上传资源必须指定世界书"}), 400
+        filepath = _book_asset_path(
+            cat, "/".join(part for part in (subdir, file.filename) if part),
+            project_root=doc_mgr._root, book_id=selected_book)
+        if filepath is None:
+            return jsonify({"error": "目标路径不可用"}), 403
+        target_dir = str(filepath.parent)
+        category_dir = book_directory(selected_book, doc_mgr._root) / _book_category_key(cat, project_root=doc_mgr._root)
         _os.makedirs(target_dir, exist_ok=True)
         if _os.path.exists(filepath):
             return jsonify({"error": f"文件已存在: {file.filename}"}), 409
@@ -209,48 +175,27 @@ def register(app, managers):
     @bp.route("/api/assets/<category>/<path:filename>", methods=["DELETE"])
     def delete_asset(category, filename):
         """删除指定图片资产。"""
-        import os as _os
-
         cat = doc_mgr.get_category(category)
         if not cat:
             return jsonify({"error": f"未知类别: {category}"}), 404
 
         selected_book = request.args.get("worldbook_id")
-        if selected_book is not None:
-            filepath = _book_asset_path(cat, filename, project_root=doc_mgr._root,
-                                        book_id=selected_book)
-            if filepath is None:
-                return jsonify({"error": "无效的文件路径"}), 403
-            if not filepath.is_file():
-                return jsonify({"error": "文件不存在"}), 404
-            if filepath.suffix.lower() not in _IMAGE_EXTS:
-                return jsonify({"error": "不允许删除非图片文件"}), 403
-            filepath.unlink()
-            return jsonify({"message": "已删除", "path": f"{category}/{filename}"})
-
-        # 路径穿越防护
-        filepath = _os.path.join(cat.directory, filename.replace("\\", "/"))
-        real_base = _os.path.realpath(cat.directory)
-        real_file = _os.path.realpath(filepath)
-        if not real_file.startswith(real_base + _os.sep) and real_file != real_base:
+        if not selected_book:
+            return jsonify({"error": "删除资源必须指定世界书"}), 400
+        filepath = _book_asset_path(cat, filename, project_root=doc_mgr._root,
+                                    book_id=selected_book)
+        if filepath is None:
             return jsonify({"error": "无效的文件路径"}), 403
-
-        if not _os.path.isfile(filepath):
+        if not filepath.is_file():
             return jsonify({"error": "文件不存在"}), 404
-        if not is_content_visible(filepath, project_root=doc_mgr._root):
-            return jsonify({"error": "文件不存在"}), 404
-
-        ext = _os.path.splitext(filepath)[1].lower()
-        if ext not in _IMAGE_EXTS:
+        if filepath.suffix.lower() not in _IMAGE_EXTS:
             return jsonify({"error": "不允许删除非图片文件"}), 403
-
-        _os.remove(filepath)
+        filepath.unlink()
         return jsonify({"message": "已删除", "path": f"{category}/{filename}"})
 
     @bp.route("/api/assets/<category>/<path:entity>/default-image", methods=["GET"])
     def get_default_image(category, entity):
         """读取实体的默认头像/立绘设置。"""
-        import os as _os
         import frontmatter as _fm
 
         cat = doc_mgr.get_category(category)
@@ -262,8 +207,13 @@ def register(app, managers):
             index_md = _book_asset_path(cat, f"{entity}/index.md",
                                         project_root=doc_mgr._root, book_id=selected_book)
         else:
-            index_md = _visible_category_path(cat, _os.path.join(entity, "index.md"),
-                                              project_root=doc_mgr._root)
+            key = _book_category_key(cat)
+            try:
+                matches = content_candidates(f"{key}/{entity}/index.md",
+                                             project_root=doc_mgr._root) if key else []
+            except ValueError:
+                matches = []
+            index_md = matches[0][1] if matches else None
         if index_md is None or not index_md.is_file():
             return jsonify({"error": "实体不存在"}), 404
 
@@ -302,12 +252,10 @@ def register(app, managers):
             return jsonify({"error": f"未知类别: {category}"}), 404
 
         selected_book = request.args.get("worldbook_id")
-        if selected_book is not None:
-            index_md = _book_asset_path(cat, f"{entity}/index.md",
-                                        project_root=doc_mgr._root, book_id=selected_book)
-        else:
-            index_md = _visible_category_path(cat, _os.path.join(entity, "index.md"),
-                                              project_root=doc_mgr._root)
+        if not selected_book:
+            return jsonify({"error": "修改资源必须指定世界书"}), 400
+        index_md = _book_asset_path(cat, f"{entity}/index.md",
+                                    project_root=doc_mgr._root, book_id=selected_book)
         if index_md is None or not index_md.is_file():
             return jsonify({"error": "实体不存在"}), 404
 
@@ -411,13 +359,8 @@ def _list_entity_images(doc_mgr, *, book_id=None):
                 project_root=doc_mgr._root)
         except ValueError:
             continue
-        if book_id is None:
-            local_root = Path(cat.directory)
-            if local_root.is_dir():
-                roots.append((None, local_root))
-        book_paths = set()
         for owner, cat_dir in roots:
-            allowed = [owner] if owner else ([book_id] if book_id is not None else None)
+            allowed = [owner]
 
             def visible(path):
                 return (not Path(path).is_symlink() and is_content_visible(
@@ -430,7 +373,7 @@ def _list_entity_images(doc_mgr, *, book_id=None):
                 index_md = Path(root) / "index.md"
                 if index_md.is_file() and visible(index_md):
                     entity_name = Path(root).name
-                    source_book = owner or ""
+                    source_book = owner
                     try:
                         with index_md.open("r", encoding="utf-8") as fh:
                             meta = frontmatter.load(fh).metadata
@@ -461,13 +404,8 @@ def _list_entity_images(doc_mgr, *, book_id=None):
                             parts.append(inner_rel)
                         parts.append(name)
                         path_key = "/".join(parts)
-                        if owner is None and book_id is None and path_key in book_paths:
-                            continue
                         url = f"/api/assets/{quote(path_key, safe='/')}"
-                        if owner or book_id is not None:
-                            url += f"?worldbook_id={quote(owner or book_id, safe='')}"
-                        if owner is not None:
-                            book_paths.add(path_key)
+                        url += f"?worldbook_id={quote(owner, safe='')}"
                         images.append({
                             "name": name,
                             "path": path_key,

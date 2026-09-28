@@ -10,7 +10,6 @@ from flask import Flask
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import content_scope
 import data_paths
 import environment_state
 import session_overlay
@@ -49,12 +48,7 @@ def _book(root, book_id, relative, body):
 
 
 def _checkout(monkeypatch, root):
-    content = root / "data" / "worldbooks" / "content"
     monkeypatch.setattr(data_paths, "PROJECT_ROOT", root)
-    monkeypatch.setattr(content_scope, "CONTENT_ROOT", content)
-    monkeypatch.setattr(content_scope, "WORLDBOOKS_ROOT", content.parent)
-    monkeypatch.setattr(environment_state, "CONTENT_ROOT", content)
-    monkeypatch.setattr(environment_state, "_DEFAULT_ENV_DIR", str(content / "environment"))
     monkeypatch.setattr(environment_blueprint, "_REPO_ROOT", root)
     monkeypatch.setattr(session_overlay, "_PROJECT_ROOT", root)
 

@@ -18,21 +18,18 @@ from world_book import WorldBookEntry, WorldBookManager
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
-    content = tmp_path / "content"
-    chars = content / "characters"
-    chars.mkdir(parents=True)
     monkeypatch.setattr(data_paths, "PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr(avatar_color, "_CHARS_ROOT", chars)
+    monkeypatch.setattr(avatar_color, "_CHARS_ROOT", None)
+    manager = WorldBookManager(tmp_path / "data" / "worldbooks")
+    reference = manager.create_book("资料", book_type="reference")
+    story = manager.create_book("剧情")
+    chars = manager._path(reference.id).parent / "characters"
     source = chars / "amiya"
     (source / "avatar").mkdir(parents=True)
     (source / "skin").mkdir()
     (source / "index.md").write_text("---\nname: 阿米娅\n---\n角色设定。\n", encoding="utf-8")
     Image.new("RGBA", (2, 2), (20, 40, 80, 255)).save(source / "avatar" / "a.png")
     Image.new("RGBA", (2, 2), (80, 40, 20, 255)).save(source / "skin" / "s.png")
-    manager = WorldBookManager(tmp_path / "data" / "worldbooks")
-    reference = manager.create_book("资料", book_type="reference")
-    story = manager.create_book("剧情")
-    shutil.copytree(source, manager._path(reference.id).parent / "characters" / "amiya")
     reference.entries.append(WorldBookEntry(
         "amiya-entry", content="阿米娅的资料", name="阿米娅",
         category_id="characters", character_id="amiya", always_active=True))
@@ -65,16 +62,15 @@ def test_excerpt_copies_character_profile_and_images_into_book(setup):
     assert worldbook_media.decode_media_url(book.character_media[copied_id]["skin"])[0] == (copied / "skin" / "default.png").read_bytes()
 
 
-def test_explicit_local_avatar_does_not_select_same_named_book_character(setup):
+def test_explicit_book_avatar_has_no_unbound_local_fallback(setup):
     from blueprints.scene import register as register_scene
 
     manager, reference, _story, chars = setup
     book_avatar = manager._path(reference.id).parent / "characters" / "amiya" / "avatar" / "a.png"
     Image.new("RGBA", (2, 2), (255, 0, 0, 255)).save(book_avatar)
-    local_avatar = chars / "amiya" / "avatar" / "a.png"
-
     assert avatar_color.find_avatar_path("amiya", book_ids=[reference.id]) == str(book_avatar)
-    assert avatar_color.find_avatar_path("amiya", local_only=True) == str(local_avatar)
+    assert avatar_color.find_avatar_path("amiya", book_ids=[]) is None
+    assert avatar_color.find_avatar_path("amiya", local_only=True) is None
 
     app = Flask(__name__)
     register_scene(app, {
@@ -85,8 +81,8 @@ def test_explicit_local_avatar_does_not_select_same_named_book_character(setup):
     client = app.test_client()
     local = client.get("/api/characters/amiya/avatar?local_only=1")
     bound = client.get(f"/api/characters/amiya/avatar?worldbook_id={reference.id}")
-    assert local.status_code == bound.status_code == 200
-    assert local.data == local_avatar.read_bytes()
+    assert local.status_code == 404
+    assert bound.status_code == 200
     assert bound.data == book_avatar.read_bytes()
 
 
@@ -223,8 +219,7 @@ def test_stage_and_image_route_use_copied_book_media(setup, tmp_path):
     copied_id = manager.load(story.id).entries[0].character_id
     copied_skin = manager._path(story.id).parent / "characters" / copied_id / "skin" / "default.png"
     original_skin = copied_skin.read_bytes()
-    # Prove the HTTP image comes from the book snapshot, even if its global
-    # materialized copy later changes.
+    # The HTTP image remains the snapshot even if the book file later changes.
     Image.new("RGBA", (2, 2), (255, 0, 0, 255)).save(copied_skin)
 
     class Overlay:

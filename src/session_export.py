@@ -26,8 +26,7 @@ import zipfile
 from pathlib import Path
 from uuid import uuid4
 
-from data_paths import CONTENT_ROOT, MEMORY_ROOT, PROJECT_ROOT, installed_books_root
-from content_scope import is_content_visible
+from data_paths import MEMORY_ROOT, PROJECT_ROOT, installed_books_root
 from worldbook_content import resolve_content
 from world_book import WorldBook
 
@@ -35,8 +34,8 @@ logger = logging.getLogger(__name__)
 
 _REPO_ROOT = PROJECT_ROOT
 _SESSIONS_DIR = MEMORY_ROOT / "sessions"
-_CHARS_DIR = CONTENT_ROOT / "characters"
-_BG_ROOT = CONTENT_ROOT / "combat" / "backgrounds"
+_CHARS_DIR: Path | None = None  # Explicit test/custom roots only.
+_BG_ROOT: Path | None = None
 
 _FORMAT_VERSION = 1
 _SNAPSHOT_EXTS = {".md", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
@@ -78,8 +77,8 @@ def _parse_dependency_names(session_dir: Path) -> dict:
     return deps
 
 
-def _snapshot_source(relative: str, legacy_root: Path, book_ids: list[str]) -> Path | None:
-    """Resolve a bound book first, then a visible local resource."""
+def _snapshot_source(relative: str, book_ids: list[str], custom_root: Path | None = None) -> Path | None:
+    """Resolve a resource from a bound installed book."""
     name = relative.rsplit("/", 1)[-1]
     if name in (".", "..") or "/" in name or "\\" in name:
         return None
@@ -87,12 +86,13 @@ def _snapshot_source(relative: str, legacy_root: Path, book_ids: list[str]) -> P
         source = resolve_content(relative, book_ids=book_ids, project_root=_REPO_ROOT)
     except ValueError:
         return None
-    if source is not None:
-        return source if source.is_dir() else None
-    source = legacy_root / name
+    if source is not None and source.is_dir() and not source.is_symlink():
+        return source
+    if custom_root is None:
+        return None
+    source = custom_root / name
     if (source.is_symlink() or not source.is_dir()
-            or not source.resolve().is_relative_to(legacy_root.resolve())
-            or not is_content_visible(source, project_root=_REPO_ROOT)):
+            or not source.resolve().is_relative_to(custom_root.resolve())):
         return None
     return source
 
@@ -109,7 +109,7 @@ def _snapshot_character(name: str, snap_root: Path, book_ids: list[str]) -> None
     """快照角色卡 + 基础形象媒体到 snap_root/characters/<name>/。"""
     if not isinstance(name, str) or not name or "/" in name or "\\" in name:
         return
-    src = _snapshot_source(f"characters/{name}", _CHARS_DIR, book_ids)
+    src = _snapshot_source(f"characters/{name}", book_ids, _CHARS_DIR)
     if src is None:
         return
     dst = snap_root / "characters" / name
@@ -130,7 +130,7 @@ def _snapshot_background(bg_id: str, snap_root: Path, book_ids: list[str]) -> No
     """快照全局背景目录到 snap_root/backgrounds/<bg_id>/。"""
     if not isinstance(bg_id, str) or not bg_id or "/" in bg_id or "\\" in bg_id:
         return
-    src = _snapshot_source(f"combat/backgrounds/{bg_id}", _BG_ROOT, book_ids)
+    src = _snapshot_source(f"combat/backgrounds/{bg_id}", book_ids, _BG_ROOT)
     if src is None:
         return
     dst = snap_root / "backgrounds" / bg_id

@@ -1,10 +1,8 @@
 """
 Card pools per class — 战术卡单一真相源（design 方案 §10.1 / P0-4）。
 
-硬编码卡表已迁移到 data/classes/<职业>/cards.json：
+每本世界书的职业卡表位于 classes/<职业>/cards.json：
 - `get_cards_for_class` 从 JSON 读取（card_json_loader 缓存）；
-- 迁移前旧表快照见 perf_tests/fixtures/cards_python_snapshot.json，
-  等价性由 perf_tests/test_card_json_roundtrip.py 验证；
 - 卡牌编辑通过 blueprints/cards.py 写回 JSON，保存后调用
   card_json_loader.clear_cache() 刷新运行时缓存。
 
@@ -20,13 +18,14 @@ from combat_engine.card import Card
 from combat_engine.card_json_loader import load_class_cards
 
 
-def get_cards_for_class(char_class: str, *, book_ids: list[str] | None = None) -> list[Card]:
+def get_cards_for_class(char_class: str, *, book_ids: list[str] | None = None,
+                        data_dir=None) -> list[Card]:
     """Get all cards available to a given class (from the JSON source of truth)."""
-    return load_class_cards(char_class, book_ids=book_ids)
+    return load_class_cards(char_class, data_dir=data_dir, book_ids=book_ids)
 
 
 def get_starting_deck(char_class: str, count: int = 7,
-                      *, book_ids: list[str] | None = None) -> list[Card]:
+                      *, book_ids: list[str] | None = None, data_dir=None) -> list[Card]:
     """Draw a starting deck for a character.
 
     Returns all basic cards from the class pool, supplemented with
@@ -36,7 +35,7 @@ def get_starting_deck(char_class: str, count: int = 7,
     `add_player_unit` sets `card.owner`, which must not mutate the shared
     class pool or leak across characters.
     """
-    pool = get_cards_for_class(char_class, book_ids=book_ids)
+    pool = get_cards_for_class(char_class, book_ids=book_ids, data_dir=data_dir)
     basics = [copy.deepcopy(c) for c in pool if c.tier == "basic"]
     elites = [copy.deepcopy(c) for c in pool if c.tier == "elite"]
 

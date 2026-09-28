@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从 Ark-Models 导入角色/敌人 spine 到 data/worldbooks/content/characters/<名>/spine/<variant>/Front|Back/。
+"""从 Ark-Models 导入角色/敌人 spine 到指定世界书的 characters/<名>/spine/<variant>/Front|Back/。
 
 命名转换：Ark-Models 的 build_char_<key>.{atlas,png,skel} → <variant>.{atlas,png,skel}
 其中 variant 是前端 SPINE_VARIANT / ENEMY_SPINE_VARIANT 的值（char_ 前缀，# → _）。
@@ -7,12 +7,13 @@ Front 与 Back 共用同一套 skel（敌人用 Back 后由前端水平翻转）
 
 敌人来源为 Ark-Models 的 models_enemies/（模型自带 Idle/Attack/Die/Move 战斗动画）。
 """
+import argparse
+import json
 import os
 import subprocess
 import sys
 
 ARK_REPO = os.path.join("assets", "_ark_models_tmp")
-DEST = os.path.join("data", "worldbooks", "content", "characters")
 
 # 中文名 → (Ark-Models key, 前端 variant 名)
 MAPPING = {
@@ -68,7 +69,7 @@ def get_prefix(src_dir: str, ark_key: str) -> str:
     raise RuntimeError(f"目录中找不到 .skel: {ark_key}")
 
 
-def import_one(src_dir: str, cn: str, ark_key: str, variant: str) -> None:
+def import_one(src_dir: str, cn: str, ark_key: str, variant: str, dest_root: str) -> None:
     prefix = get_prefix(src_dir, ark_key)
     for ext in (".atlas", ".png", ".skel"):
         rel = f"{src_dir}/{ark_key}/{prefix}{ext}"
@@ -78,29 +79,38 @@ def import_one(src_dir: str, cn: str, ark_key: str, variant: str) -> None:
             text = text.replace(f"{prefix}.png", f"{variant}.png")
             data = text.encode("utf-8")
         for d in ("Front", "Back"):
-            outdir = os.path.join(DEST, cn, "spine", variant, d)
+            outdir = os.path.join(dest_root, cn, "spine", variant, d)
             os.makedirs(outdir, exist_ok=True)
             with open(os.path.join(outdir, f"{variant}{ext}"), "wb") as f:
                 f.write(data)
 
 
 def main():
-    """用法: python tools/import_spine.py [enemies|operators|all]（默认 enemies）"""
-    group = sys.argv[1] if len(sys.argv) > 1 else "enemies"
+    """用法: python tools/import_spine.py --book-folder PATH [enemies|operators|all]。"""
+    parser = argparse.ArgumentParser(description="导入 Spine 到指定世界书")
+    parser.add_argument("--book-folder", required=True, help="含 book.json 的完整世界书文件夹")
+    parser.add_argument("group", nargs="?", choices=("enemies", "operators", "all"), default="enemies")
+    args = parser.parse_args()
+    folder = os.path.abspath(args.book_folder)
+    try:
+        with open(os.path.join(folder, "book.json"), encoding="utf-8") as f:
+            book = json.load(f)
+    except (OSError, ValueError) as exc:
+        parser.error(f"无效世界书文件夹（无法读取 book.json）：{exc}")
+    if not os.path.isdir(folder) or not isinstance(book, dict) or book.get("id") != os.path.basename(folder):
+        parser.error("book.json 的 id 必须与世界书文件夹名一致")
+    group = args.group
+    dest_root = os.path.join(folder, "characters")
     jobs = []
     if group in ("operators", "all"):
         jobs += [("models", cn, key, var) for cn, (key, var) in MAPPING.items()]
     if group in ("enemies", "all"):
         jobs += [("models_enemies", cn, key, var) for cn, (key, var) in ENEMY_MAPPING.items()]
-    if not jobs:
-        print(f"未知分组: {group}（可选 enemies / operators / all）")
-        return
-
     ok = 0
     fail = 0
     for src_dir, cn, ark_key, variant in jobs:
         try:
-            import_one(src_dir, cn, ark_key, variant)
+            import_one(src_dir, cn, ark_key, variant, dest_root)
             print(f"OK {cn} -> {variant}")
             ok += 1
         except Exception as e:

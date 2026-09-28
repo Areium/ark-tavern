@@ -12,7 +12,6 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from blueprints import cards as cards_bp
 from combat_engine import card_json_loader
-import content_scope
 import data_paths
 
 
@@ -29,34 +28,15 @@ def _card(name):
 @pytest.fixture
 def scoped_cards(tmp_path, monkeypatch):
     books = tmp_path / "data" / "worldbooks"
-    content = books / "content"
-    classes = content / "classes"
-    chars = content / "characters"
     installed = books / "books" / "owner"
-    for base in (classes, chars):
-        (base / "Owned").mkdir(parents=True)
-        (base / "Custom").mkdir()
-    _write_json(classes / "Owned" / "cards.json", {"cards": [_card("Owned card")]})
-    _write_json(classes / "Custom" / "cards.json", {"cards": [_card("Custom card")]})
-    _write_json(chars / "Owned" / "combat.json", {"exclusive_cards": [_card("Owned card")]})
-    _write_json(chars / "Custom" / "combat.json", {"exclusive_cards": [_card("Custom card")]})
-    _write_json(books / "content_manifest.json", {
-        "directories": {"classes/Owned/": ["owner"], "characters/Owned/": ["owner"]},
-        "files": {},
-    })
-    (installed / "classes" / "Owned").mkdir(parents=True)
-    (installed / "characters" / "Owned").mkdir(parents=True)
+    classes = installed / "classes"
+    chars = installed / "characters"
+    (classes / "Owned").mkdir(parents=True)
+    (chars / "Owned").mkdir(parents=True)
     _write_json(installed / "book.json", {"id": "owner", "enabled": False})
     _write_json(installed / "classes" / "Owned" / "cards.json", {"cards": [_card("Owned card")]})
     _write_json(installed / "characters" / "Owned" / "combat.json", {"exclusive_cards": [_card("Owned card")]})
     monkeypatch.setattr(data_paths, "PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr(content_scope, "CONTENT_ROOT", content)
-    monkeypatch.setattr(content_scope, "WORLDBOOKS_ROOT", books)
-    monkeypatch.setattr(cards_bp, "CONTENT_ROOT", content)
-    monkeypatch.setattr(cards_bp, "CLASS_DIR", classes)
-    monkeypatch.setattr(cards_bp, "CHAR_DIR", chars)
-    monkeypatch.setattr(card_json_loader, "CONTENT_ROOT", content)
-    monkeypatch.setattr(card_json_loader, "_CLASS_DIR", classes)
     card_json_loader.clear_cache()
     app = Flask(__name__)
     cards_bp.register(app, {})
@@ -67,12 +47,11 @@ def scoped_cards(tmp_path, monkeypatch):
 
 def test_card_api_filters_lists_tree_and_direct_reads(scoped_cards):
     client, installed, _, _ = scoped_cards
-    assert client.get("/api/cards").json["characters"] == ["Custom"]
-    assert client.get("/api/cards/classes").json["classes"] == ["Custom"]
-    assert client.get("/api/cards/tree").json["classes"] == ["Custom"]
+    assert client.get("/api/cards").json["characters"] == []
+    assert client.get("/api/cards/classes").json["classes"] == []
+    assert client.get("/api/cards/tree").json["classes"] == []
     assert client.get("/api/cards/Owned").status_code == 404
     assert client.get("/api/cards/classes/Owned").status_code == 404
-    assert client.get("/api/cards/classes/Custom").status_code == 200
 
     _write_json(installed / "book.json", {"id": "owner", "enabled": True})
     assert client.get("/api/cards/Owned").status_code == 200
@@ -107,7 +86,7 @@ def test_card_api_rejects_hidden_writes_and_escaping_names(scoped_cards):
     assert client.delete("/api/cards/classes/Owned/cards/new").status_code == 404
 
 
-def test_runtime_cache_evicts_disabled_book_and_custom_data_dir_works(scoped_cards, tmp_path):
+def test_runtime_cache_evicts_disabled_book(scoped_cards):
     _, installed, classes, _ = scoped_cards
     assert card_json_loader.load_class_cards("Owned") == []
     _write_json(installed / "book.json", {"id": "owner", "enabled": True})
@@ -120,8 +99,3 @@ def test_runtime_cache_evicts_disabled_book_and_custom_data_dir_works(scoped_car
     _write_json(installed / "book.json", {"id": "owner", "enabled": True})
     assert card_json_loader.load_class_cards("Owned")[0].name == "Reenabled card"
     assert card_json_loader.load_class_cards("..") == []
-
-    fixture_dir = tmp_path / "fixture_classes"
-    (fixture_dir / "Fixture").mkdir(parents=True)
-    _write_json(fixture_dir / "Fixture" / "cards.json", {"cards": [_card("Fixture card")]})
-    assert card_json_loader.load_class_cards("Fixture", fixture_dir)[0].name == "Fixture card"

@@ -7,7 +7,7 @@
 
 ## 1. 系统概述
 
-Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世界观来自用户选择的世界书与角色内容；《明日方舟》是可选导入内容，不是运行前提。新会话默认空白环境、主控称谓为「玩家」；没有会话绑定世界书时，世界书解析为空，启动时不自动安装内容包（旧版已安装副本保留给用户管理）。主要能力：
+Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世界观来自用户选择的世界书与角色内容；《明日方舟》是可选导入内容，不是运行前提。新会话默认空白环境、主控称谓为「玩家」；没有会话绑定世界书时，世界书解析为空，启动时不自动安装用户内容。主要能力：
 
 - **剧情模式** — LLM 驱动叙事 + 选项 + 记忆 + 环境
 - **自由模式** — 沙盒角色交互
@@ -58,7 +58,7 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
   **书用途 `book_type`**：`story`（剧情世界书，可绑定会话并参与解析）| `reference`（资料库，只供浏览、检索与摘录）。当前内部 schema 要求显式提供该字段；外部 SillyTavern 导入未声明用途时归一化为 `story`。`resolve()` 排除 `reference`，未绑定会话不注入；`excerpt_entries()` 提供整批原子摘录（新 UID、来源不被修改、保留 `excerpt_source` 可追溯来源）。详见 `docs/design/worldbook/worldbook-library.md`。
 - `node_lore_scope.py` — 节点级世界书动态载入：书内一条永不注入的 `lore_bindings` 条目（围栏 JSON + extensions 标记）声明「目标 → 条目」绑定；`resolve_scope` 在剧情树节点落盘时把作用域冻结进 `story_tree.nodes[].state.lore_scope`（随回档走），注入时 `eligible_uids_for` 做「会话范围 ∩ 节点作用域」窄化白名单。书内无绑定条目或自由模式时关闭。详见 `docs/design/worldbook/node-scoped-worldbook-loading.md`。
 - `worldbook_scope.py` — 当前内部世界书只接受 **schema v3 + selective**：分类与载入规则分离，全书使用一张有向图；起点由 `activation`（always / roster_any / manual）× `expansion`（none / requires_closure）描述，`requires` 参与闭包遍历、`related` 只供浏览，环可终止并回报交叉引用，闭包超限报错而非静默截断。`world_book.py` 提供估算预览和不可变规则版本历史（`policy_revisions`，会话绑定完整规则版本而不只是版本号），两个 prompt 入口均过滤候选。SillyTavern Lorebook v1/v2 与角色卡只作为外部导入格式，导入时直接归一化为当前内部 v3。详见 `docs/design/worldbook/worldbook-on-demand.md`。
-- `worldbook_classify.py` — 条目自动分类：只认 uid 生成器前缀 / `group` 字段 / 名称括号后缀三类显式线索（取值为白名单，识别不出就不分类），产出分类树、条目归属与 `characters_<角色目录名>_index` → 角色关联。**不改变载入模式**：`from_dict` 只在分类形同未分类时对预装包自动补齐，其余走用户显式的「自动分类」。详见 `docs/design/worldbook/worldbook-on-demand.md`。
+- `worldbook_classify.py` — 条目自动分类：只认 uid 生成器前缀 / `group` 字段 / 名称括号后缀三类显式线索（取值为白名单，识别不出就不分类），产出分类树、条目归属与 `characters_<角色目录名>_index` → 角色关联。**不改变载入模式**：`from_dict` 对尚未分类的条目补齐分类信息，其余走用户显式的「自动分类」。详见 `docs/design/worldbook/worldbook-on-demand.md`。
 - `memory.py` — `VectorMemory`：最近轮次滑动窗口 + ChromaDB 语义搜索，持久化于 `data/memory/`（gitignored）。
 
 > **2026-09 变更（世界书工作台重构）**：世界书依赖的「AI 自动构建」整条链路已移除——构建内核（原 `worldbook_builder.py` / `worldbook_builder_plan.py` / `worldbook_reading.py`）、`dependency-proposals` 系列接口、前端构建面板与会话侧 AI 微调一并删除，两篇专项设计归档到 `docs/archive/`。见 `docs/proposals/worldbook-workbench-redesign.md` §2.4。
@@ -101,7 +101,7 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 
 剧情树（LLM 生成节点）的两层验证：`tests/test_story_tree_full_flow.py`（脚本化 LLM 驱动 narrate-continue 全链路的确定性完整流程用例）与 `scripts/verify_llm_node_generation.py`（真实 LLM 端到端冒烟，需 `config/llm_config.json`，输出可行性报告至 `.tmp/`）。
 
-**剧情树节点种类与参考大纲**（`session_overlay.py`）：树节点带 `kind`（`plot` 剧情节点 = 入口 / 章节切换 / 偏离分支线起点，`beat` 节拍节点 = 章节内推进，`combat` 战斗节点 = 本轮触发战斗时挂在叙述节点下、`combat_node_id` 指向注册表）与 `ref_chapter_id` / `ref_beat_id`（落盘时所处的参考章节 / 节拍）。没有 `## 章节 N` 骨架的剧情（如「彼岸双生」）在会话创建时用参考大纲（书内 LLM 大纲 > 启发式切幕）代替节拍骨架（`init_session_docs(plot_id, outline=…)`，大纲副本存 `story_outline`）；`<current_node>` 列出当前参考节拍 / `must_keep` / 后续候选节拍 id，玩家选带落点的分支时在叙述前就 `jump_to_beat`（`chat._apply_branch_landing`）；大纲节拍的 `min_rounds` 阻止 `beat_complete` 一轮一推。战术模式下 Call 2 选中的现成节点若不属于本剧情 / 本书（别的世界观的通用遭遇），且有 `combat_scene`，改为现场生成绑定节点（`chat._resolve_combat_scene`）。**偏离检测**：每 `deviation_check_interval` 轮（默认 4）把参考走向与 plot_log / 节点链交给 Call 3，`confidence ≥ deviation_confidence_threshold`（默认 0.6）且给出 branch 时 `apply_deviation_result` 追加 kind=branch 章节、跳到其首节拍、在树上开出待填充的偏离节点（`/story-state` 的 `outline` / `deviation` 字段可见；`POST /sessions/<id>/deviation-check` 手动触发）。接口：`GET/POST/DELETE /api/worldbooks/<book>/story-outline`（`blueprints/story.py`，POST 可选 `mode=llm|heuristic`、`generate_combat`）。验证：`tests/test_story_outline.py`、`tests/test_story_generation_beyond_twin.py`（脚本化 LLM）、`scripts/verify_beyond_twin_generation.py`（真实 LLM 冒烟，写临时目录）。
+**剧情树节点种类与参考大纲**（`session_overlay.py`）：树节点带 `kind`（`plot` 剧情节点 = 入口 / 章节切换 / 偏离分支线起点，`beat` 节拍节点 = 章节内推进，`combat` 战斗节点 = 本轮触发战斗时挂在叙述节点下、`combat_node_id` 指向注册表）与 `ref_chapter_id` / `ref_beat_id`（落盘时所处的参考章节 / 节拍）。没有 `## 章节 N` 骨架的剧情在会话创建时用参考大纲（书内 LLM 大纲 > 启发式切幕）代替节拍骨架（`init_session_docs(plot_id, outline=…)`，大纲副本存 `story_outline`）；`<current_node>` 列出当前参考节拍 / `must_keep` / 后续候选节拍 id，玩家选带落点的分支时在叙述前就 `jump_to_beat`（`chat._apply_branch_landing`）；大纲节拍的 `min_rounds` 阻止 `beat_complete` 一轮一推。战术模式下 Call 2 选中的现成节点若不属于本剧情 / 本书，且有 `combat_scene`，改为现场生成绑定节点（`chat._resolve_combat_scene`）。**偏离检测**：每 `deviation_check_interval` 轮（默认 4）把参考走向与 plot_log / 节点链交给 Call 3，`confidence ≥ deviation_confidence_threshold`（默认 0.6）且给出 branch 时 `apply_deviation_result` 追加 kind=branch 章节、跳到其首节拍、在树上开出待填充的偏离节点（`/story-state` 的 `outline` / `deviation` 字段可见；`POST /sessions/<id>/deviation-check` 手动触发）。接口：`GET/POST/DELETE /api/worldbooks/<book>/story-outline`（`blueprints/story.py`，POST 可选 `mode=llm|heuristic`、`generate_combat`）。验证：`tests/test_story_outline.py`。
 
 ---
 
@@ -132,7 +132,7 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 
 ### 3.4 管理页
 
-- `components/CharacterManager.tsx` — 「角色」页（模块页签：**角色库 / 玩家身份 / 资产 / 卡牌**；页签状态 `characterTab` 在 store）。**角色详情内再分四个页签：资料 / 数值 / 资产 / 卡牌**（`CHARACTER_DETAIL_TABS`）——「数值」是 `roles/CharacterStatsEditor.tsx`（按所属世界书的统一字段编辑角色全局值，写 frontmatter `stats`），「资产」是 `roles/CharacterAssets.tsx`（只看这个角色的头像 / 立绘 / 卡面，上传直接落到子目录因此可设默认），「卡牌」内嵌 `combat/CardEditor`；详情页头的「编辑战斗卡牌」切到本角色的卡牌页签。共用的数值表单是 `roles/StatValuesForm.tsx`（分组 / 来源标记 / 自定义键）：角色库浏览与角色卡导入、玩家身份维护；**资产（`AssetManager.tsx`）与卡牌（`CardManager.tsx`）由已删除的「内容中心」一级入口并入本页**，节点图并入世界书工作台的「节点图」页签（`components/combat/PlotGraphPage.tsx`，整页画布）；文档管理入口早已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为通用资料库与独立剧情书，分发源位于 `data/worldbooks/packs/`，浏览与编辑走世界书模块；后端 `document_manager.py` + `blueprints/documents.py` 仍在
+- `components/CharacterManager.tsx` — 「角色」页（模块页签：**角色库 / 玩家身份 / 资产 / 卡牌**；页签状态 `characterTab` 在 store）。**角色详情内再分四个页签：资料 / 数值 / 资产 / 卡牌**（`CHARACTER_DETAIL_TABS`）——「数值」是 `roles/CharacterStatsEditor.tsx`（按所属世界书的统一字段编辑角色全局值，写 frontmatter `stats`），「资产」是 `roles/CharacterAssets.tsx`（只看这个角色的头像 / 立绘 / 卡面，上传直接落到子目录因此可设默认），「卡牌」内嵌 `combat/CardEditor`；详情页头的「编辑战斗卡牌」切到本角色的卡牌页签。共用的数值表单是 `roles/StatValuesForm.tsx`（分组 / 来源标记 / 自定义键）：角色库浏览与角色卡导入、玩家身份维护；**资产（`AssetManager.tsx`）与卡牌（`CardManager.tsx`）由已删除的「内容中心」一级入口并入本页**，节点图并入世界书工作台的「节点图」页签（`components/combat/PlotGraphPage.tsx`，整页画布）；文档管理入口已移除。世界书和资源由用户导入或复制完整书文件夹管理，项目不再内置语料分发流程；后端 `document_manager.py` + `blueprints/documents.py` 仍在
 - `components/AssetManager.tsx` — 资产目录：图片上传/裁剪/默认图，实体显示上级目录与来源世界书（frontmatter `worldbook_id`）；分组维度「按类别（默认）/ 按世界书」并列，来源选择由两个维度的控件共用同一份 `bookFilter`（按类别维度下来源下拉只做筛选、仍按类别分组，不再切成按书分组——那与「按世界书」维度是同一件事）；工具栏只有一个「折叠 / 展开」，作用于当前可见的实体
 - `components/CardManager.tsx` — 卡牌管理：角色/职业卡牌编辑（CardEditor，embedded 模式下不再重复渲染实体标题），条目显示所属世界书；名称搜索；分组维度「按类型（默认）/ 按世界书」并列；工具栏只有一个「折叠 / 展开」，作用于当前维度的一级分组
 - **角色页共用控件与字体语言** — `components/roles/RoleWidgets.tsx`（面板页头 `PanelHeader` / 来源徽章 `SourceBookBadge` / 工具栏图标按钮 / 折叠按钮 / 搜索框 / 操作按钮 / 空状态 / 来源世界书下拉）+ `components/roles/EntityAvatar.tsx`（无头像时按名称取色的首字色块，取色规则与对话页 `chat/AvatarPlaceholder` 一致）+ `styles/roles.css`（衬线标题 + Orbitron 眉标，与世界书工作台同源；色值全部取 `--ng-*` 令牌，随明暗与皮肤切换，Tailwind 颜色工具类照旧由 `scripts/gen_skin_utils.py` 生成皮肤覆盖）
@@ -169,9 +169,9 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 
 数据布局见 `data/README.md`：已安装书以 `data/worldbooks/books/<id>/` 为单位，
 `book.json` 与角色、剧情、战斗、音频等资源在同一目录。运行时按会话绑定书籍顺序定位资源；
-复制完整文件夹到 `books/` 后刷新书架即可导入。`data/worldbooks/content/` 与
-`content_manifest.json` 只作为分发安装和一次性迁移的归属清单；可选离线包在 `packs/`，运行时不读取旧书共享资源。
-统一路径由 `src/data_paths.py` 定义。应用内导入酒馆 JSON/JSONL 时自动创建独立书文件夹。
+复制完整文件夹到 `books/` 后刷新书架即可导入。项目不分发共享内容目录或预装内容包；
+新检出的项目书架为空，`books/` 是忽略的本地数据目录。统一路径由 `src/data_paths.py` 定义。
+应用内导入酒馆 JSON/JSONL 时自动创建独立书文件夹。
 
 
 战斗内容工具（`tools/`）：
@@ -182,7 +182,6 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 | `simulate_battle.py` | 固定种子试跑 + 阈值判定 |
 | `generate_battle_spec.py` | 按阶段带程序化生成合法战斗 |
 | `balance_audit.py` | 敌人分层/XP 单调性/节点预算审计 |
-| `metric_migration_report.py` | 度量迁移前后对照 |
 
 生成流程与硬性约束见 skill `combat-designer`，规格说明见 `docs/design/combat/battle-spec.md`。
 
@@ -254,7 +253,7 @@ docs/
 |---|---|
 | `combat-core-design.md` | 章节战斗化改造方案，已实现；「7×7 网格不改」条款已作废 |
 | `redundancy-scan-2026-09-12.md` | 代码冗余扫描报告；其建议已全部落地（死代码删除、导入清理等），结论见当时提交 |
-| `2026-08-06-fengxue-guojing-plan.md`、`2026-08-06-fengxue-guojing-design.md` | 「风雪过境」剧情的实现计划与设计稿；剧情已随程序分发，且文中 `data/worldbooks/content/combat/encounters/*.md` + 7×7 网格结构已被 JSON 节点 + 自由尺寸取代 |
+| `2026-08-06-fengxue-guojing-plan.md`、`2026-08-06-fengxue-guojing-design.md` | 「风雪过境」剧情的历史设计稿；旧共享内容已移除，文中的 Markdown 遭遇与 7×7 网格也早已被 JSON 节点和自由尺寸取代 |
 | `combat-embedding.html` | 战斗嵌入剧情的讲解图；引用了已删除的 `tests/test_combat_trigger.py` 与作废的 7×7 口径（其「数值权威在引擎、模型零数值授权」原则仍有效，见 `design/combat/combat-design.md`） |
 | `architecture.html`、`architecture.architecture.json` | 由外部工具 archify 2.16.0 导出的架构图（与边车源文件，需同去同留）；内容停留在 2026-09-05，且 96% 体积是 vendored viewer 运行时。**重新生成不是本仓库的构建步骤**，架构现状见本文件。**已加入 `.gitignore`、不再入库**（本地/历史提交里仍有），因此新克隆的仓库里看不到这两个文件 |
 | `rag-retrieval.html`、`two-phase-narration.html` | 上述两篇讲解图的原 HTML；内容已转为等价的 `design/narrative/rag-retrieval.md` / `design/narrative/two-phase-narration.md` 并补上新机制 |

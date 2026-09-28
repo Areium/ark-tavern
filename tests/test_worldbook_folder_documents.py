@@ -31,15 +31,12 @@ def library(tmp_path):
     data = tmp_path / "data"
     data.mkdir()
     (data / "categories.yaml").write_text(
-        "categories:\n  characters: data/worldbooks/content/characters/\n",
+        "categories:\n  characters: characters/\n",
         encoding="utf-8",
     )
     first, first_doc = _book(tmp_path, "a_first", "first body")
     second, second_doc = _book(tmp_path, "b_second", "second body")
     _book(tmp_path, "c_disabled", "disabled body", enabled=False)
-    legacy = data / "worldbooks" / "content" / "characters" / "Legacy"
-    legacy.mkdir(parents=True)
-    (legacy / "index.md").write_text("legacy body", encoding="utf-8")
     return tmp_path, first, first_doc, second, second_doc
 
 
@@ -49,7 +46,6 @@ def test_folder_documents_are_listed_with_real_owner_and_precedence(library):
     docs = {entry["id"]: entry for entry in manager.list_documents("characters")}
     assert docs["Hero"]["worldbook_id"] == "a_first"
     assert docs["Hero"]["hash"] == manager._hash_file(str(first_doc))
-    assert docs["Legacy"]["worldbook_id"] == ""
     assert "c_disabled" not in {entry["worldbook_id"] for entry in docs.values()}
     assert manager.read_document("characters", "Hero")["content"] == "first body"
     assert manager.read_document("characters", "Hero", book_id="b_second")["content"] == "second body"
@@ -67,7 +63,6 @@ def test_save_existing_folder_document_stays_in_book(library):
     assert manager.read_document("characters", "Hero")["content"] == "updated"
     assert "updated" in first_doc.read_text(encoding="utf-8")
     assert "second body" in second_doc.read_text(encoding="utf-8")
-    assert not (root / "data" / "worldbooks" / "content" / "characters" / "Hero").exists()
 
 
 def test_wiki_refresh_tracks_new_modified_and_disabled_book_files(library):
@@ -98,7 +93,6 @@ def test_wiki_scoped_catalog_obeys_binding_order_and_empty_binding(library):
     assert global_wiki.get_document("characters", "Hero") == "first body"
     assert second_only.get_document("characters", "Hero") == "second body"
     assert reversed_books.get_document("characters", "Hero") == "second body"
-    assert second_only.get_document("characters", "Legacy") == ""
     assert empty.get_document("characters", "Hero") == ""
     assert empty.query("Hero").startswith("（wiki_query: 未找到")
 
@@ -163,18 +157,8 @@ def test_document_api_selects_duplicate_book_and_writes_only_that_book(library):
     assert client.get("/api/documents/characters/Hero?worldbook_id=a_first").status_code == 200
 
 
-def test_entities_hide_legacy_owned_content_and_refresh_book_state(library):
+def test_entities_refresh_book_state(library):
     root, first, _, _, _ = library
-    books = root / "data" / "worldbooks"
-    (books / "content_manifest.json").write_text(json.dumps({
-        "directories": {"characters/Legacy/": ["old_flat_book"]},
-        "files": {},
-    }), encoding="utf-8")
-    local = books / "content" / "characters" / "Custom"
-    local.mkdir()
-    (local / "index.md").write_text(
-        "---\nname: Local author\n---\nlocal body", encoding="utf-8")
-
     app = Flask(__name__)
     documents.register(app, {
         "document": DocumentManager(str(root)), "wiki": WikiManager(str(root)),
@@ -184,9 +168,8 @@ def test_entities_hide_legacy_owned_content_and_refresh_book_state(library):
 
     entries = client.get("/api/entities").get_json()["characters"]
     assert [(entry["id"], entry["worldbook_id"]) for entry in entries] == [
-        ("Hero", "a_first"), ("Hero", "b_second"), ("Custom", ""),
+        ("Hero", "a_first"), ("Hero", "b_second"),
     ]
-    assert all("Legacy" != entry["id"] for entry in entries)
 
     (first / "book.json").write_text(json.dumps({
         "id": "a_first", "enabled": False,
@@ -194,7 +177,7 @@ def test_entities_hide_legacy_owned_content_and_refresh_book_state(library):
     # A second request must not return the disabled book from a 30-second cache.
     entries = client.get("/api/entities").get_json()["characters"]
     assert [(entry["id"], entry["worldbook_id"]) for entry in entries] == [
-        ("Hero", "b_second"), ("Custom", ""),
+        ("Hero", "b_second"),
     ]
 
 
@@ -204,17 +187,9 @@ def test_index_overview_and_export_use_visible_books(library, monkeypatch):
         "---\nname: First Hero\n---\nfirst body", encoding="utf-8")
     (second / "characters" / "Hero" / "index.md").write_text(
         "---\nname: Second Hero\n---\nsecond body", encoding="utf-8")
-    books = root / "data" / "worldbooks"
-    (books / "content_manifest.json").write_text(json.dumps({
-        "directories": {"characters/Legacy/": ["old_flat_book"]},
-        "files": {},
-    }), encoding="utf-8")
     side = second / "characters" / "Side.md"
     side.write_text("---\nname: Side story\nimports:\n- characters/Hero\n---\nSide body",
                     encoding="utf-8")
-    custom = books / "content" / "characters" / "Custom"
-    custom.mkdir()
-    (custom / "index.md").write_text("local body", encoding="utf-8")
 
     manager = DocumentManager(str(root))
     monkeypatch.setattr(index_blueprint, "_DATA_ROOT", str(root / "data"))
@@ -228,12 +203,11 @@ def test_index_overview_and_export_use_visible_books(library, monkeypatch):
     overview = client.get("/api/index/overview").get_json()
     chars = next(group["docs"] for group in overview["categories"]
                  if group["category"] == "characters")
-    assert {entry["id"] for entry in chars} == {"Hero", "Side", "Custom"}
+    assert {entry["id"] for entry in chars} == {"Hero", "Side"}
     assert next(entry for entry in chars if entry["id"] == "Hero")["name"] == "First Hero"
     assert next(entry for entry in chars if entry["id"] == "Side")["imports"] == [
         {"path": "characters/Hero", "name": "First Hero"},
     ]
-    assert "Legacy" not in client.get("/api/index/export").get_json()["yaml"]
     assert "Side" in client.get("/api/index/export").get_json()["yaml"]
 
     (first / "book.json").write_text(json.dumps({
@@ -242,8 +216,7 @@ def test_index_overview_and_export_use_visible_books(library, monkeypatch):
     refreshed = client.get("/api/index/overview").get_json()
     chars = next(group["docs"] for group in refreshed["categories"]
                  if group["category"] == "characters")
-    assert {entry["id"] for entry in chars} == {"Hero", "Side", "Custom"}
+    assert {entry["id"] for entry in chars} == {"Hero", "Side"}
     assert next(entry for entry in chars if entry["id"] == "Hero")["name"] == "Second Hero"
-    assert "Legacy" not in str(refreshed)
     exported = client.get("/api/index/export").get_json()["yaml"]
     assert "Second Hero" in exported and "First Hero" not in exported

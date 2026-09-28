@@ -72,6 +72,17 @@ def adopt_v3(client, roots=None, **extra):
     return response
 
 
+def test_pack_routes_are_removed_and_book_detail_has_no_pack_fields(api):
+    client, _, _ = api
+    assert client.get("/api/worldbook/available-packs").status_code == 404
+    assert client.post("/api/worldbook/available-packs/book/install").status_code == 404
+    assert client.post("/api/worldbook/book/reinstall").status_code == 404
+    detail = client.get("/api/worldbook/book")
+    assert detail.status_code == 200
+    assert "source" not in detail.json
+    assert "is_preinstalled" not in detail.json
+
+
 # ── 统一配置写入 ──
 
 def test_put_configuration_applies_v3_rules_atomically(api):
@@ -395,11 +406,9 @@ def test_old_entry_route_and_configuration_share_transaction_lock(api, monkeypat
     assert any(r['entry_uid']=='tech' for r in stored.dependency_rules['roots'])
 
 
-def test_preinstalled_ordinary_save_preserves_candidates(api):
+def test_ordinary_save_preserves_candidates(api):
     client, manager, _ = api
     original = manager.load("book")
-    original.source = "preinstalled"
-    manager.save(original)
     before = original.resolve_v3_import_scope([])["resolved_entry_uids"]
     response = client.put("/api/worldbook/book/configuration", json={
         "expected_revision": original.import_config["revision"],

@@ -703,14 +703,10 @@ export interface WorldBookSummary {
   description?: string;
   cover_image?: string;
   source_format: string;
-  /** 来源：preinstalled（预装整合包）/ imported（用户导入）——统一管理，均可编辑 */
-  source: "preinstalled" | "imported";
   /** 用途：剧情世界书 / 资料库（当前内部 schema 必填） */
   book_type: WorldBookType;
   /** `book_type === "reference"` 的便捷标记 */
   is_reference?: boolean;
-  /** 是否存在分发源（预装包可一键重装还原） */
-  is_preinstalled: boolean;
   /** 书级启用开关，停用不参与解析 */
   enabled: boolean;
   budget_tokens: number;
@@ -1237,7 +1233,7 @@ export interface BattleMapDTO {
   };
 }
 
-/** 战斗节点 JSON（与后端 data/worldbooks/content/combat/nodes/<id>.json 一一对应） */
+/** 战斗节点 JSON（与所属书内 combat/nodes/<id>.json 一一对应） */
 export interface BattleNodeDTO {
   schema_version?: number;
   node_id: string;
@@ -1291,7 +1287,7 @@ export interface BattleNodeOverviewDTO {
   missing?: boolean;
 }
 
-/** 节点图剧情节拍（来自 data/worldbooks/content/plots/<id>/index.md 的叙述区，或参考大纲） */
+/** 节点图剧情节拍（来自所属书内 plots/<id>/index.md 的叙述区，或参考大纲） */
 export interface PlotFlowBeatDTO {
   id: string;
   /** 大纲节拍的标题；正文 `#### beat_id` 骨架没有标题时为空串 */

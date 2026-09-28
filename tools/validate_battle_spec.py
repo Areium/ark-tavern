@@ -2,7 +2,7 @@
 
 用法::
 
-    python3 tools/validate_battle_spec.py spec.json          # 单个节点
+    python3 tools/validate_battle_spec.py spec.json --book-folder PATH  # 单个节点
     python3 tools/validate_battle_spec.py specs/*.json       # 批量
     python3 tools/validate_battle_spec.py spec.json --json    # 机器可读输出
     cat spec.json | python3 tools/validate_battle_spec.py -   # 从 stdin
@@ -49,6 +49,8 @@ def _load_specs(paths: list[str]) -> list[tuple[str, dict]]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("paths", nargs="+", help="规格 JSON 路径（- 表示 stdin）")
+    ap.add_argument("--book-folder", type=Path,
+                    help="含 book.json 的完整世界书文件夹；校验引用的敌人时使用")
     ap.add_argument("--json", action="store_true", help="输出机器可读结果")
     args = ap.parse_args()
 
@@ -58,7 +60,17 @@ def main() -> int:
         print(f"读取失败: {exc}", file=sys.stderr)
         return 1
 
-    loader = CombatDataLoader()
+    if args.book_folder:
+        folder = args.book_folder.resolve()
+        try:
+            book = json.loads((folder / "book.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            ap.error(f"无效世界书文件夹（无法读取 book.json）：{exc}")
+        if not folder.is_dir() or not isinstance(book, dict) or book.get("id") != folder.name:
+            ap.error("book.json 的 id 必须与世界书文件夹名一致")
+        loader = CombatDataLoader(data_dir=str(folder / "combat"))
+    else:
+        loader = CombatDataLoader()
     enemy_names = set(loader.list_enemy_names())
     results = []
     failed = 0

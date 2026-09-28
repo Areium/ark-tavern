@@ -10,7 +10,7 @@ description: 设计/生成一场战斗（战斗节点 JSON）时使用——按�
 
 ## 0. 铁律
 
-1. **只产出数据，不改引擎**：你的产物是 `data/worldbooks/content/combat/nodes/<node_id>.json`（或候选文件）。
+1. **只产出数据，不改引擎**：你的产物是 `data/worldbooks/books/<book_id>/combat/nodes/<node_id>.json`（或候选文件）。
    不要修改 `src/combat_engine/**`、`src/combat_session.py` 等运行时代码。
 2. **先校验，后试跑，再入库**：`validate → simulate → 人工审阅 → 写入注册表`。
    未通过校验的规格不得入库；未试跑过的规格不得作为正式剧情战斗。
@@ -21,8 +21,7 @@ description: 设计/生成一场战斗（战斗节点 JSON）时使用——按�
 ## 1. 规格在哪儿、长什么样
 
 - 完整字段说明与示例：`docs/design/combat/battle-spec.md`（**先读它**）
-- 模板：`data/worldbooks/content/combat/nodes/TEMPLATE_node.json`
-- 参考实例：`data/worldbooks/content/combat/nodes/enc_training.json`（教学战）、`enc_snow_convoy.json`（剧情战）
+- 模板与参考实例：查看当前完整世界书的 `combat/nodes/`；新项目不内置战斗节点。
 
 最小可用规格的骨架（键名必须一致）：
 
@@ -49,15 +48,15 @@ description: 设计/生成一场战斗（战斗节点 JSON）时使用——按�
 $EDITOR candidate.json
 
 # ② 校验：结构/地图/敌人/站位/威胁预算（退出码 1 = 有错）
-python3 tools/validate_battle_spec.py candidate.json
+python3 tools/validate_battle_spec.py candidate.json --book-folder PATH
 
 # ③ 试跑：固定种子批量模拟，按阈值判断"好不好玩"
-python3 tools/simulate_battle.py --spec candidate.json --runs 30 \
+python3 tools/simulate_battle.py --book-folder PATH --spec candidate.json --runs 30 \
     --min-win-rate 0.6 --max-median-rounds 8 --max-hp-loss 0.6
 
 # ④ 达标后入库（或交给编辑器 / 注册表接口）
-cp candidate.json data/worldbooks/content/combat/nodes/enc_xxx.json
-python3 tools/balance_audit.py            # 全局数值自洽性（含 XP 单调性）
+cp candidate.json PATH/combat/nodes/enc_xxx.json
+python3 tools/balance_audit.py --book-folder PATH  # 书内数值自洽性（含 XP 单调性）
 ```
 
 也可以用 HTTP（应用运行时）：`POST /api/combat/nodes/validate`、
@@ -77,7 +76,7 @@ python3 tools/balance_audit.py            # 全局数值自洽性（含 XP 单�
 - **数值覆盖**：`waves[].enemies[].stats = {"hp": 150}` 可逐单位调血量
   （Boss/精英常用），不需要改全局敌人条目。
 - **阶段带缩放**（可选）：节点写 `difficulty.apply_band_scaling: true` 时，
-  敌人数值按 `data/worldbooks/content/combat/rules/difficulty.json` 的带宽倍率缩放 ——
+  敌人数值按书内 `combat/rules/difficulty.json` 的带宽倍率缩放 ——
   一套敌人即可覆盖多个难度档。
 
 ## 4. 判定标准（"好不好玩"的可量化代理）

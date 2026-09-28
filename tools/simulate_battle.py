@@ -2,9 +2,9 @@
 
 用法::
 
-    python3 tools/simulate_battle.py --node enc_training
-    python3 tools/simulate_battle.py --spec candidate.json --runs 60 --team standard
-    python3 tools/simulate_battle.py --spec candidate.json --json out.json \\
+    python3 tools/simulate_battle.py --book-folder PATH --node enc_training
+    python3 tools/simulate_battle.py --book-folder PATH --spec candidate.json --runs 60 --team standard
+    python3 tools/simulate_battle.py --book-folder PATH --spec candidate.json --json out.json \\
         --min-win-rate 0.6 --max-median-rounds 8 --max-hp-loss 0.5
 
 指标：胜率 / 中位回合 / P90 回合 / 首回合清场率 / 治疗溢出率 / 血损率 /
@@ -32,15 +32,14 @@ from combat_data_loader import CombatDataLoader  # noqa: E402
 from combat_nodes import validate_node  # noqa: E402
 
 
-def _load_spec(args) -> tuple[str, dict]:
+def _load_spec(args, loader: CombatDataLoader) -> tuple[str, dict]:
     if args.spec:
+        if args.spec == "-":
+            return "<stdin>", json.load(sys.stdin)
         path = Path(args.spec)
         if not path.is_file():
             raise SystemExit(f"规格文件不存在: {args.spec}")
-        if args.spec == "-":
-            return "<stdin>", json.load(sys.stdin)
         return path.name, json.loads(path.read_text(encoding="utf-8"))
-    loader = CombatDataLoader()
     node = loader.load_node(args.node)
     if not node:
         raise SystemExit(f"战斗节点不存在: {args.node}")
@@ -49,6 +48,8 @@ def _load_spec(args) -> tuple[str, dict]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--book-folder", type=Path, required=True,
+                    help="含 book.json 的完整世界书文件夹")
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--node", help="注册表节点 id")
     src.add_argument("--spec", help="候选规格 JSON 路径（- 表示 stdin）")
@@ -64,8 +65,15 @@ def main() -> int:
                     help="血损率上限（0–1）")
     args = ap.parse_args()
 
-    label, node = _load_spec(args)
-    loader = CombatDataLoader()
+    folder = args.book_folder.resolve()
+    try:
+        book = json.loads((folder / "book.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        ap.error(f"无效世界书文件夹（无法读取 book.json）：{exc}")
+    if not folder.is_dir() or not isinstance(book, dict) or book.get("id") != folder.name:
+        ap.error("book.json 的 id 必须与世界书文件夹名一致")
+    loader = CombatDataLoader(data_dir=str(folder / "combat"))
+    label, node = _load_spec(args, loader)
     report = validate_node(node, enemy_names=set(loader.list_enemy_names()))
     if report["errors"]:
         print(f"规格校验失败（{label}）:", file=sys.stderr)

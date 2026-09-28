@@ -116,9 +116,15 @@ class FakeSession:
 @pytest.fixture
 def session_api(tmp_path, monkeypatch):
     import session_manager as module
+    from blueprints import sessions as sessions_bp
     from blueprints.sessions import register
-    books = WorldBookManager(tmp_path)
+    monkeypatch.setattr(sessions_bp, "_REPO_ROOT", tmp_path)
+    books = WorldBookManager(tmp_path / "data" / "worldbooks")
     books.save(book_fixture())
+    identity = books._path("book").parent / "characters" / MAIN_CONTROL / "index.md"
+    identity.parent.mkdir(parents=True)
+    identity.write_text(f"---\nname: {MAIN_CONTROL}\nplayer_identity: true\n---\n",
+                        encoding="utf-8")
     cleaned, persisted = [], []
 
     monkeypatch.setattr(module, "Session", FakeSession)

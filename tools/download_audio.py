@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""从 PseudoMon/arknights-audio 下载方舟战斗音效/BGM 到 data/worldbooks/content/audio/。
+"""从 PseudoMon/arknights-audio 下载方舟战斗音效/BGM 到指定世界书的 audio/。
 
 源仓库: https://github.com/PseudoMon/arknights-audio (global-server-voices 分支)
 音频为 WAV，浏览器原生支持。脚本幂等：已存在且非空则跳过。
 
-用法: python tools/download_audio.py
+用法: python tools/download_audio.py --book-folder data/worldbooks/books/<id>
 """
+import argparse
+import json
 import os
 import sys
 import urllib.request
 
 BASE_URL = "https://raw.githubusercontent.com/PseudoMon/arknights-audio/global-server-voices/"
-DEST_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "worldbooks", "content", "audio")
 
 # 目标文件名 → 源仓库路径
 SFX = {
@@ -55,15 +56,27 @@ def download(url: str, dest: str) -> bool:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="下载音频资源到指定世界书文件夹")
+    parser.add_argument("--book-folder", required=True, help="含 book.json 的完整世界书文件夹")
+    args = parser.parse_args()
+    folder = os.path.abspath(args.book_folder)
+    try:
+        with open(os.path.join(folder, "book.json"), encoding="utf-8") as f:
+            book = json.load(f)
+    except (OSError, ValueError) as exc:
+        parser.error(f"无效世界书文件夹（无法读取 book.json）：{exc}")
+    if not os.path.isdir(folder) or not isinstance(book, dict) or book.get("id") != os.path.basename(folder):
+        parser.error("book.json 的 id 必须与世界书文件夹名一致")
+    dest_root = os.path.join(folder, "audio")
     ok = 0
     fail = 0
     print("== SFX ==")
     for name, src in SFX.items():
-        dest = os.path.join(DEST_ROOT, "sfx", f"{name}.wav")
+        dest = os.path.join(dest_root, "sfx", f"{name}.wav")
         ok += download(BASE_URL + src, dest)
     print("== BGM ==")
     for fname, src in BGM.items():
-        dest = os.path.join(DEST_ROOT, "bgm", fname)
+        dest = os.path.join(dest_root, "bgm", fname)
         ok += download(BASE_URL + src, dest)
     print(f"\n完成: {ok} 成功, {fail} 失败" if fail == 0 else f"\n完成: {ok} 成功, {fail} 失败")
     return 0 if fail == 0 else 1

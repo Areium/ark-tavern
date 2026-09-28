@@ -1,7 +1,7 @@
 /**
  * 剧情节拍编辑抽屉 — 节点图中"剧情节点"的编辑面板。
  *
- * 数据面：data/worldbooks/content/plots/<plot_id>/index.md（剧情唯一真相源，叙述引擎共用）。
+ * 数据面：所属书内 plots/<plot_id>/index.md（剧情唯一真相源，叙述引擎共用）。
  * 通过 documents API 读写（带 _hash 冲突检测），节拍增删改在本端做
  * Markdown 手术（utils/plotBeatEditor），保存后由后端重新解析出图。
  */

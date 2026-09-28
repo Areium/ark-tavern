@@ -1,16 +1,14 @@
 import os
 import re
 import logging
-from pathlib import Path
 
 import frontmatter
 from content_scope import is_content_visible
-from data_paths import CONTENT_ROOT
 from worldbook_content import category_roots
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_ENV_DIR = str(CONTENT_ROOT / "environment")
+_DEFAULT_ENV_DIR = ""  # Explicit test/custom directory only.
 
 
 class SceneObject:
@@ -57,7 +55,7 @@ class EnvironmentState:
 
     def __init__(self, data_dir: str = "", overlay=None):
         self.data_dir = data_dir or _DEFAULT_ENV_DIR
-        self._explicit_data_dir = bool(data_dir)
+        self._explicit_data_dir = bool(self.data_dir)
         self.overlay = overlay
         self.location = ""
         self.location_desc = ""
@@ -76,15 +74,13 @@ class EnvironmentState:
     def _visible_file(self, path: str) -> bool:
         if self._explicit_data_dir:
             return True  # explicit standalone content directory
-        if self.data_dir != str(CONTENT_ROOT / "environment"):
-            return is_content_visible(path, content_base=Path(self.data_dir).parent)
         return is_content_visible(path, allowed_book_ids=self._book_ids())
 
     def _book_ids(self) -> list[str]:
         return self.overlay.get_worldbook_ids() if self.overlay is not None else []
 
     def _environment_roots(self) -> list[str]:
-        if self.data_dir != str(CONTENT_ROOT / "environment"):
+        if self._explicit_data_dir:
             return [self.data_dir]  # explicit standalone content directory
         return [str(path) for _, path in category_roots(
             "environment", book_ids=self._book_ids())]

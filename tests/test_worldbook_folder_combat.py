@@ -6,7 +6,6 @@ import pytest
 from flask import Flask
 
 import data_paths
-import content_scope
 from combat_data_loader import CombatDataLoader
 from combat_nodes import (NodeError, create_node, delete_node, load_node_file,
                           node_bindings, node_exists,
@@ -73,6 +72,13 @@ def test_editor_create_writes_inside_named_book(tmp_path, monkeypatch):
     assert load_node_file("new", book_id="owned")["worldbook_id"] == "owned"
 
 
+def test_editor_create_rejects_missing_owner_without_creating_shared_content(tmp_path, monkeypatch):
+    monkeypatch.setattr(data_paths, "PROJECT_ROOT", tmp_path)
+    with pytest.raises(NodeError, match="世界书归属"):
+        create_node("orphan", "Orphan", from_template=False)
+    assert not (tmp_path / "data" / "worldbooks" / "content").exists()
+
+
 def test_legacy_shared_combat_is_not_a_runtime_source(tmp_path, monkeypatch):
     monkeypatch.setattr(data_paths, "PROJECT_ROOT", tmp_path)
     books = tmp_path / "data" / "worldbooks" / "books"
@@ -80,8 +86,6 @@ def test_legacy_shared_combat_is_not_a_runtime_source(tmp_path, monkeypatch):
     (books / "legacy.json").write_text(
         json.dumps({"id": "legacy", "enabled": True}), encoding="utf-8")
     shared = tmp_path / "data" / "worldbooks" / "content"
-    monkeypatch.setattr(content_scope, "CONTENT_ROOT", shared)
-    monkeypatch.setattr(content_scope, "WORLDBOOKS_ROOT", shared.parent)
     node = shared / "combat" / "nodes" / "legacy_node.json"
     node.parent.mkdir(parents=True)
     node.write_text(json.dumps({"node_id": "legacy_node"}), encoding="utf-8")

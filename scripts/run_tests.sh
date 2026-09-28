@@ -10,10 +10,7 @@ cd "$ROOT"
 # perf_tests 下无网络/LLM 依赖的战斗与结算用例（嵌入/记忆/前缀缓存类需外部服务，不入网）
 PERF_TESTS=(
   perf_tests/test_combat_runtime_v1.py
-  perf_tests/test_combat_data_v1.py
   perf_tests/test_settlement_v1.py
-  perf_tests/test_card_json_roundtrip.py
-  perf_tests/test_cv_budget.py
 )
 
 if [ "$#" -ne 0 ]; then

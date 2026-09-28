@@ -7,9 +7,6 @@ import re
 import frontmatter
 import yaml
 
-import data_paths
-from data_paths import CONTENT_ROOT
-from content_scope import is_content_visible
 from worldbook_content import resolve_content
 from memory import VectorMemory, resolve_embed_fn
 
@@ -65,10 +62,6 @@ class CharacterAgent:
                 f"characters/{character_name}/index.md", book_ids=book_ids)
         except ValueError:
             file_path = None
-        if file_path is None and CONTENT_ROOT != data_paths.CONTENT_ROOT:
-            test_path = CONTENT_ROOT / "characters" / character_name / "index.md"
-            if test_path.is_file() and is_content_visible(test_path, content_base=CONTENT_ROOT):
-                file_path = test_path
         if file_path is None:
             logger.warning("角色文件未找到: %s", character_name)
             return None

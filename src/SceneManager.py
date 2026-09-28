@@ -356,7 +356,7 @@ class SceneManager:
         """加载角色加入当前场景。首次加载会创建 CharacterAgent 并缓存。
 
         Args:
-            name: 角色名（对应 data/worldbooks/content/characters/{name}/index.md）
+            name: 角色名（对应已安装世界书的 characters/{name}/index.md）
 
         Returns:
             True 表示加载成功，False 表示文件不存在或解析失败。

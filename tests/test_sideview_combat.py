@@ -16,12 +16,20 @@ from session_overlay import SessionOverlay  # noqa: E402
 from combat_resume import session_resume_path  # noqa: E402
 from sideview_combat import (load_level, minimum_victory_ms,  # noqa: E402
                              validate_level, victory_satisfied)
+from test_combat_resume import ACTOR, BOOK_ID, prepare_combat_book  # noqa: E402
 
 ENCOUNTER = "enc_quick_test_1"
 
 
-@pytest.fixture(scope="module")
-def client():
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    import app as app_module
+    from document_manager import DocumentManager
+    from wiki_manager import WikiManager
+
+    prepare_combat_book(tmp_path, monkeypatch)
+    monkeypatch.setattr(app_module, "DocumentManager", lambda: DocumentManager(str(tmp_path)))
+    monkeypatch.setattr(app_module, "WikiManager", lambda: WikiManager(str(tmp_path)))
     app = create_app()
     app.config.update(TESTING=True)
     return app.test_client()
@@ -30,12 +38,13 @@ def client():
 @pytest.fixture
 def battle(client):
     created = client.post("/api/sessions", json={
-        "mode": "free", "combat_mode": "sideview", "identity": "临光",
+        "mode": "free", "combat_mode": "sideview", "identity": ACTOR,
+        "worldbook_ids": [BOOK_ID], "roster_character_ids": [ACTOR],
     })
     assert created.status_code == 201, created.get_json()
     sid = created.get_json()["id"]
     assert client.post(f"/api/sessions/{sid}/characters/load",
-                       json={"character": "临光"}).status_code == 200
+                       json={"character": ACTOR}).status_code == 200
     base = f"/api/sessions/{sid}/sideview"
     try:
         yield sid, base
@@ -105,7 +114,7 @@ def test_start_save_and_disk_restore(client, battle):
     sid, base = battle
     state = _start(client, base)
     assert state["engine"] == "sideview"
-    assert state["operator"]["name"] == "临光"
+    assert state["operator"]["name"] == ACTOR
     assert state["operator"]["maxHp"] == state["snapshot"]["player"]["hp"]
     saved = copy.deepcopy(state["snapshot"])
     saved["player"]["x"] += 25
@@ -177,7 +186,7 @@ def test_victory_once_and_retry_after_write_failure(client, battle, monkeypatch)
     disk = SessionOverlay(sid, "free")._data
     assert "pending_settlement" not in disk
     assert len([h for h in disk["combat_history"] if h.get("runId") == state["runId"]]) == 1
-    assert disk["sideview_status"]["operatorName"] == "临光"
+    assert disk["sideview_status"]["operatorName"] == ACTOR
 
 
 def test_defeat_and_abandon_have_no_rewards(client, battle):
@@ -196,14 +205,8 @@ def test_defeat_and_abandon_have_no_rewards(client, battle):
     assert client.post(f"{base}/complete", json=_result(new_state, _victory(new_state))).status_code == 409
 
 
-def test_approach_and_pending_settlement_guard(client, battle):
+def test_pending_settlement_guard(client, battle):
     sid, base = battle
-    prompt = client.post(f"{base}/start", json={"encounter_id": "enc_first_reunion"})
-    assert prompt.status_code == 200
-    assert prompt.get_json()["kind"] == "approaches"
-    avoided = client.post(f"{base}/start", json={"encounter_id": "enc_first_reunion",
-                                                  "approach_id": "retreat"})
-    assert avoided.status_code == 200 and avoided.get_json()["kind"] == "avoid"
     session = client.application._managers["session"].get_session(sid)
     session.overlay.set_pending_settlement({"data": {"settlement_id": "existing"}})
     try:
@@ -266,15 +269,9 @@ def test_completed_pending_cleanup_is_retryable(client, battle, monkeypatch):
     assert SessionOverlay(sid, "free").get_pending_settlement() is None
 
 
-def test_approach_effects_and_hp_inheritance(client, battle, monkeypatch):
+def test_hp_inheritance_after_abandon_and_defeat(client, battle):
     _, base = battle
-    ambush = client.post(f"{base}/start", json={"encounter_id": "enc_first_reunion",
-                                                 "approach_id": "ambush"})
-    assert ambush.status_code == 200, ambush.get_json()
-    state = ambush.get_json()["state"]
-    assert state["appliedEffects"]["enemyScale"] == 0.8
-    assert state["appliedEffects"]["firstStrike"] is True
-    assert state["level"]["enemies"][0]["hp"] < 60
+    state = _start(client, base)
     lowered = copy.deepcopy(state["snapshot"])
     lowered["player"]["hp"] = 10
     lowered["elapsedMs"] = 1
@@ -301,7 +298,7 @@ def test_approach_hp_penalty_is_applied(client, battle, monkeypatch):
     def penalized(encounter, approach_id):
         result = real_resolve(encounter, approach_id)
         result["combat_params"] = {"enemy_scale": 1.2,
-                                   "status_effects": {"临光": {"hp_penalty": 0.1}}}
+                                   "status_effects": {ACTOR: {"hp_penalty": 0.1}}}
         return result
 
     monkeypatch.setattr(sideview, "resolve_approach", penalized)
@@ -363,17 +360,17 @@ def test_victory_requires_snapshot_and_wall_clock_travel_time(client, battle):
 
 def test_new_sideview_identity_can_start_without_scene_npc(client):
     created = client.post("/api/sessions", json={
-        "mode": "free", "combat_mode": "sideview", "identity": "临光",
-        "roster_character_ids": ["临光"]})
+        "mode": "free", "combat_mode": "sideview", "identity": ACTOR,
+        "worldbook_ids": [BOOK_ID], "roster_character_ids": [ACTOR]})
     assert created.status_code == 201, created.get_json()
     sid = created.get_json()["id"]
     try:
         session = client.application._managers["session"].get_session(sid)
         assert session.scene_manager.get_scene_characters() == []
-        assert session.scene_manager.get_roster()[0] == "临光"
+        assert session.scene_manager.get_roster()[0] == ACTOR
         base = f"/api/sessions/{sid}/sideview"
         state = _start(client, base)
-        assert state["operator"]["name"] == "临光"
+        assert state["operator"]["name"] == ACTOR
         assert state["supportName"] is None
     finally:
         client.delete(f"/api/sessions/{sid}")

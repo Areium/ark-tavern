@@ -2,11 +2,11 @@
 
 > 面向：人类设计者、以及**生成战斗内容的 LLM/代理**。
 > 权威实现：`src/combat_map.py`（地图）、`src/combat_nodes.py`（校验）、
-> `src/combat_balance.py`（威胁模型）；示例 `data/worldbooks/content/combat/nodes/TEMPLATE_node.json`。
+> `src/combat_balance.py`（威胁模型）；节点存放在完整世界书的 `combat/nodes/`。
 > 配套工具：`tools/validate_battle_spec.py`（校验）、`tools/simulate_battle.py`（试跑）、
 > `tools/balance_audit.py`（全局数值审计）；流程规范见 skill `combat-designer`。
 
-一场战斗 = **一个 JSON 文件** `data/worldbooks/content/combat/nodes/<node_id>.json`。它自带地图、敌人与
+一场战斗 = **一个 JSON 文件** `data/worldbooks/books/<book_id>/combat/nodes/<node_id>.json`。它自带地图、敌人与
 数值覆盖，是**自包含**的：可以整份塞进世界书条目分发（见文末），也可以由程序生成。
 
 ---
@@ -28,7 +28,7 @@
 | `conditions` | object | 否 | `{max_rounds: int, escape_enabled: bool}` |
 | `rewards` | object | 否 | `{xp: int, items: [string], unlock: [string]}` |
 | `difficulty` | object | 否 | `{category, encounter_type, band, threat_budget, target_rounds, difficulty, apply_band_scaling}` |
-| `background` | string | 否 | 背景 id（`data/worldbooks/content/combat/backgrounds/<id>/`）；缺省用 default |
+| `background` | string | 否 | 背景 id（`data/worldbooks/books/<book_id>/combat/backgrounds/<id>/`）；缺省用 default |
 | `balance_version` | int | 否 | 目前为 1 |
 
 `difficulty.band` 取 `T0–T4`；`encounter_type` 取 `teaching | normal | elite | boss`；
@@ -72,7 +72,7 @@
 | `deployable_player` / `deployable_enemy` | true | 是否允许部署（预留） |
 
 内置格子：`ground`、`wall`、`cover`、`high_ground`、`hazard_fire`；项目可在
-`data/worldbooks/content/combat/tiles/*.json` 追加（字段同上 + `tile_id`）。
+`data/worldbooks/books/<book_id>/combat/tiles/*.json` 追加（字段同上 + `tile_id`）。
 
 **地形设计要点**：墙用来切分战场与挡视线；掩体给防守支点；火场逼走位；高台奖励抢点。
 不要用墙把两个部署区完全隔开 —— 校验器会报 `玩家部署区与敌人部署区之间不存在通路`。
@@ -99,7 +99,7 @@
   （外加 `ai_behavior`/`ai_skills`/`action_slots`/`threat_points`）。
 - 第 2 波及以后的入场格若被占，引擎会自动顺延到最近空格（不会卡死，也不会覆盖已有单位）。
 
-**敌人来源优先级**：`enemies_def` 内联 → 会话自定义敌人 → `data/worldbooks/content/enemies/*.md`。
+**敌人来源优先级**：`enemies_def` 内联 → 会话自定义敌人 → `data/worldbooks/books/<book_id>/enemies/*.md`。
 全局敌人条目只有叙事 `attributes` 而没有 `combat_stats` 时，战斗数值按属性派生。
 
 ---
@@ -119,7 +119,7 @@
 相对生命 = `hp / 100`；相对输出 = `(0.5×patk + 7.5) / 20`。分类取最近邻；
 敌人条目声明了 `role`/`power_tier` 时以声明为准。
 
-阶段带参考区间（`data/worldbooks/content/combat/rules/difficulty.json`）：
+阶段带参考区间（`data/worldbooks/books/<book_id>/combat/rules/difficulty.json`）：
 
 | 阶段带 | 威胁区间 | 敌人数值倍率（开启缩放时） |
 |---|---|---|
@@ -152,8 +152,8 @@
 ## 6. 生成 → 校验 → 试跑 → 入库
 
 ```bash
-python3 tools/validate_battle_spec.py candidate.json          # 结构+数值自洽
-python3 tools/simulate_battle.py --spec candidate.json --runs 30 \
+python3 tools/validate_battle_spec.py candidate.json --book-folder PATH  # 结构+数值自洽
+python3 tools/simulate_battle.py --book-folder PATH --spec candidate.json --runs 30 \
     --min-win-rate 0.6 --max-median-rounds 8 --max-hp-loss 0.6  # 好不好玩
 python3 tools/balance_audit.py                                 # 全局审计（含 XP 单调性）
 ```

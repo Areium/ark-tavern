@@ -3,15 +3,12 @@
 import sys
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "perf_tests"))
 
 import simulate_combat  # noqa: E402
 from combat_data_loader import CombatDataLoader  # noqa: E402
-from combat_session import CombatSession  # noqa: E402
 
 
 def test_inline_enemy_takes_priority_and_applies_instance_stats(monkeypatch):
@@ -56,37 +53,3 @@ def test_inline_enemy_takes_priority_and_applies_instance_stats(monkeypatch):
     assert not engine.is_battle_over()
     assert len(engine.pending_waves) == 1
     assert engine.pending_waves[0][0][0].max_hp == 57
-
-
-@pytest.mark.parametrize(
-    ("node_id", "first_wave_count", "pending_waves"),
-    [
-        ("enc_grey_checkpoint", 2, 0),
-        ("enc_grey_warehouse", 3, 0),
-        ("enc_grey_bridge", 2, 1),
-    ],
-)
-def test_registered_grey_lantern_nodes_start_with_enemies(
-    node_id, first_wave_count, pending_waves,
-):
-    meta = {
-        "name": "演练近卫", "class": "近卫",
-        "attributes": {
-            "物理强度": 6, "战场机动": 6, "生理耐受": 8,
-            "战术规划": 6, "战斗技巧": 6, "源石技艺适应性": 6,
-            "情绪稳定性": 6,
-        },
-    }
-    combat = CombatSession("grey-lantern-smoke")
-    combat.start(node_id, character_metas=[meta])
-
-    assert sum(unit.team == "enemy" for unit in combat.engine.units.values()) == first_wave_count
-    assert len(combat.engine.pending_waves) == pending_waves
-    assert combat.engine.escape_enabled
-    if node_id == "enc_grey_warehouse":
-        archers = [unit for unit in combat.engine.units.values()
-                   if unit.team == "enemy" and unit.name == "灰灯仓库弩手"]
-        assert len(archers) == 2
-        assert archers[0].ai_skills == ["enemy_shot", "enemy_barrage"]
-    if node_id == "enc_grey_bridge":
-        assert all(unit.max_hp == 62 for unit, _ in combat.engine.pending_waves[0])

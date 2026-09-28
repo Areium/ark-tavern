@@ -746,7 +746,7 @@ handleCardDragEnd   → 清除拖拽状态
 
 - **BattleNodeForm.tsx**：单节点编辑表单（基本信息 / 地图绘制 / 敌人编成 / 难度奖励 / 校验），保存走 `_hash` 冲突检测
 - **BattleMapCanvas.tsx**：节点内嵌地图绘制（`MapEditMode`：tile 刷子 + 玩家/敌方部署区，行列自由尺寸）
-- **StoryBeatEditor.tsx**：剧情节拍编辑抽屉，直改 `data/worldbooks/content/plots/<plot_id>/index.md`（Markdown 手术 + `_hash` 保护）
+- **StoryBeatEditor.tsx**：剧情节拍编辑抽屉，直改 `data/worldbooks/books/<book_id>/plots/<plot_id>/index.md`（Markdown 手术 + `_hash` 保护）
 - **nodeFactory.ts**：节点图唯一创建入口（手动 / 节拍引用 / LLM 生成共用 `createNodes` 契约）
 - **PlotGraphPage.tsx** / **GraphCanvas.tsx** / **graphModel.ts**：剧情图整页（世界书 → 剧情二级选择）、自由平移缩放画布、图模型与撤销栈
 - **CombatSettlement.tsx**：战斗结算面板（纯展示，渲染后端 `CombatSettlementDTO`）；**CombatQuestBar.tsx**：会话战斗顶部任务栏

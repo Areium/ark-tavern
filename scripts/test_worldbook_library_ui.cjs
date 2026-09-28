@@ -143,8 +143,8 @@ assert.equal(normalizeWorldbookTab("taxonomy", { book_type: "story" }), "entries
 
 // ── SSR：组件骨架 ──
 const summary = (over) => ({
-  id: "x", name: "书", source_format: "manual", source: "imported",
-  is_preinstalled: false, enabled: true, budget_tokens: 0, entry_count: 0,
+  id: "x", name: "书", source_format: "manual",
+  enabled: true, budget_tokens: 0, entry_count: 0,
   created_at: 0, updated_at: 0, is_default: false, ...over,
 });
 const apiStub = new Proxy({}, { get: () => async () => ({ books: [] }) });

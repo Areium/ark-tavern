@@ -58,15 +58,10 @@ def test_player_identity_edits_and_session_binding_use_selected_book(tmp_path, m
     (books / "second" / "book.json").write_text(
         json.dumps({"id": "second", "enabled": False}), encoding="utf-8")
     assert client.put("/api/sessions/sample/identity", json={"identity": "Hero"}).status_code == 404
-    assert not (tmp_path / "data" / "worldbooks" / "content" / "characters" / "Hero").exists()
 
 
-def test_personal_identity_remains_available_without_bound_books(tmp_path, monkeypatch):
+def test_empty_bookshelf_does_not_resolve_identity(tmp_path, monkeypatch):
     monkeypatch.setattr(sessions, "_REPO_ROOT", tmp_path)
-    actor = tmp_path / "data" / "worldbooks" / "content" / "characters" / "Personal"
-    actor.mkdir(parents=True)
-    (actor / "index.md").write_text(
-        "---\nname: Personal\nplayer_identity: true\n---\n", encoding="utf-8")
     overlay = SimpleNamespace(get_worldbook_ids=lambda: [])
     session = SimpleNamespace(overlay=overlay, player_identity="玩家")
 
@@ -83,4 +78,5 @@ def test_personal_identity_remains_available_without_bound_books(tmp_path, monke
     sessions.register(app, {"session": SessionManager()})
     response = app.test_client().put(
         "/api/sessions/sample/identity", json={"identity": "Personal"})
-    assert response.status_code == 200
+    assert response.status_code == 404
+    assert session.player_identity == "玩家"

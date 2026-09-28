@@ -87,33 +87,7 @@ def test_folder_content_rejects_links_and_traversal(tmp_path):
         raise AssertionError("path traversal was accepted")
 
 
-def test_legacy_shared_file_is_never_a_worldbook_source(tmp_path):
-    root = tmp_path / "data" / "worldbooks"
-    books = root / "books"
-    books.mkdir(parents=True)
-    for book_id in ("first", "second"):
-        (books / f"{book_id}.json").write_text(json.dumps({
-            "id": book_id, "enabled": True,
-        }), encoding="utf-8")
-    image = root / "content" / "characters" / "Hero" / "avatar.png"
-    image.parent.mkdir(parents=True)
-    image.write_bytes(b"first only")
-    (root / "content_manifest.json").write_text(json.dumps({
-        "directories": {}, "files": {"characters/Hero/avatar.png": ["first"]},
-    }), encoding="utf-8")
-
+def test_empty_bookshelf_is_valid_and_has_no_content(tmp_path):
     key = "characters/Hero/avatar.png"
-    assert resolve_content(key, book_ids=["second"], project_root=tmp_path) is None
-    assert resolve_content(key, book_ids=["first"], project_root=tmp_path) is None
+    assert content_candidates(key, project_root=tmp_path) == []
     assert resolve_content(key, project_root=tmp_path) is None
-    assert not is_content_visible(image, project_root=tmp_path)
-
-
-def test_unowned_local_content_remains_global_only(tmp_path):
-    image = tmp_path / "data" / "worldbooks" / "content" / "characters" / "Custom" / "avatar.png"
-    image.parent.mkdir(parents=True)
-    image.write_bytes(b"custom")
-    assert is_content_visible(image, project_root=tmp_path)
-    assert not is_content_visible(image, project_root=tmp_path,
-                                  allowed_book_ids=["book"])
-    assert resolve_content("characters/Custom/avatar.png", project_root=tmp_path) is None

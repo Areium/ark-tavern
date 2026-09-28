@@ -2,10 +2,10 @@
 固定种子批量模拟器（design §11 P0-5 落库 / §11 P1-5 分层模拟 / §12 验收标准）。
 
 用法：
-    python perf_tests/simulate_combat.py                       # 全部遭遇 × 三队，30 次/组合
-    python perf_tests/simulate_combat.py --runs 200             # 验收口径
-    python perf_tests/simulate_combat.py --encounters enc_final_showdown,enc_defense
-    python perf_tests/simulate_combat.py --json out.json        # 自定义输出
+    python perf_tests/simulate_combat.py --book-folder PATH
+    python perf_tests/simulate_combat.py --book-folder PATH --runs 200
+    python perf_tests/simulate_combat.py --book-folder PATH --encounters enc_example
+    python perf_tests/simulate_combat.py --book-folder PATH --json out.json
 
 输出：perf_tests/results_combat_progression.json + perf_tests/progression_report.md
 
@@ -22,6 +22,7 @@ import os
 import random
 import statistics
 import sys
+from pathlib import Path
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.join(_HERE, "..")
@@ -111,8 +112,10 @@ def build_engine(node: dict, team_kind: str, loader: CombatDataLoader) -> Combat
                          for c in range(battle_map.cols)
                          if not battle_map.is_blocked((r, c)) and (r, c) not in zone]
     players = build_team(team_kind, player_cells)
+    class_dir = loader._root.parent / "classes" if loader._custom_dir else None
     for unit in players:
-        engine.add_player_unit(unit, cards=get_starting_deck(unit.char_class, count=7),
+        engine.add_player_unit(unit, cards=get_starting_deck(
+            unit.char_class, count=7, data_dir=class_dir),
                                pos=unit.pos)
 
     fallback_cells = list(battle_map.deploy_zone("enemy"))
@@ -353,6 +356,8 @@ def target_check(etype: str, summary: dict, encounter: dict | None = None) -> li
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--book-folder", type=Path, required=True,
+                    help="含 book.json 的完整世界书文件夹")
     ap.add_argument("--runs", type=int, default=30)
     ap.add_argument("--encounters", default="")
     ap.add_argument("--teams", default="standard,command,low")
@@ -364,19 +369,29 @@ def main():
                     help="允许局部跑（--encounters/--teams 受限）覆盖标准报告文件")
     args = ap.parse_args()
 
+    folder = args.book_folder.resolve()
+    try:
+        book = json.loads((folder / "book.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        ap.error(f"无效世界书文件夹（无法读取 book.json）：{exc}")
+    if not folder.is_dir() or not isinstance(book, dict) or book.get("id") != folder.name:
+        ap.error("book.json 的 id 必须与世界书文件夹名一致")
+
     # 防呆：局部跑默认不得覆盖标准报告，避免冒烟测试盖掉完整验收数据
     partial = bool(args.encounters) or args.teams != "standard,command,low" or args.runs < 30
     if partial and not args.force and os.path.abspath(args.json) == os.path.abspath(RESULTS_JSON):
         print("检测到局部跑，拒绝覆盖标准报告；如需覆盖请加 --force 或指定 --json <其它路径>")
         return
 
-    loader = CombatDataLoader()
+    loader = CombatDataLoader(data_dir=str(folder / "combat"))
     wanted = [e for e in args.encounters.split(",") if e]
     teams = [t for t in args.teams.split(",") if t]
 
     node_ids = [n["node_id"] for n in loader.list_nodes()]
     if wanted:
         node_ids = [n for n in node_ids if n in wanted]
+    if not node_ids:
+        ap.error("世界书中没有匹配的战斗节点")
 
     results = {}
     for node_id in node_ids:
@@ -399,7 +414,7 @@ def main():
                 "summary": summary,
             }
             if args.store_runs:
-                results[f"{encounter_id}|{team}"]["runs"] = rows
+                results[f"{node_id}|{team}"]["runs"] = rows
 
     with open(args.json, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)

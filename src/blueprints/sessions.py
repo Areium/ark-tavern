@@ -10,7 +10,7 @@ import tempfile
 import copy
 from pathlib import Path
 
-from data_paths import PROJECT_ROOT, content_root, memory_root
+from data_paths import PROJECT_ROOT, memory_root
 from content_scope import is_content_visible
 from worldbook_content import book_directory, category_roots, resolve_content
 from constants import DEFAULT_PLAYER_IDENTITY
@@ -167,11 +167,6 @@ def register(app, managers):
         identity_path = resolve_content(
             f"characters/{player_identity}/index.md", book_ids=worldbook_ids,
             project_root=_REPO_ROOT)
-        if identity_path is None:
-            local_identity = content_root(_REPO_ROOT) / "characters" / player_identity / "index.md"
-            if local_identity.is_file() and is_content_visible(
-                    local_identity, project_root=_REPO_ROOT):
-                identity_path = local_identity
         if player_identity != DEFAULT_PLAYER_IDENTITY and identity_path is None:
             return json_error("主控角色不存在或不可用", 404)
         roster = data.get("roster_character_ids", [])
@@ -1010,25 +1005,22 @@ def register(app, managers):
         metadata.setdefault("name", name)
 
         book_id = str(data.get("worldbook_id") or request.args.get("worldbook_id") or "")
-        if book_id:
-            try:
-                folder = book_directory(book_id, _REPO_ROOT)
-            except ValueError:
-                return json_error("世界书 ID 无效", 400)
-            if not is_content_visible(folder / "book.json", project_root=_REPO_ROOT,
-                                      allowed_book_ids=[book_id]):
-                return json_error("世界书未安装或已停用", 404)
-            char_dir = folder / "characters" / name
-            if (folder / "characters").is_symlink() or char_dir.is_symlink():
-                return json_error("玩家身份目录不可用", 403)
-        else:
-            char_dir = content_root(_REPO_ROOT) / "characters" / name
-            if not is_content_visible(char_dir, project_root=_REPO_ROOT):
-                return json_error("玩家身份不可用", 404)
+        if not book_id:
+            return json_error("请选择所属世界书", 400)
+        try:
+            folder = book_directory(book_id, _REPO_ROOT)
+        except ValueError:
+            return json_error("世界书 ID 无效", 400)
+        if not is_content_visible(folder / "book.json", project_root=_REPO_ROOT,
+                                  allowed_book_ids=[book_id]):
+            return json_error("世界书未安装或已停用", 404)
+        char_dir = folder / "characters" / name
+        if (folder / "characters").is_symlink() or char_dir.is_symlink():
+            return json_error("玩家身份目录不可用", 403)
         char_dir.mkdir(parents=True, exist_ok=True)
         md_path = char_dir / "index.md"
         if not is_content_visible(md_path, project_root=_REPO_ROOT,
-                                  allowed_book_ids=[book_id] if book_id else None):
+                                  allowed_book_ids=[book_id]):
             return json_error("玩家身份不可用", 404)
 
         # 合并现有 frontmatter（保留用户未传字段）
@@ -1067,18 +1059,17 @@ def register(app, managers):
         if not is_safe_entity_name(name):
             return json_error("非法的玩家身份名称", 400)
         book_id = request.args.get("worldbook_id") or ""
-        if book_id:
-            try:
-                folder = book_directory(book_id, _REPO_ROOT)
-            except ValueError:
-                return json_error("世界书 ID 无效", 400)
-            char_dir = folder / "characters" / name
-        else:
-            char_dir = content_root(_REPO_ROOT) / "characters" / name
+        if not book_id:
+            return json_error("请选择所属世界书", 400)
+        try:
+            folder = book_directory(book_id, _REPO_ROOT)
+        except ValueError:
+            return json_error("世界书 ID 无效", 400)
+        char_dir = folder / "characters" / name
         md_path = char_dir / "index.md"
         if not md_path.is_file() or not is_content_visible(
                 md_path, project_root=_REPO_ROOT,
-                allowed_book_ids=[book_id] if book_id else None):
+                allowed_book_ids=[book_id]):
             return json_error("玩家身份不存在", 404)
 
         try:
@@ -1112,10 +1103,6 @@ def register(app, managers):
         identity_path = resolve_content(f"characters/{identity}/index.md",
                                         book_ids=session.overlay.get_worldbook_ids(),
                                         project_root=_REPO_ROOT)
-        if identity_path is None:
-            local_path = content_root(_REPO_ROOT) / "characters" / identity / "index.md"
-            if local_path.is_file() and is_content_visible(local_path, project_root=_REPO_ROOT):
-                identity_path = local_path
         if identity != DEFAULT_PLAYER_IDENTITY and identity_path is None:
             return json_error("玩家身份不可用", 404)
         ok = session_mgr.set_player_identity(session_id, identity)

@@ -563,27 +563,6 @@ html.light .wber-shell {
   .wber-entry-sources summary span { display: none; }
 }
 
-/* Optional offline examples: explicit import, without populating a fresh shelf. */
-.wber-shell .wber-samples-entry { margin: 0 14px 12px; flex-shrink: 0; }
-.wber-samples { max-width: 800px; color: var(--wber-body); }
-.wber-samples header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 28px; }
-.wber-samples header button { flex-shrink: 0; }
-.wber-samples h2 { color: var(--wber-text); font-size: 22px; font-weight: 600; margin: 0 0 10px; }
-.wber-samples h3 { color: var(--wber-text); font-size: 16px; font-weight: 600; margin-bottom: 6px; }
-.wber-samples p { font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
-.wber-samples small { display: block; margin-top: 8px; color: var(--wber-body); }
-.wber-samples ul { margin: 0; padding: 0; list-style: none; }
-.wber-samples li { display: flex; align-items: center; gap: 20px; justify-content: space-between; padding: 20px 0; border-bottom: 1px solid var(--wber-border); }
-.wber-samples li > div { min-width: 0; }
-.wber-samples li button { flex-shrink: 0; }
-.wber-samples-notice, .wber-samples-error, .wber-samples-empty { padding: 16px 0; }
-.wber-samples-error { color: var(--wber-text); }
-.wber-samples-error button { margin-top: 8px; }
-@media (max-width: 560px) {
-  .wber-samples header { flex-direction: column; gap: 12px; }
-  .wber-samples li { align-items: flex-start; gap: 12px; }
-}
-
 /* Folder-first installation: native disclosure keeps instructions keyboard accessible. */
 .wber-folder-tools { margin: 0 14px 12px; display: grid; gap: 8px; flex-shrink: 0; }
 .wber-folder-guide { min-width: 0; color: var(--wber-muted); font-size: 13px; line-height: 1.65; }
