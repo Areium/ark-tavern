@@ -21,6 +21,16 @@ def _read_manifest(path: Path, mtime_ns: int, size: int) -> tuple[dict, dict] | 
     return None
 
 
+@lru_cache(maxsize=8)
+def _read_local_manifest(path: Path, mtime_ns: int, size: int) -> dict | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        files = data["files"]
+        return files if isinstance(files, dict) else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 @lru_cache(maxsize=64)
 def _book_enabled(path: Path, mtime_ns: int, size: int) -> bool:
     try:
@@ -60,18 +70,31 @@ def is_content_visible(path: str | Path, *, project_root: str | Path | None = No
         return False
 
     manifest_path = books_root / "content_manifest.json"
-    if not manifest_path.is_file():
-        # A packaged checkout without its ownership file must not expose the
-        # bundled IP assets. Standalone/user test roots may contain no manifest.
-        return root != Path(os.path.abspath(CONTENT_ROOT))
-    try:
-        stat = manifest_path.stat()
-    except OSError:
-        return False
-    parsed = _read_manifest(manifest_path, stat.st_mtime_ns, stat.st_size)
-    if parsed is None:
-        return False
-    directories, files = parsed
+    local_path = books_root / "local_content_manifest.json"
+    if manifest_path.is_file():
+        try:
+            stat = manifest_path.stat()
+        except OSError:
+            return False
+        parsed = _read_manifest(manifest_path, stat.st_mtime_ns, stat.st_size)
+        if parsed is None:
+            return False
+        directories, files = parsed
+    else:
+        # A packaged checkout without its distribution manifest must not expose
+        # its bundled assets. Standalone/test roots may have no distribution.
+        if root == Path(os.path.abspath(CONTENT_ROOT)):
+            return False
+        directories, files = {}, {}
+    local_files = {}
+    if local_path.is_file():
+        try:
+            stat = local_path.stat()
+        except OSError:
+            return False
+        local_files = _read_local_manifest(local_path, stat.st_mtime_ns, stat.st_size)
+        if local_files is None:
+            return False
 
     key = relative.as_posix()
     owners = files.get(key)
@@ -80,6 +103,24 @@ def is_content_visible(path: str | Path, *, project_root: str | Path | None = No
                    if isinstance(entry, str) and entry.endswith("/")
                    and (key.startswith(entry) or key + "/" == entry)]
         owners = directories[max(matches, key=len)] if matches else None
+    if owners is not None and not isinstance(owners, list):
+        return False
+    additional = local_files.get(key)
+    if additional is None and candidate.is_dir():
+        prefix = key.rstrip("/") + "/"
+        descendants = [value for path_key, value in local_files.items()
+                       if isinstance(path_key, str) and path_key.startswith(prefix)]
+        if any(not isinstance(value, list) or
+               any(not isinstance(owner, str) for owner in value)
+               for value in descendants):
+            return False
+        additional = list(dict.fromkeys(owner for value in descendants for owner in value))
+        if not additional:
+            additional = None
+    if additional is not None:
+        if not isinstance(additional, list):
+            return False
+        owners = [*(owners or []), *additional]
     if owners is None:
         return True
     if not isinstance(owners, list):
@@ -87,7 +128,9 @@ def is_content_visible(path: str | Path, *, project_root: str | Path | None = No
     for book_id in owners:
         if not isinstance(book_id, str) or not book_id or Path(book_id).name != book_id:
             continue
-        book_path = books_root / f"{book_id}.json"
+        book_path = books_root / "books" / f"{book_id}.json"
+        if not book_path.is_file():
+            book_path = books_root / f"{book_id}.json"
         try:
             stat = book_path.stat()
             if _book_enabled(book_path, stat.st_mtime_ns, stat.st_size):

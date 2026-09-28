@@ -205,7 +205,7 @@ def test_all_entries_is_read_only_and_default_mode_keeps_runtime_semantics(api):
     """全书预览不改内存/磁盘；未传或显式 false 时仍走原单轮逻辑。"""
     client, manager, tmp_path = api
     book = manager.load("book")
-    path = Path(tmp_path) / "book.json"
+    path = Path(tmp_path) / "books" / "book.json"
     disk_before = (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns)
     memory_before = copy.deepcopy(book.to_dict())
 
@@ -381,7 +381,7 @@ def test_matched_keys_report_only_real_hits(api):
 def test_prompt_preview_writes_nothing(api):
     """请求前后书文件的 sha256 与 mtime 都不变（§3.2 验收）。"""
     client, _, tmp_path = api
-    path = Path(tmp_path) / "book.json"
+    path = Path(tmp_path) / "books" / "book.json"
     before = (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns)
     assert preview(client, input_text="阿米娅", seed=3, budget_tokens=50)["order"] is not None
     assert client.get("/api/worldbook/book/dependency-tree?entry_uids=world").status_code == 200
@@ -475,7 +475,7 @@ def test_format_injection_trace_is_byte_invariant(api):
 def test_invalid_payload_is_rejected_without_writing(api):
     """非法 mode / 非对象请求体 / 非法 lore_scope 一律 400，且不写盘。"""
     client, _, tmp_path = api
-    path = Path(tmp_path) / "book.json"
+    path = Path(tmp_path) / "books" / "book.json"
     before = (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns)
     assert client.post("/api/worldbook/book/prompt-preview",
                        json={"mode": "tactical"}).status_code == 400

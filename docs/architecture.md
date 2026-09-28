@@ -51,7 +51,7 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 
 ### 2.3 世界书与记忆
 
-- `world_book.py` — 世界书（酒馆 Lorebook 兼容）：4 源解析（v1/v2/卡内嵌/jsonl）+ 关键词触发匹配 + 注入格式化 + 回灌导出 + `WorldBookManager`（`data/worldbooks/*.json`，gitignored）。
+- `world_book.py` — 世界书（酒馆 Lorebook 兼容）：4 源解析（v1/v2/卡内嵌/jsonl）+ 关键词触发匹配 + 注入格式化 + 回灌导出 + `WorldBookManager`（已安装书为 `data/worldbooks/books/*.json`，旧根目录 JSON 兼容读取，均 gitignored）。`worldbook_bundle.py` 将书与归属资源打为 `.arkwb`，校验后导入到共享内容根目录。
   **注入纪律：常驻 position-0 条目进稳定层，触发型条目一律进动态层（前缀缓存稳定）。**
   **另有第三类「系统层」**：节点图 / 节点绑定这类编辑器与运行时元数据条目（`is_system_entry`）按设计永不注入，不与前两层并列计入 token，也不进 Prompt 预览的 order / dropped；判定必须先系统层再按位置分层。详见 `docs/notes.md`「条目分层是三层，不是两层」。
   `eligible_uids_for` 返回 `EligibleSet`（候选集 + `forced_uids`/`position_overrides` 元数据随集合传递，注入调用点零改动）。
@@ -168,7 +168,7 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 ## 4. 内容工具与脚本
 
 数据布局见 `data/README.md`：内容与资源在 `data/worldbooks/content/`，可选离线包在
-`data/worldbooks/packs/`，其归属清单为 `data/worldbooks/content_manifest.json`；统一路径由 `src/data_paths.py` 定义。升级本地素材运行
+`data/worldbooks/packs/`，其分发归属清单为 `data/worldbooks/content_manifest.json`；完整包导入的资源归属存于本地 `local_content_manifest.json`。`inbox/` 接收直接复制的书，`exports/` 保存完整导出包；统一路径由 `src/data_paths.py` 定义。升级本地素材运行
 `scripts/migrate_data_layout.py` 预览后加 `--apply` 执行。用户书与会话不迁移。
 
 
