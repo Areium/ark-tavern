@@ -4,7 +4,7 @@
 通用的工程经验、跨项目的方法论**不**放这里；需要长期影响 AI 行为的规则走 `AGENTS.md`
 或 `.agents/skills/`，设计目标态走对应的 `docs/*.md` 设计文档。
 
-新增条目请写明：现象 → 根因 → 现状口径 → 证据（文件/用例），并在条目首行标注日期与提交号。
+新增条目请写明：现象 → 根因 → 现状口径 → 证据（文件/用例），并在条目首行标注核对日期与相关提交（如有）。
 
 ---
 
@@ -12,11 +12,9 @@
 
 ### 新建向导：选中剧情即自动选中世界书与该书全部角色（2026-09-27，`feat/plot-autoselect-roster` / `feat/worldbook-roster-autoselect`）
 
-- **现象**：剧情自带的开场阵容在向导里几乎永远预选不出来 —— 预装角色卡里绝大多数（170 张中的 166 张）
-  frontmatter 的 `worldbook_id` 记的是拆分前的来源书（`arknights`），而拆分出来的剧情书
-  （`near-light` / `fengxue-guojing` / `combat-test`）自己一张角色卡都没有。向导候选原本只按角色卡的
-  来源书过滤，绑定这些书后候选为空，「点剧情自动预选」自然落空；即便修好预选，也只有
-  `initial_characters` 那几名，书里其余角色（长夜临光 17 名里只列了 5 名）根本没被选上。
+- **现象**：剧情书与角色卡的来源书不同，向导曾漏掉角色和开场阵容。
+  frontmatter 的 `worldbook_id` 可能仍是拆分前的来源书（`arknights`），与剧情绑定书不同。
+  按角色卡来源书筛选候选会漏掉该剧情书的角色；只读取 `initial_characters` 也会漏掉书内花名册。
 - **现状口径**：
   - **书内角色花名册的唯一来源是条目**：新增 `WorldBook.character_ids()`（启用且非系统条目的
     `character_id`，去重保序），随 `/api/worldbook` 摘要返回 `character_ids`。角色的
@@ -40,8 +38,6 @@
   `POST /scope-preview` 的指纹同口径，否则创建会被判「预览已过期」并 400。
 - **命名创建只报 token**：该步不再渲染整块 `WorldBookScopePreview`，只列每本书的「估算 token」——
   「候选规模减少 0 token（0%）」这种无信息量的行不再出现；候选条目明细在世界书工作台看。
-- **实测规模**：《长夜临光》自动选中 主控博士 + 17 名书内角色（`GET /api/plots` +
-  `/api/worldbook` 真实数据，创建 201、约 1.5–2.7s）；绑定大书时的阵容膨胀由上面的显式按钮挡住。
 - **已知边界**：会话大厅的「添加角色 / 换主控」候选仍是**按角色卡来源书**过滤
   （`SessionManagerView.tsx` 的 `candidateItems`），绑定拆分剧情书的会话里同样列不出该剧情的角色；
   本次只改新建向导。要一并统一时，两处都调 `characterCatalog.selectableCatalogItems`。
@@ -57,7 +53,7 @@
 
 - **现象**：旧存档和部分调用方只认识 `worldbook_id` / `worldbook_scope`；多书会话若只读取这两个字段，会漏掉后续书。
 - **现状口径**：`worldbook_ids` 按选择顺序保存所有剧情书，`worldbook_scopes` 保存后续书的会话快照；旧字段始终对应首本书。依赖和条目覆盖接口以 `book_id` 选择具体书，省略时继续操作首本书。全局默认书不再回落，未绑定书的会话不注入世界书。
-- **已知边界**：新建向导的「手动追加」只作用于首本书；「全量兼容」作用于全部已选书。统一角色数值字段沿用首本书的 `stat_fields`。要按其它书的字段建模时，需单独设计跨书字段合并规则。
+- **创建接口**：`manual_entry_uids_by_book` 可分别指定各书的手动条目；旧参数 `manual_entry_uids` 仅兼容首本书；`full_scope` 作用于全部已选书。当前新建向导不提供这两个开关，提交空追加、非全量。统一角色数值字段仍沿用首本书的 `stat_fields`；跨书字段合并尚未设计。
 - **证据**：`src/session_overlay.py`、`src/world_book.py`、`src/blueprints/sessions.py`、`tests/test_session_worldbook_multibind.py`。
 
 ### 主控角色与「角色入队」是同一次选择（2026-09-23，`feat/session-main-control`）
@@ -84,51 +80,10 @@
 - **已知边界**：战斗编成（`shared/helpers.build_character_metas`）仍只按**场景角色**组队，
   主控不进战斗队伍；本次改动没动战斗侧。
 
-### `tests/legacy/player_identity_opening.py` 曾误删示例玩家身份「龙门侦探」（2026-09-23）
+### 剧情验收中仍未修的缺口（核对于 2026-09-28）
 
-- **现象**：跑一次该 legacy 用例后，`data/worldbooks/content/characters/龙门侦探/` 消失
-  （它是未跟踪文件，`git status` 里直接不见）。
-- **根因**：该脚本把自己的夹具建在与 `scripts/shot_roles_ui.py` 的示例身份**同一个目录**上，
-  并在 `finally` 里 `shutil.rmtree(CHAR_DIR, ignore_errors=True)`。
-- **恢复**：走 UI 同一条路径重建（`PUT /api/player-identities/龙门侦探`），内容见
-  `scripts/shot_roles_ui.py` 的 `IDENTITY`（属性 / 简介 / 标签 / 正文三段）。
-- **修复（2026-09-23）**：用例现在为每次运行生成唯一剧情 ID 与身份目录，并只删除本次成功创建的目录；
-  不再写入或删除示例身份「龙门侦探」。
-
-### 新建向导的「入队角色」不是只由玩家点击决定（2026-09-19，`d91f22a`）
-
-- **现象**：剧情模式下选「长夜临光」后只点了一个角色，入队却有 4～5 名。
-- **根因**：点选剧情磁贴时会用该剧情 frontmatter 的 `initial_characters` **覆盖** roster
-  （`CreateSessionWizard.tsx` 的 `pickPlot`）。`data/worldbooks/content/plots/near-light/index.md` 的开场角色是
-  临光、瑕光、砾、阿米娅、玛恩纳·临光 共 5 名，点剧情即预勾 5 个；预勾磁贴与玩家自选原先
-  完全同款，点一下已预勾的角色其实是在**取消**（5 − 1 = 4）。
-- **现状口径**：
-  - 预选行为**保留**，但界面显式化：预选角色标「剧情预选」（区别于「已入队」）、顶部说明
-    「它们已处于入队状态」并提供「清空阵容」、剧情卡片标注「开场角色 N 名 · 选中后自动预选入队」。
-  - 预选只收「非玩家身份」且角色目录存在的角色。
-  - 服务端**严格按 `roster_character_ids` 入队**（`blueprints/sessions.py`）：前端总会带该字段，
-    因此 `_load_plot_opening(load_characters=False)` 不会再用开场角色补齐 —— **显式空阵容 = 0 角色**，
-    剧情开场角色不会兜底（向导里已就这条给出提示）。
-- **证据**：`.tmp/repro_story_roster.py` 风格的端到端复现：`POST /api/sessions`
-  （`plot_id=near_light`、`roster_character_ids=["临光"]`）→ `characters == ["临光"]`。
-- **已知未修（2026-09-20，基线 `a049ae1` 已复现）**：`session_manager._restore_scene()` 在 story 会话
-  持久化场景角色为空时，会回退加载**整份** `initial_characters`。显式空阵容创建后重载确实触发，
-  不再只是未验证隐患；应区分字段缺失与显式空数组。见 `tests/test_greybridge_acceptance.py`
-  的 `test_explicit_empty_roster_survives_session_reload` 及剧情验收报告 QA-05。
-
-### 剧情完整体验的已知缺口（2026-09-20，基线 `a049ae1`）
-
-- **现象**：普通回归通过不等于剧情通关。新候选《灰桥回声》真实模型 18 轮完成 3/12 节拍，
-  五任务仍 hidden；变体选择同步返回 500，开场上下文泄露后续章节，树回滚丢分支目的地。
-- **根因**：开场章节边界正则、前后端变体参数合同、快照字段保存各有明确缺陷；自动任务与
-  剧情终态尚缺状态提交链路。另有非法任务 ID 被接受、平铺 `急救包.md` 列出却无法读入的问题。
-- **现状口径**：本轮只交付设计、复现测试和修复方案；未修改运行时，未注册候选剧情。
-  `xfail` 表示缺陷复现，不能计入通过。战斗模拟 120 次通过结构/执行检查，但普通战压力偏低。
-- **证据**：[完整功能矩阵与修复顺序](qa/2026-09-20-story-audit.md)、
-  [剧情设计](scenarios/greybridge-echoes/README.md)、`tests/test_greybridge_acceptance.py`。
-- **后续修正（2026-09-22，`feat/worldbook-data-layout`）**：DocumentManager 已补平铺 Markdown
-  的读取回退，QA-07（`急救包.md` 可列出但详情 404）随数据布局迁移修复；本节列出的其余剧情缺陷
-  未因该修复自动关闭，仍以各自验收用例为准。
+- `tests/test_greybridge_acceptance.py` 的严格 `xfail` 仍覆盖 QA-01 开场上下文泄露后续章节、QA-02 叙述不会自动提交任务状态、QA-03 最后一节拍缺终态、QA-05 显式空阵容重载后被开场角色填回、QA-06 未知任务 ID 可被状态接口接受、QA-08 变体保存的前后端参数不一致。`xfail` 是已复现的缺口，不能当作通过。
+- QA-04 分支目的地回档、QA-07 平铺物品读取已有普通通过用例；旧报告中的“未修”表述仅代表当时基线。详情与原始复现见 [2026-09-20 剧情验收报告](qa/2026-09-20-story-audit.md)。
 
 ## 对话页
 
@@ -190,25 +145,10 @@
 - **证据**：不传 `fileName` 转译 `worldbookGrouping.ts` 第 35 行即得上述 `jsxs(T, …)` 产物；主工作区在
   `d466817` 上跑原脚本同样失败，与本分支的 UI 改动无关。
 
-### 截图验证前端（`vite.config.shot.ts`）与主开发服务器分开依赖缓存（2026-09-22，`feat/roles-ui-polish`）
+### 截图服务与开发服务使用独立 Vite 缓存（核对于 2026-09-28）
 
-- **口径**：shot 配置显式 `cacheDir: node_modules/.vite-shot`。它与 `vite.config.ts` 的插件不同
-  （无 electron 插件），optimizeDeps 指纹不同；共用 `node_modules/.vite` 时后启动的一方会重新优化并覆盖
-  前者的产物，正在跑的 5173 开发服务器随之整页重载。
-- **本机可用的验证流程**（Windows，无 node 版 playwright）：在隔离 worktree 里
-  `API_PORT=5001 python src/app.py` + `npx vite --config vite.config.shot.ts`（5174 → 5001），
-  用 Python `playwright`（pip 已装 1.60，chromium 148 缓存可用）驱动；chromium 启动参数要带
-  `--proxy-server=direct:// --proxy-bypass-list=*`，否则环境变量里的本地代理会吞掉回环地址请求。
-  worktree 的 `frontend/node_modules` 用目录联接（`New-Item -ItemType Junction`）指向主仓库即可。
-- **踩坑（2026-09-27）**：dev server 在跑时用编辑工具改 `frontend/src` 下的文件，vite 的 watcher 会撞上
-  编辑器原子写留下的临时目录并直接崩掉进程：
-  `Error: EBUSY: resource busy or locked, watch '<dir>/.style.css.<pid>.<guid>.tmpdir/style.css.tmp'`，
-  之后访问该端口是 `ERR_CONNECTION_REFUSED`——不是构建错误也不是代码错误，重启 dev server 即恢复。
-  截图验证时先把样式改完再起服务（或改完就重启），别在服务运行中反复改 `src/`。
-- **已知未修（资产页）**：实体行上的「+」上传把文件放到实体目录**根**（`handleImageUpload(file, category, entity)`
-  → `characters/<entity>/<file>`），不进 `avatar/` / `skin/` 子目录，而后端 `set_default_image` 只认这三个
-  子目录，所以从资产页上传的图片**不能设为默认头像 / 立绘**，头像目前仍需手工放进 `avatar/`。
-  玩家身份编辑器的提示文案已按这个现状写，不再指向资产页上传。
+- `frontend/vite.config.shot.ts` 使用 `node_modules/.vite-shot`，与主开发服务的依赖预构建缓存分开；两种插件配置共用缓存会导致正在运行的页面重载。
+- 多个 worktree 若共用 `frontend/node_modules`，也会共用 `.vite-shot`。并行截图服务应各用独立的 `cacheDir`；若端口被占用，连同端口一并调整。
 
 ### 世界书条目工作台持久化口径（2026-09-22，`feat/worldbook-entry-refresh`）
 
@@ -259,98 +199,23 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
   `balance_audit` 也走同一个 `_run()`，不再自己拼 `subprocess.run`。
 - 新增 CLI 用例请复用 `_run()`，不要另写 `text=True` 而不指定 `encoding`。
 
-### 预装书用例依赖 gitignored 的本地数据（2026-09-19，`f6ea4e7`）
+### 本地已安装书的数据不能作为固定测试基线（核对于 2026-09-28）
 
-`data/worldbooks/` 被 `.gitignore` 忽略，`tests/test_worldbook_*.py` 的"预装书"用例读的是**本地实际内容**，
-因此写死数字或写死 v2/v3 状态都会随本地数据漂移而假失败：
+- `data/worldbooks/` 被 Git 忽略，安装数量、条目与策略版本会因本机状态变化。相关用例应使用临时夹具，或按实际候选对、保存前状态计算期望值；不要写死某本书的条数、批次数或 v3 开关。
 
-- 工作量估算：`estimate_workload` 必须按 `run_build` 的同一份输入算 —— 只把**出现在候选对里的 uid**
-  放进 `analysis_metadata`。实测预装书「全量 262 条 → 49 批」对「受审 252 条 → 48 批」，
-  混用会让 `card_calls` 断言假失败。
-- v3 状态断言：普通保存应断言「保存前后 v3 状态一致」（`after.v3_enabled == original.v3_enabled`），
-  不要硬编码 `not after.v3_enabled` —— 预装书早已是 v3。
+### SSR 断言不能靠修改 Zustand store 驱动画面（核对于 2026-09-28）
 
-### 无浏览器 SSR 断言脚本里，zustand 只读得到初始快照（2026-09-22）
-
-`scripts/test_*_ui.cjs`（`ts.transpileModule` 加载 `.tsx` + `react-dom/server`）是本地主力断言手段，
-但它有一条硬边界：**不能用 store 状态去驱动 SSR 输出**。
-
-- **现象**：`useAppStore.setState({ characterTab: "cards" })` 之后渲染，`useAppStore.getState()`
-  返回 `cards`，而 `renderToStaticMarkup` 出来的 markup 仍是 `characters` 那一屏
-  （探针输出：`after setState: cards` / `renders cards manager? false | renders role column? true`）。
-  即同一进程里出现两个真相，按状态对比 markup 的断言会恒等或恒不等，是假阳性。
-- **根因**（zustand 4.5.7，已读 `frontend/node_modules/zustand/` 源码确认）：`useStore` 的服务端快照是
-  `api.getServerState || api.getInitialState`（`esm/index.js:20`），而 `getInitialState` 永远返回
-  **store 创建时**那一份 —— `setState` 重新赋值的是 `state`，从不动 `initialState`
-  （`esm/vanilla.js:8,12-13,26-28`）。React 18 服务端渲染取 `getServerSnapshot`，于是走的就是初始快照。
-- **不能从外面 patch**：`create()` 里是 `Object.assign(useBoundStore, api)`（`esm/index.js:35`）单向拷贝，
-  而 `useStore` 闭包持有的是内部 `api` 对象。所以给绑定 store 挂 `useAppStore.getServerState = ...`
-  **不会被读到**。真要接管，只能用 `createStore` 自建 store 再配导入出的 `useStore`（`esm/index.js:48`）
-  渲染——但依赖未文档化的 `getServerState` 约定，仅适合断言脚本，不要用在产品代码里。
-- **什么断言仍然有效**（判据不是「SSR 能不能用」，而是「这一步是否依赖 store 的当前值」）：
-
-  | 断言写法 | 可行 | 说明 |
-  | --- | --- | --- |
-  | store 迁移：`getState()` + action | ✅ | 不经过 React 服务端快照 |
-  | 源码接线：读 `.tsx` 文本 `includes` | ✅ | 纯文本 |
-  | 组件导出的常量/配置（如 `WORLDBOOK_PANEL_TABS`） | ✅ | 不读 store |
-  | SSR markup 中**不随 store 变化**的部分（页签标签齐全、旧文案已消失、两模块 markup 不同） | ✅ | 这些量本来就不依赖被切的那个字段 |
-  | SSR markup 中**随 store 变化**的部分（切到卡牌应渲染 CardManager） | ❌ | 就是上面那条现象 |
-  | 真按状态渲染 | ✅ | 上 playwright；本机未装，`scripts/test_worldbook_review_ui.cjs` 因此跑不了 |
-
-  另一条路子（另一会话独立踩到后采用）：通过模块缓存注入只读 store 替身。
-- **现状**：`scripts/test_role_worldbook_nav_ui.cjs:76-77` 已经把这条结论写在脚本注释里并据此改写
-  （改成断言 store 迁移 + 组件接线）。本节是把它提升为仓库级口径，避免下次再花一轮去踩。
-- **证据**：探针输出见 `event:66710`；另一会话独立复现见 `event:60798`；源码读于本机已安装的
-  `frontend/node_modules/zustand@4.5.7`。
+- `scripts/test_*_ui.cjs` 通过 `react-dom/server` 渲染时，React 读取 Zustand 的服务端初始快照。即使 `useAppStore.setState()` 后 `getState()` 已变化，SSR markup 仍可能是初始界面。
+- 状态迁移可直接断言 `getState()`，静态组件接线可检查源码或与状态无关的 markup；需要验证切页、交互与可见状态时用浏览器。`scripts/test_worldbook_review_ui.cjs` 需可解析的 Playwright 模块（可通过 `PLAYWRIGHT_MODULE` 指定），不能把模块缺失误判为产品回归。
 
 ## 世界书前端
 
-### 条目分层是三层，不是两层：系统层不计 token、不进 Prompt 预览（2026-09-22，`feat/worldbook-frontend-polish`）
+### 世界书条目的稳定层、动态层与系统层（核对于 2026-09-28）
 
-- **现象**：剧情节点图条目（`plot_graph_*`）在「条目」页签上被打成「动态层」，并被计入
-  「约 N token」；「Prompt 预览」的 `dropped[]` 里还会给它报一个 `keyword_miss`
-  （「关键词未命中」），读起来像是「去补个触发词就好了」。
-- **根因**：分层口径只有两种取值 —— `position == 0 && always_active ? 稳定层 : 动态层`。
-  节点图条目按设计是「空触发键 + 非常驻」，只服务画布与系统判定、永不注入，落进
-  「其余都是动态层」这个兜底分支纯属口径缺失；而展示 token 又是 `self.entries` 全量求和。
-- **现状口径**（唯一真源 `src/world_book.py`，前端镜像在 `frontend/src/utils/worldbookLayer.ts`）：
-  - 第三层叫**系统层**，判定 `is_system_entry()`：`raw.extensions.arknights_tavern.entry_type ∈
-    {plot_graph, lore_bindings}`，或正文命中围栏块（与 `plot_graphs.is_graph_entry` /
-    `node_lore_scope.is_lore_bindings_entry` 同构）。**判定顺序必须先系统层再位置分层** ——
-    系统层条目同样满足「非常驻」，先按位置分层就会退回成动态层。
-  - 战斗节点条目（`combat_node`）**不在**系统层：它有关键词、会随剧情提及注入。
-  - 统计口径 `book_entry_stats()`：`injectable` = **启用的非系统条目**，`tokens` 只累计这一批。
-    `WorldBook.estimated_tokens()`、接口摘要 / 详情的 `estimated_tokens` 与
-    `injectable_entry_count` / `disabled_entry_count` / `system_entry_count` 全部走它。
-    界面上勾掉一条，条目数与 token 立刻跟着掉（前端 `bookEntryStats(detail.entries)` 同步算，
-    书架列表在选中书上用同一份实时值，其余书用服务端摘要的同口径字段）。
-  - Prompt 预览：系统层条目既不进 `order`（本来就不注入），也**不进 `dropped`**；
-    `preview_all_entries` 自己按 `is_system_entry` 排除，调用方不必再挑 UID。
-  - 「显式全量兼容」`_full_scope_entries()` / `full_scope_uids()` 也排除系统层：
-    全量放宽的是候选，不是把永不注入的条目算进 `full_entry_count` / `full_estimated_tokens`。
-  - 「会话条目」页签（`IndexManager`）同样不列系统层条目 —— 给它一个会话开关拨了也不会有
-    任何变化，只会误导；改为一行说明「另有 N 条系统层条目永不注入」，分母也换成会注入的条目。
-  - **展示顺序**：顶层 `entry_layout` 让文件夹与未分组条目混排；组内的 `sortEntriesByLayer()`
-    按稳定 → 动态 → 系统展示，与这本书有没有显式 `entry_order` 无关。系统层区段保留
-    「系统层 · 不参与注入与排序」分界。系统条目**不能单独拖动排序**：`isSortableEntry()` 为假时
-    不给 `draggable`，手柄位置换成锁标记（`.wber-drag.is-locked`），拖到它上面会被拒绝并提示；
-    所在文件夹仍可整组移动。持久化的 `entry_order` 是全书 UID 完整排列，注入时再按稳定层、动态层分区。
-  - **不在书架项与 hero 统计上出系统层计数标识**（曾短暂加过「系统 N」/「N 条系统层」，已按要求去掉）：
-    同一件事已经有三个更贴上下文的出口 —— 条目行的分层标签、区段分界行、Prompt 预览与会话
-    条目页的说明。hero 只留「会注入的条目 / 共 N」与「约 X token」（外加「N 条已停用」，
-    它解释的是勾选结果，属于同一处交互的反馈）。条数本身在 `bookEntryStats` /
-    `system_entry_count` 里照常可查，只是不占版面。回归守卫见
-    `scripts/test_worldbook_layer_ui.cjs` 第 8 组（对源码做「不许再出现」断言）。
-- **别让两张表漂移**：`SYSTEM_ENTRY_TYPES` / `SYSTEM_ENTRY_FENCES` 在 Python 与 TS 各有一份。
-  `tests/test_worldbook_system_layer.py` 比对承载模块自己的 `_ENTRY_TYPE` / `WORLD_BOOK_FENCE`；
-  `scripts/test_worldbook_layer_ui.cjs` 直接读 `src/world_book.py` 比对两张表 —— 任一侧新增类型
-  而另一侧没跟上都会立刻失败。
-- **证据**：`tests/test_worldbook_system_layer.py`（判定 / 统计 / 单轮与全书预览 / 全量口径）、
-  `scripts/test_worldbook_layer_ui.cjs`（三层判定 / 展示顺序与不可拖 / 统计口径 / 两张常量表 /
-  封面 / 两处页面说明）。本机数据实测：`data/worldbooks/` 下
-  `combat-test` / `fengxue-guojing` / `near-light` 各含 1 条 `plot_graph_*`，`arknights` 含 2 条停用条目，
-  这些现在都不再计入展示 token。
+- 系统条目由 `src/world_book.py:is_system_entry()` 判定，前端 `frontend/src/utils/worldbookLayer.ts` 保持同口径。先判系统层，再按位置区分稳定层与动态层；`plot_graph`、`lore_bindings`、`story_outline` 属系统层，带关键词的 `combat_node` 仍可注入。
+- 系统层不进 Prompt 的 `order` 或 `dropped`，不进全量兼容候选、会话条目列表，也不计入可注入条数与估算 token。`book_entry_stats()` 是后端统计口径，前端 `bookEntryStats()` 与之对齐。
+- 条目页按稳定、动态、系统展示；系统条目不可单独拖动，但所在文件夹可移动。持久化的 `entry_order` 仍是全书 UID 排列，实际注入时再按稳定层与动态层分区。
+- Python 与 TypeScript 各有 `SYSTEM_ENTRY_TYPES` / `SYSTEM_ENTRY_FENCES`，改动任一侧都要同步另一侧。验证见 `tests/test_worldbook_system_layer.py` 和 `scripts/test_worldbook_layer_ui.cjs`。
 
 ### 世界书封面是内嵌 data URL，不是图片地址（2026-09-22，`feat/worldbook-frontend-polish`）
 
@@ -374,7 +239,7 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
 
 - **现象**：旧布局把随程序分发的角色、剧情、战斗、音频等内容散放在 `data/` 根目录，
   同时把用户书和设置放在 `data/worldbooks/`，路径职责不清且打包、迁移容易漏项。
-- **现状口径**：13 个分发内容目录统一位于 `data/worldbooks/content/`；预装包位于
+- **现状口径**：分发内容目录位于 `data/worldbooks/content/`；预装包位于
   `data/worldbooks/packs/`；`categories.yaml` 留在 `data/` 根目录；用户书 JSON、
   `settings.json`、备份和会话数据保持原位。环境内容只有 `Location/` 与 `weather/`，
   时段预设仍是代码内置列表，不存在 `environment/time/` 目录。
@@ -403,36 +268,18 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
 - **证据**：`tests/test_document_worldbook_source.py` 覆盖有标注 / 缺字段 / `null` / 空白四种取值，
   以及「不请求内容摘要时也能拿到来源」「原有键值不变」，外加 `/api/characters` 端点层的字段断言。
 
+### 资产页实体行上传的图片无法直接设为默认形象（核对于 2026-09-28）
+
+- 实体行的“+”把图片上传到实体目录根部（`AssetManager.tsx:handleImageUpload`），而资产页仅对 `avatar/`、`skin/` 子目录的图片提供“设为默认头像/立绘”操作（`AssetManager.tsx`）。需用支持子目录的角色资源入口上传，或把图片放入对应目录后再设默认值。
+
 ## 剧情节点生成
 
-### 护栏式剧情没有节拍骨架：参考大纲代替，act 级节拍要设 `min_rounds`（2026-09-23，`feat/story-node-generation`）
+### 护栏式剧情使用参考大纲补齐节拍骨架（核对于 2026-09-28）
 
-- **现象**：「彼岸双生」用 `## 第N幕：` + `**必须保留的节拍**` 写成，没有 `## 章节 N` / `#### beat_` 骨架，
-  会话里 `beat_state` 为空 → Call 2 不问 `beat_complete`、`_valid_beat_ids()` 为空、所有 `target_beat_id`
-  被置 null，分支「凭空生成」；`<current_node>`（树模式）原本也不列后续节拍候选。
-- **口径**：会话创建时 `init_session_docs(plot_id, outline=…)` 用参考大纲（`story_outline.py`：书内 LLM 大纲
-  `story_outline_<plot_id>` 系统层条目 > 启发式切幕）折算成同构节拍骨架；`<current_node>` 列出当前参考节拍、
-  `must_keep` 与后续候选 id。启发式一幕一节拍时 `min_rounds=3`、LLM 大纲节拍默认 2：真实模型（deepseek-v4-flash）
-  几乎**每轮**都判 `beat_complete=true`，不设门槛参考走向会一轮一幕地跑在故事前面（`advance_beat(force=True)`
-  只给 8 轮超时自动推进用）。玩家选带落点的分支时改为**叙述前**就 `jump_to_beat`（`chat._apply_branch_landing`），
-  否则本轮树节点的 `ref_beat_id` 还停在旧节拍。
-- **LLM 大纲不稳**：同一提示词下 deepseek 有时输出 15k 字符的非 JSON（非截断），`generate_outline_with_llm`
-  重试一次仍失败就回落启发式并在 `generation.error` / `raw_head` 标明，接口照常 200；不要把回落当成功——
-  前端 / 脚本要看 `outline.source`。
-- **战术模式的通用遭遇**：`node_overview(book_id)` 会把没有 `worldbook_id` 的通用节点（`enc_defense` 等
-  明日方舟遭遇）列给任何书，Call 2 在「彼岸双生」里真的会选它。`chat._resolve_combat_scene` 现在只接受
-  绑定到本剧情 / 本书的节点，否则按 `combat_scene` 现场生成（`combat_generation.py`，写到
-  `data/worldbooks/content/combat/nodes/`，测试与冒烟脚本都要把 `combat_nodes.NODE_DIR` 与
-  `CombatDataLoader._node_dir` 指到临时目录）。敌人只能取注册表已有条目——为现代都市剧情补了
-  `澜晶安保人员` / `失控巡检机器人` 两个敌人（`content/enemies/`，`worldbook_id: beyond-twin`）。
-- **偏离检测**：`deviation_check_interval` 默认 4 轮；真实模型对「连夜坐火车离开深湾、雪山定居」这类明显离线
-  给 0.82–0.92 置信度并能设计 2–3 节拍的新分支线；分支章节只写进会话 `story_outline` 副本，不回写书。
-- **验证**：`tests/test_story_outline.py`、`tests/test_story_generation_beyond_twin.py`（脚本化 LLM）；
-  `python scripts/verify_beyond_twin_generation.py`（真实 LLM，≈1–2 分钟，全部写临时目录，报告在
-  `.tmp/beyond_twin_generation_report.json`）。
-- **顺手修的旧 bug**：`session_manager.rollback_to_node` 的 `_lore_resolver_factory` 读 `self._worldbook_manager`
-  （`Session` 没有这个属性，`SessionManager` 才有）→ 每次树上回档都 warning 并按「作用域关闭」处理；
-  改读 `scene_manager._worldbook_manager`。
+- 没有 `## 章节 N` / `#### beat_` 骨架的剧情，创建会话时用书内 `story_outline_<plot_id>` 系统条目优先、启发式切幕兜底，生成会话自己的节拍骨架。`<current_node>` 提供当前节拍、`must_keep` 和后续候选；玩家选择有 `target_beat_id` 的分支时，叙述前跳到落点。
+- 启发式一幕一节拍默认 `min_rounds=3`，LLM 大纲节拍默认 2，防止模型每轮都标记完成导致过快推进。LLM 大纲解析失败时接口可返回 200 并回落启发式；调用方必须查看 `outline.source` 和 `generation.error`，不能只按 HTTP 状态判断成功。
+- 战术模式只接受绑定当前剧情或世界书的现成战斗节点；其它节点引用按 `combat_scene` 现场生成。生成测试须把节点目录指向临时路径。
+- 偏离分支只写入会话的 `story_outline` 副本，不回写世界书。验证见 `tests/test_story_outline.py`、`tests/test_story_generation_beyond_twin.py`；真实模型检查脚本为 `scripts/verify_beyond_twin_generation.py`。
 
 ### 节点图演出图片按剧情引用触发（2026-09-27）
 
@@ -440,37 +287,15 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
 - 图条目的 `scene_media` 只接受本站 `/api/assets/` 图片 URL，服务端按会话绑定书和 `plot_id` 读取图；已有会话也会读到之后保存的新配置。会话资源背景覆盖仍优先于图配置，图配置再优先于地点/default 背景。
 - 叙述历史保存生成该轮时的 `beat_id` 与一基章节号。舞台按叙述轮次解析演出，避免 `beat_complete` 已推进到下一节拍造成图片提前；旧历史没有节拍元数据时不自动触发 CG。CG 在同一浏览器标签页中每次进入一个节拍自动弹出一次，回看按钮仍可手动重看。
 
-### 节点图「从剧情结构生成布局」对护栏式剧情只画一个入口节点（2026-09-23，`fix/node-graph-outline-fallback`）
+### 节点图从参考大纲生成布局（核对于 2026-09-28）
 
-- **现象**：世界书工作台 → 节点图 → 选「彼岸双生」→ 「从剧情结构生成布局」只得到一个剧情入口卡。
-- **原因**：布局函数 `importLayoutFromFlow` 只按 `GET /api/combat/nodes/graph` 返回的 `plots[].chapters` 铺节点，
-  而后端 `combat_nodes.plot_flows` 只认正文的 `## 章节 N：` + `#### beat_id` 骨架；彼岸双生是 `## 第N幕：` 护栏式
-  剧情、正文没有 `[COMBAT:]`，解析结果 `chapters=[]` 且 `combat_nodes=[]`，于是走「无章节」分支只建 plot 节点。
-  会话创建那条链早已改用参考大纲代替骨架（上一条），节点图这条链没有同步。
-- **口径**：`plot_flows(book_mgr=None)` 对没有骨架的剧情按会话同一优先级回落——书内 `story_outline_<plot_id>`
-  系统层条目（LLM 大纲，`book_mgr` 给定时）> `story_outline.heuristic_outline` 启发式切幕；两者都切不出章节
-  （combat-test 这类）保持 `chapters=[]`。返回值加 `source`（`narrative` / `outline`），章节加 `id` / `label` /
-  `kind`（`main` / `branch`），节拍加 `title`；大纲节拍的战斗引用取 `combat.node_id` ∪ 节点文件 `bind` 到该节拍的
-  节点（现场生成的战斗节点回填在 `bind`，正文里不会出现 `[COMBAT:]`）。blueprint 把 `managers["worldbook"]`
-  传进 `node_graph`。
-- **前端**：章节卡标题用 `label`（`第一幕：门前的猫` / `路线 A：回应`），节拍卡标题优先大纲 `title`，退回 beat id；
-  `kind=branch` 的章节从主线末节点分岔、各占一排叠在主线下方（大纲的作者分支正是末幕指向各路线）。护栏式剧情
-  （`source=outline`）双击节拍卡只打开剧情文档、不预选节拍——`StoryBeatEditor` 按 `#### beat_id` 定位，大纲节拍在
-  正文里没有这一段。`nodeIdentity` 仍按 `chapter_idx` / `beat_id` 对齐，「重置位置」对大纲布局照常生效。
-- **LLM 分析入口**：节点图剧情行右侧「🧠 LLM 分析剧情结构」（空图态也有）调用既有
-  `POST /api/worldbooks/<book>/story-outline`（mode=llm、generate_combat=true：含战斗节点物化与试跑，
-  前端这一条请求超时放宽到 5 分钟，`useApi.request` 第三参），完成后刷新总览；图为空就自动铺布局，非空图不动
-  （提示用重置 / 重建）。LLM 解析失败接口仍 200 但 `outline.source=heuristic`，前端按 `generation.error` 提示
-  回落，不当成功。真实 LLM 路径本轮未在浏览器里点过（会往当前书写大纲条目、生成战斗节点文件），
-  只验证了接口契约与 tsc；后端逻辑由 `tests/test_story_outline.py` 覆盖。
-- **注意**：大纲章节的 `idx` 是大纲顺序号（主线幕在前、分支在后，1 起），不是幕号；LLM 大纲重新生成后章节
-  id / 顺序可能变化，已存图上的章节 / 节拍卡会显示为「缺失」，需重新生成布局。
-- **验证**：`tests/test_node_graph_worldbook.py`（启发式回落、保存的 LLM 大纲优先、`bind` 节点挂上、combat-test
-  不误切、正文骨架剧情形状不变）。
+- `combat_nodes.plot_flows(book_mgr=...)` 对没有正文节拍骨架的剧情，按书内大纲、启发式大纲的顺序回落；两者都无法切章时保持 `chapters=[]`。返回的 `source` 区分正文骨架与参考大纲，战斗引用合并大纲声明及节点文件中的 `bind`。
+- 大纲生成的节拍不在剧情正文里，双击节点只打开剧情文档，不能让 `StoryBeatEditor` 按 `#### beat_id` 定位。LLM 分析接口即使返回 200 也可能回落启发式，界面须查看 `outline.source` / `generation.error`。
+- 大纲重新生成后章节 ID 或顺序可能变化，已保存的画布节点可能成为“缺失”；需重建布局。验证见 `tests/test_node_graph_worldbook.py`。
 
 ## 卡牌剧情内容：灰灯渡口（2026-09-26）
 
-- 内容源在 `data/worldbooks/content/plots/grey_lantern/index.md`、`world/灰灯渡口.md` 和三个 `enc_grey_*` 节点，专属敌人是 `enemies/灰灯*.md`；定向重建用 `python scripts/generate_grey_lantern.py`。15 条预装书需要与这些源文件一同分发。
+- 内容源在 `data/worldbooks/content/plots/grey_lantern/index.md`、`world/灰灯渡口.md` 和三个 `enc_grey_*` 节点，专属敌人是 `enemies/灰灯*.md`；定向重建用 `python scripts/generate_grey_lantern.py`。分发包需与这些源文件同步。
 - 确定性选路需结构化大纲 `branches[].target_beat_id`。本书一章一节拍，分叉 `choice_required=true`；模型完成标记和超时均不能替玩家选择，也不能通过模型生成的其它落点跳过分叉。回档需保留树分支的 `target_beat_id`。
 - 固定战斗节拍使用 `min_rounds=1`，声明了节点就不再现场生成第二个节点。合流用三轮，结局只用一个尾声节拍，避免互斥结局顺序串播。
 - 模拟器曾忽略内联敌人造成空场假胜，本次补齐；生产会话仍依赖注册敌人文件，本书已提供。战前绕行缺结构化结算，结局事实仍受模型一致性限制。
@@ -478,23 +303,11 @@ $env:PYTHONPATH='<repo>\src'; python tests\legacy\<each>.py   # tests/legacy 下
 
 ## 横版战斗
 
-### 横版关卡与表现层的几个口径（2026-09-26，`feat/sideview-combat-polish`）
+### 横版关卡与表现层（核对于 2026-09-28）
 
-- **薄平台是单向的**：厚度 ≤ 32 px 的平台默认可从下方与侧面穿过（`oneWay` 可显式覆盖）。旧实现里它们是实心墙，
-  默认关卡坑上方那块平台会在角色起跳时挡住头部，跳坑只剩约 10 px 余量，脚本化策略在新旧版本都卡在第一个坑。
-  改地形后先跑 `simulation.test.mjs` 里的通关策略用例，它能发现"关卡打不通"。
-- **巡逻区间只约束闲逛**：追击时不再被 `patrolMin/patrolMax` 拴住（只受平台边缘和墙约束）。否则敌人停在区间边缘，
-  玩家在 82（敌人出手距离）到 116（玩家近战距离）之间可零伤害刷怪。守卫斩击框向上多 40 px，
-  否则站在默认关卡第一个箱子上可以打到守卫而守卫打不到人。
-- **Pixi 7 的 `Graphics.arc()` 会从上一条路径末点连线**，`lineStyle(0)` 不会截断路径；每段弧线先 `moveTo` 起点
-  （`renderer.ts` 的 `arcStroke`）。
-- **WebGL 画布不能用 `drawImage` 采样判空**：未开 `preserveDrawingBuffer` 时读回的是已清空的缓冲，恒为单色；
-  判断"画面是否渲染"用 Playwright 截图的像素统计。
-- **worktree 验证时 Spine 模型缺失是正常的**：模型在 gitignored 的 `data/worldbooks/content/characters/*/spine/`，
-  隔离 worktree 里只会显示战术标记和临光立绘回退；要看真实模型得用主仓库数据。
-- **5174 被其他会话占用时**：别复用 `vite.config.shot.ts`——`node_modules` 是联接到主仓库的，`.vite-shot` 缓存目录
-  也共享，会互相覆盖。临时复制一份配置改端口与 `cacheDir`（放到 worktree 内），用完删除。
-
+- 厚度不超过 32 px 的薄平台默认单向（`oneWay` 可覆盖）；巡逻区间只约束闲逛，追击受平台边缘与墙限制。改地形或敌人行为后运行 `simulation.test.mjs` 的通关策略用例。
+- Pixi 7 的 `Graphics.arc()` 会从上一段路径末点连线，每段弧线先 `moveTo` 起点。未启用 `preserveDrawingBuffer` 时，不能用 `drawImage` 读回 WebGL 画布判断是否渲染；用截图像素检查。
+- Spine 模型在被 Git 忽略的角色资源目录，隔离 worktree 里缺模型时只看到回退表现；真实模型验收需指向具备资源的环境。
 
 ## 卡牌战斗事件播放（2026-09-27）
 
