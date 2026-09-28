@@ -79,7 +79,7 @@ export default function ChatView() {
           <span>{scenePanelOpen ? "收起面板" : "场景面板"}</span>
         </button>
 
-        <div className="flex-1 min-w-0 flex items-center justify-center gap-2 px-2">
+        <div className="chat-session-heading flex-1 min-w-0 flex items-center justify-center gap-2 px-2">
           {activeSession && (
             <span className="chat-topbar-title" title={activeSession.name || "未命名会话"}>
               {activeSession.name || "未命名会话"}

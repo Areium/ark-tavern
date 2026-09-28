@@ -73,4 +73,6 @@
   .session-graph-status { padding: 4px 10px; font-size: 11px; }
   .session-graph-choices { max-height: 100px; padding: 8px 10px; }
   .chat-topbar { flex-wrap: wrap; height: auto; min-height: 42px; padding: 5px; }
+  .chat-topbar .chat-session-heading { min-width: max-content; }
+  .chat-mode-switch { flex-shrink: 0; white-space: nowrap; }
 }

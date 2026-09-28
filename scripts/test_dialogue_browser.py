@@ -73,6 +73,7 @@ def run():
             message({"role": "character", "character": "临光", "round": 4, "content": "瑕光：「明确署名」"}, "stage")
             expect(page.locator(".stage-name")).to_contain_text("瑕光")
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            assert page.locator(".chat-mode-switch button").first.evaluate("el => el.scrollHeight <= el.clientHeight"), "mode label must not wrap inside fixed-height button"
             shots = ROOT / ".impeccable" / "review"
             shots.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(shots / f"dialogue-{width}.png"), full_page=True)
