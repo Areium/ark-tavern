@@ -474,9 +474,7 @@ def register(app, managers):
             if book is None:
                 return json_error("世界书不存在", 404)
             installed = wb_mgr._installed_path(book_id)
-            folder = installed.name == "book.json"
-            return jsonify({"path": str((installed.parent if folder else wb_mgr._books_dir).resolve()),
-                            "needs_migration": not folder})
+            return jsonify({"path": str(installed.parent.resolve())})
         except ValueError:
             return json_error("世界书 ID 无效", 400)
 

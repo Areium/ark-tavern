@@ -2,7 +2,7 @@
 
 世界设定、角色、剧情及配套资源集中在世界书目录。平台本体不预设世界观；
 《明日方舟》资料是可选的离线内容包。安装后的书及其资源放在同一文件夹中；
-旧版共享资源继续按归属清单读取，直到迁移完成。
+旧版共享目录只作为离线分发源和一次性迁移来源；运行时读取已安装书文件夹。
 
 ```text
 data/
@@ -15,7 +15,7 @@ data/
 │   │       ├── plots/     剧情、节拍与插画
 │   │       ├── combat/    战斗节点、背景、格子与规则
 │   │       └── audio/     音乐与音效；其他类别按需加入
-│   ├── content/           旧版共享资源（迁移期间保留，不是新书的存放位置）
+│   ├── content/           离线内容分发源和旧数据迁移来源
 │   │   ├── characters/    角色 index.md、头像/立绘/Spine、专属 combat.json
 │   │   ├── classes/       职业设定与 cards.json
 │   │   ├── world/         世界观
@@ -34,7 +34,7 @@ data/
 │   ├── exports/           可选 .arkwb 兼容导出
 │   ├── content_manifest.json  离线内容的世界书归属清单，受版本控制
 │   ├── local_content_manifest.json  完整包导入资源的本地归属，本地数据
-│   ├── <book_id>.json     旧版已安装书位置，可读取并迁移
+│   ├── <book_id>.json     旧版安装文件，仅供一次性迁移
 │   ├── settings.json      旧版本世界书设置，本地数据
 │   └── *.bak              手动重装或修复前的恢复副本，本地数据
 ├── memory/                运行时创建的会话、向量记忆、战斗恢复（本地数据）
@@ -67,7 +67,7 @@ data/
   修改已安装文件后也要刷新书架。复制到 `inbox/` 的原件会保留。
 - 酒馆 `.json` / `.jsonl` 仍可复制到 `inbox/` 导入条目；酒馆格式通常不包含上述独立资源。
   `.arkwb` 是可选的旧版兼容导入导出方式，完整内容导入后也会展开到书的文件夹。
-- 旧版 `books/<book_id>.json` 和根目录 `<book_id>.json` 仍可读取。先运行
+- 旧版 `books/<book_id>.json` 和根目录 `<book_id>.json` 不再作为已安装书读取。先运行
   `python scripts/migrate_worldbook_layout.py` 预览，再运行
   `python scripts/migrate_worldbook_layout.py --apply` **复制**书 JSON 及归属该书的共享资源；
   原文件保留。迁移前关闭正在编辑该书的应用，备份 `data/`。

@@ -391,7 +391,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
 
   const openBooksFolder = async (bookId?: string) => {
     try {
-      const { path, needs_migration } = await api.getWorldbookDir(bookId);
+      const { path } = await api.getWorldbookDir(bookId);
       if (window.electronAPI) {
         const result = await window.electronAPI.openDirectory(path);
         if (!result.success) throw new Error(result.error || "无法打开文件夹");
@@ -399,7 +399,6 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         await navigator.clipboard.writeText(path);
         setShelfNotice(`文件夹路径已复制：${path}`);
       }
-      if (needs_migration) setShelfNotice("这本书仍是旧版单文件，请先按 data/README.md 迁移。已打开书架目录。");
     } catch (reason: any) {
       setShelfError(reason?.message || "无法打开世界书文件夹");
     }

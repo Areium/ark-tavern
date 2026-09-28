@@ -1,8 +1,4 @@
-"""Resolve content from installed worldbook directories in binding order.
-
-Each installed folder owns its ordinary files.  A legacy shared content tree is
-only a compatibility source for books that have not yet been migrated.
-"""
+"""Resolve runtime content from installed worldbook folders in binding order."""
 
 from __future__ import annotations
 
@@ -13,7 +9,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Iterable
 
-from data_paths import content_root, installed_books_root, worldbooks_root
+from data_paths import installed_books_root
 
 
 _BOOK_ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
@@ -79,27 +75,6 @@ def enabled_book_ids(project_root: str | Path | None = None) -> list[str]:
     return result
 
 
-def _enabled_legacy_ids(project_root: str | Path | None = None) -> list[str]:
-    books_root = installed_books_root(project_root)
-    candidates = list(books_root.glob("*.json"))
-    candidates.extend(worldbooks_root(project_root).glob("*.json"))
-    result = []
-    for path in sorted(candidates):
-        book_id = path.stem
-        if (not _BOOK_ID.fullmatch(book_id) or _DEVICE.fullmatch(book_id)
-                or (books_root / book_id / "book.json").is_file() or book_id in {
-                    "settings", "content_manifest", "local_content_manifest"}):
-            continue
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if (isinstance(data, dict) and data.get("id") == book_id and
-                data.get("enabled", True) is True and book_id not in result):
-            result.append(book_id)
-    return result
-
-
 def _candidate(root: Path, relative: PurePosixPath) -> Path | None:
     root = Path(os.path.abspath(root))
     if root.is_symlink() or root.resolve() != root:
@@ -115,13 +90,11 @@ def _candidate(root: Path, relative: PurePosixPath) -> Path | None:
 
 
 def content_candidates(relative: str, *, book_ids: Iterable[str] | None = None,
-                       project_root: str | Path | None = None,
-                       include_legacy: bool = True) -> list[tuple[str | None, Path]]:
+                       project_root: str | Path | None = None) -> list[tuple[str, Path]]:
     """Return existing content paths in binding order with their owner IDs."""
     key = _safe_relative(relative)
     ordered = list(dict.fromkeys(book_ids)) if book_ids is not None else enabled_book_ids(project_root)
-    result: list[tuple[str | None, Path]] = []
-    legacy_ids: list[str] = _enabled_legacy_ids(project_root) if book_ids is None else []
+    result: list[tuple[str, Path]] = []
     for book_id in ordered:
         folder = book_directory(book_id, project_root)
         metadata = folder / "book.json"
@@ -132,42 +105,17 @@ def content_candidates(relative: str, *, book_ids: Iterable[str] | None = None,
             path = _candidate(folder, key)
             if path is not None and path.exists():
                 result.append((book_id, path))
-        elif book_ids is not None:
-            legacy_ids.append(book_id)
-    if include_legacy and legacy_ids:
-        legacy = _candidate(content_root(project_root), key)
-        if legacy is not None and legacy.exists():
-            # The old shared tree remains available only while legacy books
-            # exist. Session-specific owner checks live in content_scope.
-            from content_scope import is_content_visible
-            if is_content_visible(legacy, project_root=project_root,
-                                  allowed_book_ids=legacy_ids):
-                result.append((None, legacy))
     return result
 
 
 def resolve_content(relative: str, *, book_ids: Iterable[str] | None = None,
-                    project_root: str | Path | None = None,
-                    include_legacy: bool = True) -> Path | None:
+                    project_root: str | Path | None = None) -> Path | None:
     candidates = content_candidates(relative, book_ids=book_ids,
-                                    project_root=project_root,
-                                    include_legacy=include_legacy)
+                                    project_root=project_root)
     return candidates[0][1] if candidates else None
 
 
 def category_roots(category: str, *, book_ids: Iterable[str] | None = None,
-                   project_root: str | Path | None = None,
-                   include_legacy: bool = True) -> list[tuple[str | None, Path]]:
-    roots = [(owner, path) for owner, path in content_candidates(
-        category, book_ids=book_ids, project_root=project_root,
-        include_legacy=include_legacy) if path.is_dir()]
-    # A legacy manifest may own only nested files, so the category directory
-    # itself has no owner. Readers still inspect each descendant's visibility.
-    available_legacy = _enabled_legacy_ids(project_root)
-    legacy_ids = (available_legacy if book_ids is None
-                  else [book_id for book_id in book_ids if book_id in available_legacy])
-    if include_legacy and legacy_ids:
-        legacy = _candidate(content_root(project_root), _safe_relative(category))
-        if legacy is not None and legacy.is_dir() and (None, legacy) not in roots:
-            roots.append((None, legacy))
-    return roots
+                   project_root: str | Path | None = None) -> list[tuple[str, Path]]:
+    return [(owner, path) for owner, path in content_candidates(
+        category, book_ids=book_ids, project_root=project_root) if path.is_dir()]

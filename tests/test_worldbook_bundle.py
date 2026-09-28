@@ -169,13 +169,10 @@ def test_bundle_rejects_unsafe_windows_paths(tmp_path, unsafe_name):
     assert not (tmp_path / "escape.txt").exists()
 
 
-def test_local_owner_makes_distributed_parent_directory_visible(tmp_path):
+def test_old_local_ownership_never_exposes_shared_book_files(tmp_path):
     root = tmp_path / "worldbooks"
     manager = WorldBookManager(root)
     book = manager.create_book("复制的角色")
-    flat = root / "books" / f"{book.id}.json"
-    manager._path(book.id).replace(flat)
-    manager._path(book.id).parent.rmdir()
     actor = root / "content" / "characters" / "Hero" / "index.md"
     _write(actor, b"# Hero")
     (root / "content_manifest.json").write_text(json.dumps({
@@ -184,14 +181,14 @@ def test_local_owner_makes_distributed_parent_directory_visible(tmp_path):
     (root / "local_content_manifest.json").write_text(json.dumps({
         "files": {"characters/Hero/index.md": [book.id]},
     }), encoding="utf-8")
-    assert is_content_visible(actor.parent, content_base=root / "content")
-    assert is_content_visible(actor, content_base=root / "content")
+    assert not is_content_visible(actor.parent, content_base=root / "content")
+    assert not is_content_visible(actor, content_base=root / "content")
     book.enabled = False
     manager.save(book)
     assert not is_content_visible(actor.parent, content_base=root / "content")
 
 
-def test_delete_removes_both_current_and_legacy_copy(tmp_path):
+def test_delete_removes_only_installed_folder_and_keeps_migration_source(tmp_path):
     root = tmp_path / "worldbooks"
     manager = WorldBookManager(root)
     book = manager.create_book("双路径")
@@ -199,7 +196,7 @@ def test_delete_removes_both_current_and_legacy_copy(tmp_path):
     legacy = root / f"{book.id}.json"
     legacy.write_bytes(current.read_bytes())
     assert manager.delete_book(book.id)
-    assert not current.parent.exists() and not legacy.exists()
+    assert not current.parent.exists() and legacy.exists()
     assert WorldBookManager(root).list_books() == []
 
 

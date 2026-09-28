@@ -98,7 +98,7 @@ def test_presets_include_enabled_book_folders_without_shared_copy(tmp_path, monk
     assert response.get_json()["weathers"] == []
 
 
-def test_legacy_shared_weather_requires_bound_owner(tmp_path, monkeypatch):
+def test_legacy_shared_weather_is_not_a_runtime_source(tmp_path, monkeypatch):
     _checkout(monkeypatch, tmp_path)
     books = tmp_path / "data" / "worldbooks"
     weather = books / "content" / "environment" / "weather" / "rain" / "index.md"
@@ -114,7 +114,7 @@ def test_legacy_shared_weather_requires_bound_owner(tmp_path, monkeypatch):
     assert not environment_state.EnvironmentState(overlay=Overlay([])).load_weather("rain")
     assert not environment_state.EnvironmentState(overlay=Overlay(["other"])).load_weather("rain")
     env = environment_state.EnvironmentState(overlay=Overlay(["legacy"]))
-    assert env.load_weather("rain") and env.weather == "Legacy Rain"
+    assert not env.load_weather("rain")
 
 
 def test_quest_routes_resolve_bound_plot_and_reject_other_book(tmp_path, monkeypatch):

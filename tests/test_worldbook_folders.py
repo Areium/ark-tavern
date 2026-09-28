@@ -45,6 +45,8 @@ def test_migration_copies_owned_resources_and_keeps_legacy_source(tmp_path):
         "directories": {}, "files": {"combat/nodes/fight.json": [book.id]},
     }), encoding="utf-8")
 
+    assert manager.load(book.id) is None
+    assert manager.list_books() == []
     assert manager.migrate_legacy_books() == [book.id]
     assert old.is_file()
     assert manager._path(book.id).is_file()
@@ -54,7 +56,7 @@ def test_migration_copies_owned_resources_and_keeps_legacy_source(tmp_path):
     assert manager.migrate_legacy_books() == []
 
 
-def test_saving_legacy_book_copies_resources_into_folder(tmp_path):
+def test_runtime_ignores_legacy_json_and_save_does_not_migrate_resources(tmp_path):
     root = tmp_path / "worldbooks"
     manager = WorldBookManager(root)
     book = manager.create_book("Legacy edit")
@@ -65,11 +67,18 @@ def test_saving_legacy_book_copies_resources_into_folder(tmp_path):
     resource.parent.mkdir(parents=True)
     resource.write_text(json.dumps({"worldbook_id": book.id, "text": "scene"}), encoding="utf-8")
 
-    manager.save(manager.load(book.id))
+    assert manager.load(book.id) is None
+    assert manager.list_books() == []
+    manager.save(book)
 
     assert old.is_file()
     assert manager._path(book.id).is_file()
-    assert (manager._path(book.id).parent / "plots" / "opening.json").read_bytes() == resource.read_bytes()
+    assert not (manager._path(book.id).parent / "plots" / "opening.json").exists()
+    assert resource.is_file()
+    assert [item["id"] for item in manager.list_books()] == [book.id]
+    assert manager.delete_book(book.id)
+    assert old.is_file() and resource.is_file()
+    assert manager.list_books() == []
 
 
 def test_migration_cli_previews_then_copies_without_removing_source(tmp_path):
@@ -103,6 +112,41 @@ def test_inbox_folder_keeps_source_and_imports_once(tmp_path):
     assert [item["id"] for item in target.list_books()] == [book.id]
     assert target.inbox_results()[0]["status"] == "imported"
     assert [item["id"] for item in WorldBookManager(target._dir).list_books()] == [book.id]
+
+
+def test_archive_exchange_uses_only_book_folder_resources(tmp_path):
+    source = WorldBookManager(tmp_path / "source")
+    book = source.create_book("Archive")
+    local = source._path(book.id).parent / "plots" / "intro.md"
+    local.parent.mkdir()
+    local.write_text("intro", encoding="utf-8")
+    global_file = source._dir / "content" / "plots" / "old.md"
+    global_file.parent.mkdir(parents=True)
+    global_file.write_text("old", encoding="utf-8")
+
+    archive, manifest = source.export_bundle(book.id)
+    assert [item["path"] for item in manifest["resources"]] == ["plots/intro.md"]
+    target = WorldBookManager(tmp_path / "target")
+    assert target.install_bundle_file(archive).id == book.id
+    assert (target._path(book.id).parent / "plots" / "intro.md").read_text(encoding="utf-8") == "intro"
+    assert not (target._path(book.id).parent / "plots" / "old.md").exists()
+
+
+def test_deleting_one_book_keeps_other_book_with_same_character_name(tmp_path):
+    manager = WorldBookManager(tmp_path / "worldbooks")
+    first = manager.create_book("First")
+    second = manager.create_book("Second")
+    for book in (first, second):
+        book.character_profiles = {"Hero": "# Hero"}
+        manager.save(book)
+        actor = manager._path(book.id).parent / "characters" / "Hero" / "index.md"
+        actor.parent.mkdir(parents=True)
+        actor.write_text("# Hero", encoding="utf-8")
+
+    assert manager.delete_book(first.id)
+    assert not manager._path(first.id).parent.exists()
+    assert manager._path(second.id).parent.joinpath("characters", "Hero", "index.md").is_file()
+    assert manager.load(second.id) is not None
 
 
 def test_duplicate_id_and_mismatched_folder_are_rejected(tmp_path):

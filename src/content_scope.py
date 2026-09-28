@@ -1,4 +1,4 @@
-"""Visibility of distributable content after its owning worldbook is removed."""
+"""Visibility of installed book files and unowned local content."""
 
 import json
 import os
@@ -40,7 +40,7 @@ def _book_enabled(path: Path, mtime_ns: int, size: int) -> bool:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         return (isinstance(payload, dict) and payload.get("enabled", True) is True
-                and (path.name != "book.json" or payload.get("id") == path.parent.name))
+                and path.name == "book.json" and payload.get("id") == path.parent.name)
     except (OSError, ValueError, AttributeError):
         return False
 
@@ -55,11 +55,11 @@ def invalidate_visibility_cache() -> None:
 def is_content_visible(path: str | Path, *, project_root: str | Path | None = None,
                        content_base: str | Path | None = None,
                        allowed_book_ids: Iterable[str] | None = None) -> bool:
-    """Return whether a content path belongs to an enabled installed worldbook.
+    """Expose enabled folder books or unowned local files in the shared tree.
 
-    Paths absent from the distribution manifest are user content. ``project_root``
-    selects a checkout; ``content_base`` supports a configured standalone
-    content directory (its manifest lives in the parent directory).
+    Old manifests only identify shared files to hide; they never grant runtime
+    access to an old flat worldbook. ``content_base`` selects a standalone
+    content directory for callers that do not use the checkout default.
     """
     if content_base is not None:
         root = Path(content_base)
@@ -104,7 +104,7 @@ def is_content_visible(path: str | Path, *, project_root: str | Path | None = No
     if candidate.resolve() != candidate or root.resolve() != root:
         return False
     if not relative.parts:
-        return True
+        return allowed_book_ids is None
     if any(part.startswith(".") for part in relative.parts):
         return False
 
@@ -160,27 +160,4 @@ def is_content_visible(path: str | Path, *, project_root: str | Path | None = No
         if not isinstance(additional, list):
             return False
         owners = [*(owners or []), *additional]
-    allowed = set(allowed_book_ids) if allowed_book_ids is not None else None
-    if owners is None:
-        return allowed is None
-    if not isinstance(owners, list):
-        return False
-    for book_id in owners:
-        if not isinstance(book_id, str) or not book_id or Path(book_id).name != book_id:
-            continue
-        if allowed is not None and book_id not in allowed:
-            continue
-        if (books_root / "books" / book_id / "book.json").is_file():
-            # A migrated book owns its copy inside the folder. Its old shared
-            # path must not reappear through a retained legacy JSON file.
-            continue
-        book_path = books_root / "books" / f"{book_id}.json"
-        if not book_path.is_file():
-            book_path = books_root / f"{book_id}.json"
-        try:
-            stat = book_path.stat()
-            if _book_enabled(book_path, stat.st_mtime_ns, stat.st_size):
-                return True
-        except OSError:
-            continue
-    return False
+    return owners is None and allowed_book_ids is None

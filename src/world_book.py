@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from data_paths import CONTENT_ROOT, PACKS_ROOT, WORLDBOOKS_ROOT
+from data_paths import PACKS_ROOT, WORLDBOOKS_ROOT
 from worldbook_scope import (
     EXTENSION_KEY, UNCLASSIFIED, validate_categories, find_scope_extension,
     ACTIVATION_ALWAYS, EXPANSION_NONE,
@@ -52,7 +52,7 @@ from worldbook_bundle import _source_resources, _relative, _no_links
 from character_stats import normalize_stat_fields
 from worldbook_media import (
     copied_character_id, materialize_character, normalize_character_media,
-    normalize_character_profiles, owned_materialized_character_root,
+    normalize_character_profiles,
     snapshot_character_media, snapshot_character_profile,
 )
 
@@ -2442,41 +2442,23 @@ class WorldBookManager:
             raise ValueError("非法世界书 ID")
         return self._books_dir / book_id / "book.json"
 
-    def _flat_path(self, book_id: str) -> Path:
-        self._path(book_id)
-        return self._books_dir / f"{book_id}.json"
-
-    def _legacy_path(self, book_id: str) -> Path:
-        self._path(book_id)  # 复用 ID 校验
-        return self._dir / f"{book_id}.json"
-
     def _installed_path(self, book_id: str) -> Path:
+        """Installed book location for callers that need to inspect its file."""
         current = self._path(book_id)
         if current.parent.is_symlink():
             raise ValueError("世界书文件夹不能是符号链接")
-        flat = self._flat_path(book_id)
-        legacy = self._legacy_path(book_id)
-        if current.is_file():
-            return current
-        if flat.is_file():
-            return flat
-        return legacy
+        return current
 
     def _id_exists(self, book_id: str) -> bool:
-        return any(path.exists() or path.is_symlink() for path in
-                   (self._path(book_id).parent, self._flat_path(book_id),
-                    self._legacy_path(book_id)))
+        folder = self._path(book_id).parent
+        return folder.exists() or folder.is_symlink()
 
     def _book_paths(self) -> list[Path]:
-        paths = {path.stem: path for path in self._dir.glob("*.json")
-                 if path.name not in {"settings.json", "content_manifest.json",
-                                      "local_content_manifest.json"}}
-        paths.update({path.stem: path for path in self._books_dir.glob("*.json")})
-        paths.update({path.name: path / "book.json" for path in self._books_dir.iterdir()
-                      if path.is_dir() and not path.is_symlink() and
-                      re.fullmatch(r"[A-Za-z0-9_-]{1,64}", path.name) and
-                      (path / "book.json").is_file()})
-        return sorted(paths.values(), key=lambda path: path.stat().st_mtime, reverse=True)
+        paths = [folder / "book.json" for folder in self._books_dir.iterdir()
+                 if folder.is_dir() and not folder.is_symlink() and
+                 re.fullmatch(r"[A-Za-z0-9_-]{1,64}", folder.name) and
+                 (folder / "book.json").is_file()]
+        return sorted(paths, key=lambda path: path.stat().st_mtime, reverse=True)
 
     def _pack_path(self, book_id: str) -> Path:
         """整合包分发源路径。"""
@@ -2497,7 +2479,7 @@ class WorldBookManager:
         imported = []
         for path in self._book_paths():
             try:
-                book = self.load(path.parent.name if path.name == "book.json" else path.stem)
+                book = self.load(path.parent.name)
             except Exception as e:
                 logger.warning("加载世界书 %s 失败: %s", path.name, e)
                 continue
@@ -2544,8 +2526,7 @@ class WorldBookManager:
             return None
         if book_id in self._cache:
             return self._cache[book_id]
-        if path.name == "book.json":
-            validate_folder(path.parent)
+        validate_folder(path.parent)
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         book = WorldBook.from_dict(data)
@@ -2560,13 +2541,9 @@ class WorldBookManager:
     def save(self, book: WorldBook):
         """统一保存（预装包安装副本与导入书同样可写）。"""
         target = self._path(book.id)
-        if not target.parent.exists():
-            legacy = self._installed_path(book.id)
-            if legacy.is_file() and legacy != target:
-                migrate_json(legacy, self._dir)
-        elif not target.is_file():
+        if target.parent.exists() and not target.is_file():
             raise FileExistsError(f"世界书文件夹已存在但没有 book.json：{target.parent}")
-        else:
+        if target.is_file():
             validate_folder(target.parent)
         book.bump_edit_revision()
         book.updated_at = time.time()
@@ -2613,8 +2590,6 @@ class WorldBookManager:
 
     def export_bundle(self, book_id: str) -> tuple[Path, dict]:
         """Create a copyable snapshot including the book and its owned content."""
-        from worldbook_bundle import export_bundle
-
         book = self.load(book_id)
         if book is None:
             raise ValueError("世界书不存在")
@@ -2622,10 +2597,7 @@ class WorldBookManager:
         target = self._exports_dir / f"{book_id}.arkwb"
         temporary = self._exports_dir / f".{book_id}-{uuid.uuid4().hex}.tmp"
         try:
-            folder = self._path(book_id).parent
-            report = (export_folder(folder, temporary) if folder.is_dir() else
-                      export_bundle(book.to_dict(), book_id, self._dir,
-                                    self._dir / "content", temporary))
+            report = export_folder(self._path(book_id).parent, temporary)
             temporary.replace(target)
             return target, report
         finally:
@@ -3045,67 +3017,26 @@ class WorldBookManager:
         return self.reinstall_book(book_id)
 
     def delete_book(self, book_id: str) -> bool:
-        """卸载书及其私有角色副本；分发源仍可供再次导入。"""
+        """卸载自包含书文件夹；分发源仍可供再次导入。"""
         book = self.load(book_id)
         if book is None:
             return False
-        book_paths = [path for path in (self._path(book_id).parent,
-                                       self._flat_path(book_id), self._legacy_path(book_id))
-                      if path.exists()]
-        if not book_paths:
-            return False
-        owned = [root for character_id in book.character_profiles
-                 if (root := owned_materialized_character_root(
-                     character_id, book_id, self._path(book_id).parent))]
-        owned_ids = {root.name for root in owned}
-        if owned_ids:
-            for other_path in self._book_paths():
-                other_id = other_path.parent.name if other_path.name == "book.json" else other_path.stem
-                if other_id == book_id:
-                    continue
-                other = self.load(other_id)
-                if other and (owned_ids.intersection(other.character_profiles)
-                              or any(entry.character_id in owned_ids for entry in other.entries)):
-                    raise ValueError(f"角色副本仍被世界书「{other.name}」引用，请先处理该引用")
-        characters_dir = (CONTENT_ROOT / "characters").resolve()
-        book_characters_dir = (self._path(book_id).parent / "characters").resolve()
-        # Keep staged files outside the public content tree even if cleanup fails.
+        folder = self._path(book_id).parent
+        # Move the complete installation out of the bookshelf before cleanup.
         staging = self._dir / f".uninstall-{book_id}-{uuid.uuid4().hex[:8]}"
         if not staging.resolve().is_relative_to(self._dir.resolve()):
             raise ValueError("资源卸载路径无效")
-        moved: list[tuple[Path, Path]] = []
         try:
-            staging.mkdir()
-            if owned:
-                (staging / "characters").mkdir()
-                for root in owned:
-                    target = staging / "characters" / root.name
-                    if (not (root.resolve().is_relative_to(characters_dir)
-                             or root.resolve().is_relative_to(book_characters_dir))
-                            or not target.resolve().is_relative_to(staging)):
-                        raise ValueError("角色资源路径无效")
-                    root.rename(target)
-                    moved.append((root, target))
-            (staging / "books").mkdir()
-            for index, path in enumerate(book_paths):
-                target = staging / "books" / str(index)
-                path.rename(target)
-                moved.append((path, target))
-            if any(path.suffix == ".json" for path in book_paths):
-                from worldbook_bundle import remove_book_ownership
-                remove_book_ownership(self._dir / "local_content_manifest.json", book_id)
-        except Exception:
-            for root, target in reversed(moved):
-                target.rename(root)
-            if staging.exists():
-                shutil.rmtree(staging)
+            folder.rename(staging)
+        except OSError:
+            logger.exception("世界书文件夹卸载失败: %s", folder)
             raise
         self._cache.pop(book_id, None)
         if staging.exists():
             try:
                 shutil.rmtree(staging)
             except OSError:
-                logger.exception("世界书已卸载，私有角色清理待重试: %s", staging)
+                logger.exception("世界书已卸载，文件夹清理待重试: %s", staging)
         logger.info("已删除世界书: %s", book_id)
         return True
 
@@ -3128,7 +3059,7 @@ class WorldBookManager:
         paths = self._book_paths()
         for path in paths:
             try:
-                book = self.load(path.parent.name if path.name == "book.json" else path.stem)
+                book = self.load(path.parent.name)
             except Exception:
                 continue
             if book is None:

@@ -87,7 +87,7 @@ def test_folder_content_rejects_links_and_traversal(tmp_path):
         raise AssertionError("path traversal was accepted")
 
 
-def test_legacy_shared_file_stays_scoped_to_its_owner(tmp_path):
+def test_legacy_shared_file_is_never_a_worldbook_source(tmp_path):
     root = tmp_path / "data" / "worldbooks"
     books = root / "books"
     books.mkdir(parents=True)
@@ -104,4 +104,16 @@ def test_legacy_shared_file_stays_scoped_to_its_owner(tmp_path):
 
     key = "characters/Hero/avatar.png"
     assert resolve_content(key, book_ids=["second"], project_root=tmp_path) is None
-    assert resolve_content(key, book_ids=["first"], project_root=tmp_path) == image
+    assert resolve_content(key, book_ids=["first"], project_root=tmp_path) is None
+    assert resolve_content(key, project_root=tmp_path) is None
+    assert not is_content_visible(image, project_root=tmp_path)
+
+
+def test_unowned_local_content_remains_global_only(tmp_path):
+    image = tmp_path / "data" / "worldbooks" / "content" / "characters" / "Custom" / "avatar.png"
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b"custom")
+    assert is_content_visible(image, project_root=tmp_path)
+    assert not is_content_visible(image, project_root=tmp_path,
+                                  allowed_book_ids=["book"])
+    assert resolve_content("characters/Custom/avatar.png", project_root=tmp_path) is None

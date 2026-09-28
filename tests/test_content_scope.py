@@ -77,7 +77,7 @@ def content_tree(tmp_path):
     return tmp_path, books, chars
 
 
-def test_manifest_ownership_and_live_enabled_state(content_tree):
+def test_legacy_manifest_ownership_never_grants_runtime_visibility(content_tree):
     root, books, chars = content_tree
     pack = chars / "Pack" / "index.md"
     shared = chars / "Shared" / "index.md"
@@ -86,13 +86,13 @@ def test_manifest_ownership_and_live_enabled_state(content_tree):
     assert is_content_visible(custom, project_root=root)
 
     _write_json(books / "pack.json", {"enabled": True})
-    assert is_content_visible(pack, project_root=root)
-    assert is_content_visible(chars / "Shared" / "avatar.png", project_root=root)
+    assert not is_content_visible(pack, project_root=root)
+    assert not is_content_visible(chars / "Shared" / "avatar.png", project_root=root)
 
     _write_json(books / "pack.json", {"enabled": False})
     _write_json(books / "other.json", {"enabled": True})
     assert not is_content_visible(pack, project_root=root)
-    assert is_content_visible(shared, project_root=root)
+    assert not is_content_visible(shared, project_root=root)
     assert not is_content_visible(chars / "Shared" / "avatar.png", project_root=root)
 
     (books / "other.json").unlink()
@@ -119,8 +119,9 @@ def test_catalog_and_asset_url_hide_uninstalled_content(content_tree):
     assert {x["entity"] for x in client.get("/api/assets/images").get_json()} == {"Custom"}
 
     _write_json(books / "pack.json", {"enabled": True})
-    assert manager.read_document("characters", "Pack")["content"].strip() == "Pack body"
-    assert client.get("/api/assets/characters/Pack/avatar.png").status_code == 200
+    with pytest.raises(DocumentNotFoundError):
+        manager.read_document("characters", "Pack")
+    assert client.get("/api/assets/characters/Pack/avatar.png").status_code == 404
     _write_json(books / "pack.json", {"enabled": False})
     assert client.get("/api/assets/characters/Pack/avatar.png").status_code == 404
 
@@ -143,7 +144,7 @@ def test_symlink_and_category_escape_are_rejected(content_tree, tmp_path):
     assert client.get("/api/assets/characters/Custom/link.png").status_code == 404
 
 
-def test_cached_profile_and_avatar_disappear_after_book_disable(content_tree, monkeypatch):
+def test_cached_profile_and_avatar_ignore_legacy_flat_book(content_tree, monkeypatch):
     root, books, chars = content_tree
     monkeypatch.setattr(content_scope, "CONTENT_ROOT", books / "content")
     monkeypatch.setattr(content_scope, "WORLDBOOKS_ROOT", books)
@@ -152,11 +153,11 @@ def test_cached_profile_and_avatar_disappear_after_book_disable(content_tree, mo
     player_profile.invalidate_profile_cache()
 
     _write_json(books / "pack.json", {"enabled": True})
-    assert "Pack body" in player_profile.load_player_profile("Pack")
+    assert player_profile.load_player_profile("Pack") is None
     avatar_dir = chars / "Pack" / "avatar"
     avatar_dir.mkdir()
     (avatar_dir / "portrait.png").write_bytes(b"png")
-    assert avatar_color.find_avatar_path("Pack") is not None
+    assert avatar_color.find_avatar_path("Pack") is None
 
     _write_json(books / "pack.json", {"enabled": False})
     assert player_profile.load_player_profile("Pack") is None
@@ -173,7 +174,7 @@ def test_distribution_root_without_manifest_fails_closed(tmp_path, monkeypatch):
     assert not is_content_visible(actor)
 
 
-def test_environment_and_combat_rules_follow_pack_state(tmp_path, monkeypatch):
+def test_environment_and_combat_rules_ignore_legacy_flat_book(tmp_path, monkeypatch):
     books = tmp_path / "content_books"
     content = books / "content"
     weather = content / "environment" / "weather" / "sunny" / "index.md"
@@ -196,9 +197,8 @@ def test_environment_and_combat_rules_follow_pack_state(tmp_path, monkeypatch):
     assert "audit_sentinel" not in combat_rules.difficulty_rules()
     _write_json(books / "sample.json", {"enabled": True})
     env = environment_state.EnvironmentState()
-    assert env.load_weather("sunny")
-    assert env.weather == "晴天"
-    assert combat_rules.difficulty_rules()["audit_sentinel"] == "owned"
+    assert not env.load_weather("sunny")
+    assert "audit_sentinel" not in combat_rules.difficulty_rules()
     _write_json(books / "sample.json", {"enabled": False})
     assert not environment_state.EnvironmentState().load_weather("sunny")
     assert "audit_sentinel" not in combat_rules.difficulty_rules()

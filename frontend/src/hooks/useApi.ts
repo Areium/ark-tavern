@@ -385,7 +385,7 @@ export function useApi() {
       request<{ books: import("../types").WorldBookSummary[];
         inbox?: { file: string; status: string; book_id?: string; error?: string }[] }>("/api/worldbook"),
     getWorldbookDir: (bookId?: string) =>
-      request<{ path: string; needs_migration?: boolean }>(
+      request<{ path: string }>(
         `/api/worldbook/data-dir${bookId ? `?book_id=${encodeURIComponent(bookId)}` : ""}`),
     listAvailableWorldbookPacks: () =>
       request<{ packs: { id: string; name: string; description: string; book_type: string; entry_count: number; installed: boolean; repair_required: boolean }[] }>("/api/worldbook/available-packs"),

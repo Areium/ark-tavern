@@ -10,7 +10,6 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import avatar_color
-import world_book
 import worldbook_media
 from world_book import WorldBookEntry, WorldBookManager
 
@@ -21,7 +20,6 @@ def setup(tmp_path, monkeypatch):
     chars = content / "characters"
     chars.mkdir(parents=True)
     monkeypatch.setattr(worldbook_media, "CONTENT_ROOT", content)
-    monkeypatch.setattr(world_book, "CONTENT_ROOT", content)
     monkeypatch.setattr(avatar_color, "_CHARS_ROOT", chars)
     source = chars / "amiya"
     (source / "avatar").mkdir(parents=True)
@@ -99,7 +97,7 @@ def test_uninstall_removes_only_owned_character_copy(setup):
     assert manager.load(reference.id) is not None
 
 
-def test_uninstall_rejects_copy_used_by_another_book(setup):
+def test_uninstall_keeps_other_book_when_character_id_is_referenced(setup):
     manager, reference, story, chars = setup
     excerpt(manager, reference, story)
     copied_id = manager.load(story.id).entries[0].character_id
@@ -107,10 +105,9 @@ def test_uninstall_rejects_copy_used_by_another_book(setup):
     other.entries.append(WorldBookEntry("shared", content="共享", character_id=copied_id))
     manager.save(other)
 
-    with pytest.raises(ValueError, match="仍被世界书"):
-        manager.delete_book(story.id)
-    assert manager.load(story.id) is not None
-    assert (manager._path(story.id).parent / "characters" / copied_id / "index.md").exists()
+    assert manager.delete_book(story.id)
+    assert manager.load(story.id) is None
+    assert manager.load(other.id).entries[0].character_id == copied_id
 
 
 def test_uninstall_api_rejects_copy_used_by_unbound_session(setup):

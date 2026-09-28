@@ -73,7 +73,7 @@ def test_editor_create_writes_inside_named_book(tmp_path, monkeypatch):
     assert load_node_file("new", book_id="owned")["worldbook_id"] == "owned"
 
 
-def test_explicit_binding_excludes_other_legacy_shared_combat(tmp_path, monkeypatch):
+def test_legacy_shared_combat_is_not_a_runtime_source(tmp_path, monkeypatch):
     monkeypatch.setattr(data_paths, "PROJECT_ROOT", tmp_path)
     books = tmp_path / "data" / "worldbooks" / "books"
     books.mkdir(parents=True)
@@ -103,7 +103,7 @@ def test_explicit_binding_excludes_other_legacy_shared_combat(tmp_path, monkeypa
         "files": {}
     }), encoding="utf-8")
 
-    for bound in ([], ["other"]):
+    for bound in ([], ["other"], ["legacy"]):
         loader = CombatDataLoader(book_ids=bound)
         assert loader.load_node("legacy_node") is None
         assert loader.load_enemy("legacy_enemy") is None
@@ -114,12 +114,6 @@ def test_explicit_binding_excludes_other_legacy_shared_combat(tmp_path, monkeypa
         assert plot_flows(book_ids=bound) == []
         assert "marker" not in difficulty_rules(book_ids=bound)
 
-    assert CombatDataLoader(book_ids=["legacy"]).load_node("legacy_node")
-    assert CombatDataLoader(book_ids=["legacy"])._visible(node)
-    assert load_node_file("legacy_node", book_id="legacy")
-    assert difficulty_rules(book_id="legacy")["marker"] == "legacy"
-    assert node_bindings(book_id="legacy")["legacy_node"][0]["beat_id"] == "beat_old"
-    assert plot_flows(book_id="legacy")[0]["worldbook_id"] == "legacy"
 
 
 def test_background_and_location_follow_bound_book(tmp_path, monkeypatch):

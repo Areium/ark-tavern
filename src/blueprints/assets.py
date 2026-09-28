@@ -12,7 +12,7 @@ from worldbook_content import book_directory, category_roots, content_candidates
 
 
 def _visible_category_path(cat, filename, *, project_root=None):
-    """Validate a client path against its category before manifest lookup."""
+    """Validate a local file path; old manifest-owned files stay hidden."""
     from pathlib import Path
 
     base = Path(cat.directory).resolve()
@@ -81,9 +81,10 @@ def register(app, managers):
             )
         except ValueError:
             return jsonify({"variants": {}})
-        legacy_catalog = content_root(doc_mgr._root) / "spine_variants.json"
-        if legacy_catalog.is_file() and (None, legacy_catalog) not in catalogs:
-            catalogs.append((None, legacy_catalog))
+        if selected_book is None:
+            local_catalog = content_root(doc_mgr._root) / "spine_variants.json"
+            if local_catalog.is_file():
+                catalogs.append((None, local_catalog))
         visible = {}
         for owner, catalog in catalogs:
             allowed = [selected_book] if selected_book is not None else None
@@ -444,9 +445,10 @@ def _list_entity_images(doc_mgr, *, book_id=None):
                 project_root=doc_mgr._root)
         except ValueError:
             continue
-        legacy_root = Path(cat.directory)
-        if legacy_root.is_dir() and (None, legacy_root) not in roots:
-            roots.append((None, legacy_root))
+        if book_id is None:
+            local_root = Path(cat.directory)
+            if local_root.is_dir():
+                roots.append((None, local_root))
         book_paths = set()
         for owner, cat_dir in roots:
             allowed = [owner] if owner else ([book_id] if book_id is not None else None)
@@ -467,8 +469,6 @@ def _list_entity_images(doc_mgr, *, book_id=None):
                         with index_md.open("r", encoding="utf-8") as fh:
                             meta = frontmatter.load(fh).metadata
                         entity_name = meta.get("name", entity_name)
-                        if owner is None:
-                            source_book = str(meta.get("worldbook_id") or "")
                     except (OSError, ValueError):
                         pass
                     entity_dirs.append((Path(root), entity_name, source_book))
