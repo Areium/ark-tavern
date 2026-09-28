@@ -39,6 +39,7 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 | `session_manager.py` | 会话 CRUD、回滚、叙述变体；创建时通过 initializer 在发布前完成阵容与世界书范围初始化。**`combat_mode`（`"narrative"` \| `"tactical"`）创建时选定，不可更改**。**主控角色（`player_identity`）与场景角色是两个口径**：主控是玩家自己扮演的角色，属于阵容但**不是**场景 NPC（`SceneManager.get_roster()` = 主控 + 队友；`get_scene_characters()` = 队友），模型不会替玩家说话 |
 | `session_overlay.py` | 职责聚合：角色/物品属性覆盖 + 剧情日志（保留最近 15 条）+ 节拍状态 + 任务系统 + 多本世界书绑定（`worldbook_ids`）及各书候选快照（`worldbook_scopes`）+ **角色会话数值 `character_stats` 与插件数据 `plugin_data`**（两者随剧情树节点快照回档）；首本书仅由复数字段按顺序派生，不再单独存储；会话依赖读改写在 overlay 锁内原子保存 |
 | `character_stats.py` | 角色数值三层口径：世界书统一字段（`WorldBook.stat_fields`）→ 角色全局值（frontmatter `stats`）→ 会话值；字段规范化 / 值校验 / 合并 / 提示词 `<character_stats>` 块。见 `docs/design/session-scene-plugins.md` |
+| `session_stats.py` / `story_rules.py` | 面板、提示词与剧情判定的同源数值读取；作者分支的物品/数值条件与效果、服务端重验、原子结算和重试凭据。叙事角色详情不显示战术兜底，场景物品和效果记录随节点回档。见 `docs/design/narrative/story-rules.md` |
 | `session_worldbook_dependencies.py` | 会话世界书继承基线、pair 屏蔽、本地边/起点展开覆盖、有效图、恢复继承与全局版本更新预览；不写全局书 |
 | `session_context.py` | 按会话缓存文档摘要 |
 | `session_resources.py` / `session_export.py` | 会话级资源（背景/形象覆盖）与会话存档导出 |
@@ -101,7 +102,9 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 
 剧情树（LLM 生成节点）的两层验证：`tests/test_story_tree_full_flow.py`（脚本化 LLM 驱动 narrate-continue 全链路的确定性完整流程用例）与 `scripts/verify_llm_node_generation.py`（真实 LLM 端到端冒烟，需 `config/llm_config.json`，输出可行性报告至 `.tmp/`）。
 
-**剧情树节点种类与参考大纲**（`session_overlay.py`）：树节点带 `kind`（`plot` 剧情节点 = 入口 / 章节切换 / 偏离分支线起点，`beat` 节拍节点 = 章节内推进，`combat` 战斗节点 = 本轮触发战斗时挂在叙述节点下、`combat_node_id` 指向注册表）与 `ref_chapter_id` / `ref_beat_id`（落盘时所处的参考章节 / 节拍）。没有 `## 章节 N` 骨架的剧情在会话创建时用参考大纲（书内 LLM 大纲 > 启发式切幕）代替节拍骨架（`init_session_docs(plot_id, outline=…)`，大纲副本存 `story_outline`）；`<current_node>` 列出当前参考节拍 / `must_keep` / 后续候选节拍 id，玩家选带落点的分支时在叙述前就 `jump_to_beat`（`chat._apply_branch_landing`）；大纲节拍的 `min_rounds` 阻止 `beat_complete` 一轮一推。战术模式下 Call 2 选中的现成节点若不属于本剧情 / 本书，且有 `combat_scene`，改为现场生成绑定节点（`chat._resolve_combat_scene`）。**偏离检测**：每 `deviation_check_interval` 轮（默认 4）把参考走向与 plot_log / 节点链交给 Call 3，`confidence ≥ deviation_confidence_threshold`（默认 0.6）且给出 branch 时 `apply_deviation_result` 追加 kind=branch 章节、跳到其首节拍、在树上开出待填充的偏离节点（`/story-state` 的 `outline` / `deviation` 字段可见；`POST /sessions/<id>/deviation-check` 手动触发）。接口：`GET/POST/DELETE /api/worldbooks/<book>/story-outline`（`blueprints/story.py`，POST 可选 `mode=llm|heuristic`、`generate_combat`）。验证：`tests/test_story_outline.py`。
+**剧情树节点种类与参考大纲**（`session_overlay.py`）：树节点带 `kind`（`plot` 入口/章节切换/偏离起点、`beat` 章节内节点、`combat` 战斗节点）和 `ref_chapter_id/ref_beat_id`。无 `## 章节 N` 骨架的剧情在创建会话时以参考大纲代替，副本存 `story_outline`。`<current_node>` 提供当前节拍、必留内容和候选；作者选择经 `chat._apply_branch_landing` → `story_rules.settle_branch` 在叙述前原子提交效果及落点，模型建议没有执行效果权限。`min_rounds` 限制自动推进，`choice_required` 必须等待玩家选择。战术模式现场生成绑定节点见 `chat._resolve_combat_scene`。
+
+**偏离检测**：每 `deviation_check_interval` 轮（默认 4）由 Call 3 检查；置信度达阈值且不在必要选择点时，可追加 `kind=branch` 的会话章节并生成待填充节点。生成/偏离的模型产物会剥离数值与物品规则，不能提升为作者权限。`GET/POST/DELETE /api/worldbooks/<book>/story-outline` 管理参考大纲，`POST /sessions/<id>/deviation-check` 手动检测；验证见 `tests/test_story_outline.py`、`tests/test_story_rules.py`。
 
 ---
 
@@ -227,6 +230,7 @@ docs/
 | `design/narrative/rag-retrieval.md` | 知识注入的四条召回通道（依赖预加载 / 关键词世界书 / 预取 Hook / `wiki_query` 按需）、分层注入与记忆系统 |
 | `design/narrative/two-phase-narration.md` | 两阶段叙述：创作与系统层解耦、结构化产物字段、三级 JSON 兜底与按调用类型思考档位 |
 | `design/narrative/prompt.md` | 本项目提示词书写约定（已采用 / 未采用 / 顺序约定） |
+| `design/narrative/story-rules.md` | 世界书数值初值、作者分支条件/效果格式、结算/重试与物品回档边界 |
 | `design/content-hub-design.md` | 内容中心整合设计（内容中心一级入口已于 2026-09 拆解为「角色 + 世界书」两级，见文首「后续变更」） |
 | `design/session-scene-plugins.md` | 会话场景面板插件接口、角色数值三层口径（世界书统一字段 × 角色全局值 × 会话值）、插件数据与快照回档、舞台视图的数据来源与接口一览 |
 

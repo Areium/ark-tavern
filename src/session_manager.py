@@ -214,52 +214,24 @@ class Session:
             logger.warning("从剧情开场恢复环境失败 %s: %s", self.id, e)
 
     def _restore_scene(self):
-        """从持久化场景状态恢复角色/物品/当前对话目标（后端重启后不丢失）。
-
-        story 会话无持久化场景状态时（修复前创建的旧会话），兜底从剧情的
-        initial_characters 重新加载——story 模式不允许卸载角色，角色集合稳定。
-        """
+        """恢复已保存的场景；空 NPC 阵容和场景物品彼此独立。"""
         state = self.overlay.get_scene_state()
-        characters = state.get("characters")
-        if not characters and self.mode == "story":
-            characters = self._plot_initial_characters()
-        if not characters:
-            return  # 无场景角色，无需恢复（也不触发 LLM 探测）
+        from story_rules import sync_scene_items
+        sync_scene_items(self)
+        characters = state.get("characters") or []
         # 先确保 LLM 就绪，使恢复的角色可立即对话
-        if self._llm is None:
+        if characters and self._llm is None:
             self.refresh_llm()
         for name in characters:
             try:
                 self.scene_manager.load_character(name)
             except Exception as e:
                 logger.warning("恢复场景角色失败 %s: %s", name, e)
-        for item in state.get("items", []):
-            item_id = item.get("id") if isinstance(item, dict) else str(item)
-            try:
-                self.scene_manager.add_item(item_id, item)
-            except Exception as e:
-                logger.warning("恢复场景物品失败 %s: %s", item_id, e)
         active = state.get("active")
         if active and active in self.scene_manager.get_scene_characters():
             self.scene_manager.active = active
         # 统一落盘最终态（恢复过程会触发中间态持久化，需覆盖）
         self.scene_manager._persist_scene()
-
-    def _plot_initial_characters(self) -> list[str]:
-        """读取绑定剧情的开场角色（排除当前玩家身份）。"""
-        try:
-            from session_overlay import _read_plot_file, plot_initial_characters
-            plot_id = self.overlay.get_plot_id()
-            if not plot_id:
-                return []
-            result = _read_plot_file(plot_id, self.overlay.get_worldbook_ids())
-            if not result:
-                return []
-            player = self.player_identity
-            return [n for n in plot_initial_characters(result[0]) if n != player]
-        except Exception as e:
-            logger.warning("读取剧情初始角色失败: %s", e)
-            return []
 
     # ── 回忆系统 ──
 
@@ -578,6 +550,7 @@ class Session:
             st = tree_node.get("state") or {}
             if not st:
                 raise ValueError(f"节点尚无状态快照，无法回档: {node_id}")
+            self.overlay.validate_resource_snapshot(st)
             target_round = int(st.get("round_end") or 0)
             base = self.rollback_to_round(target_round)
 
@@ -595,6 +568,8 @@ class Session:
 
             restored = self.overlay.rollback_to_tree_node(
                 node_id, lore_resolver_factory=_lore_resolver_factory)
+            from story_rules import sync_scene_items
+            sync_scene_items(self)
             self.reload_environment_from_overlay()
             return {
                 **base,
@@ -607,10 +582,15 @@ class Session:
         snap = self.overlay.get_node_snapshot(node_id)
         if snap is None:
             raise ValueError(f"未找到节点快照: {node_id}")
+        self.overlay.validate_resource_snapshot(snap)
+        if node_id not in self.overlay._beat_index():
+            raise ValueError(f"节点不在当前剧情结构中: {node_id}")
         target_round = int(snap.get("round_end") or 0)
 
         base = self.rollback_to_round(target_round)
         restored = self.overlay.restore_from_snapshot(node_id)
+        from story_rules import sync_scene_items
+        sync_scene_items(self)
         self.reload_environment_from_overlay()
 
         return {

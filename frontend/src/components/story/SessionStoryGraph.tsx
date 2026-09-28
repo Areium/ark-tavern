@@ -6,6 +6,7 @@ import { layoutSessionStoryGraph, sessionGraphFitZoom, sessionGraphIncoming, ses
   STORY_GRAPH_MAX_ZOOM, STORY_GRAPH_NODE_HEIGHT, STORY_GRAPH_NODE_WIDTH, type SessionGraphNode } from "../../utils/sessionStoryGraph";
 import AvatarPlaceholder from "../chat/AvatarPlaceholder";
 import AppIcon from "../AppIcon";
+import { BranchRuleSummary } from "./StoryChoices";
 
 export interface SessionStoryGraphProps {
   sessionId: string;
@@ -42,6 +43,7 @@ export function SessionStoryGraphDetails({ entry, parent, castNames, castError }
           {incoming.branch?.target_beat_id && <><dt>目标节拍</dt><dd>{incoming.branch.target_beat_id}</dd></>}
           {node.branch_label && incoming.label !== node.branch_label && <><dt>节点保存的分支标签</dt><dd>{node.branch_label}</dd></>}
         </dl>
+        {incoming.branch && <BranchRuleSummary branch={incoming.branch} historical />}
         {!incoming.branch && node.parent_id && <p className="session-graph-detail-note">未找到 child_id 对应的父节点选项，以上为此节点保存的记录。</p>}
       </section>
       <section className="session-graph-detail-branches" aria-label="节点分支记录">
@@ -52,6 +54,7 @@ export function SessionStoryGraphDetails({ entry, parent, castNames, castError }
             <span className={branch.taken === true ? "is-taken" : undefined}>{branch.taken === true ? "已走过" : branch.taken === false ? "未走过" : "未记录"}</span></div>
           <dl><dt>意图</dt><dd>{branch.intent || "未记录"}</dd>
             <dt>目标节拍</dt><dd>{branch.target_beat_id || "未指定"}</dd></dl>
+          <BranchRuleSummary branch={branch} historical />
         </li>)}</ul> : <p>此节点尚无分支记录。</p>}
       </section>
     </div>

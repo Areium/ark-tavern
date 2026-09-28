@@ -46,8 +46,8 @@
     手动再加一本可能是几百角色的大书时只扩候选，不静默把阵容塞满；要一并选上走队友区的显式按钮
     「按绑定世界书全选角色」（`selectAllBookCharacters`）。
   - **开场角色口径统一**到 `session_overlay.plot_initial_characters`：只读取
-    `initial_characters`；显式空数组表示没有开场角色。服务端开场加载、`session_manager` 的重载
-    回退与 `/api/plots` 共用这一份口径，不再各读各的。
+    `initial_characters`；显式空数组表示没有开场角色。服务端开场加载与 `/api/plots` 共用这一份口径。
+    2026-09-28 起重载只恢复已保存的阵容，不再把空 NPC 列表回填开场人物；物品恢复独立于 NPC。
 - **向导边界**：「主控与阵容」这一步只选角色；候选范围按当前 v3 规则解析。创建接口按书提交
   `manual_entry_uids_by_book` / `expected_draft_hashes`，不再接受首本书的单数参数。
 - **命名创建只报 token**：该步不再渲染整块 `WorldBookScopePreview`，只列每本书的「估算 token」——
@@ -57,7 +57,7 @@
   本次只改新建向导。要一并统一时，两处都调 `characterCatalog.selectableCatalogItems`。
 - **证据**：`src/world_book.py`（`character_ids` / `_summary`）、`src/blueprints/sessions.py`
   （`/api/plots`）、`src/session_overlay.py`（`plot_initial_characters`）、
-  `src/session_manager.py::_plot_initial_characters`、
+  `src/session_manager.py::_restore_scene`、
   `frontend/src/utils/characterCatalog.ts`、`frontend/src/components/session/CreateSessionWizard.tsx`、
   `scripts/test_session_main_control_ui.cjs`（C 段）、
   `tests/test_worldbook_system_layer.py`（花名册与摘要）、`tests/test_data_layout.py`。
@@ -91,10 +91,10 @@
 - **已知边界**：战斗编成（`shared/helpers.build_character_metas`）仍只按**场景角色**组队，
   主控不进战斗队伍；本次改动没动战斗侧。
 
-### 剧情验收中仍未修的缺口（核对于 2026-09-28）
+### 历史剧情验收的证据边界（核对于 2026-09-28）
 
-- `tests/test_greybridge_acceptance.py` 的严格 `xfail` 仍覆盖 QA-01 开场上下文泄露后续章节、QA-02 叙述不会自动提交任务状态、QA-03 最后一节拍缺终态、QA-05 显式空阵容重载后被开场角色填回、QA-06 未知任务 ID 可被状态接口接受、QA-08 变体保存的前后端参数不一致。`xfail` 是已复现的缺口，不能当作通过。
-- QA-04 分支目的地回档、QA-07 平铺物品读取已有普通通过用例；旧报告中的“未修”表述仅代表当时基线。详情与原始复现见 [2026-09-20 剧情验收报告](qa/2026-09-20-story-audit.md)。
+- 旧报告中的 `tests/test_greybridge_acceptance.py` 当前已不存在，不能再把其中历史 xfail 当作当前回归覆盖；QA-01/02/03/06/08 的旧结论需按现代码重新复现，不在本轮宣称修复。
+- QA-05 对应的空阵容重载回填路径已在本轮移除；`tests/test_story_rules_http.py::test_restore_scene_without_npcs_keeps_inventory_without_llm_probe` 覆盖空 NPC 不补角色、不探测模型，并保留场景物品。分支回档当前证据见 `tests/test_story_rules_http.py` 与 `tests/test_story_tree_full_flow.py`。
 
 ## 对话页
 
@@ -106,15 +106,16 @@
 
 ### 角色数值的字段解析：会话绑定书优先，不是角色自己的书（2026-09-23，`feat/session-stage-panels`）
 
-- **口径**：会话里某角色用哪套统一字段，先看**会话绑定顺序中的首本世界书**（由 `worldbook_ids` 派生 → `stat_fields`），
-  同一会话内所有角色因此口径一致；会话没绑书或该书没定义字段，才退回角色自己的来源书（frontmatter
-  `worldbook_id`）。角色页「数值」页签（全局值）只看角色自己的来源书。两处不一致时以会话为准——
+- **口径（2026-09-28 更新）**：会话里某角色用哪套统一字段，取**会话绑定顺序中的首本世界书**（`stat_fields`）。
+  首书没有字段或无法加载时不回退另一套 schema；仅未绑定书的会话可以使用角色来源书字段。
+  `session_stats.resolve_session_character_stats` 统一面板、提示词和剧情规则的读值；角色页全局数值仍看角色来源书。
+  两处不一致时以会话为准——
   `tests/test_character_stats_api.py::test_session_stats_merge_and_bound_book_fields` 钉住。
-- **值的三层**：字段默认 → frontmatter `stats` → `overrides.json.character_stats`。全是默认值的角色不进提示词，
-  `<character_stats>` 块只列有非默认值的键；主控角色不在 `_agents` 里，由 `SceneManager._stats_snapshot` 按身份名
-  单独读 frontmatter。
-- **快照兼容**：`character_stats` / `plugin_data` 随剧情树节点快照与 `node_history.json` 回档；**老快照没有这两个键
-  时保持现值、不清空**（与 `character_states` 同口径，见 `rollback_to_tree_node`）。
+- **值的三层**：字段默认 → frontmatter `stats` → `overrides.json.character_stats`。显式定义的默认值（含 0 / false）
+  同样进入 `<character_stats>`，主控和队友读同一接口。叙事战斗模式的角色详情 `progress` / `combat_stats` 为 null，
+  不再展示战术 Lv1 / XP0 / HP 等兜底；战术与横版保留内部派生值。
+- **快照完整性**：`character_stats` / `plugin_data`、场景物品及效果凭据随节点回档。目标缺少当前资源快照字段时，
+  在剪裁历史之前明确拒绝；不把缺键解释为空库存或保留未来数值，不自动迁移旧节点。
 
 ### 舞台模式只演「最新一段」，完整记录靠同一份 DOM 换外观（2026-09-23）
 
@@ -333,11 +334,16 @@ python -m pytest tests/ perf_tests/test_combat_runtime_v1.py `
 - 新生成布局按大纲 `branches[].target_beat_id` 连接作者分支；连线和节点详情展示声明的选项与意图。手工布局连线只是编辑器结构，不执行物品或数值条件。背景/CG 仍按保存的剧情、章节、节拍引用进入舞台，修复移动引用前不会自动改写运行时资源。
 - 验证：`tests/test_graph_node_details.py`、`tests/test_plot_graphs.py`、`tests/test_scene_media.py`、`tests/test_character_stats_api.py`（历史轮次的舞台图片）及 `node scripts/test_graph_references.cjs`。`python scripts/test_graph_details_browser.py` 使用独立 Vite `:5188`（`GRAPH_DETAILS_URL` 可覆盖），全拦截 API，覆盖详情、失效引用、撤销/保存、同名剧情跨书缓存和 1440×960 / 390×844；不是对用户本地书或在线服务的写入验收。
 
-### 待办：剧情数值与物品效果（task.md 6–7，2026-09-28 核查）
+### 剧情数值与物品效果（task.md 6–7，2026-09-28）
 
-- `blueprints/scene.py:get_character_merged` 和战术 `CombatUnit.from_character_metadata` 会生成未声明的等级/属性兜底；剧情角色详情尚未区分「作者声明的数值」与战术内部默认值。`SceneManager._stats_snapshot` 还会过滤仅有字段默认值的角色，与面板显示口径不一致。
-- 自定义 `character_stats` 已支持手工覆盖与树快照，但作者分支只有标签、意图和落点，没有通用条件/效果结算。场景物品、物品覆盖与效果执行记录也未完整纳入剧情回档；不能只补「消耗物品」按钮。
-- 下一阶段需统一书内初值、提示词和判定数据，加入服务端条件重验、效果与落点原子结算、重试幂等及物品回档，然后再改彼岸双生书内大纲与物品。当前本地书没有 `stat_fields`，Agent 终端/黑猫玩偶仍是描述性条目；这两项尚未实现或修改用户数据。
+- 大纲 `branches[].conditions/effects` 由 `story_rules.py` 校验与结算：条件为 AND，可检查场景物品在场/不在场、已声明角色字段的 eq/ne/gt/gte/lt/lte；效果可获得/消耗物品、set/add 字段。字段外键、非法类型和非有限数拒绝，数值增减按书内范围截断。`actor: player` 指主控，其他角色必须在阵容中。物品是唯一 ID 的共同场景资源，不是堆叠背包；支持绑定书的物品文档和启用的 `category_id=items` 条目 UID。
+- 仅当前节拍的作者分支有规则权限；模型不能伪装作者、提供效果或直接跳到受限落点。同名模型复述保留作者规则，传了错误 ID 不回退标签，自由输入同名选项也重验。界面显示条件/效果/不可选原因；历史节点上的资格是记录时状态，不是当前可选承诺。
+- 会话角色详情挂载 `CharacterSessionStats`，可见书内默认值和剧情变化；未定义时显示空状态，不造数值。显式保存仅修改会话值；按会话/角色 keyed 挂载，避免草稿串号。原独立 `CharacterStatsPanel` 未重新注册，不把不存在的侧栏页签作为入口。
+- 服务端在叙述前以一次 `overrides.json` 原子替换提交效果、落点和执行凭据，失败恢复内存；LLM 生成是下一阶段，不和磁盘事务混为一体。生成失败保留待叙述选择，重试同 ID 不重复扣物品/加数值。已完成旧 ID 返回 409。叙述（含整个 SSE）与 HTTP 数值/物品修改、节点回档互斥。
+- 场景物品列表、物品覆盖、数值及执行凭据随树节点和节点历史回档，同步内存场景物品。只剪叙述历史的「轮次回退」不能精确恢复资源：已结算效果时返回 409，明确要求使用节点图回档，避免看似回退但资源未还原。
+- 回档在剪历史之前检查目标仍存在、资源快照完整；缺少字段的旧节点明确拒绝，不猜测原库存，也不自动迁移。LLM 失败后直接点「继续」同样接续已结算选择，保留选择前的父节点快照。重载空 NPC 阵容不会跳过物品，也不再回填开场角色。
+- `scripts/prepare_beyond_twin_story_rules.py <明确的book.json路径>` 默认 dry-run；`--output <新文件>` 生成候选，`--apply` 才备份、重查 SHA-256 并原子替换。保持原分支与媒体，新增病中日志布尔字段、玩偶获得/安抚、终端调查与回忆路线；基础路线无物品门槛。应用前须保存世界书编辑并停止写入。已有会话保留自己的大纲副本，不自动迁移存档；代码部署需要批准后重启在线服务。
+- 本轮未覆盖用户本地书或重启服务。证据：`tests/test_story_rules.py`、`tests/test_story_rules_http.py`（真实 Flask、脚本化模型、SSE/POST/回档）、`tests/test_session_stats.py`、`tests/test_character_stats_api.py`、`tests/test_beyond_twin_story_rules_content.py`；前端与内容候选验证不等于真实 LLM 验收。
 
 ## 历史内容记录：灰灯渡口（2026-09-26）
 

@@ -7,6 +7,7 @@ import os
 from flask import Blueprint, Response, jsonify, request, send_from_directory, abort
 
 from shared.helpers import json_error
+from story_rules import narration_guard
 from shared.cache import invalidate_all_caches
 from document_manager import DocumentNotFoundError, ConflictError
 from avatar_color import find_avatar_path, get_theme_color, ensure_theme_color
@@ -75,6 +76,7 @@ def register(app, managers):
         })
 
     @bp.route("/api/sessions/<session_id>/characters/load", methods=["POST"])
+    @narration_guard(session_mgr)
     def load_scene_character(session_id: str):
         """加载角色到场景。"""
         session = _get_session(session_mgr, session_id)
@@ -94,6 +96,7 @@ def register(app, managers):
         return jsonify(session.to_dict())
 
     @bp.route("/api/sessions/<session_id>/characters/unload", methods=["POST"])
+    @narration_guard(session_mgr)
     def unload_scene_character(session_id: str):
         """从场景移除角色。"""
         session = _get_session(session_mgr, session_id)
@@ -109,6 +112,7 @@ def register(app, managers):
         return jsonify(session.to_dict())
 
     @bp.route("/api/sessions/<session_id>/characters/switch", methods=["POST"])
+    @narration_guard(session_mgr)
     def switch_scene_character(session_id: str):
         """切换当前对话目标。"""
         session = _get_session(session_mgr, session_id)
@@ -136,6 +140,7 @@ def register(app, managers):
         return jsonify({"items": session.scene_manager.get_scene_items()})
 
     @bp.route("/api/sessions/<session_id>/items/add", methods=["POST"])
+    @narration_guard(session_mgr)
     def add_scene_item(session_id: str):
         """添加物品到场景。"""
         session = _get_session(session_mgr, session_id)
@@ -155,6 +160,7 @@ def register(app, managers):
         return jsonify(session.to_dict())
 
     @bp.route("/api/sessions/<session_id>/items/remove", methods=["POST"])
+    @narration_guard(session_mgr)
     def remove_scene_item(session_id: str):
         """从场景移除物品。"""
         session = _get_session(session_mgr, session_id)
@@ -188,26 +194,30 @@ def register(app, managers):
             name, doc["metadata"], doc["content"]
         )
         overrides = session.overlay.get_character_overrides(name) or {}
-        progress = overrides.get("progress", {}) or {}
-
-        # 派生战斗数值（与 CombatUnit.from_character_metadata 同源）
-        from combat_engine.entity import CombatUnit
-        unit = CombatUnit.from_character_metadata(merged_meta, team="player")
+        progress = None
+        combat_stats = None
+        if session.combat_mode in ("tactical", "sideview"):
+            stored_progress = overrides.get("progress", {}) or {}
+            progress = {
+                "level": int(stored_progress.get("level", 1) or 1),
+                "xp": int(stored_progress.get("xp", 0) or 0),
+            }
+            # 战术/横版保留与 CombatUnit 同源的派生值；剧情不制造战斗默认值。
+            from combat_engine.entity import CombatUnit
+            unit = CombatUnit.from_character_metadata(merged_meta, team="player")
+            combat_stats = {
+                "hp": unit.max_hp, "patk": unit.PATK, "matk": unit.MATK, "heal": unit.HEAL,
+                "def": unit.DEF, "res": unit.RES, "spd": unit.SPD, "hit": unit.HIT,
+                "eva": unit.EVA, "max_ap": unit.MAX_AP,
+            }
 
         return jsonify({
             "metadata": merged_meta,
             "content": merged_content,
             "has_overrides": session.overlay.has_character_overrides(name),
             "overrides": overrides,
-            "progress": {
-                "level": int(progress.get("level", 1) or 1),
-                "xp": int(progress.get("xp", 0) or 0),
-            },
-            "combat_stats": {
-                "hp": unit.max_hp, "patk": unit.PATK, "matk": unit.MATK, "heal": unit.HEAL,
-                "def": unit.DEF, "res": unit.RES, "spd": unit.SPD, "hit": unit.HIT,
-                "eva": unit.EVA, "max_ap": unit.MAX_AP,
-            },
+            "progress": progress,
+            "combat_stats": combat_stats,
         })
 
     @bp.route("/api/sessions/<session_id>/overrides/characters/<name>", methods=["PUT"])
@@ -250,7 +260,12 @@ def register(app, managers):
         try:
             doc = doc_mgr.read_document("items", item_id)
         except DocumentNotFoundError:
-            return json_error(f"物品不存在: {item_id}", 404)
+            from story_rules import StoryRuleError, _item_metadata
+            try:
+                meta = _item_metadata(session, item_id)
+                doc = {"metadata": meta, "content": meta.get("description", "")}
+            except (StoryRuleError, ValueError):
+                return json_error(f"物品不存在: {item_id}", 404)
         merged_meta, merged_content = session.overlay.apply_item_overrides(
             item_id, doc["metadata"], doc["content"]
         )
@@ -262,6 +277,7 @@ def register(app, managers):
         })
 
     @bp.route("/api/sessions/<session_id>/overrides/items/<item_id>", methods=["PUT"])
+    @narration_guard(session_mgr)
     def set_item_override(session_id: str, item_id: str):
         """设置物品覆盖（部分更新）。"""
         session = _get_session(session_mgr, session_id)
@@ -282,6 +298,7 @@ def register(app, managers):
         })
 
     @bp.route("/api/sessions/<session_id>/overrides/items/<item_id>", methods=["DELETE"])
+    @narration_guard(session_mgr)
     def delete_item_override(session_id: str, item_id: str):
         """删除物品覆盖，还原为模板。"""
         session = _get_session(session_mgr, session_id)

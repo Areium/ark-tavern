@@ -324,6 +324,8 @@ def normalize_outline(doc: dict, *, plot_id: str = "", worldbook_id: str = "") -
                 if combat["band"] not in ("T0", "T1", "T2", "T3", "T4"):
                     combat["band"] = "T1"
             branches_in = b.get("branches") if isinstance(b.get("branches"), list) else []
+            if len(branches_in) > MAX_BRANCHES_PER_BEAT:
+                raise OutlineError(f"每个节拍最多 {MAX_BRANCHES_PER_BEAT} 个分支")
             branches: list[dict] = []
             for br in branches_in[:MAX_BRANCHES_PER_BEAT]:
                 if not isinstance(br, dict):
@@ -331,11 +333,19 @@ def normalize_outline(doc: dict, *, plot_id: str = "", worldbook_id: str = "") -
                 label = str(br.get("label") or "").strip()
                 if not label:
                     continue
+                if any(existing["label"] == label[:30] for existing in branches):
+                    raise OutlineError("同一节拍的分支标签不可重复（含截断后重名）")
                 target = br.get("target_beat_id")
+                from story_rules import StoryRuleError, validate_rules
+                try:
+                    rules = validate_rules(br)
+                except StoryRuleError as exc:
+                    raise OutlineError(str(exc)) from exc
                 branches.append({
                     "label": label[:30],
                     "intent": (str(br.get("intent")).strip()[:20] or None) if br.get("intent") else None,
                     "target_beat_id": str(target) if target else None,
+                    **rules,
                 })
             content = str(b.get("content") or "")
             try:
@@ -374,6 +384,8 @@ def normalize_outline(doc: dict, *, plot_id: str = "", worldbook_id: str = "") -
         for b in ch["beats"]:
             for br in b["branches"]:
                 if br["target_beat_id"] and br["target_beat_id"] not in seen_beat:
+                    if br.get("conditions") or br.get("effects"):
+                        raise OutlineError("带条件或效果的分支落点不存在")
                     br["target_beat_id"] = None
             if b.get("choice_required"):
                 if not any(br.get("target_beat_id") and br["target_beat_id"] != b["id"]
@@ -414,7 +426,10 @@ def outline_to_beats(outline: dict) -> list[dict]:
                 content = (content + f"\n[COMBAT:{node_id}]").strip()
             authored = [
                 {"label": br["label"], "intent": br.get("intent"),
-                 "target_beat_id": br.get("target_beat_id"), "source": "author"}
+                 "conditions": [] if ch.get("origin", {}).get("type") == "deviation" else br.get("conditions", []),
+                 "effects": [] if ch.get("origin", {}).get("type") == "deviation" else br.get("effects", []),
+                 "target_beat_id": br.get("target_beat_id"),
+                 "source": "llm" if ch.get("origin", {}).get("type") == "deviation" else "author"}
                 for br in b.get("branches", []) if br.get("label")
             ]
             beats.append({
@@ -672,6 +687,7 @@ def generate_outline_with_llm(llm, meta: dict, body: str, *, book=None,
     data["source"] = "llm"
     data["generated_at"] = time.time()
     data["reference_uids"] = [r["uid"] for r in refs]
+    _strip_generated_rules(data.get("chapters", []))
     try:
         outline = normalize_outline(data, plot_id=plot_id, worldbook_id=data["worldbook_id"])
     except OutlineError as exc:
@@ -682,6 +698,20 @@ def generate_outline_with_llm(llm, meta: dict, body: str, *, book=None,
     _merge_suggested_combat(outline, fallback)
     outline["generation"] = {"ok": True, "error": None, "usage": usage}
     return outline
+
+
+def _strip_generated_rules(chapters: list) -> None:
+    """LLM authoring/deviation output cannot grant mechanical execution privileges."""
+    for chapter in chapters if isinstance(chapters, list) else []:
+        if not isinstance(chapter, dict):
+            continue
+        for beat in chapter.get("beats", []) if isinstance(chapter.get("beats"), list) else []:
+            if not isinstance(beat, dict):
+                continue
+            for branch in beat.get("branches", []) if isinstance(beat.get("branches"), list) else []:
+                if isinstance(branch, dict):
+                    branch.pop("conditions", None)
+                    branch.pop("effects", None)
 
 
 def _merge_suggested_combat(outline: dict, heuristic: dict) -> None:
@@ -844,6 +874,9 @@ def append_branch_chapter(outline: dict, branch: dict, *, round_num: int = 0,
                    "parent_beat_id": parent_beat_id},
         "beats": beats,
     }
+    _strip_generated_rules([chapter])
+    for beat in beats:
+        beat.pop("choice_required", None)
     doc = dict(outline)
     doc["chapters"] = list(outline.get("chapters", [])) + [chapter]
     normalized = normalize_outline(doc, plot_id=outline.get("plot_id", ""),

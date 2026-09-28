@@ -4,6 +4,7 @@ import MarkdownRenderer from "./MarkdownRenderer";
 import { createPortal } from "react-dom";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
+import CharacterSessionStats from "./scene/CharacterSessionStats";
 
 interface CharacterDetail {
   metadata: Record<string, any>;
@@ -44,7 +45,9 @@ export default function CharacterDetailCard({
   onMouseEnter,
   onMouseLeave,
 }: Props) {
-  const { activeSessionId, statsRefreshKey } = useAppStore();
+  const { activeSessionId, statsRefreshKey, sessions } = useAppStore();
+  const combatMode = sessions.find(session => session.id === activeSessionId)?.combat_mode;
+  const showCombat = !activeSessionId || combatMode === "tactical" || combatMode === "sideview";
   const api = useApi();
   const [data, setData] = useState<CharacterDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -53,6 +56,8 @@ export default function CharacterDetailCard({
   // 保存会话数值后重新加载成长与派生战斗数值。
   const [growth, setGrowth] = useState<{ level: number; xp: number } | null>(null);
   const [combatStats, setCombatStats] = useState<Record<string, number> | null>(null);
+  const [mergedLoading, setMergedLoading] = useState(false);
+  const [mergedError, setMergedError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -77,12 +82,15 @@ export default function CharacterDetailCard({
 
   // 会话活跃时拉取合并数据：等级/XP + 派生战斗数值
   useEffect(() => {
+    setGrowth(null);
+    setCombatStats(null);
+    setMergedError("");
     if (!activeSessionId) {
-      setGrowth(null);
-      setCombatStats(null);
+      setMergedLoading(false);
       return;
     }
     let cancelled = false;
+    setMergedLoading(true);
     api
       .getCharacterMerged(activeSessionId, characterId)
       .then((merged: any) => {
@@ -90,9 +98,10 @@ export default function CharacterDetailCard({
         setGrowth(merged.progress || null);
         setCombatStats(merged.combat_stats || null);
       })
-      .catch(() => {
-        if (!cancelled) { setGrowth(null); setCombatStats(null); }
-      });
+      .catch((err: Error) => {
+        if (!cancelled) setMergedError(err.message || "会话数值加载失败");
+      })
+      .finally(() => { if (!cancelled) setMergedLoading(false); });
     return () => { cancelled = true; };
   }, [activeSessionId, characterId, api, statsRefreshKey]);
 
@@ -168,6 +177,10 @@ export default function CharacterDetailCard({
         )}
         {error && <p className="text-red-400">{error}</p>}
 
+        {activeSessionId && <CharacterSessionStats
+          key={`${activeSessionId}:${characterId}`} sessionId={activeSessionId} name={characterId}
+        />}
+
         {data && (
           <>
             <div className="flex flex-wrap gap-1.5">
@@ -201,7 +214,13 @@ export default function CharacterDetailCard({
               </div>
             )}
 
-            {Object.keys(attrs).length > 0 && (
+            {!showCombat && <p className="text-sm leading-relaxed text-gray-300">
+              剧情数值由世界书与会话状态决定，不使用战斗等级与战斗属性。
+            </p>}
+            {mergedLoading && <p role="status" className="text-sm text-gray-300">加载会话数值中…</p>}
+            {mergedError && <p role="alert" className="text-sm text-red-300">会话数值加载失败：{mergedError}</p>}
+
+            {showCombat && Object.keys(attrs).length > 0 && (
               <div>
                 <h4 className="text-xs text-gray-500 mb-1.5 font-medium">属性</h4>
                 <div className="grid grid-cols-4 gap-1.5">
@@ -220,7 +239,7 @@ export default function CharacterDetailCard({
               </div>
             )}
 
-            {growth && (
+            {showCombat && growth && (
               <div>
                 <h4 className="text-xs text-gray-500 mb-1.5 font-medium">成长</h4>
                 <div className="px-2.5 py-2 rounded bg-gray-700/40">
@@ -238,7 +257,7 @@ export default function CharacterDetailCard({
               </div>
             )}
 
-            {combatStats && (
+            {showCombat && combatStats && (
               <div>
                 <h4 className="text-xs text-gray-500 mb-1.5 font-medium">战斗数值</h4>
                 <div className="grid grid-cols-5 gap-1.5">

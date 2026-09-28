@@ -267,20 +267,25 @@ def format_stat_value(field: dict | None, value: Any) -> str:
 
 
 def format_stats_block(fields: list[dict], per_character: dict[str, dict],
-                       *, tag: str = "character_stats") -> str:
+                       *, tag: str = "character_stats",
+                       fields_by_character: dict[str, list[dict]] | None = None) -> str:
     """把「角色 → 数值」渲染成注入提示词的 XML 块；没有任何数值时返回空串。
 
     每行：`角色名：标签 值、标签 值`。数值字段带上限时写成 `值/上限`。
-    只列有值的键，避免把一堆默认 0 也塞进上下文。
+    保留明确的 0 / false 默认值；只跳过 None 与空文本。
+    未绑定会话可按角色来源书使用不同字段标签与上限。
     """
     by_key = {f["key"]: f for f in fields}
     lines: list[str] = []
     for name, values in per_character.items():
+        character_fields = ({f["key"]: f for f in fields_by_character[name]}
+                            if fields_by_character is not None and name in fields_by_character
+                            else by_key)
         parts: list[str] = []
         for key, value in (values or {}).items():
             if value is None or value == "":
                 continue
-            field = by_key.get(key)
+            field = character_fields.get(key)
             label = field["label"] if field else key
             parts.append(f"{label} {format_stat_value(field, value)}")
         if parts:

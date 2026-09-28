@@ -51,6 +51,7 @@ class SessionOverlay:
         self._data: dict = {}
         self._doc_cache: dict = {}
         self._lock = threading.RLock()
+        self._narration_lock = threading.Lock()
         self._load()
 
     # ── 持久化 ──
@@ -115,12 +116,13 @@ class SessionOverlay:
 
     def save_scene_state(self, characters: list, items: list, active) -> None:
         """持久化场景状态到 overrides.json（后端重启后恢复用）。"""
-        self._data["scene"] = {
-            "characters": list(characters),
-            "items": items,
-            "active": active,
-        }
-        self._save()
+        with self._lock:
+            self._data["scene"] = {
+                "characters": list(characters),
+                "items": copy.deepcopy(items),
+                "active": active,
+            }
+            self._save()
 
     # ── 角色覆盖 ──
 
@@ -1150,24 +1152,33 @@ class SessionOverlay:
         return "\n".join(lines)
 
     def get_authored_branches(self) -> list[dict]:
-        """当前章节的作者手写分支（结构化）。
+        """只返回当前节拍的作者分支，不能从同章其它节拍提前借用条件/效果。"""
+        current = self.get_current_beat()
+        return copy.deepcopy([b for b in (current or {}).get("authored_branches", [])
+                              if b.get("source") == "author"])
 
-        「玩家选项方向」在剧情文件里是**章节级**的（写在章节最后一个节拍之后），
-        因此只要处于该章节内就返回，而不是仅限最后一个节拍。
-        """
-        beats = self._ensure_narrative_beats()
-        bs = self._data.get("beat_state", {})
-        if not beats or not bs:
-            return []
-        ci = bs.get("chapter_idx", 0)
-        if ci >= len(beats):
-            return []
-        # 章节内任一节拍携带的作者分支（通常落在最后一个节拍上）
-        for b in beats[ci].get("beats", []):
-            authored = b.get("authored_branches") or []
-            if authored:
-                return list(authored)
-        return []
+    def _story_resources_snapshot(self) -> dict:
+        return {"scene_items": copy.deepcopy(self.get_scene_state()["items"]),
+                "items": copy.deepcopy(self._data.get("items", {})),
+                "story_choice_receipts": copy.deepcopy(self._data.get("story_choice_receipts", {}))}
+
+    def _restore_story_resources(self, snapshot: dict) -> None:
+        self.validate_resource_snapshot(snapshot)
+        for key in ("items", "story_choice_receipts"):
+            self._data[key] = copy.deepcopy(snapshot[key])
+        self._data.setdefault("scene", {})["items"] = copy.deepcopy(snapshot["scene_items"])
+        self._data.pop("pending_story_choice", None)
+
+    @staticmethod
+    def validate_resource_snapshot(snapshot: dict) -> None:
+        """Missing resource state is not an empty inventory. Reject before any rollback."""
+        if not isinstance(snapshot.get("scene_items"), list) or any(
+                not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]
+                for item in snapshot["scene_items"]):
+            raise ValueError("该节点缺少完整物品快照，无法安全回档；请选择更新后的完整节点")
+        for key in ("items", "character_stats", "plugin_data", "story_choice_receipts"):
+            if not isinstance(snapshot.get(key), dict):
+                raise ValueError(f"该节点缺少完整资源快照（{key}），无法安全回档")
 
     # ── 动态剧情树（LLM 生成的新节点，树状结构） ──
     #
@@ -1275,6 +1286,7 @@ class SessionOverlay:
             # 角色数值与插件数据随节点冻结：回档即复原「那一刻」的数值记录
             "character_stats": copy.deepcopy(self._data.get("character_stats", {})),
             "plugin_data": copy.deepcopy(self._data.get("plugin_data", {})),
+            **self._story_resources_snapshot(),
             # 节点级世界书作用域：prev 原样带过，由 commit_tree_step 随后
             # 调 lore_resolver 复用/重算并覆盖（见 node-scoped-worldbook-loading.md §4.1）
             "lore_scope": copy.deepcopy((prev or {}).get("lore_scope")),
@@ -1294,6 +1306,9 @@ class SessionOverlay:
                 "source": b.get("source") or "llm",
                 "target_beat_id": b.get("target_beat_id"),
                 "child_id": self._tree_node_id(node["id"], label),
+                **{key: copy.deepcopy(b[key]) for key in (
+                    "source_beat_id", "rule_key", "conditions", "effects", "available",
+                    "blocked_reasons", "condition_summary", "effect_summary") if key in b},
             })
         node["branches"] = out
 
@@ -1588,7 +1603,11 @@ class SessionOverlay:
         }
         applied = None
         branch = result.get("branch") if isinstance(result.get("branch"), dict) else None
-        if deviated and branch and self.get_story_outline() is not None:
+        if deviated and self._data.get("pending_story_choice"):
+            record["note"] = "已结算选择尚待叙述，不以偏离检测更改其落点"
+        elif deviated and (self.get_current_beat() or {}).get("choice_required"):
+            record["note"] = "等待玩家作出当前节拍的必要选择，不以偏离检测绕过分支条件"
+        elif deviated and branch and self.get_story_outline() is not None:
             outline = self._data["story_outline"]
             tree = self._ensure_story_tree()
             cur = tree["nodes"].get(tree.get("current_id") or "") or {}
@@ -1738,6 +1757,7 @@ class SessionOverlay:
         st = node.get("state") or {}
         if not st:
             raise ValueError(f"节点尚无状态快照，无法回档: {node_id}")
+        self.validate_resource_snapshot(st)
 
         tree["current_id"] = node_id
         self._data["story_tree"] = tree
@@ -1749,11 +1769,9 @@ class SessionOverlay:
             self._data["environment"] = copy.deepcopy(st["environment"])
         if st.get("beat_state"):
             self._data["beat_state"] = copy.deepcopy(st["beat_state"])
-        # 老节点快照没有这两个键：保持现值，不清空（与 character_states 的口径一致）
-        if "character_stats" in st:
-            self._data["character_stats"] = copy.deepcopy(st["character_stats"] or {})
-        if "plugin_data" in st:
-            self._data["plugin_data"] = copy.deepcopy(st["plugin_data"] or {})
+        self._data["character_stats"] = copy.deepcopy(st["character_stats"])
+        self._data["plugin_data"] = copy.deepcopy(st["plugin_data"])
+        self._restore_story_resources(st)
         self._data["narration_round"] = int(st.get("round_end") or 0)
 
         # 节点级世界书作用域：有冻结值 → 整体替换（窄化白名单，回档即复原）；
@@ -1887,6 +1905,7 @@ class SessionOverlay:
             "quest_states": copy.deepcopy(self._data.get("quest_states", {})),
             "character_stats": copy.deepcopy(self._data.get("character_stats", {})),
             "plugin_data": copy.deepcopy(self._data.get("plugin_data", {})),
+            **self._story_resources_snapshot(),
             "completed_beats": list(completed),
             "created_at": __import__("time").time(),
         }
@@ -1935,6 +1954,7 @@ class SessionOverlay:
         snap = self.get_node_snapshot(node_id)
         if not snap:
             raise ValueError(f"未找到节点快照: {node_id}")
+        self.validate_resource_snapshot(snap)
 
         index = self._beat_index()
         if node_id not in index:
@@ -1955,10 +1975,9 @@ class SessionOverlay:
             self._data["quest_states"] = copy.deepcopy(snap["quest_states"])
         if "environment" in snap:
             self._data["environment"] = copy.deepcopy(snap["environment"])
-        if "character_stats" in snap:
-            self._data["character_stats"] = copy.deepcopy(snap["character_stats"] or {})
-        if "plugin_data" in snap:
-            self._data["plugin_data"] = copy.deepcopy(snap["plugin_data"] or {})
+        self._data["character_stats"] = copy.deepcopy(snap["character_stats"])
+        self._data["plugin_data"] = copy.deepcopy(snap["plugin_data"])
+        self._restore_story_resources(snap)
         self._data["narration_round"] = int(snap.get("round_end") or 0)
 
         self._save()

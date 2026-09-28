@@ -12,6 +12,7 @@ import LoadingIndicator from "./chat/LoadingIndicator";
 import TokenUsage from "./chat/TokenUsage";
 import StageView from "./stage/StageView";
 import SessionStoryGraph from "./story/SessionStoryGraph";
+import StoryChoices, { latestStoryBranches, resolveChoiceBranch } from "./story/StoryChoices";
 import { isChoiceMessage } from "../utils/stageScript";
 import AppIcon from "./AppIcon";
 
@@ -108,6 +109,10 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   const sending = useAppStore(s => s.sessionSending[activeSessionId || ""] ?? false);
   const narrationCount = useAppStore(s => s.sessionNarrationCount[activeSessionId || ""] ?? 0);
   const [input, setInput] = useState("");
+  const [draftBranch, setDraftBranch] = useState<BranchChoice | undefined>();
+  const [choiceError, setChoiceError] = useState("");
+  const knownBranches = latestStoryBranches(messages);
+  useEffect(() => { setDraftBranch(undefined); setChoiceError(""); }, [activeSessionId]);
   const [stagePlayback, setStagePlayback] = useState<{ sessionId: string; messages: ChatMessage[]; complete: boolean } | null>(null);
   const onPlaybackChange = useCallback((sessionId: string, source: ChatMessage[], complete: boolean) => {
     setStagePlayback({ sessionId, messages: source, complete });
@@ -447,31 +452,46 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text || sending || streaming || !activeSessionId || choiceLocked || !stageInputReady) return;
+    const branch = draftBranch?.label === text ? draftBranch : resolveChoiceBranch(text, knownBranches);
+    if (branch?.available === false) {
+      setChoiceError(branch.blocked_reasons?.join("；") || "当前条件未满足");
+      return;
+    }
 
     const sid = activeSessionId;
     const curRound = useAppStore.getState().sessionNarrationCount[sid] || 0;
     setInput("");
+    setDraftBranch(undefined);
+    setChoiceError("");
     useAppStore.getState().setSessionSending(sid, true);
     useAppStore.getState().setSessionMessages(sid, (prev) => [...prev, { role: "user", content: text, round: curRound }]);
-    performSend(text);
-  }, [input, sending, streaming, activeSessionId, performSend, choiceLocked, stageInputReady]);
+    performSend(text, branch?.id);
+  }, [input, sending, streaming, activeSessionId, performSend, choiceLocked, stageInputReady, draftBranch, knownBranches]);
 
   const handleChoiceClick = useCallback(
     (choice: string, branch?: BranchChoice) => {
       // 必选战斗选项未完成前，内联选项同样不允许推进剧情
       if (choiceLocked || sending || streaming || (stageMode && !stageDialogueComplete)) return;
+      const selectedBranch = branch ?? resolveChoiceBranch(choice, knownBranches);
+      if (selectedBranch?.available === false) {
+        setChoiceError(selectedBranch.blocked_reasons?.join("；") || "当前条件未满足");
+        return;
+      }
+      setChoiceError("");
       if (editBeforeSend) {
         setInput(choice);
+        setDraftBranch(selectedBranch);
         return;
       }
       if (!activeSessionId) return;
       const sid = activeSessionId;
       const curRound = useAppStore.getState().sessionNarrationCount[sid] || 0;
       setInput("");
+      setDraftBranch(undefined);
       useAppStore.getState().setSessionMessages(sid, (prev) => [...prev, { role: "user", content: choice, round: curRound }]);
-      performSend(choice, branch?.id);
+      performSend(choice, selectedBranch?.id);
     },
-    [activeSessionId, performSend, editBeforeSend, choiceLocked, sending, streaming, stageMode, stageDialogueComplete, messages]
+    [activeSessionId, performSend, editBeforeSend, choiceLocked, sending, streaming, stageMode, stageDialogueComplete, knownBranches]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -652,6 +672,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const lastMessage = messages[messages.length - 1];
+  const requestError = lastMessage?.requestError ? lastMessage.content : "";
   const graphChoice = isChoiceMessage(lastMessage) ? lastMessage : null;
   const graphChoicesDisabled = sending || streaming || choiceLocked || !!activeSession?.in_combat
     || (graphChoice?.round != null && graphChoice.round < narrationCount);
@@ -699,6 +720,9 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
   return (
     <div className="flex flex-col h-full">
+      {(choiceError || requestError) && <p role="alert" className="shrink-0 px-4 py-3 text-sm leading-relaxed text-red-200 bg-gray-900 border-b border-red-400/40 break-words">
+        {choiceError || requestError}
+      </p>}
       {/* Header bar — 会话信息 + token 统计 */}
       {activeSession && (
         <div className="chat-head">
@@ -821,13 +845,9 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
           <SessionStoryGraph key={activeSessionId} sessionId={activeSessionId}
             onOpenLog={() => setLogOverlayOpen(true)} onExit={() => useAppStore.getState().setChatLayout("stage")} />
           {graphChoice && (
-            <div className="session-graph-choices" role="group" aria-label="剧情分支选项">
+            <div className="session-graph-choices" role="group" aria-label="剧情分支选项" style={{ maxHeight: "min(38vh, 360px)", flexShrink: 0 }}>
               <span>选择一项，或在下方输入行动</span>
-              {graphChoice.branches?.length ? graphChoice.branches.map(branch => (
-                <button type="button" key={branch.id} className="chat-choice" disabled={graphChoicesDisabled} onClick={() => handleChoiceClick(branch.label, branch)}>{branch.label}</button>
-              )) : graphChoice.choices?.map((choice, index) => (
-                <button type="button" key={index} className="chat-choice" disabled={graphChoicesDisabled} onClick={() => handleChoiceClick(choice)}>{choice}</button>
-              ))}
+              <StoryChoices message={graphChoice} knownBranches={knownBranches} disabled={graphChoicesDisabled} onChoice={handleChoiceClick} />
             </div>
           )}
         </>
@@ -1015,33 +1035,8 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                       )}
 
                       {(msg.branches?.length || msg.choices) && (
-                        <div className="flex flex-wrap gap-2 mt-1">
-                          {msg.branches?.length
-                            ? msg.branches.map((b) => (
-                                <button
-                                  key={b.id}
-                                  onClick={() => handleChoiceClick(b.label, b)}
-                                  disabled={choicesDisabled}
-                                  title={b.target_beat_id ? `目标节点：${b.target_beat_id}` : undefined}
-                                  className="chat-choice"
-                                >
-                                  <span>{b.label}</span>
-                                  {b.intent && <em>{b.intent}</em>}
-                                  {b.source === "author" && (
-                                    <span className="chat-choice-author" title="作者预设分支">✎</span>
-                                  )}
-                                </button>
-                              ))
-                            : msg.choices!.map((choice, ci) => (
-                                <button
-                                  key={ci}
-                                  onClick={() => handleChoiceClick(choice)}
-                                  disabled={choicesDisabled}
-                                  className="chat-choice"
-                                >
-                                  {msg.choices!.length > 1 ? `${ci + 1}. ` : ""}{choice}
-                                </button>
-                              ))}
+                        <div className="flex flex-col gap-2 mt-1 min-w-0">
+                          <StoryChoices message={msg} knownBranches={knownBranches} disabled={choicesDisabled} onChoice={handleChoiceClick} />
                         </div>
                       )}
                       {msg.role === "narrator" && streaming && i === messages.length - 1 && (
@@ -1290,7 +1285,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
 // ── SSE narrate helper ──
 
-function triggerNarrate(
+export function triggerNarrate(
   sessionId: string,
   action?: string,
   branchId?: string,
@@ -1319,6 +1314,12 @@ function triggerNarrate(
 
   let accumulated = "";
   let accumulatedReasoning = "";
+  let failed = false;
+  const refreshStoryValues = () => {
+    const current = useAppStore.getState();
+    current.triggerStatsRefresh();
+    current.triggerEnvRefresh();
+  };
 
   const url = action
     ? `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`
@@ -1407,14 +1408,20 @@ function triggerNarrate(
         ]);
       },
       onError: (msg: string) => {
+        failed = true;
+        // 请求在生成任何叙述前被拒绝（例如 409），不凭空增加一轮。
+        if (!accumulated && !accumulatedReasoning) useAppStore.getState().setSessionNarrationCount(sessionId, curCount);
+        refreshStoryValues();
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);
         useAppStore.getState().setSessionMessages(sessionId, (prev) =>
           prev.map((m) => (m.role === "narrator" && m.round === newRound ? { ...m, streaming: false } : m))
         );
-        useAppStore.getState().setSessionMessages(sessionId, (prev) => [...prev, { role: "system", content: `错误: ${msg}` }]);
+        useAppStore.getState().setSessionMessages(sessionId, (prev) => [...prev, { role: "system", content: `错误: ${msg}`, requestError: true }]);
       },
       onDone: () => {
+        if (failed) return;
+        refreshStoryValues();
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);
         useAppStore.getState().setSessionMessages(sessionId, (prev) =>

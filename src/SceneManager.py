@@ -6,8 +6,8 @@ import threading
 import logging
 
 from CharacterAgent import CharacterAgent
-from character_stats import (format_stats_block, merge_character_stats,
-                             read_global_stats_from_meta)
+from character_stats import format_stats_block
+from session_stats import resolve_session_character_stats
 
 logger = logging.getLogger(__name__)
 
@@ -1577,48 +1577,38 @@ branch 非 null 时格式：
 
         return segments, plain
 
-    def _stats_snapshot(self, worldbook, identity: str = "") -> tuple[list[dict], dict[str, dict]]:
-        """(字段定义, {角色名: 合并后的数值})——只列出有值的角色。
+    def _stats_snapshot(self, worldbook, identity: str = "") -> tuple[dict[str, list[dict]], dict[str, dict]]:
+        """按面板/规则同源口径读取主控与 NPC，保留只有字段默认值的角色。
 
-        字段来自当前世界书 `stat_fields`；值按「字段默认 → 角色全局（frontmatter
-        `stats`）→ 会话覆盖层」合并。主控角色由玩家扮演、不在 `_agents` 里，
-        但它的数值同样要让模型看见，所以按身份名单独读一次 frontmatter。
+        不从已解析的 worldbook/bundle 取字段：它可能跳过无法加载的首本绑定书。
+        未绑定时每个角色可使用自己的来源书，所以保留逐角色字段用于格式化。
         """
-        fields = list(getattr(worldbook, "stat_fields", None) or []) if worldbook is not None else []
+        from types import SimpleNamespace
+        from document_manager import DocumentManager
+
+        session = SimpleNamespace(overlay=self._overlay, scene_manager=self)
+        document_manager = DocumentManager()
+        fields_by_character: dict[str, list[dict]] = {}
         per_character: dict[str, dict] = {}
-        overlay = self._overlay
-
-        def collect(name: str, meta: dict | None) -> None:
-            session_values = overlay.get_character_stats(name) if overlay else {}
-            global_values = read_global_stats_from_meta(meta)
-            if not session_values and not global_values:
-                return
-            values, sources = merge_character_stats(fields, global_values, session_values)
-            # 只带「真的有值」的键：全是字段默认值的角色不值得占上下文
-            shown = {k: v for k, v in values.items() if sources.get(k) != "default"}
-            if shown:
-                per_character[name] = shown
-
+        names = list(self._agents)
+        identity = identity or self.player_identity
         if identity:
-            try:
-                from avatar_color import _read_index_meta
-                collect(identity, _read_index_meta(identity))
-            except Exception:
-                logger.debug("主控数值读取失败: %s", identity, exc_info=True)
-        for name, agent in self._agents.items():
-            if name == identity:
-                continue
-            collect(name, getattr(agent, "metadata", None) or {})
-        return fields, per_character
+            names = [identity, *[name for name in names if name != identity]]
+        for name in names:
+            stats = resolve_session_character_stats(session, name, document_manager=document_manager)
+            if stats["values"]:
+                fields_by_character[name] = stats["fields"]
+                per_character[name] = stats["values"]
+        return fields_by_character, per_character
 
     def _build_stats_block(self, worldbook, identity: str = "") -> str:
         """叙述提示词用的 `<character_stats>` 块；没有任何数值时返回空串。"""
         try:
-            fields, per_character = self._stats_snapshot(worldbook, identity)
+            fields_by_character, per_character = self._stats_snapshot(worldbook, identity)
         except Exception:
             logger.warning("角色数值块构建失败，本轮跳过", exc_info=True)
             return ""
-        return format_stats_block(fields, per_character)
+        return format_stats_block([], per_character, fields_by_character=fields_by_character)
 
     def _build_scene_context(self, worldbook=None, identity: str = "") -> str:
         """构建【同场角色】【场景物品】【角色数值】和【场景动态】上下文，注入角色 prompt。"""

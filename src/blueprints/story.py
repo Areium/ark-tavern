@@ -16,6 +16,7 @@ import logging
 from flask import Blueprint, jsonify, request
 
 from shared.helpers import json_error
+from story_rules import narration_guard
 
 logger = logging.getLogger(__name__)
 
@@ -118,12 +119,15 @@ def register(app, managers):
 
     # ── 0b. 手动偏离检测 ──
     @bp.route("/api/sessions/<session_id>/deviation-check", methods=["POST"])
+    @narration_guard(session_mgr)
     def deviation_check(session_id: str):
         session = _get_session(session_mgr, session_id)
         if not session:
             return json_error("会话不存在", 404)
         if session.mode != "story" or session.overlay is None:
             return json_error("仅剧情会话支持偏离检测", 400)
+        if session.overlay._data.get("pending_story_choice"):
+            return json_error("上次选择已经结算，请先继续叙述或通过节点图回档，再检测偏离", 409)
         if not session.is_usable:
             return json_error("LLM 不可用", 503)
         data = request.json or {}
@@ -165,6 +169,7 @@ def register(app, managers):
 
     # ── 2. POST /api/sessions/<session_id>/rollback-node ──
     @bp.route("/api/sessions/<session_id>/rollback-node", methods=["POST"])
+    @narration_guard(session_mgr)
     def rollback_node(session_id: str):
         """回档到某关键节点，恢复该节点时的叙述历史与全部会话状态。"""
         session = _get_session(session_mgr, session_id)

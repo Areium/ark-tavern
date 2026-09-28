@@ -20,6 +20,7 @@ import frontmatter
 from flask import Blueprint, jsonify, request
 
 from shared.helpers import json_error
+from story_rules import narration_guard
 from session_manager import SessionCleanupError
 from session_resources import is_safe_entity_name
 from session_worldbook_dependencies import (
@@ -248,6 +249,7 @@ def register(app, managers):
         return jsonify(session.to_dict())
 
     @bp.route("/api/sessions/<session_id>", methods=["DELETE"])
+    @narration_guard(session_mgr)
     def delete_session(session_id: str):
         """删除会话（级联删除该会话下所有战斗与挂起存档）。
 
@@ -1091,6 +1093,7 @@ def register(app, managers):
         return jsonify({"message": "已删除玩家身份", "id": name})
 
     @bp.route("/api/sessions/<session_id>/identity", methods=["PUT"])
+    @narration_guard(session_mgr)
     def set_session_identity(session_id: str):
         """设置会话当前使用的玩家身份。"""
         session = session_mgr.get_session(session_id)

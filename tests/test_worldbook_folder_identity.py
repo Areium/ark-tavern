@@ -2,6 +2,7 @@
 
 import json
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,7 +22,7 @@ def test_player_identity_edits_and_session_binding_use_selected_book(tmp_path, m
         (folder / "book.json").write_text(
             json.dumps({"id": book_id, "enabled": True}), encoding="utf-8")
 
-    overlay = SimpleNamespace(get_worldbook_ids=lambda: ["second"])
+    overlay = SimpleNamespace(get_worldbook_ids=lambda: ["second"], _narration_lock=threading.Lock())
     session = SimpleNamespace(overlay=overlay, player_identity="玩家")
 
     class SessionManager:
@@ -62,7 +63,7 @@ def test_player_identity_edits_and_session_binding_use_selected_book(tmp_path, m
 
 def test_empty_bookshelf_does_not_resolve_identity(tmp_path, monkeypatch):
     monkeypatch.setattr(sessions, "_REPO_ROOT", tmp_path)
-    overlay = SimpleNamespace(get_worldbook_ids=lambda: [])
+    overlay = SimpleNamespace(get_worldbook_ids=lambda: [], _narration_lock=threading.Lock())
     session = SimpleNamespace(overlay=overlay, player_identity="玩家")
 
     class SessionManager:

@@ -16,6 +16,8 @@ from shared.helpers import (
 )
 from hooks.base import HookContext
 import node_lore_scope
+from story_rules import (StoryRuleError, describe_branch, narration_guard,
+                         rule_key, settle_branch)
 
 logger = logging.getLogger(__name__)
 
@@ -190,8 +192,8 @@ def _build_branches(session, inline_branches: list[dict] | None) -> list[dict]:
             "id": b.get("id") or f"br_{len(merged) + 1}",
             "label": label,
             "intent": b.get("intent"),
-            "target_beat_id": b.get("target_beat_id"),
-            "source": b.get("source") or "llm",
+            "target_beat_id": None,
+            "source": "llm",
         })
     overlay = getattr(session, "overlay", None)
     if overlay is not None and hasattr(overlay, "get_authored_branches"):
@@ -199,21 +201,19 @@ def _build_branches(session, inline_branches: list[dict] | None) -> list[dict]:
             label = str(b.get("label") or "").strip()
             if not label:
                 continue
+            import hashlib
+            source_beat = overlay.get_current_beat_id()
+            key = rule_key(b)
+            token = hashlib.sha256(f"{source_beat}:{session.narration_count}:{key}".encode()).hexdigest()[:20]
+            authored = {**b, "id": f"au_{token}", "source": "author",
+                        "source_beat_id": source_beat, "rule_key": key,
+                        **describe_branch(session, b)}
             if label in seen:
-                # 模型经常复述作者选项但漏掉落点；不能让同名文本抹掉作者路由。
-                if b.get("target_beat_id"):
-                    existing = next(item for item in merged if item["label"] == label)
-                    existing.update(target_beat_id=b["target_beat_id"], source="author",
-                                    intent=b.get("intent") or existing.get("intent"))
+                existing = next(item for item in merged if item["label"] == label)
+                existing.update(authored)
                 continue
             seen.add(label)
-            merged.append({
-                "id": f"au_{len(merged) + 1}",
-                "label": label,
-                "intent": b.get("intent"),
-                "target_beat_id": b.get("target_beat_id"),
-                "source": "author",
-            })
+            merged.append(authored)
     current = overlay.get_current_beat() if overlay and hasattr(overlay, "get_current_beat") else None
     if current and current.get("choice_required"):
         allowed = {(b.get("label"), b.get("target_beat_id"))
@@ -226,41 +226,36 @@ def _build_branches(session, inline_branches: list[dict] | None) -> list[dict]:
 
 def _resolve_branch(session, branch_id: str, label: str) -> dict | None:
     """按 branch_id（或 label）从本会话上一轮下发的分支中恢复分支对象。"""
-    if not branch_id and not label:
-        return None
     overlay = getattr(session, "overlay", None)
     if overlay is None:
+        return None
+    pending = overlay._data.get("pending_story_choice")
+    if pending:
+        if not branch_id or branch_id == pending.get("id"):
+            return pending
+        raise StoryRuleError("上次选择已经结算，请先继续叙述或通过节点图回档")
+    if not branch_id and not label:
         return None
     emitted = overlay.get_emitted_branches() if hasattr(overlay, "get_emitted_branches") else []
     for b in emitted:
         if branch_id and b.get("id") == branch_id:
             return b
-        if label and b.get("label") == label:
+        if not branch_id and label and b.get("label") == label:
             return b
-    # 回退：作者分支（来源稳定，不依赖上一轮记录）
-    for b in overlay.get_authored_branches():
-        if label and b.get("label") == label:
+    if branch_id:
+        raise StoryRuleError("选项已过期或不存在，请刷新当前剧情")
+    # 自由输入与作者选项同名也走相同判定，不允许文本绕过条件。
+    for b in _build_branches(session, []):
+        if b.get("label") == label:
             return b
     return None
 
 
 def _apply_branch_landing(session, selected_branch: dict | None) -> None:
-    """玩家选了带落点（target_beat_id）的分支：本轮叙述开始前就把参考节拍跳过去。
-
-    这样 Call 1 看到的路线图 [HERE]、Call 2 的 <current_node>、以及本轮落成的
-    树节点 ref_beat_id 都指向分支落点，而不是等到 beat_complete 才生效。
-    目标与当前节拍相同或不存在时只记 pending（行为与旧版一致）。
-    """
+    """作者选择在叙述前原子结算；模型自由建议没有数据写权限。"""
     overlay = getattr(session, "overlay", None)
-    if overlay is None or not selected_branch or not selected_branch.get("target_beat_id"):
-        return
-    overlay.set_pending_branch({**selected_branch, "round": session.narration_count})
-    target = str(selected_branch.get("target_beat_id") or "")
-    try:
-        if target and target != overlay.get_current_beat_id() and target in overlay._beat_index():
-            overlay.advance_beat()  # pending 落点优先：直接跳到目标节拍
-    except Exception:
-        logger.warning("会话 %s: 分支落点跳转失败，保留 pending", session.id, exc_info=True)
+    if overlay is not None and selected_branch and selected_branch.get("source") == "author":
+        settle_branch(session, selected_branch)
 
 
 def _record_node_snapshot(session):
@@ -307,6 +302,8 @@ def _commit_tree_step(session, narrative: str, summary: str,
             combat_node_id=combat_node_id or "",
             combat_title=combat_title or "",
         )
+        overlay._data.pop("pending_story_choice", None)
+        overlay._save()
     except Exception:
         logger.warning("剧情树提交失败", exc_info=True)
 
@@ -530,6 +527,7 @@ def register(app, managers):
     # ── 3. SSE 流式叙述 ──
 
     @bp.route("/api/sessions/<session_id>/narrate", methods=["GET"])
+    @narration_guard(session_mgr)
     def session_narrate(session_id):
         """剧情推进叙述（SSE 流式）。
 
@@ -553,8 +551,11 @@ def register(app, managers):
         env_context = session.environment.build_context()
 
         # 分支落点：玩家上一轮选择的分支（若带 branch_id/label 则恢复其目标）
-        selected_branch = _resolve_branch(session, branch_id, user_action)
-        _apply_branch_landing(session, selected_branch)
+        try:
+            selected_branch = _resolve_branch(session, branch_id, user_action)
+            _apply_branch_landing(session, selected_branch)
+        except StoryRuleError as exc:
+            return json_error(str(exc), 409)
         branch_hint = ""
         if selected_branch:
             hint_bits = []
@@ -795,6 +796,7 @@ def register(app, managers):
     # ── 4. 非流式叙述回退 ──
 
     @bp.route("/api/sessions/<session_id>/narrate-continue", methods=["POST"])
+    @narration_guard(session_mgr)
     def session_narrate_continue(session_id):
         """非流式叙述（前端不使用 SSE 时的回退）。"""
         session = _get_session(session_mgr, session_id)
@@ -809,8 +811,11 @@ def register(app, managers):
         env_context = session.environment.build_context()
         user_action = data.get("action", "")
         branch_id = str(data.get("branch_id") or "").strip()
-        selected_branch = _resolve_branch(session, branch_id, user_action)
-        _apply_branch_landing(session, selected_branch)
+        try:
+            selected_branch = _resolve_branch(session, branch_id, user_action)
+            _apply_branch_landing(session, selected_branch)
+        except StoryRuleError as exc:
+            return json_error(str(exc), 409)
         branch_hint = ""
         if selected_branch:
             hint_bits = []

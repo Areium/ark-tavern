@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
+import StoryChoices, { latestStoryBranches } from "../story/StoryChoices";
 import { useApi } from "../../hooks/useApi";
 import type { BranchChoice, ChatMessage, StageDTO } from "../../types";
 import {
@@ -574,21 +575,10 @@ export default function StageView({
         )}
       {/* 选项 */}
       {showChoices && script.choiceMessage && (
-        <div className="stage-choices" role="group" aria-label="选项">
+        <div className="stage-choices" role="group" aria-label="选项" style={{ maxHeight: "min(44vh, 440px)", overflowY: "auto" }}>
           <span className="stage-choices-title">选择一项，或自由输入</span>
-          {script.choiceMessage.branches?.length
-            ? script.choiceMessage.branches.map((b) => (
-              <button key={b.id} type="button" className="stage-choice" disabled={choicesDisabled}
-                onClick={() => onChoice(b.label, b)} title={b.target_beat_id ? `目标节点：${b.target_beat_id}` : undefined}>
-                <span>{b.label}</span>
-                {b.intent && <em>{b.intent}</em>}
-              </button>
-            ))
-            : script.choiceMessage.choices?.map((choice, ci) => (
-              <button key={ci} type="button" className="stage-choice" disabled={choicesDisabled} onClick={() => onChoice(choice)}>
-                <span>{choice}</span>
-              </button>
-            ))}
+          <StoryChoices message={script.choiceMessage} knownBranches={latestStoryBranches(messages)}
+            disabled={choicesDisabled} variant="stage" onChoice={onChoice} />
         </div>
       )}
 

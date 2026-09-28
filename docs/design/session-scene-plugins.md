@@ -23,8 +23,8 @@
 合并顺序：字段默认值 → 角色全局值 → 会话值（`character_stats.merge_character_stats`），每个键同时给出来源
 （`default` / `global` / `session`），界面据此标「默认 / 全局 / 会话」。
 
-**字段解析规则**：会话内某角色用哪套字段？会话**绑定的世界书**优先（同一会话统一口径）；会话没绑书或
-该书没定义字段时，退回角色自己的来源书（frontmatter `worldbook_id`）。字段外的自定义键允许自由填写
+**字段解析规则**：`session_stats.resolve_session_character_stats` 统一读取会话绑定首书的字段；即使首书
+没有定义字段也不回退其它书，只有未绑定世界书时才使用角色自己的来源书。字段外的自定义键允许自由填写
 （只接受 JSON 标量，最多 64 个），但不做类型校验。
 
 **校验**：字段内的值按类型转换（数字夹到 `min`/`max`、`select` 必须在 `options` 内、`bool` 接受
@@ -32,7 +32,7 @@
 
 ## 3. 提示词注入
 
-有任何非默认数值时，叙述提示词的动态层（紧随 `<scene_state>`）多一个 `<character_stats>` 块：
+有已定义的数值时（含默认 0 / false），叙述提示词的动态层（紧随 `<scene_state>`）多一个 `<character_stats>` 块：
 
 ```
 <character_stats>
@@ -44,7 +44,7 @@
 
 自由模式的角色回复走 `SceneManager._build_scene_context()` 的【角色数值】段，同一份渲染逻辑
 （`character_stats.format_stats_block`）。主控角色由玩家扮演、不在 `_agents` 里，所以按身份名单独读一次
-frontmatter，它的数值同样进块。全是字段默认值的角色不占上下文。
+frontmatter，它的数值同样进块。默认值、面板与分支判定保持一致；剧情效果及回档见 [剧情规则](narrative/story-rules.md)。
 
 ## 4. 插件数据
 
@@ -53,7 +53,7 @@ frontmatter，它的数值同样进块。全是字段默认值的角色不占上
 - 命名空间 `[a-z][a-z0-9_-]{0,39}`，`data` 必须是 JSON 对象，单个命名空间 ≤ 64 KB；
 - `PUT` 默认顶层合并（`null` 删键），`replace=true` 整份替换；
 - 与 `character_stats` 一样进剧情树节点快照（`_tree_state_snapshot`）与旧式节点历史（`record_node_snapshot`），
-  回档时整体恢复；**老快照没有这两个键时保持现值不清空**（与 `character_states` 同口径）。
+  回档时整体恢复；缺少当前资源快照字段时明确拒绝，不以保留现值伪装成成功回档。
 
 ## 5. 前端插件接口
 

@@ -224,7 +224,9 @@ def test_restored_session_lazily_loads_beats(tmp_path, monkeypatch):
     assert st["has_plot"] is True
     assert st["beat"]["id"] == "beat_intro_tension"
     assert st["roads"][0]["beats"][0]["state"] == "done"
-    assert restored.get_authored_branches(), "恢复会话也应能读到作者分支"
+    assert restored.get_authored_branches() == [], "不得借用同章开场节拍的选项"
+    restored.jump_to_beat("beat_arrival")
+    assert restored.get_authored_branches(), "返回分支所属节拍后，恢复会话应能读到作者分支"
 
 
 def st_round_range(node):

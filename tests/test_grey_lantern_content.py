@@ -50,7 +50,7 @@ def test_required_choice_survives_completion_timeout_and_reload(tmp_path, monkey
     restored.set_pending_branch({"label": "模型捷径", "target_beat_id": "beat_ending"})
     restored.advance_beat()
     assert restored.get_current_beat_id() == "beat_fork"
-    branches = _build_branches(SimpleNamespace(overlay=restored), [
+    branches = _build_branches(SimpleNamespace(overlay=restored, narration_count=0), [
         {"label": "先救泵房工人", "target_beat_id": None},
         {"label": "模型捷径", "target_beat_id": "beat_ending"},
         {"label": "查看地图", "target_beat_id": "beat_rendezvous"},

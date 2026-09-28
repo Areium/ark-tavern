@@ -121,6 +121,8 @@ export interface ChatMessage {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   reasoning?: string;
   rollData?: AttributeRollData;
+  /** 本地请求错误标记，不作为剧情回复。 */
+  requestError?: boolean;
 }
 
 /** 剧情分支选项（LLM 生成或作者预设） */
@@ -130,6 +132,11 @@ export interface BranchChoice {
   intent?: string | null;
   target_beat_id?: string | null;
   source?: "llm" | "author";
+  /** 服务端判定；前端不自行推算条件或结算效果。 */
+  available?: boolean;
+  blocked_reasons?: string[];
+  condition_summary?: string[];
+  effect_summary?: string[];
 }
 
 /** 剧情节点状态（路线图中的一个节拍） */

@@ -99,6 +99,14 @@ def test_format_block_only_lists_present_values():
     assert cs.format_stats_block(fields, {"瑕光": {}}) == ""
 
 
+def test_format_block_keeps_explicit_zero_and_false_defaults():
+    fields = cs.normalize_stat_fields(FIELDS)
+    values, _sources = cs.merge_character_stats(fields, {}, {})
+    block = cs.format_stats_block(fields, {"瑕光": values})
+    assert "瑕光：体力 100/100、金钱 0、心情 平静、负伤 否" in block
+    assert "备注" not in block
+
+
 # ── 世界书序列化 / 导出 ───────────────────────────────────────────────────────
 
 def test_worldbook_round_trips_stat_fields(tmp_path):
@@ -303,6 +311,17 @@ def test_session_stats_fall_back_to_character_book_when_unbound(stage_api):
     assert put.status_code == 200 and put.json["values"] == {"reputation": 7}
 
 
+def test_bound_book_without_fields_does_not_use_character_schema(stage_api):
+    client, session, _docs = stage_api
+    # A missing first book must not let the character's book supply its schema.
+    session.overlay.set_worldbook_ids(["empty-or-missing", "other"])
+    listing = client.get("/api/sessions/s1/character-stats").json
+    by_name = {character["name"]: character for character in listing["characters"]}
+    assert by_name["瑕光"]["worldbook_id"] == "empty-or-missing"
+    assert by_name["瑕光"]["fields"] == []
+    assert by_name["瑕光"]["values"] == {}
+
+
 def test_plugin_data_crud_and_limits(stage_api):
     client, session, _docs = stage_api
     empty = client.get("/api/sessions/s1/plugin-data/notes").json
@@ -398,11 +417,12 @@ def test_stats_and_plugin_data_follow_tree_rollback(tmp_path, monkeypatch):
     assert overlay.get_character_stats("临光") == {"hp": 90}
     assert overlay.get_plugin_data("notes")["data"] == {"n": 1}
 
-    # 老快照（没有这两个键）回档时保持现值
+    # 不完整快照不能被当作一次成功回档；预检拒绝且当前数值不变。
     node = overlay.get_current_tree_node()
     node["state"].pop("character_stats", None)
     node["state"].pop("plugin_data", None)
     overlay.set_character_stats("临光", {"hp": 55})
-    overlay.rollback_to_tree_node(node["id"])
+    with pytest.raises(ValueError, match="完整资源快照"):
+        overlay.rollback_to_tree_node(node["id"])
     assert overlay.get_character_stats("临光") == {"hp": 55}
     assert overlay.to_dict()["character_stats"] == {"临光": {"hp": 55}}
