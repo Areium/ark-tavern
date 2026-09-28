@@ -3,14 +3,12 @@ Documents blueprint — 文档 CRUD、搜索、导入依赖管理、实体列表
 """
 
 import os
-import time
 import logging
 from pathlib import Path
 
 import yaml
-import frontmatter
 from flask import Blueprint, jsonify, request
-from data_paths import categories_path, data_root
+from data_paths import categories_path
 
 from shared.helpers import json_error
 from shared.cache import invalidate_all_caches
@@ -22,10 +20,6 @@ logger = logging.getLogger(__name__)
 # Project root from inside blueprints/ is two levels up → src/
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REPO_ROOT = Path(_project_root).parent  # repo root for data/ access
-
-# 30-second entities cache
-_entities_cache: dict = {"data": None, "timestamp": 0.0}
-
 
 # ── 辅助函数 ──
 
@@ -48,75 +42,20 @@ def _load_hierarchy():
         return []
 
 
-def _load_all_entities():
-    """扫描所有类别目录，返回 {category: [{id, name, summary}]}。带 30 秒缓存。"""
-    global _entities_cache
-    now = time.time()
-    if _entities_cache["data"] is not None and (now - _entities_cache["timestamp"]) < 30:
-        return _entities_cache["data"]
-
-    yaml_path = categories_path(_REPO_ROOT)
-    if not yaml_path.is_file():
-        return {}
-
-    try:
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            cat_data = yaml.safe_load(f)
-    except Exception as e:
-        logger.error("Failed to load categories.yaml for entities: %s", e)
-        return {}
-
-    categories = cat_data.get("categories", {})
+def _load_all_entities(doc_mgr):
+    """Use document visibility rules for the live bookshelf entity directory."""
     result = {}
-
-    for cat_name, cat_info in categories.items():
-        dir_rel = cat_info if isinstance(cat_info, str) else cat_info.get("dir", "")
-        if dir_rel.startswith("data/"):
-            full_dir = _REPO_ROOT / dir_rel
-        else:
-            full_dir = data_root(_REPO_ROOT) / dir_rel
-        if not full_dir.is_dir():
-            continue
-
-        entities = []
-        for item in sorted(full_dir.iterdir()):
-            index_md = item / "index.md"
-            if item.is_dir() and index_md.is_file():
-                try:
-                    with open(index_md, "r", encoding="utf-8") as f:
-                        fm = frontmatter.load(f)
-                    entities.append({
-                        "id": item.name,
-                        "name": fm.metadata.get("name", item.name),
-                        "summary": fm.metadata.get("summary", ""),
-                    })
-                except Exception:
-                    entities.append({
-                        "id": item.name,
-                        "name": item.name,
-                        "summary": "",
-                    })
-            # 传统 .md 文件（向后兼容）
-            elif item.is_file() and item.suffix == ".md" and item.stem not in ("_index", "_INDEX", "index", "README", "TEMPLATE"):
-                try:
-                    with open(item, "r", encoding="utf-8") as f:
-                        fm = frontmatter.load(f)
-                    entities.append({
-                        "id": item.stem,
-                        "name": fm.metadata.get("name", item.stem),
-                        "summary": fm.metadata.get("summary", ""),
-                    })
-                except Exception:
-                    entities.append({
-                        "id": item.stem,
-                        "name": item.stem,
-                        "summary": "",
-                    })
-
-        if entities:
-            result[cat_name] = entities
-
-    _entities_cache = {"data": result, "timestamp": now}
+    for category in doc_mgr.list_categories():
+        cat_id = category["id"]
+        docs = doc_mgr.list_documents(cat_id, include_content=True,
+                                      include_duplicates=True)
+        if docs:
+            result[cat_id] = [{
+                "id": doc["id"],
+                "name": doc["name"],
+                "summary": doc["summary"],
+                "worldbook_id": doc["worldbook_id"],
+            } for doc in docs]
     return result
 
 
@@ -552,8 +491,8 @@ def register(app, managers):
     # ── 17. GET /api/entities ──
     @bp.route("/api/entities", methods=["GET"])
     def list_entities():
-        """扫描所有类别，返回全部实体列表（30 秒缓存）。"""
-        data = _load_all_entities()
+        """Return currently visible entities with their owning worldbooks."""
+        data = _load_all_entities(doc_mgr)
         return jsonify(data)
 
     app.register_blueprint(bp)

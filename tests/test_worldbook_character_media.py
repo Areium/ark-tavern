@@ -1,6 +1,7 @@
 """Character copies created by worldbook excerpts stay independent and portable."""
 
 import sys
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,6 +11,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import avatar_color
+import data_paths
 import worldbook_media
 from world_book import WorldBookEntry, WorldBookManager
 
@@ -19,7 +21,7 @@ def setup(tmp_path, monkeypatch):
     content = tmp_path / "content"
     chars = content / "characters"
     chars.mkdir(parents=True)
-    monkeypatch.setattr(worldbook_media, "CONTENT_ROOT", content)
+    monkeypatch.setattr(data_paths, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(avatar_color, "_CHARS_ROOT", chars)
     source = chars / "amiya"
     (source / "avatar").mkdir(parents=True)
@@ -27,9 +29,10 @@ def setup(tmp_path, monkeypatch):
     (source / "index.md").write_text("---\nname: 阿米娅\n---\n角色设定。\n", encoding="utf-8")
     Image.new("RGBA", (2, 2), (20, 40, 80, 255)).save(source / "avatar" / "a.png")
     Image.new("RGBA", (2, 2), (80, 40, 20, 255)).save(source / "skin" / "s.png")
-    manager = WorldBookManager(tmp_path / "books")
+    manager = WorldBookManager(tmp_path / "data" / "worldbooks")
     reference = manager.create_book("资料", book_type="reference")
     story = manager.create_book("剧情")
+    shutil.copytree(source, manager._path(reference.id).parent / "characters" / "amiya")
     reference.entries.append(WorldBookEntry(
         "amiya-entry", content="阿米娅的资料", name="阿米娅",
         category_id="characters", character_id="amiya", always_active=True))
@@ -146,8 +149,9 @@ def test_bound_book_media_uses_binding_order(setup):
     excerpt(manager, reference, story)
     copied_id = manager.load(story.id).entries[0].character_id
     second = manager.create_book("第二本")
-    Image.new("RGBA", (2, 2), (0, 255, 0, 255)).save(chars / "amiya" / "skin" / "s.png")
-    second.character_media[copied_id] = worldbook_media.snapshot_character_media("amiya")
+    Image.new("RGBA", (2, 2), (0, 255, 0, 255)).save(
+        manager._path(reference.id).parent / "characters" / "amiya" / "skin" / "s.png")
+    second.character_media[copied_id] = worldbook_media.snapshot_character_media("amiya", reference.id)
     manager.save(second)
 
     class Overlay:
@@ -163,6 +167,26 @@ def test_bound_book_media_uses_binding_order(setup):
             return [story.id, second.id]
 
     assert manager.character_media_for_session(ReverseOverlay(), copied_id, "skin") == manager.load(story.id).character_media[copied_id]["skin"]
+
+
+def test_excerpt_uses_the_source_book_when_character_names_collide(setup):
+    manager, reference, story, _chars = setup
+    second = manager.create_book("第二份资料", book_type="reference")
+    source = manager._path(second.id).parent / "characters" / "amiya"
+    shutil.copytree(manager._path(reference.id).parent / "characters" / "amiya", source)
+    (source / "index.md").write_text("---\nname: 第二本阿米娅\n---\n第二本资料。\n", encoding="utf-8")
+    Image.new("RGBA", (2, 2), (0, 255, 0, 255)).save(source / "skin" / "s.png")
+    second.entries.append(WorldBookEntry(
+        "second-amiya", content="角色资料", name="阿米娅",
+        category_id="characters", character_id="amiya", always_active=True))
+    manager.save(second)
+
+    manager.excerpt_entries(story.id, [{
+        "source_book_id": second.id, "source_entry_uid": "second-amiya"}])
+    copied_id = manager.load(story.id).entries[0].character_id
+    copied = manager._path(story.id).parent / "characters" / copied_id
+    assert "第二本资料" in (copied / "index.md").read_text(encoding="utf-8")
+    assert Image.open(copied / "skin" / "default.png").convert("RGBA").getpixel((0, 0)) == (0, 255, 0, 255)
 
 
 def test_stage_and_image_route_use_copied_book_media(setup, tmp_path):

@@ -1,34 +1,22 @@
 """
-索引管理 — 全局依赖聚合 + 缓存管理。
+索引管理 — 基于当前可见文档的全局依赖聚合。
 
 职责：
 - 提供 build_overview 聚合器（基于每文档 imports frontmatter）
-- 提供 invalidate_cache 显式失效
+- 保留 invalidate_cache 供既有写入调用方使用
 - 提供 import 辅助函数（从旧 app.py 移入）
 """
 
 import os
-import time
 import logging
 import yaml
 import frontmatter
+from document_manager import DocumentNotFoundError
 
 logger = logging.getLogger(__name__)
 
-# ── 缓存 ──
-
-_cache: dict = {"overview": None, "timestamp": 0.0}
-_CACHE_TTL = 30  # seconds
-
-
 def invalidate_cache():
-    """写操作后主动清空缓存。"""
-    global _cache
-    _cache = {"overview": None, "timestamp": 0.0}
-
-
-def _cache_valid() -> bool:
-    return bool(_cache["overview"] and time.time() - _cache["timestamp"] < _CACHE_TTL)
+    """Compatibility hook; overview reads the live bookshelf on each call."""
 
 
 # ── Import 辅助函数（从 app.py 移入） ──
@@ -125,28 +113,6 @@ def _categories_and_hierarchy(data_root: str) -> tuple[dict, list]:
         return {}, []
 
 
-def _scan_docs_in_category(category_dir: str) -> list[dict]:
-    """扫描实体文件夹，返回 [{path, id, name}]。"""
-    if not os.path.isdir(category_dir):
-        return []
-    docs = []
-    for item in sorted(os.listdir(category_dir)):
-        item_path = os.path.join(category_dir, item)
-        index_md = os.path.join(item_path, "index.md")
-        if os.path.isdir(item_path) and os.path.isfile(index_md):
-            try:
-                with open(index_md, "r", encoding="utf-8") as f:
-                    fm_data = frontmatter.load(f)
-                docs.append({
-                    "id": item,
-                    "name": fm_data.metadata.get("name", item),
-                    "path": index_md,
-                })
-            except Exception:
-                continue
-    return docs
-
-
 # ── 聚合器 ──
 
 
@@ -157,9 +123,9 @@ def build_overview(data_root: str, doc_manager=None) -> dict:
         {categories: [{category, label, level, docs: [{path, id, name, imports, imported_by}]}],
          hierarchy: [...]}
     """
-    global _cache
-    if _cache_valid():
-        return _cache["overview"]
+    if doc_manager is None:
+        from document_manager import DocumentManager
+        doc_manager = DocumentManager(os.path.dirname(os.path.abspath(data_root)))
 
     categories, hierarchy = _categories_and_hierarchy(data_root)
     if not categories:
@@ -169,15 +135,15 @@ def build_overview(data_root: str, doc_manager=None) -> dict:
     cat_docs = {}  # {category: [{id, name, path, import_paths}]}
     doc_index = {}  # {path_key: {category, id, name}}  (path_key = "category/id")
 
-    for cat_name, dir_rel in categories.items():
-        dir_path = dir_rel if isinstance(dir_rel, str) else dir_rel.get("dir", "")
-        if dir_path.startswith("data/"):
-            dir_path = dir_path[5:]
-        full_dir = os.path.join(data_root, dir_path) if not os.path.isabs(dir_path) else dir_path
-        docs = _scan_docs_in_category(full_dir)
+    for cat_name in categories:
+        docs = doc_manager.list_documents(cat_name, include_content=True)
         cat_docs[cat_name] = []
         for d in docs:
-            import_paths = read_imports_from_file(d["path"])
+            try:
+                filepath = doc_manager.read_document(cat_name, d["id"])["filepath"]
+            except (DocumentNotFoundError, OSError):
+                continue
+            import_paths = read_imports_from_file(filepath)
             cat_docs[cat_name].append({
                 "id": d["id"],
                 "name": d["name"],
@@ -245,5 +211,4 @@ def build_overview(data_root: str, doc_manager=None) -> dict:
     result_categories.sort(key=lambda c: (c["level"], c["category"]))
     result = {"categories": result_categories, "hierarchy": hierarchy}
 
-    _cache = {"overview": result, "timestamp": time.time()}
     return result

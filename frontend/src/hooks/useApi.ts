@@ -288,11 +288,12 @@ export function useApi() {
         { method: "PUT", body: JSON.stringify({ worldbook_id: worldbookId }) },
       ),
 
-    uploadAssetImage: async (category: string, file: File, subdir?: string) => {
+    uploadAssetImage: async (category: string, file: File, subdir?: string, bookId?: string) => {
       const base = await getBaseUrl();
       const formData = new FormData();
       formData.append("file", file);
       if (subdir) formData.append("subdir", subdir);
+      if (bookId) formData.append("worldbook_id", bookId);
       const res = await fetch(`${base}/api/assets/${category}/upload`, {
         method: "POST",
         body: formData,
@@ -305,17 +306,17 @@ export function useApi() {
       }
       return res.json();
     },
-    deleteAssetImage: (category: string, filePath: string) =>
-      request<any>(`/api/assets/${category}/${encodeURIComponent(filePath)}`, {
+    deleteAssetImage: (category: string, filePath: string, bookId?: string) =>
+      request<any>(`/api/assets/${category}/${encodeURIComponent(filePath)}${bookId ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""}`, {
         method: "DELETE",
       }),
-    getDefaultImage: (category: string, entity: string) =>
-      request<{ default_avatar: string; default_skin: string; card_face: string; card_face_crop: import("../types").SkinCrop | null }>(`/api/assets/${category}/${encodeURIComponent(entity)}/default-image`),
+    getDefaultImage: (category: string, entity: string, bookId?: string) =>
+      request<{ default_avatar: string; default_skin: string; card_face: string; card_face_crop: import("../types").SkinCrop | null }>(`/api/assets/${category}/${encodeURIComponent(entity)}/default-image${bookId ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""}`),
     /** 全量实体图片库（/api/assets/images）：按实体分组的图片清单，供形象快捷选取 */
     listAssetImages: () =>
       request<any[]>("/api/assets/images"),
-    setDefaultImage: (category: string, entity: string, type: "avatar" | "skin" | "card_face", filename: string, crop?: import("../types").SkinCrop | null) =>
-      request<any>(`/api/assets/${category}/${encodeURIComponent(entity)}/default-image`, {
+    setDefaultImage: (category: string, entity: string, type: "avatar" | "skin" | "card_face", filename: string, crop?: import("../types").SkinCrop | null, bookId?: string) =>
+      request<any>(`/api/assets/${category}/${encodeURIComponent(entity)}/default-image${bookId ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""}`, {
         method: "PUT",
         body: JSON.stringify({ type, filename, ...(crop !== undefined ? { crop } : {}) }),
       }),
@@ -544,19 +545,22 @@ export function useApi() {
 
     // ── 角色库 ──
     getCharacters: () => request<any[]>("/api/characters"),
-    getCharacter: (id: string) => request<any>(`/api/characters/${encodeURIComponent(id)}`),
+    getCharacter: (id: string, bookId?: string) => request<any>(
+      `/api/characters/${encodeURIComponent(id)}` +
+      (bookId ? `?worldbook_id=${encodeURIComponent(bookId)}` : "")),
     importCharacterCard: (file: File) =>
       uploadMultipart("/api/characters/import", {}, file),
 
     // ── 玩家身份角色 ──
-    getPlayerIdentities: () => request<{ id: string; name: string; summary: string; tags: string[] }[]>("/api/player-identities"),
-    savePlayerIdentity: (name: string, metadata: Record<string, any>, content: string) =>
+    getPlayerIdentities: () => request<{ id: string; name: string; summary: string; tags: string[]; worldbook_id: string }[]>("/api/player-identities"),
+    savePlayerIdentity: (name: string, metadata: Record<string, any>, content: string, bookId = "") =>
       request<any>(`/api/player-identities/${encodeURIComponent(name)}`, {
         method: "PUT",
-        body: JSON.stringify({ metadata, content }),
+        body: JSON.stringify({ metadata, content, worldbook_id: bookId }),
       }),
-    deletePlayerIdentity: (name: string) =>
-      request<any>(`/api/player-identities/${encodeURIComponent(name)}`, { method: "DELETE" }),
+    deletePlayerIdentity: (name: string, bookId = "") =>
+      request<any>(`/api/player-identities/${encodeURIComponent(name)}` +
+        (bookId ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""), { method: "DELETE" }),
     setPlayerIdentity: (sessionId: string, identity: string) =>
       request<{ message: string; player_identity: string }>(`/api/sessions/${sessionId}/identity`, {
         method: "PUT",

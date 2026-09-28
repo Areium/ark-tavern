@@ -14,6 +14,7 @@ import { ActionButton } from "./RoleWidgets";
 
 interface Props {
   characterId: string;
+  worldbookId?: string;
 }
 
 type Subdir = "avatar" | "skin" | "card_face";
@@ -26,7 +27,7 @@ const SECTIONS: Array<{ subdir: Subdir; label: string; hint: string; defaultKey:
 
 const IMAGE_ACCEPT = ".png,.jpg,.jpeg,.gif,.webp";
 
-export default function CharacterAssets({ characterId }: Props) {
+export default function CharacterAssets({ characterId, worldbookId = "" }: Props) {
   const api = useApi();
   const bumpResourceVersion = useAppStore((s) => s.bumpResourceVersion);
   const [group, setGroup] = useState<AssetEntityGroupDTO | null>(null);
@@ -41,11 +42,12 @@ export default function CharacterAssets({ characterId }: Props) {
     try {
       const all = await api.getAssetImages();
       const mine = (all || []).filter((g) => g.category === "characters"
-        && (g.entity === characterId || g.entity.endsWith(`/${characterId}`)));
+        && (g.entity === characterId || g.entity.endsWith(`/${characterId}`))
+        && (g.worldbook_id || "") === worldbookId);
       mine.sort((a, b) => b.images.length - a.images.length);
       setGroup(mine[0] || null);
       try {
-        const d = await api.getDefaultImage("characters", mine[0]?.entity || characterId);
+        const d = await api.getDefaultImage("characters", mine[0]?.entity || characterId, worldbookId);
         setDefaults({ default_avatar: d.default_avatar || "", default_skin: d.default_skin || "", card_face: d.card_face || "" });
       } catch {
         setDefaults({ default_avatar: "", default_skin: "", card_face: "" });
@@ -55,7 +57,7 @@ export default function CharacterAssets({ characterId }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [api, characterId]);
+  }, [api, characterId, worldbookId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -74,7 +76,7 @@ export default function CharacterAssets({ characterId }: Props) {
   const upload = async (subdir: Subdir, file: File) => {
     setBusy(true);
     try {
-      await api.uploadAssetImage("characters", file, `${entity}/${subdir}`);
+      await api.uploadAssetImage("characters", file, `${entity}/${subdir}`, worldbookId);
       flash(`已上传到 ${subdir}/`);
       await load();
       setVersion((v) => v + 1);
@@ -89,7 +91,7 @@ export default function CharacterAssets({ characterId }: Props) {
   const setDefault = async (type: Subdir, filename: string) => {
     setBusy(true);
     try {
-      await api.setDefaultImage("characters", entity, type, filename);
+      await api.setDefaultImage("characters", entity, type, filename, undefined, worldbookId);
       flash(`已设为默认${SECTIONS.find((s) => s.type === type)?.label}`);
       await load();
       setVersion((v) => v + 1);
@@ -106,7 +108,7 @@ export default function CharacterAssets({ characterId }: Props) {
     setBusy(true);
     try {
       const rel = path.startsWith("characters/") ? path.slice("characters/".length) : path;
-      await api.deleteAssetImage("characters", rel);
+      await api.deleteAssetImage("characters", rel, worldbookId);
       flash("已删除");
       await load();
     } catch (err: any) {

@@ -45,6 +45,7 @@ interface SelectedImage {
   category: string;
   entity: string;
   entityName: string;
+  worldbookId: string;
 }
 
 const IMAGE_ACCEPT = ".png,.jpg,.jpeg,.gif,.webp,.svg,.bmp";
@@ -75,7 +76,7 @@ export default function AssetManager() {
   const [collapsedImageKeys, setCollapsedImageKeys] = useState<Set<string>>(new Set());
   const [selectedImage, setSelectedImage] = useState<SelectedImage | null>(null);
   const [defaultImages, setDefaultImages] = useState<Record<string, { default_avatar: string; default_skin: string; card_face: string; card_face_crop: SkinCrop | null }>>({});
-  const [cropTarget, setCropTarget] = useState<{ url: string; name: string; category: string; entity: string } | null>(null);
+  const [cropTarget, setCropTarget] = useState<SelectedImage | null>(null);
 
   // ── Toast ──
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -113,9 +114,9 @@ export default function AssetManager() {
   const loadDefaultImages = useCallback(async () => {
     const newDefaults: Record<string, { default_avatar: string; default_skin: string; card_face: string; card_face_crop: SkinCrop | null }> = {};
     for (const item of assetImages) {
-      const key = `${item.category}/${item.entity}`;
+      const key = `${item.worldbook_id || ""}:${item.category}/${item.entity}`;
       try {
-        const data = await apiRef.current.getDefaultImage(item.category, item.entity);
+        const data = await apiRef.current.getDefaultImage(item.category, item.entity, item.worldbook_id);
         newDefaults[key] = {
           default_avatar: data.default_avatar || "",
           default_skin: data.default_skin || "",
@@ -133,9 +134,9 @@ export default function AssetManager() {
 
   // ── 图片操作 ──
 
-  const handleImageUpload = async (file: File, category: string, subdir?: string) => {
+  const handleImageUpload = async (file: File, category: string, subdir?: string, bookId?: string) => {
     try {
-      await apiRef.current.uploadAssetImage(category, file, subdir);
+      await apiRef.current.uploadAssetImage(category, file, subdir, bookId);
       showToast(`图片 "${file.name}" 已上传`);
       loadImages();
     } catch (err: any) {
@@ -143,28 +144,28 @@ export default function AssetManager() {
     }
   };
 
-  const handleImageDelete = async (category: string, fullPath: string) => {
+  const handleImageDelete = async (category: string, fullPath: string, bookId?: string) => {
     // fullPath example: "characters/旅人/avatar/portrait.png"
     // The API expects path relative to category dir: "旅人/avatar/portrait.png"
     const relativePath = fullPath.startsWith(category + "/")
       ? fullPath.slice(category.length + 1)
       : fullPath;
     try {
-      await apiRef.current.deleteAssetImage(category, relativePath);
+      await apiRef.current.deleteAssetImage(category, relativePath, bookId);
       showToast("图片已删除");
-      if (selectedImage?.path === fullPath) setSelectedImage(null);
+      if (selectedImage?.path === fullPath && selectedImage.worldbookId === (bookId || "")) setSelectedImage(null);
       loadImages();
     } catch (err: any) {
       showToast(err.message || "删除失败", "error");
     }
   };
 
-  const handleSetDefaultImage = async (category: string, entity: string, type: "avatar" | "skin" | "card_face", filename: string, crop?: SkinCrop | null) => {
+  const handleSetDefaultImage = async (category: string, entity: string, type: "avatar" | "skin" | "card_face", filename: string, crop?: SkinCrop | null, bookId?: string) => {
     try {
-      await apiRef.current.setDefaultImage(category, entity, type, filename, crop);
+      await apiRef.current.setDefaultImage(category, entity, type, filename, crop, bookId);
       const label = type === "avatar" ? "头像" : type === "skin" ? "立绘" : "卡面";
       showToast(`已设为默认${label}`);
-      const key = `${category}/${entity}`;
+      const key = `${bookId || ""}:${category}/${entity}`;
       setDefaultImages((prev) => {
         const prevEntry = prev[key] || { default_avatar: "", default_skin: "", card_face: "", card_face_crop: null };
         if (type === "card_face") {
@@ -183,7 +184,7 @@ export default function AssetManager() {
 
   const handleCropSave = async (crop: SkinCrop) => {
     if (!cropTarget) return;
-    await handleSetDefaultImage(cropTarget.category, cropTarget.entity, "card_face", cropTarget.name, crop);
+    await handleSetDefaultImage(cropTarget.category, cropTarget.entity, "card_face", cropTarget.name, crop, cropTarget.worldbookId);
     setCropTarget(null);
   };
 
@@ -215,7 +216,7 @@ export default function AssetManager() {
   };
 
   const bookName = (id: string) => worldbooks.find((b) => b.id === id)?.name || id;
-  const entityKeyOf = (item: AssetEntityGroupDTO) => `${item.category}/${item.entity}`;
+  const entityKeyOf = (item: AssetEntityGroupDTO) => `${item.worldbook_id || ""}:${item.category}/${item.entity}`;
 
   // ── 筛选 ──
   const query = imageFilter.trim().toLowerCase();
@@ -272,6 +273,7 @@ export default function AssetManager() {
       category: item.category,
       entity: item.entity,
       entityName: item.entity_name,
+      worldbookId: item.worldbook_id || "",
     });
 
   const renderEntityGroup = (item: AssetEntityGroupDTO) => {
@@ -331,7 +333,7 @@ export default function AssetManager() {
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) {
-                  handleImageUpload(file, item.category, item.entity);
+                  handleImageUpload(file, item.category, item.entity, item.worldbook_id);
                   e.target.value = "";
                 }
               }}
@@ -343,7 +345,7 @@ export default function AssetManager() {
             {subdir && <div className="roles-subdir mb-1">{subdirLabel(subdir)}</div>}
             <div className="flex flex-wrap gap-1">
               {imgs.map((img) => {
-                const isSelected = selectedImage?.path === img.path;
+                const isSelected = selectedImage?.path === img.path && selectedImage.worldbookId === (item.worldbook_id || "");
                 const isDefaultAvatar = defaults?.default_avatar === img.name;
                 const isDefaultSkin = defaults?.default_skin === img.name;
                 const isDefaultCardFace = defaults?.card_face === img.name;
@@ -351,7 +353,7 @@ export default function AssetManager() {
                 const defaultLabel = isDefaultAvatar ? "默认头像" : isDefaultSkin ? "默认立绘" : "默认卡面";
                 return (
                   <div
-                    key={img.path}
+                    key={`${item.worldbook_id || ""}:${img.path}`}
                     role="button"
                     tabIndex={0}
                     aria-pressed={isSelected}
@@ -387,7 +389,7 @@ export default function AssetManager() {
                       onClick={(e) => {
                         e.stopPropagation();
                         if (confirm(`确定要删除 "${img.name}" 吗？`)) {
-                          handleImageDelete(item.category, img.path);
+                          handleImageDelete(item.category, img.path, item.worldbook_id);
                         }
                       }}
                       title="删除"
@@ -462,7 +464,7 @@ export default function AssetManager() {
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
-                if (file) { handleImageUpload(file, cat); e.target.value = ""; }
+                if (file) { handleImageUpload(file, cat, undefined, bookFilter && bookFilter !== UNCLASSIFIED_KEY ? bookFilter : undefined); e.target.value = ""; }
               }}
             />
           </label>
@@ -475,7 +477,7 @@ export default function AssetManager() {
   // ── 渲染 ──
 
   const selectedEntity = selectedImage
-    ? assetImages.find((g) => g.category === selectedImage.category && g.entity === selectedImage.entity)
+    ? assetImages.find((g) => g.category === selectedImage.category && g.entity === selectedImage.entity && (g.worldbook_id || "") === selectedImage.worldbookId)
     : undefined;
 
   return (
@@ -569,11 +571,13 @@ export default function AssetManager() {
                   <dd className="is-mono text-gray-500">{selectedImage.path}</dd>
                   <dt className="self-center">来源世界书</dt>
                   <dd>
-                    <WorldbookSelect
-                      value={selectedEntity?.worldbook_id || ""}
-                      worldbooks={worldbooks}
-                      onChange={(id) => { if (selectedEntity) handleSetEntityWorldbook(selectedEntity, id); }}
-                    />
+                    {selectedImage.worldbookId ? bookName(selectedImage.worldbookId) : (
+                      <WorldbookSelect
+                        value={selectedEntity?.worldbook_id || ""}
+                        worldbooks={worldbooks}
+                        onChange={(id) => { if (selectedEntity) handleSetEntityWorldbook(selectedEntity, id); }}
+                      />
+                    )}
                   </dd>
                 </dl>
 
@@ -583,7 +587,7 @@ export default function AssetManager() {
                     <ActionButton
                       icon="star"
                       variant="blue"
-                      onClick={() => handleSetDefaultImage(selectedImage.category, selectedImage.entity, "avatar", selectedImage.name)}
+                      onClick={() => handleSetDefaultImage(selectedImage.category, selectedImage.entity, "avatar", selectedImage.name, undefined, selectedImage.worldbookId)}
                     >
                       设为默认头像
                     </ActionButton>
@@ -592,7 +596,7 @@ export default function AssetManager() {
                     <ActionButton
                       icon="star"
                       variant="purple"
-                      onClick={() => handleSetDefaultImage(selectedImage.category, selectedImage.entity, "skin", selectedImage.name)}
+                      onClick={() => handleSetDefaultImage(selectedImage.category, selectedImage.entity, "skin", selectedImage.name, undefined, selectedImage.worldbookId)}
                     >
                       设为默认立绘
                     </ActionButton>
@@ -601,7 +605,7 @@ export default function AssetManager() {
                     <ActionButton
                       icon="cards"
                       variant="amber"
-                      onClick={() => handleSetDefaultImage(selectedImage.category, selectedImage.entity, "card_face", selectedImage.name)}
+                      onClick={() => handleSetDefaultImage(selectedImage.category, selectedImage.entity, "card_face", selectedImage.name, undefined, selectedImage.worldbookId)}
                       title="复制到 card art/ 子目录并设为卡面"
                     >
                       设为卡面
@@ -612,7 +616,7 @@ export default function AssetManager() {
                       <ActionButton
                         icon="star"
                         variant="amber"
-                        onClick={() => handleSetDefaultImage(selectedImage.category, selectedImage.entity, "card_face", selectedImage.name)}
+                        onClick={() => handleSetDefaultImage(selectedImage.category, selectedImage.entity, "card_face", selectedImage.name, undefined, selectedImage.worldbookId)}
                       >
                         设为默认卡面
                       </ActionButton>

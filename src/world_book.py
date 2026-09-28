@@ -3147,9 +3147,9 @@ class WorldBookManager:
             if built.character_id:
                 source_character_id = built.character_id
                 copied = (source_book.character_media.get(source_character_id)
-                          or snapshot_character_media(source_character_id))
+                          or snapshot_character_media(source_character_id, source_book_id))
                 profile = (source_book.character_profiles.get(source_character_id)
-                           or snapshot_character_profile(source_character_id))
+                           or snapshot_character_profile(source_character_id, source_book_id))
                 if profile:
                     built.character_id = copied_character_id(source_character_id, target.id)
                     existing_profile = target.character_profiles.get(built.character_id)

@@ -391,14 +391,14 @@ class CombatDataLoader:
         roots = self._roots("combat") if not owner or self._custom_dir else [
             path for _, path in category_roots("combat", book_ids=[owner],
                                               project_root=self._project_root)]
-        tiles_dir = roots[0] / "tiles" if roots else self._tiles_dir
+        tiles_dir = roots[0] / "tiles" if roots else None
         return resolve_map((node or {}).get("map"), tiles_dir=tiles_dir)
 
     def load_tile_registry(self):
         """格子类型注册表（内置 + `data/combat/tiles/*.json`）。"""
         from combat_map import load_tile_registry
         roots = self._roots("combat")
-        return load_tile_registry(roots[0] / "tiles" if roots else self._tiles_dir)
+        return load_tile_registry(roots[0] / "tiles" if roots else None)
 
     def rules_of(self, node: dict | None) -> dict:
         """节点规则开关（度量/切角）；缺省为统一曼哈顿 + 禁止切角。"""

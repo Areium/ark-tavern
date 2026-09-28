@@ -54,6 +54,7 @@ interface IdentitySummary {
   name: string;
   summary: string;
   tags: string[];
+  worldbook_id: string;
 }
 
 interface CharacterDetail {
@@ -111,13 +112,14 @@ function Chip({ tone, children }: { tone: "blue" | "purple" | "green"; children:
 
 /** 左栏列表行：头像 + 名称 + 一行说明，角色库与玩家身份共用 */
 function ListRow({
-  id, name, sub, selected, onClick,
+  id, name, sub, selected, onClick, worldbookId,
 }: {
   id: string;
   name: string;
   sub?: string;
   selected: boolean;
   onClick: () => void;
+  worldbookId?: string;
 }) {
   return (
     <button
@@ -130,7 +132,7 @@ function ListRow({
           : "text-gray-300 hover:bg-gray-800 border-transparent"
       }`}
     >
-      <EntityAvatar name={name} src={characterAvatarUrl(id)} size={30} />
+      <EntityAvatar name={name} src={characterAvatarUrl(id, worldbookId)} size={30} />
       <div className="min-w-0">
         <div className="text-xs font-medium truncate">{name}</div>
         {sub && <div className="text-[12px] text-gray-500 truncate">{sub}</div>}
@@ -154,17 +156,19 @@ export default function CharacterManager() {
   /** 角色库的来源选择："" = 全部，"__none__" = 未分类，否则为 book id */
   const [charBookFilter, setCharBookFilter] = useState("");
   const [selectedChar, setSelectedChar] = useState<string | null>(null);
+  const [selectedCharBookId, setSelectedCharBookId] = useState("");
   const [charDetail, setCharDetail] = useState<CharacterDetail | null>(null);
   const [charLoading, setCharLoading] = useState(false);
   const [charImporting, setCharImporting] = useState(false);
   // 角色详情页签：资产与卡牌并入角色之下，切换角色回到「资料」
   const [charDetailTab, setCharDetailTab] = useState<CharacterDetailTab>("profile");
-  useEffect(() => { setCharDetailTab("profile"); }, [selectedChar]);
+  useEffect(() => { setCharDetailTab("profile"); }, [selectedChar, selectedCharBookId]);
 
   // ── 玩家身份 ──
   const [identities, setIdentities] = useState<IdentitySummary[]>([]);
   const [identitySearch, setIdentitySearch] = useState("");
   const [selectedIdentity, setSelectedIdentity] = useState<string | null>(null);
+  const [selectedIdentityBookId, setSelectedIdentityBookId] = useState("");
   const [identityLoading, setIdentityLoading] = useState(false);
   const [identitySaving, setIdentitySaving] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -243,12 +247,12 @@ export default function CharacterManager() {
     }
     let cancelled = false;
     setCharLoading(true);
-    api.getCharacter(selectedChar)
+    api.getCharacter(selectedChar, selectedCharBookId)
       .then((d) => { if (!cancelled) setCharDetail(d); })
       .catch(() => { if (!cancelled) setCharDetail(null); })
       .finally(() => { if (!cancelled) setCharLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedChar, tab, api]);
+  }, [selectedChar, selectedCharBookId, tab, api]);
 
   // ── 加载身份详情 ──
   useEffect(() => {
@@ -257,7 +261,7 @@ export default function CharacterManager() {
     }
     let cancelled = false;
     setIdentityLoading(true);
-    api.getCharacter(selectedIdentity)
+    api.getCharacter(selectedIdentity, selectedIdentityBookId || undefined)
       .then((d) => {
         if (!cancelled) {
           initDraft(selectedIdentity, d);
@@ -266,7 +270,7 @@ export default function CharacterManager() {
       .catch(() => { if (!cancelled) initDraft(selectedIdentity, null); })
       .finally(() => { if (!cancelled) setIdentityLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedIdentity, tab, api]);
+  }, [selectedIdentity, selectedIdentityBookId, tab, api]);
 
   // ── 导入角色卡 ──
   const handleImportCharacterCard = async (file: File) => {
@@ -278,6 +282,7 @@ export default function CharacterManager() {
       if (res.character?.name) {
         setCharacterTab("characters");
         setSelectedChar(res.character.name);
+        setSelectedCharBookId("");
       }
     } catch (err: any) {
       showToast(err.message || "导入失败", "error");
@@ -290,6 +295,7 @@ export default function CharacterManager() {
   const startCreateIdentity = () => {
     resetIdentityForm();
     setSelectedIdentity(null);
+    setSelectedIdentityBookId("");
     setIsCreating(true);
   };
 
@@ -312,7 +318,7 @@ export default function CharacterManager() {
       if (Object.keys(draftAttrs).length > 0) {
         metadata.attributes = draftAttrs;
       }
-      await api.savePlayerIdentity(name.trim(), metadata, draftContent);
+      await api.savePlayerIdentity(name.trim(), metadata, draftContent, selectedIdentityBookId);
       showToast(isCreating ? "已创建玩家身份" : "已保存玩家身份");
       loadIdentities();
       loadCharacters();
@@ -328,16 +334,17 @@ export default function CharacterManager() {
   };
 
   // ── 删除玩家身份 ──
-  const handleDeleteIdentity = async (name: string) => {
+  const handleDeleteIdentity = async (name: string, bookId: string) => {
     if (!window.confirm(`确定删除玩家身份「${name}」吗？`)) return;
     try {
-      await api.deletePlayerIdentity(name);
+      await api.deletePlayerIdentity(name, bookId);
       showToast("已删除玩家身份");
-      setIdentities((prev) => prev.filter((i) => i.id !== name));
+      setIdentities((prev) => prev.filter((i) => i.id !== name || i.worldbook_id !== bookId));
       setCharacters((prev) => prev.filter((c) => c.id !== name));
       if (selectedChar === name) setSelectedChar(null);
-      if (selectedIdentity === name) {
+      if (selectedIdentity === name && selectedIdentityBookId === bookId) {
         setSelectedIdentity(null);
+        setSelectedIdentityBookId("");
       }
     } catch (err: any) {
       showToast(err.message || "删除失败", "error");
@@ -347,7 +354,7 @@ export default function CharacterManager() {
   // ── 跳转编辑 ──
   // 角色资料已迁移至世界书（整合包/来源标注），跳转世界书页编辑
   const jumpToWorldbook = () => {
-    const bookId = String((charDetail?.metadata as any)?.worldbook_id || "");
+    const bookId = selectedCharBookId;
     setWorldbookJumpId(bookId || null);
     setCurrentView("worldbook");
   };
@@ -394,13 +401,14 @@ export default function CharacterManager() {
 
   const renderCharRow = (c: CharacterSummary) => (
     <ListRow
-      key={c.id}
+      key={`${c.worldbook_id || ""}:${c.id}`}
       id={c.id}
+      worldbookId={c.worldbook_id}
       name={c.name || c.id}
       // 本家角色的 title 常与 name 同值，同值时不再重复显示一行
       sub={c.title && c.title !== c.name ? c.title : undefined}
-      selected={selectedChar === c.id}
-      onClick={() => setSelectedChar(c.id)}
+      selected={selectedChar === c.id && selectedCharBookId === (c.worldbook_id || "")}
+      onClick={() => { setSelectedChar(c.id); setSelectedCharBookId(c.worldbook_id || ""); }}
     />
   );
 
@@ -423,7 +431,7 @@ export default function CharacterManager() {
     const tags: string[] = meta.tags || [];
     const summary = String(meta.summary || "").trim();
     // 来源世界书：角色目录 index.md frontmatter 的 worldbook_id；缺字段 = 未分类
-    const sourceBookId = String((meta as any).worldbook_id || "");
+    const sourceBookId = selectedCharBookId;
     const sourceBookName = sourceBookId
       ? worldbooks.find((b) => b.id === sourceBookId)?.name || sourceBookId
       : "";
@@ -434,7 +442,7 @@ export default function CharacterManager() {
           eyebrow="角色库"
           icon="characters"
           title={displayName}
-          leading={<EntityAvatar name={displayName} src={characterAvatarUrl(selectedChar)} size={64} />}
+          leading={<EntityAvatar name={displayName} src={characterAvatarUrl(selectedChar, sourceBookId)} size={64} />}
           actions={
             <>
               <ActionButton
@@ -483,7 +491,7 @@ export default function CharacterManager() {
         ) : (
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
             {charDetailTab === "stats" && <CharacterStatsEditor key={`stats-${selectedChar}`} characterId={selectedChar} />}
-            {charDetailTab === "assets" && <CharacterAssets key={`assets-${selectedChar}`} characterId={selectedChar} />}
+            {charDetailTab === "assets" && <CharacterAssets key={`assets-${selectedChar}-${sourceBookId}`} characterId={selectedChar} worldbookId={sourceBookId} />}
             {charDetailTab === "profile" && (
               <>
                 {summary && <p className="text-[14px] text-gray-300 leading-relaxed">{summary}</p>}
@@ -557,7 +565,7 @@ export default function CharacterManager() {
           }
           actions={
             !isCreating && selectedIdentity ? (
-              <ActionButton icon="trash" variant="danger" onClick={() => handleDeleteIdentity(selectedIdentity)}>
+              <ActionButton icon="trash" variant="danger" onClick={() => handleDeleteIdentity(selectedIdentity, selectedIdentityBookId)}>
                 删除
               </ActionButton>
             ) : undefined
@@ -586,6 +594,25 @@ export default function CharacterManager() {
                 />
               </label>
             </div>
+
+            <label className="block text-xs text-gray-400">
+              保存位置
+              {isCreating ? (
+                <select className={fieldCls} value={selectedIdentityBookId}
+                  onChange={(e) => setSelectedIdentityBookId(e.target.value)}>
+                  <option value="">个人资料（不随世界书复制）</option>
+                  {worldbooks.filter((book) => book.enabled).map((book) => (
+                    <option key={book.id} value={book.id}>{book.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <div className="mt-1 text-sm text-gray-300">
+                  {selectedIdentityBookId
+                    ? worldbooks.find((book) => book.id === selectedIdentityBookId)?.name || selectedIdentityBookId
+                    : "个人资料（不随世界书复制）"}
+                </div>
+              )}
+            </label>
 
             <label className="block text-xs text-gray-400">
               标签（顿号或逗号分隔）
@@ -782,12 +809,12 @@ export default function CharacterManager() {
                 ) : (
                   filteredIdentities.map((i) => (
                     <ListRow
-                      key={i.id}
+                      key={`${i.worldbook_id}:${i.id}`}
                       id={i.id}
                       name={i.name || i.id}
-                      sub={i.summary || undefined}
-                      selected={selectedIdentity === i.id && !isCreating}
-                      onClick={() => { setIsCreating(false); setSelectedIdentity(i.id); }}
+                      sub={[i.summary, i.worldbook_id ? worldbooks.find((book) => book.id === i.worldbook_id)?.name || i.worldbook_id : "个人资料"].filter(Boolean).join(" · ")}
+                      selected={selectedIdentity === i.id && selectedIdentityBookId === (i.worldbook_id || "") && !isCreating}
+                      onClick={() => { setIsCreating(false); setSelectedIdentity(i.id); setSelectedIdentityBookId(i.worldbook_id || ""); }}
                     />
                   ))
                 )

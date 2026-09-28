@@ -92,6 +92,9 @@ def test_legacy_shared_combat_is_not_a_runtime_source(tmp_path, monkeypatch):
     rule = shared / "combat" / "rules" / "difficulty.json"
     rule.parent.mkdir()
     rule.write_text(json.dumps({"marker": "legacy"}), encoding="utf-8")
+    tile = shared / "combat" / "tiles" / "old_tile.json"
+    tile.parent.mkdir()
+    tile.write_text(json.dumps({"tile_id": "old_tile", "name": "Old tile"}), encoding="utf-8")
     plot = shared / "plots" / "legacy_plot" / "index.md"
     plot.parent.mkdir(parents=True)
     plot.write_text("---\nname: Legacy plot\n---\n"
@@ -113,6 +116,7 @@ def test_legacy_shared_combat_is_not_a_runtime_source(tmp_path, monkeypatch):
         assert node_bindings(book_ids=bound) == {}
         assert plot_flows(book_ids=bound) == []
         assert "marker" not in difficulty_rules(book_ids=bound)
+        assert "old_tile" not in loader.load_tile_registry()[0]
 
 
 

@@ -15,6 +15,7 @@ import io
 import sys
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from flask import Flask
@@ -42,6 +43,7 @@ class FakeSession:
         self.data_dir = Path(data_dir)
         self.combat_mode = "narrative"
         self.scene_manager = FakeSceneManager(characters)
+        self.overlay = SimpleNamespace(get_worldbook_ids=lambda: [])
 
 
 @pytest.fixture

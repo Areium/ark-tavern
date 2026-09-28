@@ -26,6 +26,7 @@ from pathlib import Path
 
 from data_paths import CONTENT_ROOT, MEMORY_ROOT, PROJECT_ROOT
 from content_scope import is_content_visible
+from worldbook_content import resolve_content
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +34,6 @@ _REPO_ROOT = PROJECT_ROOT
 _SESSIONS_DIR = MEMORY_ROOT / "sessions"
 _CHARS_DIR = CONTENT_ROOT / "characters"
 _BG_ROOT = CONTENT_ROOT / "combat" / "backgrounds"
-_DEFAULT_CHARS_DIR = _CHARS_DIR
-_DEFAULT_BG_ROOT = _BG_ROOT
 
 _FORMAT_VERSION = 1
 _SNAPSHOT_EXTS = {".md", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
@@ -76,31 +75,67 @@ def _parse_dependency_names(session_dir: Path) -> dict:
     return deps
 
 
-def _snapshot_character(name: str, snap_root: Path) -> None:
+def _snapshot_source(relative: str, legacy_root: Path, book_ids: list[str]) -> Path | None:
+    """Resolve a bound book first, then a visible local resource."""
+    name = relative.rsplit("/", 1)[-1]
+    if name in (".", "..") or "/" in name or "\\" in name:
+        return None
+    try:
+        source = resolve_content(relative, book_ids=book_ids, project_root=_REPO_ROOT)
+    except ValueError:
+        return None
+    if source is not None:
+        return source if source.is_dir() else None
+    source = legacy_root / name
+    if (source.is_symlink() or not source.is_dir()
+            or not source.resolve().is_relative_to(legacy_root.resolve())
+            or not is_content_visible(source, project_root=_REPO_ROOT)):
+        return None
+    return source
+
+
+def _safe_snapshot_file(source: Path, root: Path) -> bool:
+    """Reject linked files and directories when copying into an archive."""
+    return (source.is_file() and not source.is_symlink()
+            and source.resolve().is_relative_to(root.resolve())
+            and not any(part.is_symlink() for part in source.parents if part != root
+                        and part.is_relative_to(root)))
+
+
+def _snapshot_character(name: str, snap_root: Path, book_ids: list[str]) -> None:
     """快照角色卡 + 基础形象媒体到 snap_root/characters/<name>/。"""
-    src = _CHARS_DIR / name
-    if not src.is_dir() or (_CHARS_DIR == _DEFAULT_CHARS_DIR and not is_content_visible(src)):
+    if not isinstance(name, str) or not name or "/" in name or "\\" in name:
+        return
+    src = _snapshot_source(f"characters/{name}", _CHARS_DIR, book_ids)
+    if src is None:
         return
     dst = snap_root / "characters" / name
     dst.mkdir(parents=True, exist_ok=True)
-    if (src / "index.md").is_file():
+    if _safe_snapshot_file(src / "index.md", src):
         shutil.copy2(src / "index.md", dst / "index.md")
     for sub in _MEDIA_SUBDIRS:
         subdir = src / sub
-        if not subdir.is_dir():
+        if not subdir.is_dir() or subdir.is_symlink():
             continue
         for f in subdir.iterdir():
-            if f.is_file() and f.suffix.lower() in _SNAPSHOT_EXTS:
+            if _safe_snapshot_file(f, src) and f.suffix.lower() in _SNAPSHOT_EXTS:
                 (dst / sub).mkdir(parents=True, exist_ok=True)
                 shutil.copy2(f, dst / sub / f.name)
 
 
-def _snapshot_background(bg_id: str, snap_root: Path) -> None:
+def _snapshot_background(bg_id: str, snap_root: Path, book_ids: list[str]) -> None:
     """快照全局背景目录到 snap_root/backgrounds/<bg_id>/。"""
-    src = _BG_ROOT / bg_id
-    if not src.is_dir() or (_BG_ROOT == _DEFAULT_BG_ROOT and not is_content_visible(src)):
+    if not isinstance(bg_id, str) or not bg_id or "/" in bg_id or "\\" in bg_id:
         return
-    shutil.copytree(src, snap_root / "backgrounds" / bg_id)
+    src = _snapshot_source(f"combat/backgrounds/{bg_id}", _BG_ROOT, book_ids)
+    if src is None:
+        return
+    dst = snap_root / "backgrounds" / bg_id
+    for source in src.rglob("*"):
+        if _safe_snapshot_file(source, src):
+            target = dst / source.relative_to(src)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
 
 
 # ── 导出 ──
@@ -110,6 +145,7 @@ def export_session_zip(session_dir: Path, session_meta: dict, out_path: Path) ->
     mode = session_dir.parent.name
     sid = session_dir.name
     deps = _parse_dependency_names(session_dir)
+    book_ids = session_meta.get("worldbook_ids") or []
     manifest = {
         "format_version": _FORMAT_VERSION,
         "session": {
@@ -138,9 +174,9 @@ def export_session_zip(session_dir: Path, session_meta: dict, out_path: Path) ->
         with tempfile.TemporaryDirectory() as tmp:
             snap_root = Path(tmp) / "snapshots"
             for name in deps["characters"]:
-                _snapshot_character(name, snap_root)
+                _snapshot_character(name, snap_root, book_ids)
             for bg_id in deps["backgrounds"]:
-                _snapshot_background(bg_id, snap_root)
+                _snapshot_background(bg_id, snap_root, book_ids)
             if snap_root.is_dir():
                 for f in snap_root.rglob("*"):
                     if f.is_file():

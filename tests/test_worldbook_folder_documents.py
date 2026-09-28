@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from document_manager import DocumentManager, DocumentNotFoundError
 from wiki_manager import WikiManager
-from blueprints import documents
+from blueprints import documents, index as index_blueprint
 
 
 def _book(root, book_id, body, *, enabled=True):
@@ -161,3 +161,89 @@ def test_document_api_selects_duplicate_book_and_writes_only_that_book(library):
     assert client.get("/api/documents/characters/Hero?worldbook_id=a_first").status_code == 200
     assert client.delete("/api/documents/characters/Renamed?worldbook_id=b_second").status_code == 200
     assert client.get("/api/documents/characters/Hero?worldbook_id=a_first").status_code == 200
+
+
+def test_entities_hide_legacy_owned_content_and_refresh_book_state(library):
+    root, first, _, _, _ = library
+    books = root / "data" / "worldbooks"
+    (books / "content_manifest.json").write_text(json.dumps({
+        "directories": {"characters/Legacy/": ["old_flat_book"]},
+        "files": {},
+    }), encoding="utf-8")
+    local = books / "content" / "characters" / "Custom"
+    local.mkdir()
+    (local / "index.md").write_text(
+        "---\nname: Local author\n---\nlocal body", encoding="utf-8")
+
+    app = Flask(__name__)
+    documents.register(app, {
+        "document": DocumentManager(str(root)), "wiki": WikiManager(str(root)),
+    })
+    app.config.update(TESTING=True)
+    client = app.test_client()
+
+    entries = client.get("/api/entities").get_json()["characters"]
+    assert [(entry["id"], entry["worldbook_id"]) for entry in entries] == [
+        ("Hero", "a_first"), ("Hero", "b_second"), ("Custom", ""),
+    ]
+    assert all("Legacy" != entry["id"] for entry in entries)
+
+    (first / "book.json").write_text(json.dumps({
+        "id": "a_first", "enabled": False,
+    }), encoding="utf-8")
+    # A second request must not return the disabled book from a 30-second cache.
+    entries = client.get("/api/entities").get_json()["characters"]
+    assert [(entry["id"], entry["worldbook_id"]) for entry in entries] == [
+        ("Hero", "b_second"), ("Custom", ""),
+    ]
+
+
+def test_index_overview_and_export_use_visible_books(library, monkeypatch):
+    root, first, _, second, _ = library
+    (first / "characters" / "Hero" / "index.md").write_text(
+        "---\nname: First Hero\n---\nfirst body", encoding="utf-8")
+    (second / "characters" / "Hero" / "index.md").write_text(
+        "---\nname: Second Hero\n---\nsecond body", encoding="utf-8")
+    books = root / "data" / "worldbooks"
+    (books / "content_manifest.json").write_text(json.dumps({
+        "directories": {"characters/Legacy/": ["old_flat_book"]},
+        "files": {},
+    }), encoding="utf-8")
+    side = second / "characters" / "Side.md"
+    side.write_text("---\nname: Side story\nimports:\n- characters/Hero\n---\nSide body",
+                    encoding="utf-8")
+    custom = books / "content" / "characters" / "Custom"
+    custom.mkdir()
+    (custom / "index.md").write_text("local body", encoding="utf-8")
+
+    manager = DocumentManager(str(root))
+    monkeypatch.setattr(index_blueprint, "_DATA_ROOT", str(root / "data"))
+    app = Flask(__name__)
+    index_blueprint.register(app, {
+        "session": None, "document": manager, "wiki": WikiManager(str(root)),
+    })
+    app.config.update(TESTING=True)
+    client = app.test_client()
+
+    overview = client.get("/api/index/overview").get_json()
+    chars = next(group["docs"] for group in overview["categories"]
+                 if group["category"] == "characters")
+    assert {entry["id"] for entry in chars} == {"Hero", "Side", "Custom"}
+    assert next(entry for entry in chars if entry["id"] == "Hero")["name"] == "First Hero"
+    assert next(entry for entry in chars if entry["id"] == "Side")["imports"] == [
+        {"path": "characters/Hero", "name": "First Hero"},
+    ]
+    assert "Legacy" not in client.get("/api/index/export").get_json()["yaml"]
+    assert "Side" in client.get("/api/index/export").get_json()["yaml"]
+
+    (first / "book.json").write_text(json.dumps({
+        "id": "a_first", "enabled": False,
+    }), encoding="utf-8")
+    refreshed = client.get("/api/index/overview").get_json()
+    chars = next(group["docs"] for group in refreshed["categories"]
+                 if group["category"] == "characters")
+    assert {entry["id"] for entry in chars} == {"Hero", "Side", "Custom"}
+    assert next(entry for entry in chars if entry["id"] == "Hero")["name"] == "Second Hero"
+    assert "Legacy" not in str(refreshed)
+    exported = client.get("/api/index/export").get_json()["yaml"]
+    assert "Second Hero" in exported and "First Hero" not in exported

@@ -32,6 +32,9 @@ def register(app, managers):
     bp = Blueprint("scene", __name__)
 
     def _requested_book_ids():
+        selected_book = request.args.get("worldbook_id")
+        if selected_book is not None:
+            return [selected_book]
         session_id = request.args.get("session_id")
         if not session_id:
             return None
@@ -169,7 +172,8 @@ def register(app, managers):
         if not session:
             return json_error("会话不存在", 404)
         try:
-            doc = doc_mgr.read_document("characters", name)
+            doc = doc_mgr.read_document("characters", name,
+                                        book_id=request.args.get("worldbook_id"))
         except DocumentNotFoundError:
             return json_error(f"角色不存在: {name}", 404)
         merged_meta, merged_content = session.overlay.apply_character_overrides(
@@ -292,7 +296,8 @@ def register(app, managers):
     @bp.route("/api/characters/<path:name>", methods=["GET"])
     def character_detail(name: str):
         try:
-            doc = doc_mgr.read_document("characters", name)
+            doc = doc_mgr.read_document("characters", name,
+                                        book_id=request.args.get("worldbook_id"))
         except DocumentNotFoundError:
             return json_error(f"角色不存在: {name}", 404)
         return jsonify({

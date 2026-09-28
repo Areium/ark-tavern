@@ -11,7 +11,6 @@ from pathlib import Path
 import frontmatter
 from PIL import Image, UnidentifiedImageError
 
-from data_paths import CONTENT_ROOT
 from worldbook_content import book_directory, resolve_content
 
 
@@ -25,19 +24,26 @@ MAX_PROFILE_BYTES = 2 * 1024 * 1024
 MAX_BOOK_PROFILE_BYTES = 16 * 1024 * 1024
 
 
+def _valid_character_id(character_id: str) -> bool:
+    return (isinstance(character_id, str) and bool(character_id)
+            and len(character_id) <= 200 and character_id not in (".", "..")
+            and Path(character_id).name == character_id
+            and "/" not in character_id and "\\" not in character_id
+            and not any(c in character_id for c in '<>:"|?*\x00')
+            and not character_id.endswith((".", " ")))
+
+
 def _character_root(character_id: str, book_id: str | None = None,
                     book_folder: Path | None = None) -> Path | None:
-    if (not character_id or character_id in (".", "..")
-            or Path(character_id).name != character_id
-            or "/" in character_id or "\\" in character_id
-            or any(c in character_id for c in '<>:"|?*\x00')
-            or character_id.endswith((".", " "))):
+    if not _valid_character_id(character_id):
         return None
     if book_id is not None:
         base = (Path(book_folder) if book_folder is not None else book_directory(book_id)) / "characters"
     else:
         found = resolve_content(f"characters/{character_id}")
-        base = found.parent if found is not None else CONTENT_ROOT / "characters"
+        if found is None:
+            return None
+        base = found.parent
     base = base.resolve()
     path = base / character_id
     if path.is_symlink():
@@ -155,8 +161,8 @@ def normalize_character_media(value) -> dict[str, dict[str, str]]:
     result = {}
     total = 0
     for character_id, media in value.items():
-        if (not isinstance(character_id, str) or not character_id.strip()
-                or len(character_id) > 200 or not isinstance(media, dict)):
+        if (not _valid_character_id(character_id) or not character_id.strip()
+                or not isinstance(media, dict)):
             raise ValueError("角色资源的角色 ID 或内容无效")
         images = {}
         for kind, url in media.items():
@@ -180,7 +186,7 @@ def normalize_character_profiles(value) -> dict[str, str]:
     result = {}
     total = 0
     for character_id, profile in value.items():
-        if (_character_root(character_id) is None or not isinstance(profile, str)
+        if (not _valid_character_id(character_id) or not isinstance(profile, str)
                 or len(profile.encode("utf-8")) > MAX_PROFILE_BYTES):
             raise ValueError("角色资料无效或超过 2 MB")
         total += len(profile.encode("utf-8"))
