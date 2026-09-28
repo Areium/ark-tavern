@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useApi } from "../../hooks/useApi";
+import { confirmAction } from "../../stores/confirmStore";
 import { useAppStore } from "../../stores/appStore";
 import type { AssetEntityGroupDTO } from "../../types";
 import AppIcon from "../AppIcon";
@@ -104,7 +105,7 @@ export default function CharacterAssets({ characterId, worldbookId = "" }: Props
   };
 
   const remove = async (path: string) => {
-    if (!window.confirm(`确定删除「${path.split("/").pop()}」？`)) return;
+    if (!await confirmAction(`确定删除「${path.split("/").pop()}」？`, { title: "删除角色图片", confirmLabel: "删除图片" })) return;
     setBusy(true);
     try {
       const rel = path.startsWith("characters/") ? path.slice("characters/".length) : path;
@@ -159,7 +160,7 @@ export default function CharacterAssets({ characterId, worldbookId = "" }: Props
                         <button type="button" className="text-[11px] text-amber-300 hover:text-amber-200" disabled={busy}
                           onClick={() => void setDefault(section.type, img.name)}>设为默认</button>
                       ) : <span className="text-[11px] text-amber-300">默认</span>}
-                      <button type="button" className="text-gray-300 hover:text-red-300" disabled={busy} title="删除" aria-label={`删除 ${img.name}`}
+                      <button type="button" className="app-danger-button text-gray-300 hover:text-red-300" disabled={busy} title="删除" aria-label={`删除 ${img.name}`}
                         onClick={() => void remove(img.path)}>
                         <AppIcon name="trash" size={11} />
                       </button>

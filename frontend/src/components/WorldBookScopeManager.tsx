@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useApi } from "../hooks/useApi";
+import { confirmAction } from "../stores/confirmStore";
 import { useAppStore } from "../stores/appStore";
 import type {
   WorldBookActivation, WorldBookCategoryDTO, WorldBookClassificationDTO,
@@ -275,10 +276,10 @@ export default function WorldBookScopeManager(props: WorldBookScopeManagerProps)
     patch({ categories: next });
     setSelection({ kind: "category", id: categoryDraft.id }); setCategoryDraft(null); setPanel(null);
   };
-  const deleteCategory = () => {
+  const deleteCategory = async () => {
     if (!categoryDraft || editingDescendants.has(deleteTarget)) return;
     const moved = detail.entries.filter((entry) => editingDescendants.has(entry.category_id || ""));
-    if (!window.confirm("删除该分类及子分类，并将 " + moved.length + " 个条目移入所选目标？条目内容不会删除。")) return;
+    if (!await confirmAction("删除该分类及子分类，并将 " + moved.length + " 个条目移入所选目标？条目内容不会删除。", { title: "删除分类", confirmLabel: "删除分类及子分类" })) return;
     const kept = categories.filter((category) => !editingDescendants.has(category.id));
     const moves = Object.fromEntries(moved.map((entry) => [entry.uid, deleteTarget]));
     patch({ categories: kept, entry_moves: { ...draft.entry_moves, ...moves } });
@@ -587,7 +588,7 @@ export default function WorldBookScopeManager(props: WorldBookScopeManagerProps)
                 <p className="wbg-help">包含子分类。条目内容保留，并移动到下方分类。</p>
                 <label className="wbg-form-label">条目移至<select className="wbg-field" value={deleteTarget} onChange={(event) => setDeleteTarget(event.target.value)}>
                   {rows.filter(({ category }) => !editingDescendants.has(category.id)).map(({ category }) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
-                <button className="wbg-button wbg-danger" onClick={deleteCategory}>删除分类及子分类</button>
+                <button className="app-danger-button wbg-button wbg-danger" onClick={deleteCategory}>删除分类及子分类</button>
               </details>}
             </fieldset>}
             {selection?.kind === "category" && !categoryDraft && <>

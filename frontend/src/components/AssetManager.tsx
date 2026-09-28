@@ -16,6 +16,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
+import { confirmAction } from "../stores/confirmStore";
 import { useWorldbookGroups } from "../hooks/useWorldbookGroups";
 import { UNCLASSIFIED_KEY } from "../utils/worldbookGrouping";
 import type { AssetEntityGroupDTO, SkinCrop, WorldBookSummary } from "../types";
@@ -371,11 +372,11 @@ export default function AssetManager() {
                     )}
                     <button
                       type="button"
-                      className="absolute top-0.5 right-0.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-black/70 text-gray-300 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => {
+                      className="app-danger-button absolute top-0.5 right-0.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-black/70 text-gray-300 hover:text-red-300 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        if (confirm(`确定要删除 "${img.name}" 吗？`)) {
-                          handleImageDelete(item.category, img.path, item.worldbook_id);
+                        if (await confirmAction(`确定要删除 "${img.name}" 吗？`, { title: "删除图片", confirmLabel: "删除图片" })) {
+                          await handleImageDelete(item.category, img.path, item.worldbook_id);
                         }
                       }}
                       title="删除"

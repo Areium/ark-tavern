@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../../hooks/useApi";
+import { confirmAction } from "../../stores/confirmStore";
 import { useAppStore } from "../../stores/appStore";
 import type {
   BattleNodeDTO, EnemyCatalogEntryDTO,
@@ -241,22 +242,28 @@ export default function BattleNodeForm({ nodeId, bookId, onSaved, onDeleted, onC
   }, [api, bookId, node, onSaved]);
 
   const removeNode = useCallback(async () => {
-    if (!node) return;
+    if (!node || busy) return;
+    if (!await confirmAction(`确定删除战斗节点「${node.name || node.node_id}」？此操作不可恢复。`, { title: "删除战斗节点", confirmLabel: "删除节点" })) return;
     setBusy(true);
+    setError(null);
     try {
-      await api.deleteCombatNode(node.node_id, false, bookId || undefined);
+      try {
+        await api.deleteCombatNode(node.node_id, false, bookId || undefined);
+      } catch (e: any) {
+        if (e?.status !== 409) throw e;
+        if (!await confirmAction(`${e.message}\n\n仍要强制删除吗？`, { title: "强制删除战斗节点", confirmLabel: "强制删除" })) {
+          setError(e.message || "节点存在引用，未删除");
+          return;
+        }
+        await api.deleteCombatNode(node.node_id, true, bookId || undefined);
+      }
       onDeleted?.(node.node_id);
     } catch (e: any) {
-      if (e?.status === 409 && window.confirm(`${e.message}\n\n仍要强制删除吗？`)) {
-        await api.deleteCombatNode(node.node_id, true, bookId || undefined);
-        onDeleted?.(node.node_id);
-      } else {
-        setError(e.message || "删除失败");
-      }
+      setError(e?.message || "删除失败");
     } finally {
       setBusy(false);
     }
-  }, [api, bookId, node, onDeleted]);
+  }, [api, bookId, node, busy, onDeleted]);
 
   const tryBattle = useCallback(async () => {
     if (!node) return;
@@ -313,8 +320,9 @@ export default function BattleNodeForm({ nodeId, bookId, onSaved, onDeleted, onC
           disabled={!dirty || busy}
         >保存</button>
         <button
-          className="text-xs px-2 py-1 rounded border border-red-800/60 text-red-300 hover:bg-red-900/30"
+          className="app-danger-button text-xs px-2 py-1 rounded border border-red-800/60 text-red-300 hover:bg-red-900/30"
           onClick={removeNode}
+          disabled={busy}
         >删除</button>
       </div>
 

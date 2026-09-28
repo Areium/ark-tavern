@@ -10,6 +10,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
+import { confirmAction } from "../stores/confirmStore";
 import type { StoryStateDTO, StoryBeatNode } from "../types";
 
 const NODE_STYLE: Record<StoryBeatNode["state"], { dot: string; text: string }> = {
@@ -58,8 +59,9 @@ export default function StoryStatePanel() {
     async (nodeId: string, roundEnd: number, label: string) => {
       if (!activeSessionId) return;
       if (
-        !confirm(
-          `回档到「${label}」？\n将恢复到该节点时的全部状态（第 ${roundEnd} 轮），之后的进度会被清除。`
+        !await confirmAction(
+          `回档到「${label}」？\n将恢复到该节点时的全部状态（第 ${roundEnd} 轮），之后的进度会被清除。`,
+          { title: "回退进度", confirmLabel: "回退到此节点" }
         )
       )
         return;
@@ -266,7 +268,7 @@ export default function StoryStatePanel() {
                     <button
                       onClick={() => handleRollback(n.id, n.round_end ?? 0, n.title || n.id)}
                       disabled={rollingBack !== null}
-                      className="text-[11px] px-2 py-1 rounded bg-blue-600/20 text-blue-300
+                      className="app-danger-button text-[11px] px-2 py-1 rounded bg-blue-600/20 text-blue-300
                                  hover:bg-blue-600/40 transition-colors disabled:opacity-40 shrink-0"
                     >
                       {rollingBack === n.id ? "回档中..." : "回档"}
@@ -310,7 +312,7 @@ export default function StoryStatePanel() {
                 handleRollback(n.node_id, n.round_end ?? 0, beatLabel[n.node_id] || n.node_id)
               }
               disabled={rollingBack !== null}
-              className="text-[11px] px-2 py-1 rounded bg-blue-600/20 text-blue-300
+              className="app-danger-button text-[11px] px-2 py-1 rounded bg-blue-600/20 text-blue-300
                          hover:bg-blue-600/40 transition-colors disabled:opacity-40 shrink-0"
             >
               {rollingBack === n.node_id ? "回档中..." : "回档"}

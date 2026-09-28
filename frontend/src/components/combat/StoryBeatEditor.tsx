@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { useApi } from "../../hooks/useApi";
+import { confirmAction } from "../../stores/confirmStore";
 import {
   addChapter, beatIdOf, deleteBeat, getBeatBody, insertBeat,
   nextBeatId, nextChapterIdx, updateBeat,
@@ -104,9 +105,9 @@ export default function StoryBeatEditor({ plotId, bookId, beatId, onChanged, onC
       "已添加节拍");
   }, [save]);
 
-  const handleDeleteBeat = useCallback(() => {
+  const handleDeleteBeat = useCallback(async () => {
     if (!selectedBeat) return;
-    if (!window.confirm(`确定删除节拍 ${selectedBeat} 吗？（连同其正文）`)) return;
+    if (!await confirmAction(`确定删除节拍 ${selectedBeat} 吗？（连同其正文）`, { title: "删除节拍", confirmLabel: "删除节拍" })) return;
     save((md) => deleteBeat(md, selectedBeat), "节拍已删除");
     setSelectedBeat(null);
   }, [selectedBeat, save]);
@@ -242,7 +243,7 @@ export default function StoryBeatEditor({ plotId, bookId, beatId, onChanged, onC
                 title="立即写入偏离标记（不等正文一起保存）"
               >仅切换标记</button>
               <button
-                className="text-[11px] px-1.5 rounded border border-red-800/60 text-red-300 hover:bg-red-900/30"
+                className="app-danger-button text-[11px] px-1.5 rounded border border-red-800/60 text-red-300 hover:bg-red-900/30"
                 onClick={handleDeleteBeat}
                 disabled={busy}
               >删除节拍</button>

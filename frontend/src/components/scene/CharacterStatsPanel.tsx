@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ScenePanelProps } from "../../plugins/scenePanels";
 import type { SessionCharacterStatsDTO, StatValue } from "../../types";
 import { useAppStore } from "../../stores/appStore";
+import { confirmAction } from "../../stores/confirmStore";
 import AppIcon from "../AppIcon";
 import AvatarPlaceholder from "../chat/AvatarPlaceholder";
 import StatValuesForm from "../roles/StatValuesForm";
@@ -75,7 +76,7 @@ export default function CharacterStatsPanel({ ctx }: ScenePanelProps) {
   };
 
   const reset = async (name: string) => {
-    if (!window.confirm(`清除「${name}」在本会话的全部数值改动，回到角色全局值？`)) return;
+    if (!await confirmAction(`清除「${name}」在本会话的全部数值改动，回到角色全局值？`, { title: "清除会话数值改动", confirmLabel: "清除改动" })) return;
     setSaving(name);
     try {
       const saved = await ctx.stats.reset(name);
@@ -150,7 +151,7 @@ export default function CharacterStatsPanel({ ctx }: ScenePanelProps) {
                 <StatValuesForm fields={row.fields} values={row.values} sources={row.sources}
                   ownSource="session" onChange={(key, value) => change(row.name, key, value)} />
                 {sessionCount > 0 && (
-                  <button type="button" className="stat-reset" onClick={() => void reset(row.name)} disabled={saving === row.name}>
+                  <button type="button" className="app-danger-button stat-reset" onClick={() => void reset(row.name)} disabled={saving === row.name}>
                     <AppIcon name="refresh" size={11} />清除本会话改动
                   </button>
                 )}

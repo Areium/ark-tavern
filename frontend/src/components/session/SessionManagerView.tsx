@@ -12,6 +12,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi } from "../../hooks/useApi";
+import { confirmAction } from "../../stores/confirmStore";
+import AppIcon from "../AppIcon";
 import { useCombatResume } from "../../hooks/useCombatResume";
 import { buildCharacterCatalog, buildLineup, type CharacterDoc } from "../../utils/characterCatalog";
 import type { PlotInfo, WorldBookSummary, Session, CombatResumeTestDTO, CombatResumeSummaryDTO } from "../../types";
@@ -175,7 +177,7 @@ export default function SessionManagerView() {
   }, [resumeTest]);
 
   const handleDiscardTest = useCallback(async (testId: string) => {
-    if (!window.confirm("丢弃这场战斗测试的存档？此操作不可恢复。")) return;
+    if (!await confirmAction("丢弃这场战斗测试的存档？此操作不可恢复。", { title: "删除战斗测试存档", confirmLabel: "删除存档" })) return;
     try {
       await api.combatTestDiscardSuspend(testId);
       setTestResumes((prev) => prev.filter((t) => t.test_id !== testId));
@@ -206,7 +208,7 @@ export default function SessionManagerView() {
 
   const handleDelete = async (id: string) => {
     const s = sessions.find((x) => x.id === id);
-    if (!confirm(`确定删除会话「${s?.name || "未命名"}」？此操作不可恢复。`)) return;
+    if (!await confirmAction(`确定删除会话「${s?.name || "未命名"}」？此操作不可恢复。`, { title: "删除会话", confirmLabel: "删除会话" })) return;
     setBusyAction("delete");
     try {
       await api.deleteSession(id);
@@ -225,7 +227,7 @@ export default function SessionManagerView() {
 
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (!confirm(`确定删除选中的 ${selectedIds.size} 个会话？此操作不可恢复。`)) return;
+    if (!await confirmAction(`确定删除选中的 ${selectedIds.size} 个会话？此操作不可恢复。`, { title: "批量删除会话", confirmLabel: "删除选中会话" })) return;
     setBatchDeleting(true);
     try {
       for (const id of selectedIds) {
@@ -317,7 +319,7 @@ export default function SessionManagerView() {
 
   const removeCharacter = async (name: string) => {
     if (!selected) return;
-    if (!confirm(`将角色「${name}」移出本会话场景？`)) return;
+    if (!await confirmAction(`将角色「${name}」移出本会话场景？`, { title: "移出场景", confirmLabel: "移出场景" })) return;
     setBusyAction(`remove-${name}`);
     try {
       await api.unloadCharacter(selected.id, name);
@@ -437,7 +439,7 @@ export default function SessionManagerView() {
               </button>
               <button
                 onClick={() => void handleDiscardTest(t.test_id)}
-                className="px-1.5 py-0.5 rounded text-gray-500 hover:text-red-400 transition-colors"
+                className="app-danger-button px-1.5 py-0.5 rounded text-gray-500 hover:text-red-400 transition-colors"
                 title="丢弃这场测试的存档"
               >
                 ✕
@@ -507,7 +509,7 @@ export default function SessionManagerView() {
                   <button
                     onClick={handleBatchDelete}
                     disabled={selectedIds.size === 0 || batchDeleting}
-                    className="text-[12px] px-2 py-0.5 rounded bg-red-700/80 hover:bg-red-600 text-white disabled:opacity-50"
+                    className="app-danger-button text-[12px] px-2 py-0.5 rounded bg-red-700/80 hover:bg-red-600 text-white disabled:opacity-50"
                   >
                     {batchDeleting ? "删除中..." : "删除"}
                   </button>
@@ -897,9 +899,10 @@ export default function SessionManagerView() {
                   <button
                     onClick={() => void handleDelete(selected.id)}
                     disabled={busyAction === "delete"}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-red-700/30 text-red-300 border border-red-700/40 hover:bg-red-700/50 transition-colors"
+                    className="app-danger-button inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-700/30 text-red-300 border border-red-700/40 hover:bg-red-700/50 transition-colors"
                   >
-                    {busyAction === "delete" ? "删除中..." : "🗑 删除会话"}
+                    <AppIcon name="trash" size={13} />
+                    {busyAction === "delete" ? "删除中..." : "删除会话"}
                   </button>
                 </div>
               </div>

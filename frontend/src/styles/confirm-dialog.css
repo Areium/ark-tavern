@@ -1,0 +1,40 @@
+.app-confirm-dialog {
+  --confirm-text: var(--ng-title, #f3f4f6);
+  --confirm-body: var(--ng-body, #c3c8d1);
+  --confirm-surface: var(--ng-drawer-bg, #171b24);
+  --confirm-accent: var(--ng-edge-color-hl, #dfa945);
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 28px;
+  overflow: auto;
+  border: 0;
+  border-radius: 14px;
+  color: var(--confirm-text);
+  background: var(--confirm-surface);
+  box-shadow: 0 24px 80px -16px #0009;
+  color-scheme: dark;
+}
+.app-confirm-dialog::backdrop { background: #080b13b3; }
+.app-confirm-heading { display: flex; align-items: center; gap: 12px; }
+.app-confirm-heading > svg { color: var(--confirm-accent); }
+.app-confirm-heading h2 { margin: 0; font: 700 21px/1.4 "Noto Serif SC", "Songti SC", Georgia, serif; }
+.app-confirm-description { margin-top: 16px; color: var(--confirm-body); font-size: 14px; line-height: 1.75; white-space: pre-line; overflow-wrap: anywhere; }
+.app-confirm-description strong { color: var(--confirm-text); }
+.app-confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 28px; }
+.app-confirm-dialog button { min-height: 42px; padding: 9px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; }
+.app-confirm-cancel { color: var(--confirm-text); border: 1px solid color-mix(in srgb, var(--confirm-body) 35%, transparent); background: transparent; }
+.app-confirm-cancel:hover { background: color-mix(in srgb, var(--confirm-body) 10%, transparent); }
+.app-danger-button.app-danger-button { color: #ffbdc3; background: #562633; border: 1px solid #8a4253; border-radius: 7px; transition: background-color .15s, color .15s; }
+.app-danger-button.app-danger-button:hover:not(:disabled) { color: #fff; background: #80364a; }
+.app-danger-button.app-danger-button:disabled { opacity: .5; cursor: not-allowed; }
+.app-danger-button:focus-visible, .app-confirm-dialog button:focus-visible { outline: 2px solid var(--ng-edge-color-hl, #dfa945); outline-offset: 3px; }
+.app-confirm-submit.app-confirm-submit { color: #fff; background: #9b344b; border: 1px solid transparent; }
+.app-confirm-submit.app-confirm-submit:hover { background: #b5405a; }
+.app-confirm-submit.is-neutral { color: #201805; background: var(--confirm-accent); }
+html.light .app-confirm-dialog { color-scheme: light; }
+@media (max-width: 480px) {
+  .app-confirm-dialog { padding: 22px; }
+  .app-confirm-actions > button { flex: 1; }
+}
+@media (prefers-reduced-motion: reduce) { .app-danger-button { transition: none; } }

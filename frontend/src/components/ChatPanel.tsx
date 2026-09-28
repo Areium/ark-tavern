@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAppStore } from "../stores/appStore";
+import { confirmAction } from "../stores/confirmStore";
 import { useApi, createSSE } from "../hooks/useApi";
 import { useCombatResume } from "../hooks/useCombatResume";
 import { useDialogMinimize } from "../hooks/useDialogMinimize";
@@ -283,7 +284,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
   const handleRollback = useCallback(async (targetRound: number) => {
     if (!activeSessionId) return;
-    if (!confirm(`回退到第 ${targetRound} 轮？\n之后的对话记录和回忆将被删除。`)) return;
+    if (!await confirmAction(`回退到第 ${targetRound} 轮？\n之后的对话记录和回忆将被删除。`, { title: "回退进度", confirmLabel: "回退到此轮" })) return;
 
     try {
       await api.rollbackSession(activeSessionId, targetRound);
@@ -564,12 +565,17 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
   // ── Single message deletion ──
 
-  const handleDeleteMessage = useCallback((idx: number) => {
+  const handleDeleteMessage = useCallback(async (idx: number) => {
     if (!activeSessionId) return;
     const sid = activeSessionId;
+    const target = useAppStore.getState().sessionMessages[sid]?.[idx];
+    if (!target) return;
+    if (!await confirmAction("确定从当前消息列表删除这条消息？此操作不可撤销。", { title: "删除消息", confirmLabel: "删除消息" })) return;
     useAppStore.getState().setSessionMessages(sid, (prev) => {
-      if (idx < 0 || idx >= prev.length) return prev;
-      return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+      // The list may refresh while awaiting confirmation; never delete a different message by index.
+      const targetIndex = prev.indexOf(target);
+      if (targetIndex < 0) return prev;
+      return [...prev.slice(0, targetIndex), ...prev.slice(targetIndex + 1)];
     });
   }, [activeSessionId]);
 
@@ -864,6 +870,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                 <div className="chat-round-divider">
                   <button
                     type="button"
+                    className="app-danger-button"
                     onClick={() => {
                       const prevMsgs = messages.slice(0, i);
                       const prevRound = [...prevMsgs].reverse().find((m) => m.round != null)?.round;
@@ -1022,12 +1029,13 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                         <button
                           onClick={() => handleDeleteMessage(i)}
                           disabled={choiceLocked}
-                          className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-gray-600
+                          className="app-danger-button absolute -top-2 -left-2 w-5 h-5 rounded-full bg-gray-600
                             text-gray-300 hover:bg-red-500 text-[11px] leading-5
-                            opacity-0 group-hover:opacity-100 transition-opacity disabled:hidden"
+                            opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity disabled:hidden inline-flex items-center justify-center"
                           title="删除此消息"
+                          aria-label="删除此消息"
                         >
-                          ×
+                          <AppIcon name="trash" size={11} />
                         </button>
                       )}
 

@@ -15,6 +15,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useApi } from "../hooks/useApi";
+import { confirmAction } from "../stores/confirmStore";
 import { useAppStore, type CharacterTab } from "../stores/appStore";
 import { useWorldbookGroups } from "../hooks/useWorldbookGroups";
 import type { WorldBookSummary } from "../types";
@@ -335,7 +336,7 @@ export default function CharacterManager() {
 
   // ── 删除玩家身份 ──
   const handleDeleteIdentity = async (name: string, bookId: string) => {
-    if (!window.confirm(`确定删除玩家身份「${name}」吗？`)) return;
+    if (!await confirmAction(`确定删除玩家身份「${name}」吗？`, { title: "删除玩家身份", confirmLabel: "删除身份" })) return;
     try {
       await api.deletePlayerIdentity(name, bookId);
       showToast("已删除玩家身份");
@@ -565,7 +566,7 @@ export default function CharacterManager() {
           }
           actions={
             !isCreating && selectedIdentity ? (
-              <ActionButton icon="trash" variant="danger" onClick={() => handleDeleteIdentity(selectedIdentity, selectedIdentityBookId)}>
+              <ActionButton icon="trash" variant="danger" className="app-danger-button" onClick={() => handleDeleteIdentity(selectedIdentity, selectedIdentityBookId)}>
                 删除
               </ActionButton>
             ) : undefined

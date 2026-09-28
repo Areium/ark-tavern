@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useAppStore } from "../../stores/appStore";
+import { confirmAction } from "../../stores/confirmStore";
 import { useApi, createCombatSSE, createCombatTestSSE } from "../../hooks/useApi";
 import type { CombatEventDTO, CombatStateDTO, CombatUnitDTO, CardDTO, CombatSettlementDTO, BattleNodeOverviewDTO } from "../../types";
 import PixiCombatScene, { type PixiCombatSceneHandle } from "./PixiCombatScene";
@@ -960,7 +961,7 @@ export default function CombatView() {
    */
   const handleTempReturn = useCallback(async () => {
     if (!effectiveId || !combatState || combatState.battle_over) return;
-    if (!window.confirm("临时返回会保存当前战斗状态，稍后可从「继续战斗」恢复。\n（战斗不会作废，剧情也未推进）\n\n确定返回？")) {
+    if (!await confirmAction("临时返回会保存当前战斗状态，稍后可从「继续战斗」恢复。\n（战斗不会作废，剧情也未推进）\n\n确定返回？", { title: "临时返回会话", confirmLabel: "保存并返回", tone: "neutral" })) {
       return;
     }
     setLoading(true);
@@ -1101,7 +1102,7 @@ export default function CombatView() {
   const handleEndTest = useCallback(async () => {
     if (!combatTestId) return;
     // 战斗进行中才有损失，需二次确认；已结束则直接退出
-    if (!combatState?.battle_over && !window.confirm("结束本次战斗测试并返回会话大厅？")) return;
+    if (!combatState?.battle_over && !await confirmAction("结束本次战斗测试并返回会话大厅？", { title: "结束战斗测试", confirmLabel: "结束测试" })) return;
     await handleReturnToChat();
   }, [combatTestId, combatState?.battle_over, handleReturnToChat]);
 
@@ -1945,14 +1946,14 @@ export default function CombatView() {
           )}
           {!combatState.battle_over && !combatTestId && (
             <button
-              className="px-4 py-1.5 text-xs bg-red-900/40 hover:bg-red-800/50 text-red-300 rounded-lg transition-all border border-red-800/30"
+              className="app-danger-button px-4 py-1.5 text-xs bg-red-900/40 hover:bg-red-800/50 text-red-300 rounded-lg transition-all border border-red-800/30"
               onClick={handleAbandon}
             >
               放弃战斗
             </button>
           )}          {combatTestId && (
             <button
-              className="px-4 py-1.5 text-xs bg-red-900/40 hover:bg-red-800/50 text-red-300 rounded-lg transition-all border border-red-800/30"
+              className="app-danger-button px-4 py-1.5 text-xs bg-red-900/40 hover:bg-red-800/50 text-red-300 rounded-lg transition-all border border-red-800/30"
               onClick={handleEndTest}
               disabled={loading}
               title="退出测试模式并返回会话大厅"

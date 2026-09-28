@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useApi } from "../../hooks/useApi";
+import { confirmAction } from "../../stores/confirmStore";
 import { useAppStore } from "../../stores/appStore";
 import type { SessionCharacterStatsDTO, StatValue } from "../../types";
 import StatValuesForm from "../roles/StatValuesForm";
@@ -30,7 +31,7 @@ export default function CharacterSessionStats({ sessionId, name }: { sessionId: 
     if (value === null) delete values[key]; else values[key] = value;
   }
   const save = async (reset = false) => {
-    if (reset && !window.confirm(`清除「${name}」的会话数值改动？`)) return;
+    if (reset && !await confirmAction(`清除「${name}」的会话数值改动？`, { title: "清除会话数值改动", confirmLabel: "清除改动" })) return;
     setSaving(true); setError(""); setSaved(false);
     try {
       const result = reset ? await api.resetSessionCharacterStats(sessionId, name)
@@ -51,7 +52,7 @@ export default function CharacterSessionStats({ sessionId, name }: { sessionId: 
         onChange={(key, value) => { setPending((prev) => ({ ...prev, [key]: value })); setSaved(false); }} />
       <div className="flex flex-wrap gap-2 items-center mt-3">
         <button type="button" className="btn-primary text-xs" disabled={saving || !Object.keys(pending).length} onClick={() => void save()}>{saving ? "保存中…" : "保存数值"}</button>
-        <button type="button" className="text-xs text-gray-400 hover:text-gray-200" disabled={saving || !Object.keys(row.session_values).length} onClick={() => void save(true)}>恢复全局值</button>
+        <button type="button" className="app-danger-button text-xs text-gray-400 hover:text-gray-200" disabled={saving || !Object.keys(row.session_values).length} onClick={() => void save(true)}>恢复全局值</button>
         <span role="status" className="text-xs text-gray-400">{Object.keys(pending).length ? "有未保存修改" : saved ? "已保存" : ""}</span>
       </div>
     </>}

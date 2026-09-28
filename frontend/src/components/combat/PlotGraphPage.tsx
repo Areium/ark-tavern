@@ -31,6 +31,7 @@ import type {
   PlotGraphDocDTO, PlotGraphNodeDTO, WorldBookSummary,
 } from "../../types";
 import BattleNodeForm from "./BattleNodeForm";
+import ConfirmDialog from "../common/ConfirmDialog";
 import StoryBeatEditor from "./StoryBeatEditor";
 import GraphCanvas, { type AvailableBeat, type AvailableCombat, type GraphCanvasApi, type GraphNodeDisplay } from "./GraphCanvas";
 import {
@@ -915,22 +916,15 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
         const node = doc?.nodes.find((n) => n.id === confirmDelete);
         const linked = node && (node.type === "beat" || node.type === "combat" || node.type === "chapter");
         return (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50" onPointerDown={(e) => e.stopPropagation()}>
-            <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 w-96 shadow-2xl">
-              <p className="text-sm text-gray-100 mb-1">从图中移除「{node?.title || "节点"}」？</p>
-              <p className="text-[12px] text-gray-400 mb-3">
+          <ConfirmDialog title="移除图中节点" confirmLabel="移除节点"
+            onCancel={() => setConfirmDelete(null)} onConfirm={deleteConfirmed}>
+              <p>从图中移除「{node?.title || "节点"}」？</p>
+              <p>
                 {linked
                   ? "仅移除图上的引用节点，底层剧情/战斗数据不受影响；可用 Ctrl+Z 撤销。"
                   : "该节点的标题与备注只存在于图文档中；可用 Ctrl+Z 撤销。"}
               </p>
-              <div className="flex justify-end gap-2">
-                <button className="text-xs px-3 py-1.5 rounded border border-gray-700 hover:bg-gray-800"
-                  onClick={() => setConfirmDelete(null)}>取消</button>
-                <button className="text-xs px-3 py-1.5 rounded bg-red-800 hover:bg-red-700 text-white"
-                  onClick={deleteConfirmed}>移除</button>
-              </div>
-            </div>
-          </div>
+          </ConfirmDialog>
         );
       })()}
 

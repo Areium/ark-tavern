@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
+import { confirmAction } from "../stores/confirmStore";
 
 interface Memory {
   id: string;
@@ -55,7 +56,7 @@ export default function MemoryPanel() {
       alert("暂无任何叙述记录，无法生成回忆");
       return;
     }
-    if (!confirm("将清除已有回忆，按当前设置重新从完整历史生成。确定？")) return;
+    if (!await confirmAction("将清除已有回忆，按当前设置重新从完整历史生成。确定？", { title: "重新生成回忆", confirmLabel: "清除并重新生成" })) return;
     setRegenerating(true);
     try {
       const data = await api.regenerateMemories(activeSessionId);
@@ -79,7 +80,7 @@ export default function MemoryPanel() {
 
   const handleRollbackToMemory = async (roundEnd: number) => {
     if (!activeSessionId) return;
-    if (!confirm(`回退到第 ${roundEnd} 轮？\n之后的对话记录和回忆将被删除。`)) return;
+    if (!await confirmAction(`回退到第 ${roundEnd} 轮？\n之后的对话记录和回忆将被删除。`, { title: "回退进度", confirmLabel: "回退到此轮" })) return;
     try {
       await api.rollbackSession(activeSessionId, roundEnd);
       triggerMemoryRefresh();
@@ -109,7 +110,7 @@ export default function MemoryPanel() {
         <button
           onClick={handleRegenerate}
           disabled={regenerating}
-          className="text-xs text-gray-500 hover:text-gray-300 disabled:opacity-50"
+          className="app-danger-button text-xs text-gray-500 hover:text-gray-300 disabled:opacity-50"
           title="按当前间隔重新生成全部回忆"
         >
           {regenerating ? "生成中..." : "重新生成"}
@@ -151,7 +152,7 @@ export default function MemoryPanel() {
                       </p>
                       <button
                         onClick={() => handleRollbackToMemory(m.round_end)}
-                        className="mt-2 text-xs text-gray-500 hover:text-red-400 transition-colors"
+                        className="app-danger-button mt-2 text-xs text-gray-500 hover:text-red-400 transition-colors"
                       >
                         ↩ 回退到此
                       </button>

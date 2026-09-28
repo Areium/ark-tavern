@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi } from "../../hooks/useApi";
+import { confirmAction } from "../../stores/confirmStore";
+import AppIcon from "../AppIcon";
 import type {
   SessionResourcesDTO,
   SessionResourceDTO,
@@ -183,6 +185,7 @@ export default function SessionResourcePanel() {
 
   const handleBgDelete = async (bgId: string) => {
     if (!activeSessionId) return;
+    if (!await confirmAction(`确定删除背景「${bgId}」的会话图片？删除后将还原全局背景。`, { title: "删除背景图片", confirmLabel: "删除图片" })) return;
     setBusy(true);
     try {
       await api.deleteSessionBackground(activeSessionId, bgId);
@@ -227,6 +230,7 @@ export default function SessionResourcePanel() {
 
   const handleCandidateDelete = async (name: string, mediaType: string, filename: string) => {
     if (!activeSessionId) return;
+    if (!await confirmAction(`确定删除「${name}」的候选${MEDIA_LABEL[mediaType] || "图片"}「${filename}」？此操作不可恢复。`, { title: "删除候选图片", confirmLabel: "删除候选" })) return;
     setBusy(true);
     try {
       await api.deleteSessionCharacterCandidate(activeSessionId, name, mediaType, filename);
@@ -240,6 +244,7 @@ export default function SessionResourcePanel() {
 
   const handleCharMediaDelete = async (name: string, mediaType: string) => {
     if (!activeSessionId) return;
+    if (!await confirmAction(`确定删除「${name}」的会话${MEDIA_LABEL[mediaType] || "图片"}覆盖？删除后将还原默认形象。`, { title: "删除会话图片", confirmLabel: "删除覆盖" })) return;
     setBusy(true);
     try {
       await api.deleteSessionCharacterMedia(activeSessionId, name, mediaType);
@@ -350,7 +355,7 @@ export default function SessionResourcePanel() {
                                 上传
                               </button>
                               <button aria-label={`选取${name}会话${MEDIA_LABEL[t]}`} disabled={busy || loading || !!libraryError} onClick={() => openPicker(name, t)} className="text-[11px] px-1.5 py-0.5 rounded bg-blue-700/30 text-blue-200 hover:bg-blue-700/50 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400" title={`从「${name}」的图片库中选取${MEDIA_LABEL[t]}设为会话覆盖`}>选取</button>
-                              {covered && <button aria-label={`删除${name}会话${MEDIA_LABEL[t]}覆盖`} disabled={busy || loading} onClick={() => handleCharMediaDelete(name, t)} className="text-[11px] px-1.5 py-0.5 rounded bg-red-700/30 text-red-300 hover:bg-red-700/50 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400" title={`删除会话${MEDIA_LABEL[t]}覆盖，还原为默认形象`}>删除覆盖</button>}
+                              {covered && <button aria-label={`删除${name}会话${MEDIA_LABEL[t]}覆盖`} disabled={busy || loading} onClick={() => handleCharMediaDelete(name, t)} className="app-danger-button text-[11px] px-1.5 py-0.5 rounded bg-red-700/30 text-red-300 hover:bg-red-700/50 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400" title={`删除会话${MEDIA_LABEL[t]}覆盖，还原为默认形象`}>删除覆盖</button>}
                               <input type="file" accept="image/*" className="hidden" ref={(el) => { fileRefs.current[key] = el; }} onChange={(e) => {
                                 const f = e.target.files?.[0];
                                 if (f) handleCharMediaUpload(name, t, f);
@@ -378,9 +383,9 @@ export default function SessionResourcePanel() {
                                       onClick={() => handleCandidateDelete(name, t, c.name)}
                                       aria-label={`删除候选 ${c.name}`}
                                       title="删除此候选"
-                                      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-gray-900/90 text-gray-400 hover:text-red-300 text-[10px] leading-none flex items-center justify-center opacity-0 group-hover/cand:opacity-100 focus-visible:opacity-100 transition-opacity disabled:opacity-50"
+                                      className="app-danger-button absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-gray-900/90 text-gray-400 hover:text-red-300 text-[10px] leading-none flex items-center justify-center opacity-0 group-hover/cand:opacity-100 focus-visible:opacity-100 transition-opacity disabled:opacity-50"
                                     >
-                                      ✕
+                                      <AppIcon name="trash" size={10} />
                                     </button>
                                   </span>
                                 ))}
@@ -454,7 +459,7 @@ export default function SessionResourcePanel() {
                       <button
                         disabled={busy}
                         onClick={() => handleBgDelete(bgId)}
-                        className="text-[11px] px-1.5 py-0.5 rounded bg-red-700/30 text-red-300 hover:bg-red-700/50"
+                        className="app-danger-button text-[11px] px-1.5 py-0.5 rounded bg-red-700/30 text-red-300 hover:bg-red-700/50"
                       >
                         删除
                       </button>
