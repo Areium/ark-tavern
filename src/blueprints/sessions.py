@@ -918,7 +918,7 @@ def register(app, managers):
 
     @bp.route("/api/sessions/import", methods=["POST"])
     def session_import():
-        """导入会话存档 zip：还原依赖到全局库（幂等）、放置并注册会话。"""
+        """导入会话存档 zip：资源快照成为独立世界书，再注册会话。"""
         from session_export import import_session_zip
 
         file = request.files.get("file")

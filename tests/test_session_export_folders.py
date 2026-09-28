@@ -117,3 +117,58 @@ def test_export_skips_linked_book_files(tmp_path, monkeypatch):
     with zipfile.ZipFile(out) as archive:
         assert "snapshots/backgrounds/forest/linked.png" not in archive.namelist()
         assert archive.read("snapshots/backgrounds/forest/image.png") == b"safe"
+
+
+def test_import_restores_snapshots_into_a_bound_folder_book(tmp_path, monkeypatch):
+    monkeypatch.setattr(session_export, "_REPO_ROOT", tmp_path)
+    monkeypatch.setattr(session_export, "_SESSIONS_DIR", tmp_path / "imported-sessions")
+    original = _session(tmp_path)
+    (original / "overrides.json").write_text(
+        json.dumps({"characters": {"Hero": {}}, "worldbook_ids": ["original"]}),
+        encoding="utf-8")
+    _resource(_book(tmp_path, "original"), b"archived")
+    archive = tmp_path / "session.zip"
+    session_export.export_session_zip(
+        original, {"worldbook_ids": ["original"]}, archive)
+
+    class SessionManager:
+        def import_session_dir(self, mode, session_id):
+            session_dir = session_export._SESSIONS_DIR / mode / session_id
+            return type("Imported", (), {"to_dict": lambda _: {
+                "id": session_id,
+                "worldbook_ids": json.loads((session_dir / "overrides.json").read_text(
+                    encoding="utf-8"))["worldbook_ids"],
+            }})()
+
+    imported = session_export.import_session_zip(archive, SessionManager())
+    snapshot_id = imported["worldbook_ids"][0]
+    assert snapshot_id.startswith("session-")
+    assert imported["worldbook_ids"][1:] == ["original"]
+    snapshot = tmp_path / "data" / "worldbooks" / "books" / snapshot_id
+    assert (snapshot / "book.json").is_file()
+    assert (snapshot / "characters" / "Hero" / "avatar" / "main.png").read_bytes() == b"archived"
+    assert (snapshot / "combat" / "backgrounds" / "forest" / "image.png").read_bytes() == b"archived"
+    from worldbook_content import resolve_content
+    assert resolve_content(
+        "characters/Hero/avatar/main.png", book_ids=imported["worldbook_ids"],
+        project_root=tmp_path).read_bytes() == b"archived"
+    assert not (tmp_path / "data" / "worldbooks" / "content" / "characters" / "Hero").exists()
+
+
+def test_failed_session_registration_removes_new_snapshot_book(tmp_path, monkeypatch):
+    monkeypatch.setattr(session_export, "_REPO_ROOT", tmp_path)
+    monkeypatch.setattr(session_export, "_SESSIONS_DIR", tmp_path / "imported-sessions")
+    original = _session(tmp_path)
+    _resource(_book(tmp_path, "original"), b"archived")
+    archive = tmp_path / "session.zip"
+    session_export.export_session_zip(original, {"worldbook_ids": ["original"]}, archive)
+
+    class FailingManager:
+        def import_session_dir(self, mode, session_id):
+            return None
+
+    import pytest
+    with pytest.raises(ValueError, match="会话注册失败"):
+        session_export.import_session_zip(archive, FailingManager())
+    assert not (tmp_path / "imported-sessions" / "story" / "sess_export").exists()
+    assert sorted(path.name for path in (tmp_path / "data" / "worldbooks" / "books").iterdir()) == ["original"]

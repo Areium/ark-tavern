@@ -34,6 +34,11 @@ def register(app, managers):
     def _requested_book_ids():
         selected_book = request.args.get("worldbook_id")
         if selected_book is not None:
+            from worldbook_content import book_directory
+            try:
+                book_directory(selected_book)
+            except ValueError:
+                return []
             return [selected_book]
         session_id = request.args.get("session_id")
         if not session_id:

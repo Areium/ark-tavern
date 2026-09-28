@@ -5,8 +5,8 @@ session_export — 会话存档导出/导入（社区传播）。
 memories / backgrounds），但运行时引用全局资源（角色卡 index.md、角色基础形象、
 全局背景图）。只拷会话目录，接收方缺全局资源会话不完整。
 
-解法：导出时自动快照依赖到归档包（自包含）；导入时还原依赖到全局库（幂等）。
-日常运行零拷贝（引用全局）+ 传播自包含两全。
+解法：导出时自动快照依赖到归档包（自包含）；导入时把快照放进一册会话专用世界书。
+日常运行零拷贝（引用已绑定世界书）+ 传播自包含两全。
 
 zip 结构：
     manifest.json                     版本/会话元数据/依赖清单
@@ -18,15 +18,18 @@ zip 结构：
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import time
 import zipfile
 from pathlib import Path
+from uuid import uuid4
 
-from data_paths import CONTENT_ROOT, MEMORY_ROOT, PROJECT_ROOT
+from data_paths import CONTENT_ROOT, MEMORY_ROOT, PROJECT_ROOT, installed_books_root
 from content_scope import is_content_visible
 from worldbook_content import resolve_content
+from world_book import WorldBook
 
 logger = logging.getLogger(__name__)
 
@@ -218,55 +221,31 @@ def _extract_zip(zip_path: Path, dest: Path) -> None:
                 shutil.copyfileobj(src, dst)
 
 
-def _restore_snapshots(snap_root: Path) -> dict:
-    """还原依赖快照到全局库（同 ID 幂等：已有 index.md 则跳过）。返回统计。"""
-    stats = {"characters": 0, "backgrounds": 0}
-    if not snap_root.is_dir():
-        return stats
-
+def _restore_snapshots(snap_root: Path, session_id: str) -> str | None:
+    """Restore archive dependencies as a separate folder book and return its ID."""
     chars_src = snap_root / "characters"
     bgs_src = snap_root / "backgrounds"
-    # Check the whole archive before copying anything. A hidden bundled path
-    # must not silently win over an imported snapshot with the same ID.
-    for source_root, target_root, content_base, label in (
-        (chars_src, _CHARS_DIR, _CHARS_DIR.parent, "角色"),
-        (bgs_src, _BG_ROOT, _BG_ROOT.parent.parent, "背景"),
-    ):
-        if not source_root.is_dir():
-            continue
-        for item in source_root.iterdir():
-            if not item.is_dir() or not (item / "index.md").is_file():
-                continue
-            destination = target_root / item.name
-            if not is_content_visible(destination, content_base=content_base):
-                raise ValueError(
-                    f"存档{label}「{item.name}」与未启用的内容包资源冲突；"
-                    "请先安装并启用对应世界书，再导入存档"
-                )
+    if not any(root.is_dir() and any(root.iterdir()) for root in (chars_src, bgs_src)):
+        return None
 
-    if chars_src.is_dir():
-        for name in sorted(chars_src.iterdir()):
-            if not name.is_dir() or not (name / "index.md").is_file():
-                continue
-            dst = _CHARS_DIR / name.name
-            if (dst / "index.md").exists():
-                continue  # 幂等：本地已有则跳过
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(name, dst)
-            stats["characters"] += 1
-
-    if bgs_src.is_dir():
-        for bg in sorted(bgs_src.iterdir()):
-            if not bg.is_dir() or not (bg / "index.md").is_file():
-                continue
-            dst = _BG_ROOT / bg.name
-            if (dst / "index.md").exists():
-                continue
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(bg, dst)
-            stats["backgrounds"] += 1
-
-    return stats
+    books_root = installed_books_root(_REPO_ROOT)
+    books_root.mkdir(parents=True, exist_ok=True)
+    while True:
+        book_id = f"session-{uuid4().hex[:16]}"
+        target = books_root / book_id
+        if not target.exists():
+            break
+    with tempfile.TemporaryDirectory(prefix=".session-import-", dir=books_root) as temp:
+        staged = Path(temp)
+        metadata = WorldBook(book_id, name=f"会话 {session_id} 的资源快照").to_dict()
+        (staged / "book.json").write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        if chars_src.is_dir():
+            shutil.copytree(chars_src, staged / "characters")
+        if bgs_src.is_dir():
+            shutil.copytree(bgs_src, staged / "combat" / "backgrounds")
+        os.replace(staged, target)
+    return book_id
 
 
 def _unique_session_id(dst_dir: Path, sid: str) -> str:
@@ -291,7 +270,7 @@ def _rewrite_session_id(session_dir: Path, new_sid: str) -> None:
 
 
 def import_session_zip(zip_path: Path, session_mgr) -> dict:
-    """解包会话存档，还原依赖到全局库，放置并注册会话。返回会话 to_dict。"""
+    """解包会话存档，将快照绑定为一本书，再注册会话。"""
     with tempfile.TemporaryDirectory() as tmp:
         extract_dir = Path(tmp)
         _extract_zip(zip_path, extract_dir)
@@ -300,32 +279,52 @@ def import_session_zip(zip_path: Path, session_mgr) -> dict:
         if not manifest_path.is_file():
             raise ValueError("存档缺少 manifest.json")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if manifest.get("format_version") != _FORMAT_VERSION:
+        if not isinstance(manifest, dict) or manifest.get("format_version") != _FORMAT_VERSION:
             raise ValueError("不支持的存档格式版本")
 
-        # 1. 还原依赖快照到全局库
-        restore_stats = _restore_snapshots(extract_dir / "snapshots")
-        logger.info("会话导入：还原依赖 %s", restore_stats)
-
-        # 2. 放置会话目录
+        # Validate the archive identity before any persistent writes.
         session_meta = manifest.get("session", {})
+        if not isinstance(session_meta, dict):
+            raise ValueError("存档会话元数据无效")
         mode = session_meta.get("mode", "free")
         sid = session_meta.get("id", "")
+        if mode not in ("free", "story"):
+            raise ValueError("非法的会话模式")
+        if not isinstance(sid, str) or not re.fullmatch(r"sess_[A-Za-z0-9_-]{1,100}", sid):
+            raise ValueError("非法的会话 ID")
         src_dir = extract_dir / "session" / mode / sid
         if not src_dir.is_dir():
             raise ValueError("存档中缺少会话目录")
-        if mode not in ("free", "story"):
-            raise ValueError("非法的会话模式")
 
         dst_root = _SESSIONS_DIR / mode
         dst_root.mkdir(parents=True, exist_ok=True)
         final_sid = _unique_session_id(dst_root, sid)
-        shutil.copytree(src_dir, dst_root / final_sid)
-        if final_sid != sid:
-            _rewrite_session_id(dst_root / final_sid, final_sid)
-
-        # 3. 注册到内存
-        session = session_mgr.import_session_dir(mode, final_sid)
-        if not session:
-            raise ValueError("会话注册失败")
-        return session.to_dict()
+        target_session = dst_root / final_sid
+        book_id = None
+        try:
+            shutil.copytree(src_dir, target_session)
+            if final_sid != sid:
+                _rewrite_session_id(target_session, final_sid)
+            book_id = _restore_snapshots(extract_dir / "snapshots", final_sid)
+            if book_id:
+                overrides_file = target_session / "overrides.json"
+                overrides = json.loads(overrides_file.read_text(encoding="utf-8")) if overrides_file.is_file() else {}
+                if not isinstance(overrides, dict):
+                    raise ValueError("会话覆盖数据无效")
+                previous = overrides.get("worldbook_ids") or []
+                if not isinstance(previous, list):
+                    previous = []
+                overrides["worldbook_ids"] = [book_id, *[x for x in previous if isinstance(x, str) and x != book_id]]
+                overrides_file.write_text(
+                    json.dumps(overrides, ensure_ascii=False, indent=2), encoding="utf-8")
+            session = session_mgr.import_session_dir(mode, final_sid)
+            if not session:
+                raise ValueError("会话注册失败")
+            logger.info("会话导入：资源快照世界书 %s", book_id)
+            return session.to_dict()
+        except Exception:
+            if target_session.exists():
+                shutil.rmtree(target_session)
+            if book_id:
+                shutil.rmtree(installed_books_root(_REPO_ROOT) / book_id)
+            raise
