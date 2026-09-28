@@ -10,7 +10,8 @@
  *  - 简介：空简介显示统一兜底文案，并标「缺简介」，让人知道是角色卡没写而不是加载失败；
  *  - id：没有目录 id 的条目用展示名当键（见 util），完全无法成键的在构建目录时剔除。
  */
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type FocusEvent, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import {
   catalogBooks,
   filterCharacterCatalog,
@@ -30,6 +31,19 @@ const FILTERS: { id: CharacterSourceFilter; label: string }[] = [
   { id: "own", label: "自建" },
   { id: "worldbook", label: "世界书" },
 ];
+
+interface FloatingDescription {
+  key: string;
+  name: string;
+  summary: string;
+  left: number;
+  top: number;
+  placement: "above" | "below";
+}
+
+const TOOLTIP_WIDTH = 288;
+const TOOLTIP_MARGIN = 12;
+const TOOLTIP_OFFSET = 14;
 
 interface CharacterPickerProps {
   items: CharacterCatalogItem[];
@@ -82,6 +96,8 @@ export default function CharacterPicker({
   const [query, setQuery] = useState("");
   const [source, setSource] = useState<CharacterSourceFilter>("all");
   const [bookId, setBookId] = useState("");
+  const [floatingDescription, setFloatingDescription] = useState<FloatingDescription | null>(null);
+  const floatingDescriptionId = `${descriptionIdPrefix}-floating-description`;
 
   const books = useMemo(() => catalogBooks(items), [items]);
   // 有效书筛选：书被删掉后残留的 bookId 不应把列表筛空
@@ -99,6 +115,37 @@ export default function CharacterPicker({
 
   const resetFilters = () => { setQuery(""); setSource("all"); setBookId(""); };
   const filtersActive = !!query.trim() || source !== "all" || !!effectiveBookId;
+
+  const clampTooltipLeft = (desiredLeft: number) => {
+    const width = Math.min(TOOLTIP_WIDTH, window.innerWidth - TOOLTIP_MARGIN * 2);
+    return Math.min(Math.max(desiredLeft, TOOLTIP_MARGIN), window.innerWidth - width - TOOLTIP_MARGIN);
+  };
+
+  const showDescriptionAtPointer = (item: CharacterCatalogItem, event: MouseEvent<HTMLButtonElement>) => {
+    const placement = event.clientY > 150 ? "above" : "below";
+    setFloatingDescription({
+      key: item.key,
+      name: item.name,
+      summary: summaryText(item),
+      left: clampTooltipLeft(event.clientX + TOOLTIP_OFFSET),
+      top: placement === "above" ? event.clientY - TOOLTIP_OFFSET : event.clientY + TOOLTIP_OFFSET,
+      placement,
+    });
+  };
+
+  const showDescriptionAtFocus = (item: CharacterCatalogItem, event: FocusEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const width = Math.min(TOOLTIP_WIDTH, window.innerWidth - TOOLTIP_MARGIN * 2);
+    const placement = rect.top > 150 ? "above" : "below";
+    setFloatingDescription({
+      key: item.key,
+      name: item.name,
+      summary: summaryText(item),
+      left: clampTooltipLeft(rect.left + rect.width / 2 - width / 2),
+      top: placement === "above" ? rect.top - 8 : rect.bottom + 8,
+      placement,
+    });
+  };
 
   return (
     <div className="space-y-2">
@@ -200,17 +247,17 @@ export default function CharacterPicker({
         </p>
       ) : (
         <div className={`grid gap-2 overflow-y-auto lobby-scroll pr-1 ${gridClassName} ${listClassName}`}>
-          {filtered.map((item, index) => {
+          {filtered.map((item) => {
             const isSelected = selectedSet.has(item.key);
             const isLocked = lockedKeys.includes(item.key);
             const inBoundBook = !!preferredBookId && item.bookId === preferredBookId;
-            const descriptionId = `${descriptionIdPrefix}-description-${index}`;
             return (
               <button
                 key={item.key}
                 type="button"
                 aria-pressed={isSelected}
-                aria-describedby={descriptionOnHover ? descriptionId : undefined}
+                aria-describedby={descriptionOnHover && floatingDescription?.key === item.key
+                  ? floatingDescriptionId : undefined}
                 disabled={isLocked}
                 title={isLocked
                   ? `${item.name} 已经在阵容里（${lockedLabel}）`
@@ -218,7 +265,11 @@ export default function CharacterPicker({
                     ? `选择「${item.name}」作为主控（玩家身份）`
                     : isSelected ? `将「${item.name}」移出阵容` : `将「${item.name}」加入阵容`}
                 onClick={() => onSelect(item.key)}
-                className={`char-tile group relative p-2.5 flex flex-col items-center gap-1.5 text-left ${
+                onMouseMove={descriptionOnHover ? (event) => showDescriptionAtPointer(item, event) : undefined}
+                onMouseLeave={descriptionOnHover ? () => setFloatingDescription(null) : undefined}
+                onFocus={descriptionOnHover ? (event) => showDescriptionAtFocus(item, event) : undefined}
+                onBlur={descriptionOnHover ? () => setFloatingDescription(null) : undefined}
+                className={`char-tile p-2.5 flex flex-col items-center gap-1.5 text-left ${
                   isSelected ? "selected" : ""} ${isLocked ? "opacity-50 cursor-not-allowed" : ""}`}
               >
                 <div className="relative w-full flex justify-center">
@@ -264,20 +315,26 @@ export default function CharacterPicker({
                     </span>
                   )}
                 </span>
-                {descriptionOnHover && (
-                  <span
-                    id={descriptionId}
-                    role="tooltip"
-                    className="pointer-events-none absolute inset-1 z-20 flex flex-col items-center justify-center rounded-lg bg-gray-950/95 px-2.5 py-2 text-center opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
-                  >
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-amber-300">人物简介</span>
-                    <span className="mt-1 line-clamp-4 text-[11px] leading-relaxed text-gray-200">{summaryText(item)}</span>
-                  </span>
-                )}
               </button>
             );
           })}
         </div>
+      )}
+      {descriptionOnHover && floatingDescription && typeof document !== "undefined" && createPortal(
+        <div
+          id={floatingDescriptionId}
+          role="tooltip"
+          className="pointer-events-none fixed z-[100] w-72 max-w-[calc(100vw-1.5rem)] rounded-lg border border-amber-400/20 bg-gray-950/95 px-3 py-2 text-left shadow-xl"
+          style={{
+            left: floatingDescription.left,
+            top: floatingDescription.top,
+            transform: floatingDescription.placement === "above" ? "translateY(-100%)" : undefined,
+          }}
+        >
+          <div className="text-xs font-medium text-amber-300">{floatingDescription.name}</div>
+          <div className="mt-1 text-[11px] leading-relaxed text-gray-200">{floatingDescription.summary}</div>
+        </div>,
+        document.body,
       )}
     </div>
   );
