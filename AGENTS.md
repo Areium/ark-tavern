@@ -8,9 +8,7 @@
 - **换行符**：`core.autocrlf=true` —— 工作区 CRLF、blob LF，勿提交混合换行文件。
 
 ## 记忆与文档纪律
-- **候选门槛**：只把**通用、跨项目可复用**的经验提交为 AMH 记忆候选 —— 换一个项目、换一批数据仍然成立，且写明适用条件与验证方式。一次排查的现场结论、随本地数据变化的细节，不进候选队列。
-- **项目细节进 `docs/notes.md`**：踩坑、口径约定、本机环境差异、已知未修项写进仓库内的 `docs/notes.md`（可评审、随代码演进），不占用记忆候选。
-- **不自行裁决候选**：接受/拒绝候选只由本地 CLI 执行（`learn review` / `learn review-batch`），AI 只提交候选与决策建议。
+- **项目细节进 `docs/notes.md`**：踩坑、口径约定、本机环境差异、已知未修项写进仓库内的 `docs/notes.md`（可评审、随代码演进）。
 
 ## 子代理分派策略
 
@@ -26,10 +24,17 @@
 - 主代理采纳充分、可信的证据，不默认重读全部文件或重跑全部检查；只复核冲突、关键高风险结论和修改后的最终行为。
 
 ## 项目概览
-Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台：《明日方舟》仅作为可选导入的世界书内容。剧情模式（LLM 叙事 + 选项 + 记忆 + 环境）、自由模式（沙盒角色交互）、自由尺寸等距网格回合制战斗（JSON 战斗节点 + 可扩展地形 + PixiJS Spine 覆盖层）、世界书（酒馆 Lorebook 兼容的关键词触发注入）。启动时不自动安装内容包；无会话绑定时世界书解析为空，新会话默认空白环境、主控称谓为「玩家」，旧版已安装副本仍由用户管理。
+Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台：
+剧情模式（LLM 叙事 + 选项 + 记忆 + 环境）、自由模式（沙盒角色交互）。
+战斗模式与剧情模式通过数据结构进行交互，当前
+自由尺寸等距网格回合制战斗（JSON 战斗节点 + 可扩展地形 + PixiJS Spine 覆盖层）、世界书（酒馆 Lorebook 兼容的关键词触发注入）。启动时不自动安装内容包；无会话绑定时世界书解析为空，新会话默认空白环境、主控称谓为「玩家」，旧版已安装副本仍由用户管理。
+
 链路：Electron 主进程（`frontend/electron/`）→ React（`frontend/src/`，Vite 代理 `/api` → Flask `:5000`）→ Flask（`src/app.py`，factory 模式组装 Manager + Blueprint）。
 
 ## 关键约束
+- **内部版本策略**：项目仍处于开发早期。开发新功能或重构时，除非任务明确要求，否则只面向当前内部数据结构与 API，不为项目自身旧版本格式保留兼容分支、迁移旁路、双读或双写逻辑，尽量避免累积历史包袱。
+- **旧格式清理纪律**：修改过程中若发现项目内部旧 schema、旧 API 或旧数据格式遗留的冗余代码、测试、脚本或文档，须记录其位置与影响范围，并在同一任务中完成清理；不得仅新增当前实现而继续保留无用途的旧路径。
+- **外部格式例外**：SillyTavern 世界书格式兼容属于项目的产品特性和外部互操作契约，不视为项目自身的历史包袱，不在上述清理范围内；相关导入、导出与语义兼容必须保留。
 - **世界书注入纪律**：常驻 position-0 条目进稳定层，触发型条目一律进动态层（保持前缀缓存稳定）。
 - **皮肤**：颜色工具类覆盖块由 `scripts/gen_skin_utils.py` 按色板生成，**改配色改脚本后重跑，勿手改该区段**；作用域 `@scope (html.skin-*) to (.bg-combat-bg)`，**战斗页不换肤**。
 - **会话**：`combat_mode`（`narrative` / `tactical`）创建时选定，**不可更改**。
@@ -37,4 +42,5 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台：《�
 - **战斗内容**：节点/敌人/地图改动走 skill `combat-designer` + `tools/`（先 `validate_battle_spec.py` 校验、再 `simulate_battle.py` 试跑，达标才入库），规格见 `docs/design/combat/battle-spec.md`。
 - **测试**：统一入口 `bash scripts/run_tests.sh`（pytest + `tests/legacy/`）。本机无可用 bash 时的等价命令、CLI 夹具编码口径、预装书用例的口径见 `docs/notes.md`。
 - **前端依赖恢复**：测试或隔离 worktree 后若 `vite` / `tsc` 不可用，先检查 `frontend/node_modules`、`.bin` 和包文件；仅 `.bin` 缺失时，在实际依赖目录运行 `npm rebuild --ignore-scripts --bin-links` 并验证入口。测试若清理了依赖目录，结束前须按 `docs/notes.md` 完整恢复包文件与 `.bin` 并验证构建；不要默认重复 `npm install`，也不要把 npm 退出码当作依赖完整的证明。
+
 设计提案：`docs/proposals/combat-value-curve-redesign.md`（P0/P1 已落地，保留 P2 待办；现状以代码为准）。文档地图见 `docs/architecture.md` §5。
