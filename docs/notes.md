@@ -17,6 +17,7 @@
 - 创建客户端已统一发送 `manual_entry_uids_by_book`，不再发送服务端不使用的旧 `manual_entry_uids`。单本书 scope-preview 自身的 `manual_entry_uids` 仍是有效接口，不能混删。
 - 证据：`scripts/test_session_loading_browser.py`（:5185、API 全拦截）覆盖目录请求复用、冷加载、三类失败重试、表单重置及创建载荷；每个请求合成延迟 600ms 时，热打开模式页从约 906ms 降为 66ms，非真实内容库性能基准。`scripts/test_session_main_control_ui.cjs` 与主控/多书 pytest 保留契约覆盖。
 - 大厅首卡 hover 的上描边裁切由列表自身 `overflow-y-auto` 且无顶部内边距造成；列表增加 `pt-2`，不调整搜索框层级。上述浏览器脚本同时检查 1440/390 宽度、深浅主题及 PRTS/酒馆皮肤下的搜索后首卡边距。
+
 ### 会话实时节点图（核对于 2026-09-28）
 
 - **数据口径**：会话「节点图」使用 `/story-state` 的实际 `tree`（`parent_id`、`current_id`、`path`），不是世界书编辑器的参考 `plot_graph`。头像代表主控和当前场景角色共同所在的会话节点，不推断角色各自的历史位置；节点详情只读，不执行回档。
