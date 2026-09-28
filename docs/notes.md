@@ -132,6 +132,32 @@
 
 ## 测试
 
+### 前端 `.bin` 命令入口或包文件缺失（2026-09-28，基线 `f27090e`）
+
+- **现象**：`frontend/node_modules` 存在，`typescript` / `vite` 包也在，但
+  `frontend/node_modules/.bin` 不存在，`npm run dev` / `npm run build` 因找不到 `vite` / `tsc` 失败。
+  补齐 `.bin` 后，构建又发现 `@alloc/quick-lru` 缺失；随后一次 `npm ci` 虽退出 0，解包时却有大量
+  `TAR_ENTRY_ERROR ENOENT`，TypeScript 的 `lib.dom.d.ts` 等文件仍缺失。
+- **根因与边界**：`.bin` 中的命令入口由 npm 根据已安装包生成，不能只凭 `node_modules` 目录存在
+  或 `npm ls --depth=0` 成功判断入口完整。本次未找到删除 `.bin` 的确切命令；另外，
+  `frontend/node_modules` 被 Git 忽略，新 worktree 不会自动带入依赖。测试或其他操作若删除了整棵
+  `node_modules`，包文件也已经缺失，单独重建 `.bin` 无法恢复它们。排查中 `npm cache verify`
+  曾报缺少缓存文件，但当时有并行校验，不能据此判定缓存损坏；安装结果仍须由文件检查和构建验证。
+- **恢复口径（Windows）**：先确认当前 `frontend/node_modules` 是否为目录联接，以及
+  `node_modules/typescript/bin/tsc`、`node_modules/vite/bin/vite.js` 是否仍在。若包文件在、仅入口缺失，
+  在**实际依赖目录**执行 `npm rebuild --ignore-scripts --bin-links`，然后检查
+  `node_modules/.bin/tsc.cmd` 和 `node_modules/.bin/vite.cmd` 并分别运行 `--version`。这一步会重建
+  已安装包的命令入口，不必重新下载所有依赖。若整棵目录或包文件缺失，在该 worktree 内按锁文件
+  完整安装一次，或复用已经核对版本且 `.bin` 完整的依赖目录；若安装时出现
+  `TAR_ENTRY_ERROR` 且包文件仍缺失，可改用新的缓存目录重装（本机验证命令：
+  `npm ci --cache "$env:TEMP\ark-tavern-npm-cache-20260928" --maxsockets=1`；后续另选空目录）
+  并以构建为准。不要只复制空的 `.bin`，也不要在指向主工作区的目录联接上运行会先清理
+  `node_modules` 的 `npm ci`。测试结束后按上述两种情况恢复，并验证命令入口再进行构建验收。
+- **证据**：主工作区的 `node_modules` 包目录存在而 `.bin` 缺失；执行上述 `npm rebuild` 后
+  `.bin` 恢复，`vite.cmd --version` 输出 `vite/5.4.21`，`tsc.cmd --version` 输出 `5.9.3`；
+  但构建继续发现缺包，说明入口检查不能代替完整构建。改用独立新缓存完整安装后，
+  `.bin`、`@alloc/quick-lru`、TypeScript 声明文件齐全，`npm run build` 通过。
+
 ### 无浏览器 SSR 脚本的转译钩子必须传 `fileName`（2026-09-22，`feat/roles-ui-polish`）
 
 - **现象**：`node scripts/test_role_worldbook_nav_ui.cjs` 自 `d328ce0`（引入 `utils/worldbookGrouping.ts`）起一直
