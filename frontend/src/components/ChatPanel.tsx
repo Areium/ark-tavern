@@ -623,7 +623,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
     if (!segments || segments.length === 0) {
       segments = parseDialogue(msg.content, msg.character, sceneCharacters);
     }
-    // 容错规范化：过滤空段、dialogue 缺 speaker 继承上下文、未知 type 降级叙述
+    // 仅相邻且缺失 speaker 的台词可继承；显式未知与旁白切断归属链。
     segments = normalizeSegments(segments);
     const hasDialogue = segments.some((s) => s.type === "dialogue");
     if (!hasDialogue) {
