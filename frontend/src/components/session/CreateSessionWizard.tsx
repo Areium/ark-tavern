@@ -24,16 +24,18 @@ import { useAppStore } from "../../stores/appStore";
 import { useApi } from "../../hooks/useApi";
 import { useDialogMinimize } from "../../hooks/useDialogMinimize";
 import { useRosterScopePreview } from "../../hooks/useWorldbookDraft";
+import type { SessionCatalog } from "../../hooks/useSessionCatalog";
 import {
   buildCharacterCatalog, buildLineup, mainControlError, resolveLineupDefaults,
-  resolvePlotDefaults, selectableCatalogItems, summaryText, type CharacterDoc,
+  resolvePlotDefaults, selectableCatalogItems, summaryText,
 } from "../../utils/characterCatalog";
-import type { PlotInfo, WorldBookSummary, Session } from "../../types";
+import type { Session } from "../../types";
 import CharacterPicker from "./CharacterPicker";
 import EntityAvatar, { characterAvatarUrl } from "../roles/EntityAvatar";
 
 interface CreateSessionWizardProps {
   open: boolean;
+  catalog: SessionCatalog;
   onClose: () => void;
   /** 创建成功后回调（父组件负责刷新 store 并跳转） */
   onCreated: (session: Session) => void;
@@ -49,7 +51,7 @@ const STEP_LABELS: Record<string, string> = {
 
 const trimKey = (value: string | null | undefined) => (value || "").trim();
 
-export default function CreateSessionWizard({ open, onClose, onCreated }: CreateSessionWizardProps) {
+export default function CreateSessionWizard({ open, onClose, onCreated, catalog: sessionCatalog }: CreateSessionWizardProps) {
   const chatMode = useAppStore((s) => s.chatMode);
   const { setCurrentView, setCharacterTab } = useAppStore();
   const api = useApi();
@@ -73,10 +75,8 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const [autoPreset, setAutoPreset] = useState<string[]>([]);
 
   // ── 数据 ──
-  const [plots, setPlots] = useState<PlotInfo[]>([]);
-  const [books, setBooks] = useState<WorldBookSummary[]>([]);
-  const [charDocs, setCharDocs] = useState<CharacterDoc[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { plots, books, characters: charDocs, loading, error: catalogError, reload } = sessionCatalog;
+  const catalogBlocked = loading || !!catalogError;
   const [plotSearch, setPlotSearch] = useState("");
 
   // 候选目录：自建 + 世界书角色，唯一的角色数据源（主控与队友共用）
@@ -110,11 +110,11 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     return q ? plots.filter((p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)) : plots;
   }, [plots, plotSearch]);
 
-  // 打开时重置并加载数据
+  // 打开时只重置表单。目录与进行中的请求由大厅持有，重试不会清掉选择。
   useEffect(() => {
     if (!open) return;
     setStep(0);
-    setMode(chatMode);
+    setMode(useAppStore.getState().chatMode);
     setCombatMode("narrative");
     setMainControl("");
     setPlotId("");
@@ -123,23 +123,8 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     setName("");
     setError("");
     setAutoPreset([]);
-    setLoading(true);
-    let cancelled = false;
-    Promise.allSettled([
-      api.listPlots(),
-      api.listWorldbooks(),
-      api.getCharacters(),
-    ]).then(([p, b, c]) => {
-      if (cancelled) return;
-      if (p.status === "fulfilled") setPlots(p.value || []);
-      if (b.status === "fulfilled") setBooks((b.value?.books || []).filter(
-        (book: WorldBookSummary) => book.book_type !== "reference" && book.enabled));
-      // /api/characters 已带 name/summary/worldbook_id：自建与世界书角色都在这里
-      if (c.status === "fulfilled") setCharDocs((c.value as CharacterDoc[]) || []);
-      setLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [open, api, chatMode]);
+    setPlotSearch("");
+  }, [open]);
 
   // 阵容变化后重新解析候选范围：防抖 + 过时响应保护（旧响应不会覆盖新结果）。
   // 预览用**完整阵容**（含主控），与服务端 `SceneManager.get_roster()` 同口径，
@@ -229,6 +214,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   };
 
   const goNext = () => {
+    if (creating || (current !== "mode" && catalogBlocked)) return;
     setError("");
     // 主控是必选项：没选就不放行（前端先拦，后端另有兜底校验）
     if (current === "lineup" && controlError) {
@@ -261,7 +247,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
       // 带上预览指纹：预览已过期时宁可报错，也不静默用一套不同的范围创建会话。
       const session = await api.createSession(
         mode, name.trim(), mode === "story" ? plotId : "", combatMode,
-        mainControl, worldbookIds, teammates, [],
+        mainControl, worldbookIds, teammates, {},
         Object.fromEntries(worldbookIds.map((id) => [id, scopePreviews[id]?.draft_hash || ""])),
       );
       onCreated(session);
@@ -323,10 +309,11 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 lobby-scroll">
           {loading && (
-            <div className="flex items-center justify-center py-16 text-gray-500 text-sm">加载中...</div>
+            <p className="py-3 text-sm text-gray-300" role="status">{current === "mode" ? "正在准备剧情、世界书与角色，可先选择模式。" : "正在加载剧情、世界书与角色…"}</p>
           )}
+          {catalogError && <div className="mb-4 text-sm text-red-300" role="alert"><p>{catalogError}</p><button type="button" className="btn btn-ghost mt-2 px-3 py-2" onClick={() => { void reload(); }} disabled={loading}>重新加载目录</button></div>}
 
-          {!loading && current === "mode" && (
+          {current === "mode" && (
             <div className="space-y-4">
               <p className="text-xs text-gray-400">选择会话模式与战斗模式（创建后不可更改）</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -377,7 +364,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                       <span className="text-sm">⚔️</span>
                       <span className="text-sm font-medium text-orange-300">战术模式</span>
                     </div>
-                    <p className="text-[12px] text-gray-500">对话中触发战斗时进入 7×7 回合制战术战斗。</p>
+                    <p className="text-[12px] text-gray-500">对话中触发战斗时进入自由尺寸网格的回合制战斗。</p>
                   </div>
                   <div
                     className={`pick-card p-3 ${combatMode === "sideview" ? "selected" : ""}`}
@@ -397,7 +384,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
             </div>
           )}
 
-          {!loading && current === "plot" && (
+          {!catalogBlocked && current === "plot" && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs text-gray-400">选择要绑定的剧情（可选）· 选中后自动绑定世界书并预选主控与队友</p>
@@ -459,7 +446,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
             </div>
           )}
 
-          {!loading && current === "worldbook" && (
+          {!catalogBlocked && current === "worldbook" && (
             <div className="space-y-3">
               <p className="text-xs text-gray-300">选择本会话使用的剧情世界书，可多选。未选时不载入世界书；资料库不参与会话。</p>
               {plot && plotBookId && worldbookIds.includes(plotBookId) && (
@@ -498,7 +485,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
             </div>
           )}
 
-          {!loading && current === "lineup" && (
+          {!catalogBlocked && current === "lineup" && (
             <div className="space-y-4">
               {/* ① 主控角色：唯一的「玩家身份」选择入口，选中即入队 */}
               <section className="space-y-2" aria-label="主控角色">
@@ -621,7 +608,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
             </div>
           )}
 
-          {!loading && current === "finish" && (
+          {!catalogBlocked && current === "finish" && (
             <div className="space-y-4">
               <div>
                 <p className="text-xs text-gray-400 mb-1.5">会话名称</p>
@@ -702,7 +689,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
             )}
             <button
               onClick={goNext}
-              disabled={creating || (isLast && !!controlError)}
+              disabled={creating || (current !== "mode" && catalogBlocked) || (isLast && !!controlError)}
               title={isLast && controlError ? controlError : undefined}
               className={`btn px-6 py-2 text-sm ${isLast ? "btn-hero" : "bg-blue-600 hover:bg-blue-500 text-white"}`}
             >

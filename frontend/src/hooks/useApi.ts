@@ -79,13 +79,13 @@ export function useApi() {
     createSession: (mode: "free" | "story" = "free", name = "", plotId = "",
       combatMode: "narrative" | "tactical" | "sideview" = "narrative", identity = "玩家",
       worldbookIds: string[] = [], rosterCharacterIds: string[] = [],
-      manualEntryUids: string[] = [], expectedDraftHashes: Record<string, string> = {}) =>
+      manualEntryUidsByBook: Record<string, string[]> = {}, expectedDraftHashes: Record<string, string> = {}) =>
       request<any>("/api/sessions", {
         method: "POST",
         body: JSON.stringify({ mode, name, plot_id: plotId, combat_mode: combatMode, identity,
           worldbook_ids: worldbookIds, roster_character_ids: rosterCharacterIds,
           // 手动追加只作用于本会话；draft_hash 让服务端校验「预览与创建一致」
-          manual_entry_uids: manualEntryUids, expected_draft_hashes: expectedDraftHashes,
+          manual_entry_uids_by_book: manualEntryUidsByBook, expected_draft_hashes: expectedDraftHashes,
         }),
       }),
     getSession: (id: string) => request<any>(`/api/sessions/${id}`),

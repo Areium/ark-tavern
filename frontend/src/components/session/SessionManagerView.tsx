@@ -15,8 +15,9 @@ import { useApi } from "../../hooks/useApi";
 import { confirmAction } from "../../stores/confirmStore";
 import AppIcon from "../AppIcon";
 import { useCombatResume } from "../../hooks/useCombatResume";
-import { buildCharacterCatalog, buildLineup, type CharacterDoc } from "../../utils/characterCatalog";
-import type { PlotInfo, WorldBookSummary, Session, CombatResumeTestDTO, CombatResumeSummaryDTO } from "../../types";
+import { buildCharacterCatalog, buildLineup } from "../../utils/characterCatalog";
+import { useSessionCatalog } from "../../hooks/useSessionCatalog";
+import type { Session, CombatResumeTestDTO, CombatResumeSummaryDTO } from "../../types";
 import CharacterPicker from "./CharacterPicker";
 import CreateSessionWizard from "./CreateSessionWizard";
 import { SessionWorldbookDependencies } from "./SessionWorldbookDependencies";
@@ -84,10 +85,9 @@ export default function SessionManagerView() {
   const [batchDeleting, setBatchDeleting] = useState(false);
 
   // ── 数据 ──
-  const [plots, setPlots] = useState<PlotInfo[]>([]);
-  const [books, setBooks] = useState<WorldBookSummary[]>([]);
+  const sessionCatalog = useSessionCatalog();
+  const { plots, books, characters } = sessionCatalog;
   const [dependencyBookId, setDependencyBookId] = useState("");
-  const [characters, setCharacters] = useState<CharacterDoc[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const detailRef = useRef<HTMLElement>(null);
 
@@ -96,19 +96,6 @@ export default function SessionManagerView() {
   const [renameDraft, setRenameDraft] = useState("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [identityPickerOpen, setIdentityPickerOpen] = useState(false);
-
-  // 加载剧情/世界书/角色库（角色库 = 主控与队友的同一份候选来源）
-  useEffect(() => {
-    let cancelled = false;
-    Promise.allSettled([api.listPlots(), api.listWorldbooks(), api.getCharacters()]).then(([p, b, c]) => {
-      if (cancelled) return;
-      if (p.status === "fulfilled") setPlots(p.value || []);
-      if (b.status === "fulfilled") setBooks((b.value?.books || []).filter(
-        (book: WorldBookSummary) => book.book_type !== "reference" && book.enabled));
-      if (c.status === "fulfilled") setCharacters((c.value as CharacterDoc[]) || []);
-    });
-    return () => { cancelled = true; };
-  }, [api]);
 
   const filteredSessions = useMemo(() => {
     let list = sessions.filter((s) => s.mode === tab);
@@ -519,7 +506,7 @@ export default function SessionManagerView() {
           </div>
 
           {/* 卡片列表 */}
-          <div className="flex-1 overflow-y-auto px-3 pb-4 space-y-2 lobby-scroll">
+          <div className="flex-1 overflow-y-auto px-3 pt-2 pb-4 space-y-2 lobby-scroll">
             {filteredSessions.length === 0 && (
               <div className="lobby-empty p-6 text-center">
                 <p className="text-sm text-gray-500 mb-3">{search ? "未找到匹配的会话" : tab === "story" ? "还没有剧情会话" : "还没有自由会话"}</p>
@@ -912,7 +899,7 @@ export default function SessionManagerView() {
       </div>
 
       {/* 新建向导 */}
-      <CreateSessionWizard open={wizardOpen} onClose={() => setWizardOpen(false)} onCreated={handleCreated} />
+      <CreateSessionWizard open={wizardOpen} onClose={() => setWizardOpen(false)} onCreated={handleCreated} catalog={sessionCatalog} />
 
       {/* 添加角色选择器 */}
       {pickerOpen && selected && (
