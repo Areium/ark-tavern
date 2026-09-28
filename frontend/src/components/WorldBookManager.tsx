@@ -18,6 +18,7 @@ import EntryDependencyTree from "./worldbook/EntryDependencyTree";
 import PromptPreviewTab from "./worldbook/tabs/PromptPreviewTab";
 import PlotGraphPage from "./combat/PlotGraphPage";
 import AppIcon from "./AppIcon";
+import { startWorldbookShelfSync } from "../utils/worldbookShelfSync";
 import "../styles/worldbook-entry-refresh.css";
 
 // 展示用 token 估算与分层口径都在 utils/worldbookLayer.ts 里（与后端同口径）。
@@ -296,13 +297,14 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const [pasteJson, setPasteJson] = useState("");
   // 统一检索（迁自原「内容中心」顶栏）：跨世界书条目检索 → 命中选中该书并预填条目筛选
   const [shelfQuery, setShelfQuery] = useState("");
-  const [shelfRefreshing, setShelfRefreshing] = useState(false);
+  const [shelfRefreshing, setShelfRefreshing] = useState(true);
   const [shelfNotice, setShelfNotice] = useState("");
   const [shelfError, setShelfError] = useState("");
   const [shelfHits, setShelfHits] = useState<WorldBookSearchHit[]>([]);
   const [shelfSearching, setShelfSearching] = useState(false);
   const [shelfOpen, setShelfOpen] = useState(false);
   const shelfSeq = useRef(0);
+  const booksRequest = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
   const createButton = useRef<HTMLButtonElement>(null);
 
@@ -365,24 +367,26 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   }, []);
 
   const loadBooks = useCallback(async () => {
+    const requestId = ++booksRequest.current;
+    setShelfRefreshing(true);
     try {
       const result = await api.listWorldbooks();
+      if (requestId !== booksRequest.current) return false;
       setBooks(result.books);
       setShelfError("");
       setSelectedId((current) => result.books.some((book) => book.id === current) ? current : result.books[0]?.id || null);
       return true;
     } catch (reason: any) {
+      if (requestId !== booksRequest.current) return false;
       setShelfError(reason?.message || "世界书列表加载失败，请重试刷新书架");
       return false;
-    }
+    } finally { if (requestId === booksRequest.current) setShelfRefreshing(false); }
   }, [api]);
 
   const refreshShelf = async () => {
     if (shelfRefreshing) return;
-    setShelfRefreshing(true); setShelfNotice("");
-    try {
-      if (await loadBooks()) setShelfNotice("书架已刷新，已读取世界书文件夹。");
-    } finally { setShelfRefreshing(false); }
+    setShelfNotice("");
+    if (await loadBooks()) setShelfNotice("书架已刷新，已读取世界书文件夹。");
   };
 
   const openBooksFolder = async (bookId?: string) => {
@@ -469,7 +473,10 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   }, [api]);
   reloadDetailRef.current = (bookId) => { void loadDetail(bookId); };
 
-  useEffect(() => { void loadBooks(); }, [loadBooks]);
+  useEffect(() => {
+    const stop = startWorldbookShelfSync(loadBooks);
+    return () => { stop(); ++booksRequest.current; };
+  }, [loadBooks]);
   useEffect(() => {
     if (!indexSessionId) return;
     const session = sessions.find((item) => item.id === indexSessionId);
@@ -1460,18 +1467,16 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         </div>
       </header>
       <div className="wber-folder-tools">
-        <details className="wber-folder-guide">
-          <summary>用文件夹安装与分享</summary>
-          <p>在应用的数据目录中打开 <code>data/worldbooks/books/</code>，将整本世界书文件夹复制到这里，再刷新书架。</p>
-          <p>每本书的文件夹内应包含 <code>book.json</code> 与书内资源目录。分享时复制整个文件夹，保留原有目录结构。</p>
-          <p>「导入文件」支持酒馆 JSON/JSONL 和含世界书的角色卡；导入后会自动创建独立的书文件夹。</p>
-        </details>
         <button type="button" disabled={shelfRefreshing} onClick={() => void refreshShelf()}>
-          <AppIcon name="refresh" size={14} />{shelfRefreshing ? "正在刷新…" : "刷新书架"}
+          <AppIcon name="refresh" size={14} />{shelfRefreshing ? "正在载入…" : "刷新书架"}
         </button>
-        <button type="button" onClick={() => void openBooksFolder()}>
-          <AppIcon name="folder" size={14} />打开书架文件夹
-        </button>
+        <span className="wber-folder-action">
+          <button type="button" className="wber-folder-button" aria-label="打开书架文件"
+            aria-describedby="wber-folder-tooltip" onClick={() => void openBooksFolder()}>
+            <AppIcon name="folder" size={18} />
+          </button>
+          <span id="wber-folder-tooltip" className="wber-folder-tooltip" role="tooltip">打开书架文件</span>
+        </span>
         {shelfNotice && <p className="wber-folder-notice" role="status">{shelfNotice}</p>}
         {shelfError && <p className="wber-folder-error" role="alert">{shelfError}</p>}
       </div>
@@ -1499,7 +1504,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
           </button>) : !shelfSearching && <p className="wber-shelf-hit-empty">无匹配结果</p>}
         </div>}
       </div>
-      <div className="wber-book-list">
+      <div className="wber-book-list" aria-busy={shelfRefreshing}>
         {visibleBooks.map((book) => {
           const cover = safeCover(book.cover_image);
           // 选中的书用实时统计（勾选后立刻变），其余书用服务端摘要里的同口径字段。
@@ -1513,7 +1518,9 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
             </small></span>
           </button>;
         })}
-        {!visibleBooks.length && <p className="wber-empty">{books.length ? "当前分类没有世界书，试试「全部」。" : "书架还是空的。复制世界书文件夹后刷新，或新建一本。"}</p>}
+        {!visibleBooks.length && <p className="wber-empty" role="status">{shelfRefreshing ? "正在载入世界书…"
+          : shelfError ? "暂时无法载入世界书，请稍后重试。"
+          : books.length ? "当前分类没有世界书，试试「全部」。" : "书架还是空的。导入文件或新建一本世界书。"}</p>}
       </div>
     </aside>
 

@@ -154,8 +154,8 @@ const renderManager = () => renderToStaticMarkup(React.createElement(WorldBookMa
 const markup = renderManager();
 assert.ok(markup.includes("世界书"));
 assert.ok(markup.includes(">新建</button>") && markup.includes(">导入文件</button>"), "书架提供应用内新建与文件导入入口");
-assert.ok(markup.includes("刷新书架") && markup.includes("data/worldbooks/books/"), "书架说明完整文件夹的安装位置");
-assert.ok(markup.includes("自动创建独立的书文件夹") && !markup.includes(".arkwb"), "酒馆文件导入说明与文件夹管理方式一致");
+assert.ok(markup.includes("正在载入世界书…") && markup.includes('aria-busy="true"'), "书架首屏显示自动载入状态");
+assert.ok(markup.includes('aria-label="打开书架文件"') && !markup.includes("用文件夹安装与分享"), "书架保留图标入口，移除安装分享说明");
 assert.ok(markup.includes(">剧情</button>") && markup.includes(">资料</button>"), "两种用途都可筛选");
 assert.ok(markup.includes("从左侧书架选一本世界书"), "没选书时详情区给出明确指引，不留白");
 assert.deepEqual(managerModule.WORLDBOOK_PANEL_TABS.map((tab) => tab.id),
