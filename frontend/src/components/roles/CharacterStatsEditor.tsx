@@ -14,9 +14,10 @@ import StatValuesForm from "./StatValuesForm";
 
 interface Props {
   characterId: string;
+  worldbookId?: string;
 }
 
-export default function CharacterStatsEditor({ characterId }: Props) {
+export default function CharacterStatsEditor({ characterId, worldbookId }: Props) {
   const api = useApi();
   const { setCurrentView, setWorldbookJumpId } = useAppStore();
   const [data, setData] = useState<CharacterStatsDTO | null>(null);
@@ -30,13 +31,13 @@ export default function CharacterStatsEditor({ characterId }: Props) {
     setLoading(true);
     setError("");
     try {
-      setData(await api.getCharacterStats(characterId));
+      setData(await api.getCharacterStats(characterId, worldbookId));
     } catch (err: any) {
       setError(err.message || "加载失败");
     } finally {
       setLoading(false);
     }
-  }, [api, characterId]);
+  }, [api, characterId, worldbookId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -63,7 +64,7 @@ export default function CharacterStatsEditor({ characterId }: Props) {
       const batch = pending.current;
       pending.current = {};
       try {
-        setData(await api.saveCharacterStats(characterId, batch));
+        setData(await api.saveCharacterStats(characterId, batch, false, worldbookId));
         setStatus("saved");
       } catch (err: any) {
         setError(err.message || "保存失败");
@@ -91,7 +92,7 @@ export default function CharacterStatsEditor({ characterId }: Props) {
           会话里的实际数值以此为基础，再叠加该会话的改动（对话页场景面板「数值」）。
           {data.worldbook_name
             ? <>统一字段来自世界书「{data.worldbook_name}」。</>
-            : <>该角色未标注来源世界书，因此没有统一字段；可在「资产」页标注来源，或直接填写自定义键。</>}
+            : <>该角色位于个人内容目录，没有世界书统一字段；可直接填写自定义键。</>}
         </span>
       </div>
 

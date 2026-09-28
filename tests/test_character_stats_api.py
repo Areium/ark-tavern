@@ -156,14 +156,14 @@ class FakeDocs:
     def __init__(self, docs):
         self.docs = docs
 
-    def read_document(self, category, name):
+    def read_document(self, category, name, *, book_id=None, book_ids=None):
         from document_manager import DocumentNotFoundError
         if category != "characters" or name not in self.docs:
             raise DocumentNotFoundError(name)
         meta, content = self.docs[name]
         return {"metadata": copy.deepcopy(meta), "content": content}
 
-    def save_document(self, category, name, content, metadata=None, expected_hash=None):
+    def save_document(self, category, name, content, metadata=None, expected_hash=None, *, book_id=None):
         self.docs[name] = (copy.deepcopy(metadata or {}), content)
         return {"hash": "x", "path": name}
 
@@ -228,6 +228,37 @@ def test_character_global_stats_get_put(stage_api):
     client.put("/api/characters/临光/stats", json={"values": {}, "replace": True})
     assert "stats" not in docs.docs["临光"][0]
 
+
+def test_same_named_character_stats_write_to_selected_book(tmp_path):
+    from blueprints.stage import register
+    from document_manager import DocumentManager
+
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "categories.yaml").write_text(
+        "categories:\n  characters: data/worldbooks/content/characters/\n",
+        encoding="utf-8")
+    books = data / "worldbooks"
+    manager = WorldBookManager(books)
+    for book_id, hp in (("first", 10), ("second", 20)):
+        manager.save(WorldBook(book_id, book_id, [], stat_fields=FIELDS))
+        actor = books / "books" / book_id / "characters" / "Hero"
+        actor.mkdir(parents=True)
+        (actor / "index.md").write_text(
+            f"---\nname: Hero\nstats:\n  hp: {hp}\n---\n", encoding="utf-8")
+
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+    register(app, {"session": SimpleNamespace(get_session=lambda _: None),
+                   "document": DocumentManager(str(tmp_path)), "worldbook": manager})
+    client = app.test_client()
+    assert client.get("/api/characters/Hero/stats?worldbook_id=first").json["stored"]["hp"] == 10
+    assert client.get("/api/characters/Hero/stats?worldbook_id=second").json["stored"]["hp"] == 20
+    result = client.put("/api/characters/Hero/stats?worldbook_id=second",
+                        json={"values": {"hp": 30}})
+    assert result.status_code == 200, result.json
+    assert client.get("/api/characters/Hero/stats?worldbook_id=first").json["stored"]["hp"] == 10
+    assert client.get("/api/characters/Hero/stats?worldbook_id=second").json["stored"]["hp"] == 30
 
 def test_session_stats_merge_and_bound_book_fields(stage_api):
     client, session, _docs = stage_api

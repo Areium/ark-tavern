@@ -21,7 +21,7 @@ export function nameToColor(name: string): string {
 
 /** 角色 / 玩家身份的全局头像地址（两者都是角色目录） */
 export const characterAvatarUrl = (id: string, bookId?: string) =>
-  `/api/characters/${encodeURIComponent(id)}/avatar${bookId ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""}`;
+  `/api/characters/${encodeURIComponent(id)}/avatar${bookId === "" ? "?local_only=1" : bookId ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""}`;
 
 interface EntityAvatarProps {
   /** 展示名：alt 文本与首字色块的取字来源 */

@@ -4,8 +4,7 @@
  * 由「角色 → 资产」页签挂载（原 DocumentManager 图像 Tab 独立成组件，
  * 文档管理功能已迁移至世界书整合包）。
  *
- * 来源标注：每个实体显示上级目录与来源世界书（index.md frontmatter 的
- * worldbook_id），详情面板可修改归属。
+ * 每个实体显示它实际所在的世界书文件夹；个人内容仍位于共享内容目录。
  *
  * 分组维度两个，并列存在：
  *  - 按类别（默认，原有维度）：按 assets 类别分组，来源下拉只做筛选（不再改成按书分组——
@@ -24,7 +23,7 @@ import CropModal from "./assets/CropModal";
 import WorldbookGroupList, { GroupDimensionToggle } from "./WorldbookGroupList";
 import AppIcon from "./AppIcon";
 import {
-  ActionButton, EmptyState, FoldAllButton, PanelHeader, SearchInput, SourceBookBadge, ToolIconButton, WorldbookSelect,
+  ActionButton, EmptyState, FoldAllButton, PanelHeader, SearchInput, SourceBookBadge, ToolIconButton,
 } from "./roles/RoleWidgets";
 import "../styles/roles.css";
 
@@ -188,24 +187,11 @@ export default function AssetManager() {
     setCropTarget(null);
   };
 
-  /** 修改实体来源世界书标注 */
-  const handleSetEntityWorldbook = async (item: AssetEntityGroupDTO, bookId: string) => {
-    try {
-      await apiRef.current.setEntityWorldbook(item.category, item.entity, bookId);
-      showToast(bookId ? "来源世界书已标注" : "已清除标注");
-      setAssetImages((prev) => prev.map((g) =>
-        g.category === item.category && g.entity === item.entity
-          ? { ...g, worldbook_id: bookId }
-          : g,
-      ));
-    } catch (err: any) {
-      showToast(err.message || "标注失败", "error");
-    }
-  };
-
   const openDataDir = async () => {
     try {
-      const { path } = await apiRef.current.getDataDir();
+      const { path } = selectedImage?.worldbookId
+        ? await apiRef.current.getWorldbookDir(selectedImage.worldbookId)
+        : await apiRef.current.getDataDir();
       if (window.electronAPI) {
         await window.electronAPI.openDirectory(path);
       } else {
@@ -476,10 +462,6 @@ export default function AssetManager() {
 
   // ── 渲染 ──
 
-  const selectedEntity = selectedImage
-    ? assetImages.find((g) => g.category === selectedImage.category && g.entity === selectedImage.entity && (g.worldbook_id || "") === selectedImage.worldbookId)
-    : undefined;
-
   return (
     <div className="roles-shell flex h-full">
       {/* ── 实体树侧栏 ── */}
@@ -487,7 +469,7 @@ export default function AssetManager() {
         <div className="p-2 border-b border-gray-700 space-y-2">
           <div className="flex items-center gap-1.5">
             <SearchInput value={imageFilter} onChange={setImageFilter} placeholder="过滤图片名称…" />
-            <ToolIconButton icon="folder" label="打开资产文件夹" onClick={() => void openDataDir()} />
+            <ToolIconButton icon="folder" label={selectedImage?.worldbookId ? "打开当前世界书文件夹" : "打开个人资产文件夹"} onClick={() => void openDataDir()} />
             <ToolIconButton icon="refresh" label="刷新" onClick={() => void loadImages()} />
             <FoldAllButton
               collapsed={entitiesAllCollapsed}
@@ -537,7 +519,7 @@ export default function AssetManager() {
           <EmptyState
             icon="images"
             text="选择左侧图片预览"
-            sub="可设为默认头像 / 立绘 / 卡面，并标注该实体的来源世界书"
+            sub="可设为默认头像、立绘或卡面；书内资源随整个书文件夹一起复制"
           />
         ) : (
           <>
@@ -569,16 +551,8 @@ export default function AssetManager() {
                   <dd className="is-mono">{selectedImage.category}/{selectedImage.entity}</dd>
                   <dt>路径</dt>
                   <dd className="is-mono text-gray-500">{selectedImage.path}</dd>
-                  <dt className="self-center">来源世界书</dt>
-                  <dd>
-                    {selectedImage.worldbookId ? bookName(selectedImage.worldbookId) : (
-                      <WorldbookSelect
-                        value={selectedEntity?.worldbook_id || ""}
-                        worldbooks={worldbooks}
-                        onChange={(id) => { if (selectedEntity) handleSetEntityWorldbook(selectedEntity, id); }}
-                      />
-                    )}
-                  </dd>
+                  <dt>所在位置</dt>
+                  <dd>{selectedImage.worldbookId ? bookName(selectedImage.worldbookId) : "个人内容"}</dd>
                 </dl>
 
                 {/* 设为默认图 */}

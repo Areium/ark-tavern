@@ -23,11 +23,13 @@ interface Props {
   entityName?: string;
   /** 内嵌模式下的实体类型 */
   entityType?: "character" | "class";
+  /** 精确选择角色/职业所属的世界书，同名实体互不覆盖 */
+  worldbookId?: string;
   /** 内嵌模式下的额外 className */
   className?: string;
 }
 
-export default function CardEditor({ onClose, embedded, entityName, entityType, className }: Props) {
+export default function CardEditor({ onClose, embedded, entityName, entityType, worldbookId, className }: Props) {
   const api = useApi();
 
   const [characters, setCharacters] = useState<string[]>([]);
@@ -63,7 +65,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
         () => setError("Failed to load character list")
       );
     }
-  }, [embedded, entityName, entityType]);
+  }, [embedded, entityName, entityType, worldbookId]);
 
   // ── Load character cards ──
   const loadCharacter = useCallback(async (name: string) => {
@@ -73,7 +75,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
     setEditingCard(null);
     setClassCardsData(null);
     try {
-      const data = await api.getCharacterCards(name);
+      const data = await api.getCharacterCards(name, worldbookId);
       setCardsData(data);
       setSelectedChar(name);
       setSelectedClass(null);
@@ -83,7 +85,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, worldbookId]);
 
   // ── Load class cards ──
   const loadClass = useCallback(async (name: string) => {
@@ -93,7 +95,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
     setEditingCard(null);
     setCardsData(null);
     try {
-      const data = await api.getClassCards(name);
+      const data = await api.getClassCards(name, worldbookId);
       setClassCardsData(data);
       setSelectedClass(name);
       setSelectedChar(null);
@@ -103,7 +105,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, worldbookId]);
 
   // ── Select card for editing ──
   const selectCard = (idx: number) => {
@@ -179,7 +181,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
 
     if (isClassMode && selectedClass) {
       try {
-        const result = await api.deleteClassCard(selectedClass, cardId);
+        const result = await api.deleteClassCard(selectedClass, cardId, worldbookId);
         setClassCardsData((prev) => prev ? {
           ...prev,
           cards: prev.cards.filter((c) => c.card_id !== cardId),
@@ -188,7 +190,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
       } catch (e: any) { setError(e?.message || "Delete failed"); return; }
     } else if (selectedChar) {
       try {
-        const result = await api.deleteCharacterCard(selectedChar, cardId);
+        const result = await api.deleteCharacterCard(selectedChar, cardId, worldbookId);
         setCardsData((prev) => {
           if (!prev) return null;
           return {
@@ -209,7 +211,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
     if (isClassMode && classCardsData && selectedClass) {
       setSaving(true); setError(null); setSuccess(null);
       try {
-        const result = await api.saveClassCards(selectedClass, classCardsData);
+        const result = await api.saveClassCards(selectedClass, classCardsData, worldbookId);
         setClassCardsData({ ...classCardsData, _hash: result._hash });
         setSuccess("Saved");
         setTimeout(() => setSuccess(null), 2000);
@@ -218,7 +220,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
     } else if (cardsData && selectedChar) {
       setSaving(true); setError(null); setSuccess(null);
       try {
-        const result = await api.saveCharacterCards(selectedChar, cardsData);
+        const result = await api.saveCharacterCards(selectedChar, cardsData, worldbookId);
         setCardsData({ ...cardsData, _hash: result._hash });
         setSuccess("Saved");
         setTimeout(() => setSuccess(null), 2000);

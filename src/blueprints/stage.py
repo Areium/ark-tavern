@@ -22,6 +22,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from flask import Blueprint, jsonify, request
+from data_paths import installed_books_root
 from worldbook_content import content_candidates
 
 from shared.helpers import json_error
@@ -106,14 +107,37 @@ def register(app, managers):
             return [], ""
         return list(getattr(book, "stat_fields", None) or []), book.name
 
-    def _character_meta(name: str) -> dict | None:
+    def _character_doc(name: str, *, book_id: str | None = None,
+                       book_ids: list[str] | None = None) -> dict | None:
         try:
-            doc = doc_mgr.read_document("characters", name)
+            doc = doc_mgr.read_document("characters", name, book_id=book_id,
+                                        book_ids=book_ids)
         except DocumentNotFoundError:
-            return None
+            if book_ids is None:
+                return None
+            try:
+                doc = doc_mgr.read_document("characters", name, book_id="")
+            except (DocumentNotFoundError, ValueError):
+                return None
         except ValueError:
             return None
-        return doc.get("metadata") or {}
+        return doc
+
+    def _character_meta(name: str, *, book_id: str | None = None,
+                        book_ids: list[str] | None = None) -> dict | None:
+        doc = _character_doc(name, book_id=book_id, book_ids=book_ids)
+        if doc is None:
+            return None
+        meta = dict(doc.get("metadata") or {})
+        filepath = doc.get("filepath")
+        root = getattr(doc_mgr, "_root", None)
+        if filepath and root:
+            try:
+                relative = Path(filepath).relative_to(installed_books_root(root))
+            except ValueError:
+                relative = None
+            meta["worldbook_id"] = (relative.parts[0] if relative and len(relative.parts) > 1 else "")
+        return meta
 
     def _fields_for_session(session, name: str, meta: dict | None) -> tuple[list[dict], str, str]:
         """会话内某角色的字段：会话绑定书优先（同一会话统一口径），否则角色自己的来源书。
@@ -252,7 +276,7 @@ def register(app, managers):
 
     @bp.route("/api/characters/<path:name>/stats", methods=["GET"])
     def character_stats_get(name: str):
-        meta = _character_meta(name)
+        meta = _character_meta(name, book_id=request.args.get("worldbook_id"))
         if meta is None:
             return json_error(f"角色不存在: {name}", 404)
         book_id = str(meta.get("worldbook_id") or "")
@@ -277,12 +301,13 @@ def register(app, managers):
         `null` 删键；replace=true 时整份替换。字段内的值按类型校验，字段外自由填写。
         """
         try:
-            doc = doc_mgr.read_document("characters", name)
+            selected_book = request.args.get("worldbook_id")
+            doc = doc_mgr.read_document("characters", name, book_id=selected_book)
         except (DocumentNotFoundError, ValueError):
             return json_error(f"角色不存在: {name}", 404)
         meta = dict(doc.get("metadata") or {})
         data = request.json or {}
-        book_id = str(meta.get("worldbook_id") or "")
+        book_id = str((_character_meta(name, book_id=selected_book) or {}).get("worldbook_id") or "")
         fields, _ = _book_fields(book_id)
         try:
             incoming = sanitize_values(fields, data.get("values"), strict=True)
@@ -299,7 +324,8 @@ def register(app, managers):
         else:
             meta.pop("stats", None)
         try:
-            doc_mgr.save_document("characters", name, doc.get("content") or "", metadata=meta)
+            doc_mgr.save_document("characters", name, doc.get("content") or "", metadata=meta,
+                                  book_id=selected_book)
         except Exception as e:
             return json_error(f"保存失败: {e}", 500)
         # 角色目录改了 frontmatter，实体索引 / 头像色等缓存要失效
@@ -318,7 +344,7 @@ def register(app, managers):
     def _session_stats_payload(session, names: list[str]) -> dict:
         out = []
         for name in names:
-            meta = _character_meta(name) or {}
+            meta = _character_meta(name, book_ids=session.overlay.get_worldbook_ids()) or {}
             fields, book_id, book_name = _fields_for_session(session, name, meta)
             global_values = read_global_stats_from_meta(meta)
             session_values = session.overlay.get_character_stats(name)
@@ -356,7 +382,7 @@ def register(app, managers):
         if not is_safe_entity_name(name):
             return json_error("非法的角色名", 400)
         data = request.json or {}
-        meta = _character_meta(name) or {}
+        meta = _character_meta(name, book_ids=session.overlay.get_worldbook_ids()) or {}
         fields, _, _ = _fields_for_session(session, name, meta)
         try:
             incoming = sanitize_values(fields, data.get("values"), strict=True)

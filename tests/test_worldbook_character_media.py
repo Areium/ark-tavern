@@ -65,6 +65,31 @@ def test_excerpt_copies_character_profile_and_images_into_book(setup):
     assert worldbook_media.decode_media_url(book.character_media[copied_id]["skin"])[0] == (copied / "skin" / "default.png").read_bytes()
 
 
+def test_explicit_local_avatar_does_not_select_same_named_book_character(setup):
+    from blueprints.scene import register as register_scene
+
+    manager, reference, _story, chars = setup
+    book_avatar = manager._path(reference.id).parent / "characters" / "amiya" / "avatar" / "a.png"
+    Image.new("RGBA", (2, 2), (255, 0, 0, 255)).save(book_avatar)
+    local_avatar = chars / "amiya" / "avatar" / "a.png"
+
+    assert avatar_color.find_avatar_path("amiya", book_ids=[reference.id]) == str(book_avatar)
+    assert avatar_color.find_avatar_path("amiya", local_only=True) == str(local_avatar)
+
+    app = Flask(__name__)
+    register_scene(app, {
+        "session": SimpleNamespace(get_session=lambda _session_id: None),
+        "document": SimpleNamespace(),
+        "worldbook": manager,
+    })
+    client = app.test_client()
+    local = client.get("/api/characters/amiya/avatar?local_only=1")
+    bound = client.get(f"/api/characters/amiya/avatar?worldbook_id={reference.id}")
+    assert local.status_code == bound.status_code == 200
+    assert local.data == local_avatar.read_bytes()
+    assert bound.data == book_avatar.read_bytes()
+
+
 def test_export_import_recreates_private_character_copy(setup):
     manager, reference, story, chars = setup
     excerpt(manager, reference, story)

@@ -281,13 +281,6 @@ export function useApi() {
 
     getAssetImages: () => request<import("../types").AssetEntityGroupDTO[]>("/api/assets/images"),
     getDataDir: () => request<{ path: string }>("/api/assets/data-dir"),
-    /** 设置实体（资产/卡牌共用）的来源世界书标注（空串 = 清除） */
-    setEntityWorldbook: (category: string, entity: string, worldbookId: string) =>
-      request<{ message: string; worldbook_id: string }>(
-        `/api/assets/${encodeURIComponent(category)}/${encodeURIComponent(entity)}/worldbook`,
-        { method: "PUT", body: JSON.stringify({ worldbook_id: worldbookId }) },
-      ),
-
     uploadAssetImage: async (category: string, file: File, subdir?: string, bookId?: string) => {
       const base = await getBaseUrl();
       const formData = new FormData();
@@ -547,7 +540,7 @@ export function useApi() {
     getCharacters: () => request<any[]>("/api/characters"),
     getCharacter: (id: string, bookId?: string) => request<any>(
       `/api/characters/${encodeURIComponent(id)}` +
-      (bookId ? `?worldbook_id=${encodeURIComponent(bookId)}` : "")),
+      (bookId !== undefined ? `?worldbook_id=${encodeURIComponent(bookId)}` : "")),
     importCharacterCard: (file: File) =>
       uploadMultipart("/api/characters/import", {}, file),
 
@@ -594,17 +587,17 @@ export function useApi() {
 
 
     // ── 卡牌 CRUD ──
-    getCharacterCards: (name: string) =>
-      request<any>(`/api/cards/${encodeURIComponent(name)}`),
-    saveCharacterCards: (name: string, data: Record<string, any>) =>
-      request<any>(`/api/cards/${encodeURIComponent(name)}`, {
+    getCharacterCards: (name: string, bookId?: string) =>
+      request<any>(`/api/cards/${encodeURIComponent(name)}${bookId !== undefined ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""}`),
+    saveCharacterCards: (name: string, data: Record<string, any>, bookId?: string) =>
+      request<any>(`/api/cards/${encodeURIComponent(name)}${bookId !== undefined ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""}`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
-    getClassCards: (className: string) =>
-      request<any>(`/api/cards/classes/${encodeURIComponent(className)}`),
-    saveClassCards: (className: string, data: Record<string, any>) =>
-      request<any>(`/api/cards/classes/${encodeURIComponent(className)}`, {
+    getClassCards: (className: string, bookId?: string) =>
+      request<any>(`/api/cards/classes/${encodeURIComponent(className)}${bookId !== undefined ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""}`),
+    saveClassCards: (className: string, data: Record<string, any>, bookId?: string) =>
+      request<any>(`/api/cards/classes/${encodeURIComponent(className)}${bookId !== undefined ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""}`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
@@ -612,22 +605,22 @@ export function useApi() {
       request<{ characters: string[] }>("/api/cards"),
     getCardsTree: () =>
       request<import("../types").CardsTreeDTO>("/api/cards/tree"),
-    deleteCharacterCard: (name: string, cardId: string) =>
-      request<any>(`/api/cards/${encodeURIComponent(name)}/cards/${encodeURIComponent(cardId)}`, {
+    deleteCharacterCard: (name: string, cardId: string, bookId?: string) =>
+      request<any>(`/api/cards/${encodeURIComponent(name)}/cards/${encodeURIComponent(cardId)}${bookId !== undefined ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""}`, {
         method: "DELETE",
       }),
-    deleteClassCard: (className: string, cardId: string) =>
-      request<any>(`/api/cards/classes/${encodeURIComponent(className)}/cards/${encodeURIComponent(cardId)}`, {
+    deleteClassCard: (className: string, cardId: string, bookId?: string) =>
+      request<any>(`/api/cards/classes/${encodeURIComponent(className)}/cards/${encodeURIComponent(cardId)}${bookId !== undefined ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""}`, {
         method: "DELETE",
       }),
 
     // ── 对话舞台 / 角色数值 / 插件数据（场景面板插件的正式数据接口） ──
     getStage: (sessionId: string, round?: number) =>
       request<import("../types").StageDTO>(`/api/sessions/${sessionId}/stage${round ? `?round=${round}` : ""}`),
-    getCharacterStats: (name: string) =>
-      request<import("../types").CharacterStatsDTO>(`/api/characters/${encodeURIComponent(name)}/stats`),
-    saveCharacterStats: (name: string, values: Record<string, import("../types").StatValue | null>, replace = false) =>
-      request<import("../types").CharacterStatsDTO>(`/api/characters/${encodeURIComponent(name)}/stats`, {
+    getCharacterStats: (name: string, bookId?: string) =>
+      request<import("../types").CharacterStatsDTO>(`/api/characters/${encodeURIComponent(name)}/stats${bookId !== undefined ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""}`),
+    saveCharacterStats: (name: string, values: Record<string, import("../types").StatValue | null>, replace = false, bookId?: string) =>
+      request<import("../types").CharacterStatsDTO>(`/api/characters/${encodeURIComponent(name)}/stats${bookId !== undefined ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""}`, {
         method: "PUT",
         body: JSON.stringify({ values, replace }),
       }),

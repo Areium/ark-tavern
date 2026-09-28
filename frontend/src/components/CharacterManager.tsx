@@ -261,7 +261,7 @@ export default function CharacterManager() {
     }
     let cancelled = false;
     setIdentityLoading(true);
-    api.getCharacter(selectedIdentity, selectedIdentityBookId || undefined)
+    api.getCharacter(selectedIdentity, selectedIdentityBookId)
       .then((d) => {
         if (!cancelled) {
           initDraft(selectedIdentity, d);
@@ -430,7 +430,7 @@ export default function CharacterManager() {
     const attrs: Record<string, number> = meta.attributes || {};
     const tags: string[] = meta.tags || [];
     const summary = String(meta.summary || "").trim();
-    // 来源世界书：角色目录 index.md frontmatter 的 worldbook_id；缺字段 = 未分类
+    // 归属由角色实际所在的世界书文件夹决定。
     const sourceBookId = selectedCharBookId;
     const sourceBookName = sourceBookId
       ? worldbooks.find((b) => b.id === sourceBookId)?.name || sourceBookId
@@ -486,11 +486,11 @@ export default function CharacterManager() {
 
         {charDetailTab === "cards" ? (
           <div className="flex-1 min-h-0 overflow-hidden">
-            <CardEditor key={`char-cards-${selectedChar}`} embedded entityName={selectedChar} entityType="character" />
+            <CardEditor key={`char-cards-${selectedChar}-${sourceBookId}`} embedded entityName={selectedChar} entityType="character" worldbookId={sourceBookId} />
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-            {charDetailTab === "stats" && <CharacterStatsEditor key={`stats-${selectedChar}`} characterId={selectedChar} />}
+            {charDetailTab === "stats" && <CharacterStatsEditor key={`stats-${selectedChar}-${sourceBookId}`} characterId={selectedChar} worldbookId={sourceBookId} />}
             {charDetailTab === "assets" && <CharacterAssets key={`assets-${selectedChar}-${sourceBookId}`} characterId={selectedChar} worldbookId={sourceBookId} />}
             {charDetailTab === "profile" && (
               <>
@@ -559,7 +559,7 @@ export default function CharacterManager() {
           leading={
             <EntityAvatar
               name={headerName}
-              src={!isCreating && selectedIdentity ? characterAvatarUrl(selectedIdentity) : null}
+              src={!isCreating && selectedIdentity ? characterAvatarUrl(selectedIdentity, selectedIdentityBookId) : null}
               size={44}
             />
           }

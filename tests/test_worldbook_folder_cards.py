@@ -69,3 +69,23 @@ def test_folder_cards_binding_editor_and_original_file_writes(tmp_path, monkeypa
     assert client.get("/api/cards/classes/Guard?worldbook_id=second").status_code == 404
     assert client.put("/api/cards/classes/Guard?worldbook_id=second", json={"cards": []}).status_code == 404
     card_json_loader.clear_cache()
+
+
+def test_explicit_personal_cards_do_not_write_same_named_book(tmp_path, monkeypatch):
+    monkeypatch.setattr(data_paths, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(cards_bp, "CHAR_DIR", tmp_path / "data" / "characters")
+    monkeypatch.setattr(cards_bp, "CLASS_DIR", tmp_path / "data" / "classes")
+    book = _book(tmp_path, "owned", "Book")
+    local_card = tmp_path / "data" / "characters" / "Hero" / "combat.json"
+    _write(local_card, {"exclusive_cards": [{"card_id": "x1", "name": "Personal"}]})
+    app = Flask(__name__)
+    cards_bp.register(app, {})
+    client = app.test_client()
+
+    assert client.get("/api/cards/Hero?worldbook_id=").json["exclusive_cards"][0]["name"] == "Personal"
+    assert client.put("/api/cards/Hero?worldbook_id=", json={
+        "exclusive_cards": [{"card_id": "x1", "name": "Edited personal"}]
+    }).status_code == 200
+    assert json.loads(local_card.read_text(encoding="utf-8"))["exclusive_cards"][0]["name"] == "Edited personal"
+    assert json.loads((book / "characters" / "Hero" / "combat.json").read_text(
+        encoding="utf-8"))["exclusive_cards"][0]["name"] == "Book"

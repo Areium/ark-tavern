@@ -23,9 +23,11 @@ def _visible(path: Path) -> bool:
     return is_content_visible(path)
 
 
-def _character_dir(name: str, book_ids: list[str] | None = None) -> Path | None:
+def _character_dir(name: str, book_ids: list[str] | None = None, *, local_only: bool = False) -> Path | None:
     if not name or Path(name).name != name:
         return None
+    if local_only:
+        return _CHARS_ROOT / name
     found = resolve_content(f"characters/{name}", book_ids=book_ids)
     if found is not None:
         return found
@@ -83,9 +85,9 @@ def extract_theme_color(image_path: str | Path) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def _read_index_meta(name: str, book_ids: list[str] | None = None) -> dict:
+def _read_index_meta(name: str, book_ids: list[str] | None = None, *, local_only: bool = False) -> dict:
     """读取角色 index.md 的 frontmatter 元数据。"""
-    root = _character_dir(name, book_ids)
+    root = _character_dir(name, book_ids, local_only=local_only)
     if root is None:
         return {}
     index_path = root / "index.md"
@@ -97,15 +99,15 @@ def _read_index_meta(name: str, book_ids: list[str] | None = None) -> dict:
         return {}
 
 
-def find_avatar_path(name: str, book_ids: list[str] | None = None) -> str | None:
+def find_avatar_path(name: str, book_ids: list[str] | None = None, *, local_only: bool = False) -> str | None:
     """在角色目录下查找默认头像文件。优先读 index.md 的 default_avatar，否则取最短文件名。"""
-    root = _character_dir(name, book_ids)
+    root = _character_dir(name, book_ids, local_only=local_only)
     if root is None:
         return None
     avatar_dir = root / "avatar"
     if not avatar_dir.is_dir() or not _visible(avatar_dir):
         return None
-    meta = _read_index_meta(name, book_ids)
+    meta = _read_index_meta(name, book_ids, local_only=local_only)
     default = meta.get("default_avatar", "").strip()
     if default:
         path = avatar_dir / default
@@ -118,15 +120,15 @@ def find_avatar_path(name: str, book_ids: list[str] | None = None) -> str | None
     return str(avatar_dir / pngs[0]) if pngs else None
 
 
-def find_skin_path(name: str, book_ids: list[str] | None = None) -> str | None:
+def find_skin_path(name: str, book_ids: list[str] | None = None, *, local_only: bool = False) -> str | None:
     """在角色目录下查找默认立绘文件。优先读 index.md 的 default_skin，否则取最短文件名。"""
-    root = _character_dir(name, book_ids)
+    root = _character_dir(name, book_ids, local_only=local_only)
     if root is None:
         return None
     skin_dir = root / "skin"
     if not skin_dir.is_dir() or not _visible(skin_dir):
         return None
-    meta = _read_index_meta(name, book_ids)
+    meta = _read_index_meta(name, book_ids, local_only=local_only)
     default = meta.get("default_skin", "").strip()
     if default:
         path = skin_dir / default
@@ -139,12 +141,12 @@ def find_skin_path(name: str, book_ids: list[str] | None = None) -> str | None:
     return str(skin_dir / pngs[0]) if pngs else None
 
 
-def find_card_face_path(name: str, book_ids: list[str] | None = None) -> str | None:
+def find_card_face_path(name: str, book_ids: list[str] | None = None, *, local_only: bool = False) -> str | None:
     """查找角色卡面文件。优先读 index.md 的 card_face 字段，回退到 skin → avatar。"""
-    meta = _read_index_meta(name, book_ids)
+    meta = _read_index_meta(name, book_ids, local_only=local_only)
     card_face = meta.get("card_face", "").strip()
     if card_face:
-        root = _character_dir(name, book_ids)
+        root = _character_dir(name, book_ids, local_only=local_only)
         if root is None:
             return None
         card_face_dir = root / "card_face"
@@ -152,10 +154,10 @@ def find_card_face_path(name: str, book_ids: list[str] | None = None) -> str | N
             path = card_face_dir / card_face
             if path.is_file() and _visible(path):
                 return str(path)
-    skin = find_skin_path(name, book_ids)
+    skin = find_skin_path(name, book_ids, local_only=local_only)
     if skin:
         return skin
-    return find_avatar_path(name, book_ids)
+    return find_avatar_path(name, book_ids, local_only=local_only)
 
 
 def get_card_face_crop(name: str, book_ids: list[str] | None = None) -> dict | None:

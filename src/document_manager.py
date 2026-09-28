@@ -60,9 +60,7 @@ class DocumentCategory:
 class DocumentInfo:
     """单个文档的信息。
 
-    `worldbook_id` 为「来源世界书」标注（实体文件夹 index.md frontmatter 的
-    `worldbook_id`，与资产/卡牌界面同源）；传统 .md 文档与未标注实体一律为空串，
-    消费方必须把空串当作「未分类」处理，不得据此报错。
+    `worldbook_id` 来自实体实际所在的已安装书文件夹；个人内容为空串。
     """
 
     def __init__(self, category_id: str, doc_id: str, title: str, path: str,
@@ -86,7 +84,7 @@ class DocumentInfo:
             "hash": self.hash,
             "mtime": self.mtime,
             "summary": self.summary,
-            # 来源世界书标注（空串 = 未分类/未标注）；旧数据无此字段时前端按未分类处理
+            # 实际书文件夹 ID；个人内容为空串。
             "worldbook_id": self.worldbook_id,
         }
 
@@ -238,13 +236,10 @@ class DocumentManager:
                     title = d
                     summary = ""
                     worldbook_id = owner or ""
-                    # 实体文件夹总是解析 frontmatter：`worldbook_id`（来源世界书）
-                    # 与 include_content 无关，title/summary 仍只在需要时取用。
+                    # 归属由实际书文件夹决定；frontmatter 只提供展示内容。
                     try:
                         with open(index_md, "r", encoding="utf-8") as fh:
                             data = frontmatter.load(fh)
-                        if not owner:
-                            worldbook_id = str(data.metadata.get("worldbook_id") or "")
                         if include_content:
                             title = data.metadata.get("name", d)
                             summary = data.metadata.get("summary", "")

@@ -48,7 +48,7 @@ def _card_path(base: Path, entity_name: str, filename: str,
             or "/" in entity_name or "\\" in entity_name
             or Path(entity_name).name != entity_name):
         return None
-    if base == CONTENT_ROOT / base.name:
+    if base == CONTENT_ROOT / base.name and worldbook_id != "":
         selected = [worldbook_id] if worldbook_id is not None else None
         try:
             path = resolve_content(f"{base.name}/{entity_name}/{filename}",
@@ -69,15 +69,15 @@ def _card_path(base: Path, entity_name: str, filename: str,
             return None
     except (OSError, ValueError):
         return None
-    return path if is_content_visible(path, content_base=base.parent,
-                                      allowed_book_ids=([worldbook_id] if worldbook_id is not None else None)) else None
+    return path if is_content_visible(path, content_base=base.parent) else None
 
 
 def _card_entries(base: Path, filename: str,
                   worldbook_id: str | None = None) -> list[tuple[str, Path]]:
     selected = [worldbook_id] if worldbook_id is not None else None
     try:
-        roots = (category_roots(base.name, book_ids=selected)
+        roots = ([(None, base)] if worldbook_id == "" else
+                 category_roots(base.name, book_ids=selected)
                  if base == CONTENT_ROOT / base.name else [(None, base)])
         if base == CONTENT_ROOT / base.name and worldbook_id is None:
             roots.append((None, base))
@@ -232,30 +232,17 @@ def register(app, managers):
     def cards_tree():
         """Return tree structure for the card management UI.
 
-        附带 `worldbook_map`（characters/classes → 来源世界书标注，读实体
-        index.md frontmatter 的 `worldbook_id`，未标注为空串）。
+        附带 `worldbook_map`（characters/classes → 实际书文件夹 ID）。
         """
-        import frontmatter
-
         characters = []
         classes = []
         character_class_map = {}
         worldbook_map = {"characters": {}, "classes": {}}
 
-        def _read_worldbook_id(directory: Path) -> str:
-            index_md = directory / "index.md"
-            if not index_md.is_file() or not is_content_visible(
-                    index_md, content_base=directory.parent.parent):
-                return ""
-            try:
-                return str(frontmatter.load(index_md).metadata.get("worldbook_id") or "")
-            except Exception:
-                return ""
-
         selected = request.args.get("worldbook_id")
         for name, owner, path in _card_entries(CHAR_DIR, "combat.json", selected):
             characters.append(name)
-            worldbook_map["characters"][name] = owner or _read_worldbook_id(path.parent)
+            worldbook_map["characters"][name] = owner
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -265,7 +252,7 @@ def register(app, managers):
 
         for name, owner, path in _card_entries(CLASS_DIR, "cards.json", selected):
             classes.append(name)
-            worldbook_map["classes"][name] = owner or _read_worldbook_id(path.parent)
+            worldbook_map["classes"][name] = owner
 
         return jsonify({
             "characters": characters,

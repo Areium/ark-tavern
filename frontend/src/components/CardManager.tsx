@@ -3,8 +3,7 @@
  *
  * 由「角色 → 卡牌」页签挂载（原 DocumentManager 卡牌 Tab 独立成组件）。
  *
- * 来源标注：每个角色/职业条目显示所属世界书（index.md frontmatter 的
- * worldbook_id），详情面板可修改归属。
+ * 每个角色/职业条目显示它实际所在的世界书文件夹。
  *
  * 分组维度两个，并列存在：
  *  - 按类型（默认，原有维度）：角色卡牌 / 职业卡牌两组；
@@ -22,7 +21,7 @@ import CardEditor from "./combat/CardEditor";
 import WorldbookGroupList, { GroupDimensionToggle } from "./WorldbookGroupList";
 import AppIcon from "./AppIcon";
 import {
-  EmptyState, FoldAllButton, PanelHeader, SearchInput, SourceBookBadge, ToolIconButton, WorldbookSelect,
+  EmptyState, FoldAllButton, PanelHeader, SearchInput, SourceBookBadge, ToolIconButton,
 } from "./roles/RoleWidgets";
 import "../styles/roles.css";
 
@@ -92,25 +91,22 @@ export default function CardManager() {
       ? cardsTree?.worldbook_map?.characters?.[name]
       : cardsTree?.worldbook_map?.classes?.[name]) || "";
 
-  /** 修改角色/职业的所属世界书标注 */
-  const handleSetWorldbook = async (type: EntityType, name: string, bookId: string) => {
-    const category = type === "character" ? "characters" : "classes";
+  const openSelectedFolder = async () => {
+    if (!selectedCardEntity || !selectedCardEntityType) return;
+    const bookId = bookOf(selectedCardEntityType, selectedCardEntity);
     try {
-      await apiRef.current.setEntityWorldbook(category, name, bookId);
-      showToast(bookId ? "所属世界书已标注" : "已清除标注");
-      setCardsTree((prev) => {
-        if (!prev?.worldbook_map) return prev;
-        const map = prev.worldbook_map;
-        return {
-          ...prev,
-          worldbook_map: {
-            characters: type === "character" ? { ...map.characters, [name]: bookId } : { ...map.characters },
-            classes: type === "class" ? { ...map.classes, [name]: bookId } : { ...map.classes },
-          },
-        };
-      });
+      const { path } = bookId
+        ? await apiRef.current.getWorldbookDir(bookId)
+        : await apiRef.current.getDataDir();
+      if (window.electronAPI) {
+        const result = await window.electronAPI.openDirectory(path);
+        if (!result.success) throw new Error(result.error || "无法打开文件夹");
+      } else {
+        await navigator.clipboard.writeText(path);
+        showToast("文件夹路径已复制");
+      }
     } catch (err: any) {
-      showToast(err.message || "标注失败", "error");
+      showToast(err.message || "无法打开文件夹", "error");
     }
   };
 
@@ -307,12 +303,8 @@ export default function CardManager() {
               title={selectedCardEntity}
               actions={
                 <>
-                  <span className="text-[12px] text-gray-500">所属世界书</span>
-                  <WorldbookSelect
-                    value={bookOf(selectedCardEntityType, selectedCardEntity)}
-                    worldbooks={worldbooks}
-                    onChange={(id) => handleSetWorldbook(selectedCardEntityType, selectedCardEntity, id)}
-                  />
+                  <span className="text-[12px] text-gray-500">{bookOf(selectedCardEntityType, selectedCardEntity) ? bookName(bookOf(selectedCardEntityType, selectedCardEntity)) : "个人内容"}</span>
+                  <ToolIconButton icon="folder" label="打开所在文件夹" onClick={() => void openSelectedFolder()} />
                   <ToolIconButton
                     icon="close"
                     label="关闭编辑器"
@@ -327,6 +319,7 @@ export default function CardManager() {
                 embedded
                 entityName={selectedCardEntity}
                 entityType={selectedCardEntityType}
+                worldbookId={bookOf(selectedCardEntityType, selectedCardEntity)}
               />
             </div>
           </>

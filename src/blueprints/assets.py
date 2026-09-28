@@ -380,39 +380,6 @@ def register(app, managers):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
-    @bp.route("/api/assets/<category>/<path:entity>/worldbook", methods=["PUT"])
-    def set_entity_worldbook(category, entity):
-        """设置实体的来源世界书标注（写入 index.md frontmatter 的 worldbook_id）。
-
-        body: {worldbook_id: "" | book_id}；空串表示清除标注。
-        资产目录与卡牌界面共用此端点（characters/classes 等含 index.md 的实体均可）。
-        """
-        import os as _os
-        import frontmatter as _fm
-
-        cat = doc_mgr.get_category(category)
-        if not cat:
-            return jsonify({"error": f"未知类别: {category}"}), 404
-
-        index_md = _os.path.join(cat.directory, entity.replace("\\", "/"), "index.md")
-        if not _os.path.isfile(index_md) or _visible_category_path(cat, _os.path.join(entity, "index.md"), project_root=doc_mgr._root) is None:
-            return jsonify({"error": "实体不存在"}), 404
-
-        data = request.json or {}
-        book_id = str(data.get("worldbook_id", "") or "").strip()
-        try:
-            with open(index_md, "r", encoding="utf-8") as f:
-                post = _fm.load(f)
-            if book_id:
-                post.metadata["worldbook_id"] = book_id
-            else:
-                post.metadata.pop("worldbook_id", None)
-            with open(index_md, "w", encoding="utf-8") as f:
-                f.write(_fm.dumps(post))
-            return jsonify({"message": "已更新", "worldbook_id": book_id})
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-
     app.register_blueprint(bp)
 
 
@@ -422,8 +389,7 @@ _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
 def _list_entity_images(doc_mgr, *, book_id=None):
     """递归扫描所有实体文件夹及其子目录下的图片文件。
 
-    每个实体附带上级目录（`category/entity`）与来源世界书
-    （index.md frontmatter 的 `worldbook_id`，未标注为空串）。
+    每个实体附带上级目录（`category/entity`）与实际书文件夹 ID。
     """
     import os
     import frontmatter

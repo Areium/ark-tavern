@@ -46,6 +46,9 @@ def register(app, managers):
         session = _get_session(session_mgr, session_id)
         return session.overlay.get_worldbook_ids() if session else []
 
+    def _local_media_only():
+        return request.args.get("local_only") == "1"
+
     # ══════════════════════════════════════════════════════
     # 角色管理
     # ══════════════════════════════════════════════════════
@@ -393,7 +396,7 @@ def register(app, managers):
         copied = _session_book_media(request.args.get("session_id"), name, "avatar")
         if copied:
             return copied
-        path = find_avatar_path(name, book_ids=_requested_book_ids())
+        path = find_avatar_path(name, book_ids=_requested_book_ids(), local_only=_local_media_only())
         if not path:
             abort(404)
         directory = os.path.dirname(path)
@@ -410,7 +413,7 @@ def register(app, managers):
         copied = _session_book_media(request.args.get("session_id"), name, "skin")
         if copied:
             return copied
-        path = find_skin_path(name, book_ids=_requested_book_ids())
+        path = find_skin_path(name, book_ids=_requested_book_ids(), local_only=_local_media_only())
         if not path:
             abort(404)
         directory = os.path.dirname(path)
@@ -427,7 +430,7 @@ def register(app, managers):
         copied = _session_book_media(request.args.get("session_id"), name, "card_face")
         if copied:
             return copied
-        path = find_card_face_path(name, book_ids=_requested_book_ids())
+        path = find_card_face_path(name, book_ids=_requested_book_ids(), local_only=_local_media_only())
         if not path:
             abort(404)
         directory = os.path.dirname(path)
