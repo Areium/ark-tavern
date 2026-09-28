@@ -33,7 +33,10 @@ class SessionContext:
             return
 
         entry_paths = [f"characters/{name}" for name in character_names]
-        self.preloaded = wiki_manager.resolve_imports_chain(entry_paths, max_depth=1)
+        overlay = getattr(self, "overlay", None)
+        scoped = (wiki_manager.scoped(overlay.get_worldbook_ids())
+                  if overlay is not None else wiki_manager)
+        self.preloaded = scoped.resolve_imports_chain(entry_paths, max_depth=1)
 
         depth0 = sum(1 for d in self.preloaded.values() if d["depth"] == 0)
         depth1 = sum(1 for d in self.preloaded.values() if d["depth"] == 1)

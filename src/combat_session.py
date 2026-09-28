@@ -27,8 +27,10 @@ from combat_engine.card_data import get_starting_deck
 from combat_engine.engine import CombatEngine, CombatEvent
 from combat_data_loader import CombatDataLoader, apply_enemy_overrides
 from combat_rules import band_scaling, difficulty_rules
-from data_paths import CONTENT_ROOT
+import data_paths
+from data_paths import CONTENT_ROOT  # Legacy audit tooling patches this module constant.
 from content_scope import is_content_visible
+from worldbook_content import resolve_content
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +43,11 @@ def _tile_used(battle_map, tile_id: str) -> bool:
 class CombatSession:
     """Server-side combat session wrapping a CombatEngine instance."""
 
-    def __init__(self, session_id: str = ""):
+    def __init__(self, session_id: str = "", *, book_ids: list[str] | None = None):
         self.session_id = session_id
+        self.book_ids = book_ids
         self.engine: CombatEngine | None = None
-        self.loader = CombatDataLoader()
+        self.loader = CombatDataLoader(book_ids=book_ids)
         self.event_queue: queue.Queue[CombatEvent] = queue.Queue()
         self._character_metas: list[dict] = []
         self._encounter_id: str = ""
@@ -142,9 +145,9 @@ class CombatSession:
             # Load cards: use the class engine pool. Character-specific cards in
             # combat.json are narrative cards (0 damage / narrative SP cost), not
             # combat-engine cards — they belong to the story layer, not the engine.
-            cards = get_starting_deck(char_class, count=7)
+            cards = get_starting_deck(char_class, count=7, book_ids=self.book_ids)
             if not cards:
-                cards = get_starting_deck("辅助", count=7)
+                cards = get_starting_deck("辅助", count=7, book_ids=self.book_ids)
                 logger.warning("No card pool for class '%s', using 辅助 fallback", char_class)
 
             self.engine.add_player_unit(unit, cards, player_slots[i])
@@ -230,17 +233,16 @@ class CombatSession:
 
     # ── 落点选择（部署区优先，容错兜底）──
 
-    @staticmethod
-    def _resolve_band_scaling(node: dict) -> tuple[float, float]:
+    def _resolve_band_scaling(self, node: dict) -> tuple[float, float]:
         """节点阶段带的敌人数值倍率：默认不缩放，需显式开启（或改全局默认）。"""
         difficulty = (node or {}).get("difficulty") or {}
         band = str(difficulty.get("band") or "").upper()
         enabled = difficulty.get("apply_band_scaling")
         if enabled is None:
-            enabled = bool(difficulty_rules().get("default_apply_band_scaling", False))
+            enabled = bool(difficulty_rules(book_ids=self.book_ids).get("default_apply_band_scaling", False))
         if not enabled or not band:
             return 1.0, 1.0
-        return band_scaling(band)
+        return band_scaling(band, book_ids=self.book_ids)
 
     def _player_slots(self, count: int) -> list[tuple[int, int]]:
         """玩家落点：优先玩家部署区（按行列顺序），不够时扩展到全图空格。"""
@@ -308,8 +310,15 @@ class CombatSession:
     def _load_character_meta(self, name: str) -> dict | None:
         """Load a character's YAML frontmatter from data/characters/<name>/index.md."""
         import frontmatter
-        path = CONTENT_ROOT / "characters" / name / "index.md"
-        if not path.is_file() or not is_content_visible(path, content_base=CONTENT_ROOT):
+        try:
+            path = resolve_content(f"characters/{name}/index.md", book_ids=self.book_ids)
+        except ValueError:
+            path = None
+        if path is None and CONTENT_ROOT != data_paths.CONTENT_ROOT:
+            fixture_path = CONTENT_ROOT / "characters" / name / "index.md"
+            if fixture_path.is_file() and is_content_visible(fixture_path, content_base=CONTENT_ROOT):
+                path = fixture_path
+        if path is None or not path.is_file():
             logger.warning("Character file not found: %s", path)
             return None
         try:
@@ -767,12 +776,13 @@ class CombatSession:
 
     @classmethod
     def from_suspend_snapshot(cls, data: dict, session_id: str = "",
-                              session_dir: str | None = None) -> "CombatSession":
+                              session_dir: str | None = None,
+                              book_ids: list[str] | None = None) -> "CombatSession":
         """从 `suspend_snapshot()` 重建战斗会话（挂起恢复）。
 
         `session_dir` 非空时覆盖存档内的路径（会话可能被移动/导入到别处）。
         """
-        combat = cls(session_id or data.get("session_id", ""))
+        combat = cls(session_id or data.get("session_id", ""), book_ids=book_ids)
         combat._encounter_id = data.get("encounter_id", "")
         combat._session_dir = session_dir if session_dir is not None else data.get("session_dir", "")
         combat._background_url = data.get("background_url")

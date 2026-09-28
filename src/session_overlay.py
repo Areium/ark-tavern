@@ -22,6 +22,7 @@ from pathlib import Path
 import frontmatter
 from data_paths import PROJECT_ROOT, content_root, memory_root
 from content_scope import is_content_visible
+from worldbook_content import category_roots
 
 logger = logging.getLogger(__name__)
 
@@ -486,7 +487,7 @@ class SessionOverlay:
 
         从 index.md 提取所有「## 章节 N」节，到下一个非章节的「## 」标题为止。
         """
-        result = _read_plot_file(plot_id)
+        result = _read_plot_file(plot_id, self.get_worldbook_ids())
         if result:
             body = result[1]
             ch_match = re.search(r'^## 章节\s+\d+[：:]', body, re.MULTILINE)
@@ -771,7 +772,7 @@ class SessionOverlay:
         plot_name = plot_id
         overview = ""
 
-        result = _read_plot_file(plot_id)
+        result = _read_plot_file(plot_id, self.get_worldbook_ids())
         if result:
             meta, body = result
             plot_name = meta.get("name", plot_id)
@@ -1206,7 +1207,7 @@ class SessionOverlay:
         summary = self._data.get("plot_overview") or ""
         content = ""
         if plot_id:
-            result = _read_plot_file(plot_id)
+            result = _read_plot_file(plot_id, self.get_worldbook_ids())
             if result:
                 meta, _body = result
                 title = meta.get("name", title) or title
@@ -2220,7 +2221,7 @@ class SessionOverlay:
         if "quest_states" not in self._data:
             self._data["quest_states"] = {}
 
-        quests = _parse_quests_md(plot_id)
+        quests = _parse_quests_md(plot_id, self.get_worldbook_ids())
         existing = self._data["quest_states"]
 
         for q in quests:
@@ -2391,35 +2392,46 @@ class SessionOverlay:
             logger.info("已删除会话覆盖数据: %s/%s", mode, session_id)
 
 
-def _resolve_plot_dir(plot_id: str) -> str | None:
-    """通过扫描 data/plots/ 子目录查找指定 plot_id 对应的目录名。"""
-    base = content_root(_PROJECT_ROOT) / "plots"
-    if not base.is_dir():
+def _resolve_plot_path(plot_id: str, book_ids: list[str] | None = None) -> Path | None:
+    """Find a plot in the selected books, retaining their binding order."""
+    if (not isinstance(plot_id, str) or not plot_id or plot_id in (".", "..")
+            or "/" in plot_id or "\\" in plot_id or ":" in plot_id
+            or plot_id.rstrip(" .") != plot_id or "\x00" in plot_id):
         return None
-    if ((base / plot_id / "index.md").is_file()
-            and is_content_visible(base / plot_id / "index.md", project_root=_PROJECT_ROOT)):
-        return plot_id
-    for entry in sorted(base.iterdir()):
-        if entry.is_dir():
+    for _, base in category_roots("plots", book_ids=book_ids,
+                                  project_root=_PROJECT_ROOT):
+        direct = base / plot_id / "index.md"
+        if (direct.is_file() and
+                is_content_visible(direct, project_root=_PROJECT_ROOT,
+                                   allowed_book_ids=book_ids)):
+            return direct.parent
+        for entry in sorted(base.iterdir()):
             md = entry / "index.md"
-            if md.is_file() and is_content_visible(md, project_root=_PROJECT_ROOT):
-                try:
-                    with open(md, "r", encoding="utf-8") as f:
-                        fm = frontmatter.load(f)
-                    if fm.metadata.get("id") == plot_id:
-                        return entry.name
-                except Exception:
-                    continue
+            if not entry.is_dir() or not md.is_file() or not is_content_visible(
+                    md, project_root=_PROJECT_ROOT, allowed_book_ids=book_ids):
+                continue
+            try:
+                with md.open("r", encoding="utf-8") as source:
+                    if frontmatter.load(source).metadata.get("id") == plot_id:
+                        return entry
+            except (OSError, ValueError):
+                continue
     return None
 
 
-def _read_plot_file(plot_id: str) -> tuple[dict, str] | None:
+def _resolve_plot_dir(plot_id: str, book_ids: list[str] | None = None) -> str | None:
+    path = _resolve_plot_path(plot_id, book_ids)
+    return path.name if path is not None else None
+
+
+def _read_plot_file(plot_id: str, book_ids: list[str] | None = None) -> tuple[dict, str] | None:
     """读取 index.md，返回 (frontmatter_metadata, body_text)。"""
-    resolved = _resolve_plot_dir(plot_id)
-    if not resolved:
+    folder = _resolve_plot_path(plot_id, book_ids)
+    if folder is None:
         return None
-    md = content_root(_PROJECT_ROOT) / "plots" / resolved / "index.md"
-    if md.is_file() and is_content_visible(md, project_root=_PROJECT_ROOT):
+    md = folder / "index.md"
+    if md.is_file() and is_content_visible(md, project_root=_PROJECT_ROOT,
+                                           allowed_book_ids=book_ids):
         with open(md, "r", encoding="utf-8") as f:
             post = frontmatter.load(f)
         return (dict(post.metadata), post.content)
@@ -2546,12 +2558,12 @@ def _parse_quests_text(text: str) -> list[dict]:
     return quests
 
 
-def _parse_quests_md(plot_id: str) -> list[dict]:
+def _parse_quests_md(plot_id: str, book_ids: list[str] | None = None) -> list[dict]:
     """解析指定剧情的任务，返回结构化任务列表。
 
     从 index.md 提取「## 任务」节后解析。
     """
-    result = _read_plot_file(plot_id)
+    result = _read_plot_file(plot_id, book_ids)
     if result:
         section = _extract_section(result[1], "任务")
         if section:

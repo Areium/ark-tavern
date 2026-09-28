@@ -298,6 +298,9 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const [pasteJson, setPasteJson] = useState("");
   // 统一检索（迁自原「内容中心」顶栏）：跨世界书条目检索 → 命中选中该书并预填条目筛选
   const [shelfQuery, setShelfQuery] = useState("");
+  const [shelfRefreshing, setShelfRefreshing] = useState(false);
+  const [shelfNotice, setShelfNotice] = useState("");
+  const [shelfError, setShelfError] = useState("");
   const [shelfHits, setShelfHits] = useState<WorldBookSearchHit[]>([]);
   const [shelfSearching, setShelfSearching] = useState(false);
   const [shelfOpen, setShelfOpen] = useState(false);
@@ -367,11 +370,40 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     try {
       const result = await api.listWorldbooks();
       setBooks(result.books);
-      setSelectedId((current) => current || result.books[0]?.id || null);
+      setShelfError("");
+      setSelectedId((current) => result.books.some((book) => book.id === current) ? current : result.books[0]?.id || null);
       const failed = result.inbox?.find((item) => item.status === "error");
       if (failed) setError(`导入目录中的 ${failed.file} 未导入：${failed.error || "文件无效"}`);
-    } catch (reason: any) { setError(reason?.message || "世界书列表加载失败"); }
+      return true;
+    } catch (reason: any) {
+      setShelfError(reason?.message || "世界书列表加载失败，请重试刷新书架");
+      return false;
+    }
   }, [api]);
+
+  const refreshShelf = async () => {
+    if (shelfRefreshing) return;
+    setShelfRefreshing(true); setShelfNotice("");
+    try {
+      if (await loadBooks()) setShelfNotice("书架已刷新，已读取世界书文件夹。");
+    } finally { setShelfRefreshing(false); }
+  };
+
+  const openBooksFolder = async (bookId?: string) => {
+    try {
+      const { path, needs_migration } = await api.getWorldbookDir(bookId);
+      if (window.electronAPI) {
+        const result = await window.electronAPI.openDirectory(path);
+        if (!result.success) throw new Error(result.error || "无法打开文件夹");
+      } else {
+        await navigator.clipboard.writeText(path);
+        setShelfNotice(`文件夹路径已复制：${path}`);
+      }
+      if (needs_migration) setShelfNotice("这本书仍是旧版单文件，请先按 data/README.md 迁移。已打开书架目录。");
+    } catch (reason: any) {
+      setShelfError(reason?.message || "无法打开世界书文件夹");
+    }
+  };
 
   const loadDetail = useCallback(async (bookId: string | null) => {
     const requestId = ++detailRequest.current;
@@ -1446,9 +1478,25 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         <div><span className="wber-eyebrow">LORE LIBRARY</span><h2>世界书</h2></div>
         <div className="wber-head-actions">
           <button ref={createButton} type="button" className="is-primary" onClick={() => { setSamplesOpen(false); setCreateError(""); setCreateOpen(true); }}><AppIcon name="book" size={14} />新建</button>
-          <button type="button" onClick={() => { setSamplesOpen(false); fileInput.current?.click(); }}><AppIcon name="upload" size={14} />导入</button>
+          <button type="button" onClick={() => { setSamplesOpen(false); fileInput.current?.click(); }}><AppIcon name="upload" size={14} />导入文件</button>
         </div>
       </header>
+      <div className="wber-folder-tools">
+        <details className="wber-folder-guide">
+          <summary>用文件夹安装与分享</summary>
+          <p>在应用的数据目录中打开 <code>data/worldbooks/books/</code>，将整本世界书文件夹复制到这里，再刷新书架。</p>
+          <p>每本书的文件夹内应包含 <code>book.json</code> 与书内资源目录。分享时复制整个文件夹，保留原有目录结构。</p>
+          <p>也可使用「导入文件」读取 .arkwb 压缩包或酒馆 JSON。</p>
+        </details>
+        <button type="button" disabled={shelfRefreshing} onClick={() => void refreshShelf()}>
+          <AppIcon name="refresh" size={14} />{shelfRefreshing ? "正在刷新…" : "刷新书架"}
+        </button>
+        <button type="button" onClick={() => void openBooksFolder()}>
+          <AppIcon name="folder" size={14} />打开书架文件夹
+        </button>
+        {shelfNotice && <p className="wber-folder-notice" role="status">{shelfNotice}</p>}
+        {shelfError && <p className="wber-folder-error" role="alert">{shelfError}</p>}
+      </div>
       <button type="button" className="wber-samples-entry" aria-expanded={samplesOpen} aria-controls="worldbook-samples" onClick={() => setSamplesOpen(value => !value)}>
         <AppIcon name="download" size={14} />导入示例世界书
       </button>
@@ -1490,7 +1538,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
             </small></span>
           </button>;
         })}
-        {!visibleBooks.length && <p className="wber-empty">书架还是空的。新建一本，或导入已有世界书。</p>}
+        {!visibleBooks.length && <p className="wber-empty">{books.length ? "当前分类没有世界书，试试「全部」。" : "书架还是空的。复制世界书文件夹后刷新，或新建一本。"}</p>}
       </div>
     </aside>
 
@@ -1584,11 +1632,18 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
                 for (const retry of retryTasks.current.values()) retry();
               }}><AppIcon name="refresh" size={13} />重试</button>}</div>
           </div>
-          <div className="wber-hero-actions"><button type="button" onClick={() => void exportBook()}><AppIcon name="download" size={14} />导出完整包</button>
+          <div className="wber-hero-actions"><details className="wber-folder-guide wber-book-folder">
+            <summary>文件夹位置与分享</summary>
+            <p>在应用数据目录中打开：</p>
+            <code>data/worldbooks/books/{detail.id}/</code>
+            <p>等待修改保存完成后，复制整个文件夹即可分享，包含 book.json 与书内资源。</p>
+            <button type="button" onClick={() => void openBooksFolder(detail.id)}>打开这本书的文件夹</button>
+          </details>
             {!isReference(detail) && <button type="button" onClick={() => setStatFieldsOpen(true)}
               title="定义这本书下角色共用的数值字段（角色页「数值」与对话页场景面板「数值」按它渲染）">
               <AppIcon name="index" size={14} />数值字段{detail.stat_fields?.length ? ` · ${detail.stat_fields.length}` : ""}</button>}
             <details className="wber-more"><summary>更多<AppIcon name="expand" size={14} /></summary><div>
+              <button type="button" onClick={() => void exportBook()}>导出 .arkwb 压缩包（可选）</button>
               <button type="button" onClick={() => void exportLegacyBook()}>导出酒馆 JSON</button>
               {!isReference(detail) && <button type="button" onClick={() => void updateBookOption({ enabled: !detail.enabled })}>{detail.enabled ? "停用整书" : "启用整书"}</button>}
               <button type="button" onClick={() => void updateBookOption({ book_type: isReference(detail) ? "story" : "reference" })}>

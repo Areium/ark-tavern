@@ -882,6 +882,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
                 <BattleNodeForm
                   key={`battle-${drawer.nodeId}`}
                   nodeId={drawer.nodeId}
+                  bookId={bookId}
                   onSaved={() => loadOverview(bookId)}
                   onDeleted={() => {
                     // 底层战斗节点已删 → 同步移除图上引用节点（可撤销）
@@ -898,6 +899,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
                 <StoryBeatEditor
                   key={`story-${drawer.plotId}`}
                   plotId={drawer.plotId}
+                  bookId={bookId}
                   beatId={drawer.beatId}
                   onChanged={() => loadOverview(bookId)}
                   onClose={closeDrawer}

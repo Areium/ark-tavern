@@ -19,6 +19,7 @@ const CATEGORIES = ["story", "test", "event"];
 
 interface Props {
   nodeId: string;
+  bookId?: string | null;
   onSaved?: (nodeId: string) => void;
   onDeleted?: (nodeId: string) => void;
   onClose?: () => void;
@@ -65,7 +66,7 @@ function cellsToZone(cells: [number, number][]) {
     : { cells };
 }
 
-export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: Props) {
+export default function BattleNodeForm({ nodeId, bookId, onSaved, onDeleted, onClose }: Props) {
   const api = useApi();
   const { setCombatContext, setCurrentView } = useAppStore();
 
@@ -98,7 +99,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
     if (!id) return;
     setBusy(true);
     try {
-      const res = await api.getCombatNode(id);
+      const res = await api.getCombatNode(id, bookId || undefined);
       const fresh = {
         ...res.node,
         map: {
@@ -117,7 +118,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
     } finally {
       setBusy(false);
     }
-  }, [api]);
+  }, [api, bookId]);
 
   useEffect(() => { setNode(null); loadNode(nodeId); }, [nodeId, loadNode]);
 
@@ -218,7 +219,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
     setBusy(true);
     setError(null);
     try {
-      const res = await api.saveCombatNode(node.node_id, node);
+      const res = await api.saveCombatNode(node.node_id, node, bookId || undefined);
       const fresh = { ...res.node,
         map: { ...res.node.map,
           tiles: normalizeTiles(res.node.map, res.node.map?.rows ?? 7, res.node.map?.cols ?? 7) } } as BattleNodeDTO;
@@ -237,17 +238,17 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
     } finally {
       setBusy(false);
     }
-  }, [api, node, onSaved]);
+  }, [api, bookId, node, onSaved]);
 
   const removeNode = useCallback(async () => {
     if (!node) return;
     setBusy(true);
     try {
-      await api.deleteCombatNode(node.node_id);
+      await api.deleteCombatNode(node.node_id, false, bookId || undefined);
       onDeleted?.(node.node_id);
     } catch (e: any) {
       if (e?.status === 409 && window.confirm(`${e.message}\n\n仍要强制删除吗？`)) {
-        await api.deleteCombatNode(node.node_id, true);
+        await api.deleteCombatNode(node.node_id, true, bookId || undefined);
         onDeleted?.(node.node_id);
       } else {
         setError(e.message || "删除失败");
@@ -255,7 +256,7 @@ export default function BattleNodeForm({ nodeId, onSaved, onDeleted, onClose }: 
     } finally {
       setBusy(false);
     }
-  }, [api, node, onDeleted]);
+  }, [api, bookId, node, onDeleted]);
 
   const tryBattle = useCallback(async () => {
     if (!node) return;

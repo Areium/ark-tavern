@@ -12,6 +12,7 @@ import frontmatter
 from PIL import Image, UnidentifiedImageError
 
 from data_paths import CONTENT_ROOT
+from worldbook_content import book_directory, resolve_content
 
 
 MEDIA_KINDS = ("avatar", "skin", "card_face")
@@ -24,14 +25,20 @@ MAX_PROFILE_BYTES = 2 * 1024 * 1024
 MAX_BOOK_PROFILE_BYTES = 16 * 1024 * 1024
 
 
-def _character_root(character_id: str) -> Path | None:
+def _character_root(character_id: str, book_id: str | None = None,
+                    book_folder: Path | None = None) -> Path | None:
     if (not character_id or character_id in (".", "..")
             or Path(character_id).name != character_id
             or "/" in character_id or "\\" in character_id
             or any(c in character_id for c in '<>:"|?*\x00')
             or character_id.endswith((".", " "))):
         return None
-    base = (CONTENT_ROOT / "characters").resolve()
+    if book_id is not None:
+        base = (Path(book_folder) if book_folder is not None else book_directory(book_id)) / "characters"
+    else:
+        found = resolve_content(f"characters/{character_id}")
+        base = found.parent if found is not None else CONTENT_ROOT / "characters"
+    base = base.resolve()
     path = base / character_id
     if path.is_symlink():
         return None
@@ -39,8 +46,8 @@ def _character_root(character_id: str) -> Path | None:
     return resolved if resolved.is_relative_to(base) else None
 
 
-def snapshot_character_profile(character_id: str) -> str | None:
-    root = _character_root(character_id)
+def snapshot_character_profile(character_id: str, book_id: str | None = None) -> str | None:
+    root = _character_root(character_id, book_id)
     if root is None:
         return None
     path = root / "index.md"
@@ -50,7 +57,7 @@ def snapshot_character_profile(character_id: str) -> str | None:
 
 
 def copied_character_id(character_id: str, book_id: str) -> str:
-    root = _character_root(character_id)
+    root = _character_root(character_id, book_id)
     if root is None:
         raise ValueError("角色 ID 不能用于复制资源")
     base = re.sub(r"__wb_[a-f0-9]{12}$", "", character_id)
@@ -59,13 +66,14 @@ def copied_character_id(character_id: str, book_id: str) -> str:
     return f"{base}__wb_{book_id}"
 
 
-def owned_materialized_character_root(character_id: str, book_id: str) -> Path | None:
+def owned_materialized_character_root(character_id: str, book_id: str,
+                                      book_folder: Path | None = None) -> Path | None:
     """Return only an imported character copy provably owned by this book."""
     if not re.fullmatch(r"[a-f0-9]{12}", book_id):
         return None
     if not character_id.endswith(f"__wb_{book_id}"):
         return None
-    root = _character_root(character_id)
+    root = _character_root(character_id, book_id, book_folder)
     if root is None or not root.is_dir() or root.is_symlink():
         return None
     profile = root / "index.md"
@@ -79,13 +87,13 @@ def owned_materialized_character_root(character_id: str, book_id: str) -> Path |
 
 
 def materialize_character(character_id: str, book_id: str, profile: str,
-                          media: dict[str, str]) -> Path:
-    """Create a private global character copy used by existing role systems.
+                          media: dict[str, str], *, book_folder: Path | None = None) -> Path:
+    """Create a private character copy inside its owning worldbook folder.
 
     Returns its path only when newly created, so callers can roll it back if
     the worldbook save fails. An existing copy is never overwritten.
     """
-    root = _character_root(character_id)
+    root = _character_root(character_id, book_id, book_folder)
     if root is None or not isinstance(profile, str):
         raise ValueError("复制的角色资料无效")
     if len(profile.encode("utf-8")) > MAX_PROFILE_BYTES:
@@ -182,9 +190,9 @@ def normalize_character_profiles(value) -> dict[str, str]:
     return result
 
 
-def snapshot_character_media(character_id: str) -> dict[str, str]:
+def snapshot_character_media(character_id: str, book_id: str | None = None) -> dict[str, str]:
     """Copy the character's current default images into a self-contained book."""
-    root = _character_root(character_id)
+    root = _character_root(character_id, book_id)
     if root is None:
         return {}
     from avatar_color import find_avatar_path, find_skin_path, find_card_face_path
@@ -194,7 +202,7 @@ def snapshot_character_media(character_id: str) -> dict[str, str]:
     result = {}
     captured_paths = set()
     for kind, finder in finders.items():
-        found = finder(character_id)
+        found = finder(character_id, book_ids=[book_id] if book_id is not None else None)
         if not found:
             continue
         path = Path(found).resolve()

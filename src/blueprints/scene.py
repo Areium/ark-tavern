@@ -31,6 +31,13 @@ def register(app, managers):
 
     bp = Blueprint("scene", __name__)
 
+    def _requested_book_ids():
+        session_id = request.args.get("session_id")
+        if not session_id:
+            return None
+        session = _get_session(session_mgr, session_id)
+        return session.overlay.get_worldbook_ids() if session else []
+
     # ══════════════════════════════════════════════════════
     # 角色管理
     # ══════════════════════════════════════════════════════
@@ -52,7 +59,7 @@ def register(app, managers):
             "active": session.scene_manager.active,
             "character_colors": {
                 name: c for name in session.scene_manager.get_roster()
-                if (c := get_theme_color(name))
+                if (c := get_theme_color(name, book_ids=session.overlay.get_worldbook_ids()))
             },
         })
 
@@ -68,7 +75,7 @@ def register(app, managers):
             return json_error("需要 character 参数")
 
         # 自动提取主题色（仅在缺少时）
-        ensure_theme_color(name)
+        ensure_theme_color(name, book_ids=session.overlay.get_worldbook_ids())
 
         ok = session.scene_manager.load_character(name)
         if not ok:
@@ -376,7 +383,7 @@ def register(app, managers):
         copied = _session_book_media(request.args.get("session_id"), name, "avatar")
         if copied:
             return copied
-        path = find_avatar_path(name)
+        path = find_avatar_path(name, book_ids=_requested_book_ids())
         if not path:
             abort(404)
         directory = os.path.dirname(path)
@@ -393,7 +400,7 @@ def register(app, managers):
         copied = _session_book_media(request.args.get("session_id"), name, "skin")
         if copied:
             return copied
-        path = find_skin_path(name)
+        path = find_skin_path(name, book_ids=_requested_book_ids())
         if not path:
             abort(404)
         directory = os.path.dirname(path)
@@ -410,7 +417,7 @@ def register(app, managers):
         copied = _session_book_media(request.args.get("session_id"), name, "card_face")
         if copied:
             return copied
-        path = find_card_face_path(name)
+        path = find_card_face_path(name, book_ids=_requested_book_ids())
         if not path:
             abort(404)
         directory = os.path.dirname(path)

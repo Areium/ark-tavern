@@ -2,6 +2,7 @@
 
 import io
 import json
+import shutil
 import sys
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -23,20 +24,18 @@ def _write(path: Path, data: bytes) -> None:
 
 
 def test_complete_bundle_round_trip_and_visibility(tmp_path):
-    source = tmp_path / "source" / "worldbooks"
+    source = tmp_path / "source" / "data" / "worldbooks"
     manager = WorldBookManager(source)
     book = manager.create_book("可搬运的世界")
-    common = source / "content" / "combat" / "nodes" / "fight.json"
-    private = source / "content" / "characters" / "Hero" / "avatar" / "hero.png"
+    folder = manager._path(book.id).parent
+    common = folder / "combat" / "nodes" / "fight.json"
+    private = folder / "characters" / "Hero" / "avatar" / "hero.png"
     _write(common, b'{"node_id":"fight"}')
     _write(private, b"image bytes")
     _write(private.parent.parent / "index.md",
            f"---\nworldbook_id: {book.id}\n---\nHero\n".encode())
-    _write(source / "content" / "world" / "setting.md",
+    _write(folder / "world" / "setting.md",
            f"---\nworldbook_id: {book.id}\n---\nSetting\n".encode())
-    (source / "content_manifest.json").write_text(json.dumps({
-        "directories": {}, "files": {"combat/nodes/fight.json": [book.id]},
-    }), encoding="utf-8")
 
     archive, manifest = manager.export_bundle(book.id)
     assert archive.is_file()
@@ -48,41 +47,38 @@ def test_complete_bundle_round_trip_and_visibility(tmp_path):
         book_data = zipped.read("book.json")
         assert json.loads(book_data)["id"] == book.id
 
-    target = tmp_path / "target" / "worldbooks"
+    target = tmp_path / "target" / "data" / "worldbooks"
     installed = WorldBookManager(target).install_bundle_file(archive)
     assert installed.id == book.id
-    assert (target / "books" / f"{book.id}.json").is_file()
-    assert (target / "content" / "combat" / "nodes" / "fight.json").read_bytes() == common.read_bytes()
-    actor = target / "content" / "characters" / "Hero" / "index.md"
+    installed_folder = target / "books" / book.id
+    assert (installed_folder / "book.json").is_file()
+    assert (installed_folder / "combat" / "nodes" / "fight.json").read_bytes() == common.read_bytes()
+    actor = installed_folder / "characters" / "Hero" / "index.md"
     target_manager = WorldBookManager(target)
-    assert is_content_visible(actor, content_base=target / "content")
+    assert is_content_visible(actor, project_root=target.parent.parent)
     installed.enabled = False
     target_manager.save(installed)
-    assert not is_content_visible(actor, content_base=target / "content")
+    assert not is_content_visible(actor, project_root=target.parent.parent)
     target_manager.delete_book(book.id)
-    assert not is_content_visible(actor, content_base=target / "content")
-    # A later, unrelated book using the same ID must not inherit old assets.
-    _write(target / "books" / f"{book.id}.json", book_data)
-    assert not is_content_visible(actor, content_base=target / "content")
+    assert not actor.exists()
+    # A later metadata-only copy cannot inherit resources from the old folder.
+    _write(installed_folder / "book.json", book_data)
+    assert not actor.exists()
 
 
-def test_bundle_conflict_preserves_existing_files(tmp_path):
+def test_bundle_uses_own_folder_without_touching_shared_files(tmp_path):
     source = tmp_path / "source" / "worldbooks"
     manager = WorldBookManager(source)
     book = manager.create_book("冲突测试")
     relative = Path("world") / "story.md"
-    _write(source / "content" / relative, b"source")
-    (source / "content_manifest.json").write_text(json.dumps({
-        "directories": {}, "files": {relative.as_posix(): [book.id]},
-    }), encoding="utf-8")
+    _write(manager._path(book.id).parent / relative, b"source")
     archive, _ = manager.export_bundle(book.id)
     target = tmp_path / "target" / "worldbooks"
     existing = target / "content" / relative
     _write(existing, b"different")
-    with pytest.raises(FileExistsError):
-        WorldBookManager(target).install_bundle_file(archive)
+    WorldBookManager(target).install_bundle_file(archive)
     assert existing.read_bytes() == b"different"
-    assert not (target / "books" / f"{book.id}.json").exists()
+    assert (target / "books" / book.id / relative).read_bytes() == b"source"
     assert not (target / "local_content_manifest.json").exists()
 
 
@@ -90,11 +86,12 @@ def test_inbox_imports_once_and_legacy_books_migrate(tmp_path):
     root = tmp_path / "worldbooks"
     manager = WorldBookManager(root)
     native = manager.create_book("旧书")
-    current = root / "books" / f"{native.id}.json"
+    current = manager._path(native.id)
     legacy = root / f"{native.id}.json"
     current.replace(legacy)
+    current.parent.rmdir()
     assert manager.migrate_legacy_books() == [native.id]
-    assert current.is_file() and not legacy.exists()
+    assert current.is_file() and legacy.exists()
 
     inbox = root / "inbox" / "copied.json"
     inbox.write_text(json.dumps({"entries": {"0": {
@@ -114,7 +111,7 @@ def test_inbox_native_json_preserves_book_identity_and_metadata(tmp_path):
     target_root = tmp_path / "target"
     target = WorldBookManager(target_root)
     inbox = target_root / "inbox" / "copied.json"
-    inbox.write_bytes((tmp_path / "source" / "books" / f"{original.id}.json").read_bytes())
+    inbox.write_bytes(source._path(original.id).read_bytes())
 
     target.list_books()
 
@@ -128,12 +125,14 @@ def test_layout_migration_keeps_unsupported_book_and_moves_valid_one(tmp_path):
     root = tmp_path / "worldbooks"
     manager = WorldBookManager(root)
     valid = manager.create_book("可迁移")
-    (root / "books" / f"{valid.id}.json").replace(root / f"{valid.id}.json")
+    manager._path(valid.id).replace(root / f"{valid.id}.json")
+    manager._path(valid.id).parent.rmdir()
     unsupported = root / "unsupported.json"
     unsupported.write_text(json.dumps({"id": "unsupported", "entries": []}), encoding="utf-8")
 
     assert manager.migrate_legacy_books() == [valid.id]
-    assert (root / "books" / f"{valid.id}.json").exists()
+    assert manager._path(valid.id).exists()
+    assert (root / f"{valid.id}.json").exists()
     assert unsupported.exists()
 
 
@@ -174,6 +173,9 @@ def test_local_owner_makes_distributed_parent_directory_visible(tmp_path):
     root = tmp_path / "worldbooks"
     manager = WorldBookManager(root)
     book = manager.create_book("复制的角色")
+    flat = root / "books" / f"{book.id}.json"
+    manager._path(book.id).replace(flat)
+    manager._path(book.id).parent.rmdir()
     actor = root / "content" / "characters" / "Hero" / "index.md"
     _write(actor, b"# Hero")
     (root / "content_manifest.json").write_text(json.dumps({
@@ -193,11 +195,11 @@ def test_delete_removes_both_current_and_legacy_copy(tmp_path):
     root = tmp_path / "worldbooks"
     manager = WorldBookManager(root)
     book = manager.create_book("双路径")
-    current = root / "books" / f"{book.id}.json"
+    current = manager._path(book.id)
     legacy = root / f"{book.id}.json"
     legacy.write_bytes(current.read_bytes())
     assert manager.delete_book(book.id)
-    assert not current.exists() and not legacy.exists()
+    assert not current.parent.exists() and not legacy.exists()
     assert WorldBookManager(root).list_books() == []
 
 
@@ -233,17 +235,15 @@ def test_parallel_installs_keep_both_owners(tmp_path):
         maker = WorldBookManager(source)
         book = maker.create_book(f"并行 {index}")
         key = f"world/{index}.md"
-        _write(source / "content" / key, b"# story")
-        (source / "content_manifest.json").write_text(json.dumps({
-            "directories": {}, "files": {key: [book.id]},
-        }), encoding="utf-8")
+        _write(maker._path(book.id).parent / key, b"# story")
         archives.append((book.id, maker.export_bundle(book.id)[0]))
     target = tmp_path / "target" / "worldbooks"
     with ThreadPoolExecutor(max_workers=2) as pool:
         installed = list(pool.map(lambda item: WorldBookManager(target).install_bundle_file(item[1]), archives))
     assert {book.id for book in installed} == {item[0] for item in archives}
-    owners = json.loads((target / "local_content_manifest.json").read_text(encoding="utf-8"))["files"]
-    assert len(owners) == 2
+    for book_id, _ in archives:
+        assert (target / "books" / book_id / "book.json").exists()
+    assert sorted(p.name for p in (target / "books").iterdir()) == sorted(book_id for book_id, _ in archives)
 
 
 def test_large_book_and_unmanifested_story_resource_round_trip(tmp_path):
@@ -252,7 +252,7 @@ def test_large_book_and_unmanifested_story_resource_round_trip(tmp_path):
     book = maker.create_book("大容量世界书")
     book.description = "剧情" * (9 * 1024 * 1024)
     maker.save(book)
-    story = source / "content" / "plots" / "large.json"
+    story = maker._path(book.id).parent / "plots" / "large.json"
     _write(story, json.dumps({
         "worldbook_id": book.id, "text": "剧情" * (9 * 1024 * 1024),
     }, ensure_ascii=False).encode("utf-8"))
@@ -262,7 +262,7 @@ def test_large_book_and_unmanifested_story_resource_round_trip(tmp_path):
     target = tmp_path / "target" / "worldbooks"
     installed = WorldBookManager(target).install_bundle_file(archive)
     assert installed.description == book.description
-    assert (target / "content" / "plots" / "large.json").read_bytes() == story.read_bytes()
+    assert (target / "books" / book.id / "plots" / "large.json").read_bytes() == story.read_bytes()
 
 
 def test_download_uses_immutable_snapshot_during_later_export(tmp_path):

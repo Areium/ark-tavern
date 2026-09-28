@@ -19,8 +19,9 @@ import logging
 
 import yaml
 import frontmatter
-from data_paths import categories_path, data_root
+from data_paths import categories_path, content_root, data_root
 from content_scope import is_content_visible
+from worldbook_content import category_roots
 
 logger = logging.getLogger(__name__)
 
@@ -28,27 +29,40 @@ from constants import CORE_SECTIONS, ATTR_ENG_TO_CN
 
 
 class WikiManager:
-    def __init__(self, project_root: str = None):
+    def __init__(self, project_root: str = None, *, book_ids=None):
         if project_root is None:
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self._root = project_root
+        # None is the global bookshelf; an empty binding sees no documents.
+        self._book_ids = tuple(dict.fromkeys(book_ids)) if book_ids is not None else None
         # "category/id" → {category, id, name, summary, path, imports: [str]}
         self._catalog: dict[str, dict] = {}
         # {category: [id, ...]}
         self._by_category: dict[str, list[str]] = {}
+        self._scoped_cache: dict[tuple[str, ...], "WikiManager"] = {}
         self._build_catalog()
 
     def refresh(self):
         """重建全量目录索引（文档增删后调用）。"""
         self._catalog.clear()
         self._by_category.clear()
+        self._scoped_cache.clear()
         self._build_catalog()
         logger.info("WikiManager: 目录已刷新，共 %d 个文档", len(self._catalog))
+
+    def scoped(self, book_ids):
+        """Build an independent catalog for an ordered session worldbook binding."""
+        key = tuple(dict.fromkeys(book_ids))
+        if key not in self._scoped_cache:
+            self._scoped_cache[key] = WikiManager(self._root, book_ids=key)
+        return self._scoped_cache[key]
 
     # ── 目录构建 ──
 
     def _build_catalog(self):
         """扫描 categories.yaml 所有类别，解析 frontmatter 构建全量索引。"""
+        if self._book_ids == ():
+            return
         yaml_path = categories_path(self._root)
         if not os.path.isfile(yaml_path):
             logger.warning("categories.yaml 未找到: %s", yaml_path)
@@ -65,56 +79,47 @@ class WikiManager:
                 full_dir = os.path.join(self._root, dir_rel)
             else:
                 full_dir = os.path.join(data_root(self._root), dir_rel)
-            if os.path.isdir(full_dir):
+            content_base = os.path.abspath(content_root(self._root))
+            full_dir = os.path.abspath(full_dir)
+            relative = os.path.relpath(full_dir, content_base).replace("\\", "/")
+            roots = category_roots(relative, book_ids=self._book_ids,
+                                   project_root=self._root) if (
+                relative not in (".", "..") and not relative.startswith("../")) else []
+            scanned = set()
+            for _, root in roots:
+                self._scan_category(cat_name, str(root))
+                scanned.add(os.path.abspath(root))
+            if self._book_ids is None and os.path.isdir(full_dir) and full_dir not in scanned:
                 self._scan_category(cat_name, full_dir)
 
         total = len(self._catalog)
         logger.info("WikiManager: 已索引 %d 个文档, %d 个类别", total, len(self._by_category))
 
     def _scan_category(self, cat_name: str, dir_path: str):
-        """扫描一个类别目录，提取所有实体文档。
-
-        支持两层嵌套：Region/Location/index.md → category/Region/Location。
-        """
-        ids = []
-
-        for item in sorted(os.listdir(dir_path)):
-            item_path = os.path.join(dir_path, item)
-            if not os.path.isdir(item_path) or not is_content_visible(item_path, project_root=self._root):
-                continue
-
-            # 实体文件夹 (item/index.md) — 一级
-            index_md = os.path.join(item_path, "index.md")
-            if os.path.isfile(index_md) and is_content_visible(index_md, project_root=self._root):
-                entry = self._parse_doc(cat_name, item, index_md)
-                if entry:
-                    self._catalog[f"{cat_name}/{item}"] = entry
-                    ids.append(item)
-                continue
-
-            # 没有 index.md 但有子目录 → 递归扫描二级 (Region/Location/index.md)
-            for sub_item in sorted(os.listdir(item_path)):
-                sub_path = os.path.join(item_path, sub_item)
-                if not os.path.isdir(sub_path) or not is_content_visible(sub_path, project_root=self._root):
+        """Index Markdown files beneath one category, retaining the first book's ID."""
+        ids = self._by_category.setdefault(cat_name, [])
+        excluded = {"_index", "_INDEX", "README", "TEMPLATE"}
+        entities = []
+        files_found = []
+        for root, dirs, files in os.walk(dir_path):
+            dirs[:] = sorted(d for d in dirs if is_content_visible(
+                os.path.join(root, d), project_root=self._root))
+            for filename in sorted(files):
+                if not filename.endswith(".md"):
                     continue
-                sub_index = os.path.join(sub_path, "index.md")
-                if os.path.isfile(sub_index) and is_content_visible(sub_index, project_root=self._root):
-                    combined_id = f"{item}/{sub_item}"
-                    entry = self._parse_doc(cat_name, combined_id, sub_index)
-                    if entry:
-                        self._catalog[f"{cat_name}/{combined_id}"] = entry
-                        ids.append(combined_id)
-
-        # 传统 .md 文件 (item.md)
-        for fn in sorted(os.listdir(dir_path)):
-            if not fn.endswith(".md"):
-                continue
-            if fn in ("_index.md", "_INDEX.md", "README.md", "TEMPLATE.md"):
-                continue
-            filepath = os.path.join(dir_path, fn)
-            if not os.path.isfile(filepath) or not is_content_visible(filepath, project_root=self._root):
-                continue
-            doc_id = os.path.splitext(fn)[0]
+                stem = os.path.splitext(filename)[0]
+                if stem in excluded or (stem == "index" and root == dir_path):
+                    continue
+                filepath = os.path.join(root, filename)
+                if not is_content_visible(filepath, project_root=self._root):
+                    continue
+                relative = os.path.relpath(root, dir_path).replace("\\", "/")
+                if stem == "index":
+                    doc_id = relative
+                else:
+                    doc_id = stem if relative == "." else f"{relative}/{stem}"
+                (entities if stem == "index" else files_found).append((doc_id, filepath))
+        for doc_id, filepath in entities + files_found:
             path_key = f"{cat_name}/{doc_id}"
             if path_key in self._catalog:
                 continue
@@ -122,9 +127,8 @@ class WikiManager:
             if entry:
                 self._catalog[path_key] = entry
                 ids.append(doc_id)
-
-        if ids:
-            self._by_category[cat_name] = ids
+        if not ids:
+            self._by_category.pop(cat_name, None)
 
     def _parse_doc(self, category: str, doc_id: str, filepath: str) -> dict | None:
         """解析单个文档的 frontmatter，返回 catalog entry。"""

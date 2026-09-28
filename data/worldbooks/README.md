@@ -1,14 +1,13 @@
-# 世界书内容目录
+# 世界书文件夹
 
-`books/` 中每本已安装世界书对应一个 `<book_id>.json`；`content/` 保存角色、剧情、
-战斗和配套资源；`packs/` 保存可选的离线内容包。
-`content_manifest.json` 记录仓库分发资源归属。内容包须显式安装；停用或删除后，
-它独占的内容不再通过运行时目录和素材接口提供。分发源保留以供再次安装。
-`local_content_manifest.json` 记录从完整包导入的资源归属。
+每本已安装书放在 `books/<书 ID>/`，其中 `book.json` 保存世界书条目和设置，
+`characters/`、`plots/`、`combat/`、`audio/` 等目录保存该书自己的资源。
+复制整个文件夹即可带走书和资源；把完整文件夹复制到 `books/` 后刷新书架即可导入。
+文件夹名须与 `book.json` 内的 `id` 一致，已有同 ID 的书不会被覆盖。
 
-完整复制：工作台「导出完整包」生成 `.arkwb`，下载之外也保存在 `exports/`。
-直接导入：把 `.arkwb` 或酒馆 `.json` / `.jsonl` 复制到 `inbox/` 后刷新书架；
-文件会保留，处理记录防止重复导入。完整包会校验资源且不覆盖不同内容的同名文件。
-符合当前 schema 的旧根目录书 JSON 仍可读，用 `scripts/migrate_worldbook_layout.py` 迁移到 `books/`；不兼容副本先在示例页备份并修复。
-`books/`、`inbox/`、`exports/`、设置和恢复备份均是本地数据，不纳入 Git。
-完整目录、管理边界及升级命令见 [data/README.md](../README.md)。
+也可把完整书文件夹复制到 `inbox/`，刷新书架后由应用复制安装。
+酒馆 `.json` / `.jsonl` 导入和 `.arkwb` 兼容导入仍放在 `inbox/`。
+酒馆 JSON 通常只有条目，不包含独立图片、音乐、剧情和战斗文件。
+
+`content/` 是旧版共享资源目录；旧书 JSON 仍可读取。迁移步骤及目录示例见
+[data/README.md](../README.md)。迁移会复制旧书及归属资源，保留原文件。

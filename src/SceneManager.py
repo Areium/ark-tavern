@@ -1103,7 +1103,8 @@ branch 非 null 时格式：
         player_profile_text = ""
         try:
             from player_profile import load_player_profile
-            player_profile = load_player_profile(identity)
+            player_profile = load_player_profile(
+                identity, self._overlay.get_worldbook_ids() if self._overlay else None)
             if player_profile:
                 player_profile_text = f"<player_profile>\n{player_profile}\n</player_profile>"
         except Exception:
@@ -1180,7 +1181,9 @@ branch 非 null 时格式：
         # 内置文档目录只在非自定义世界书下注入，避免把方舟角色/地点/势力
         # 泄漏到用户导入的第三方世界观中。
         if self._wiki_manager and not self._is_custom_worldbook(worldbook):
-            catalog = self._wiki_manager.format_catalog_summary(
+            wiki = (self._wiki_manager.scoped(self._overlay.get_worldbook_ids())
+                    if self._overlay is not None else self._wiki_manager)
+            catalog = wiki.format_catalog_summary(
                 self._wiki_manager.NARRATIVE_CATALOG_CATS
             )
             if catalog:

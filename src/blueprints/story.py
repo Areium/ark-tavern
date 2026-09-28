@@ -64,7 +64,7 @@ def register(app, managers):
         book = wb_mgr.load(book_id)
         if book is None:
             return json_error("世界书不存在", 404)
-        result = _read_plot_file(plot_id)
+        result = _read_plot_file(plot_id, [book_id])
         if not result:
             return json_error(f"剧情不存在: {plot_id}", 404)
         meta, body = result

@@ -14,12 +14,14 @@ import logging
 
 from data_paths import CONTENT_ROOT
 from content_scope import is_content_visible
+from worldbook_content import resolve_content
 
 logger = logging.getLogger(__name__)
 
 # 放在 content/combat/rules/（引擎数据），不是 content/rules/（叙事规则文档目录）
 RULES_DIR = CONTENT_ROOT / "combat" / "rules"
 _DEFAULT_RULES_DIR = RULES_DIR
+_CANONICAL_RULES_DIR = RULES_DIR
 
 DEFAULT_GROWTH: dict = {
     "attribute_points_per_level": 1,
@@ -47,18 +49,25 @@ DEFAULT_DIFFICULTY: dict = {
 _cache: dict[str, tuple[float, dict]] = {}
 
 
-def _load(name: str, defaults: dict) -> dict:
-    path = RULES_DIR / f"{name}.json"
+def _load(name: str, defaults: dict, *, book_id: str | None = None,
+          book_ids: list[str] | None = None) -> dict:
+    if book_id is not None and book_ids is not None:
+        raise ValueError("Specify book_id or book_ids")
+    selected = [book_id] if book_id is not None else book_ids
+    path = (resolve_content(f"combat/rules/{name}.json", book_ids=selected)
+            if RULES_DIR == _CANONICAL_RULES_DIR else RULES_DIR / f"{name}.json")
+    if path is None:
+        return dict(defaults)
     # Pack rules are optional content. Keep an explicit test/custom rules dir usable.
-    if RULES_DIR == _DEFAULT_RULES_DIR and not is_content_visible(path):
-        _cache.pop(name, None)
+    if RULES_DIR == _DEFAULT_RULES_DIR and path.is_relative_to(RULES_DIR) and not is_content_visible(path):
         return dict(defaults)
     try:
         mtime = path.stat().st_mtime
     except OSError:
         return dict(defaults)
 
-    cached = _cache.get(name)
+    cache_key = str(path)
+    cached = _cache.get(cache_key)
     if cached and cached[0] == mtime:
         return cached[1]
 
@@ -71,29 +80,31 @@ def _load(name: str, defaults: dict) -> dict:
         return dict(defaults)
 
     merged = {**defaults, **data}
-    _cache[name] = (mtime, merged)
+    _cache[cache_key] = (mtime, merged)
     return merged
 
 
-def growth_rules() -> dict:
+def growth_rules(*, book_id: str | None = None,
+                 book_ids: list[str] | None = None) -> dict:
     """升级成长规则（`data/combat/rules/growth.json`）。"""
-    return _load("growth", DEFAULT_GROWTH)
+    return _load("growth", DEFAULT_GROWTH, book_id=book_id, book_ids=book_ids)
 
 
-def difficulty_rules() -> dict:
+def difficulty_rules(*, book_id: str | None = None,
+                     book_ids: list[str] | None = None) -> dict:
     """阶段带与威胁规则（`data/combat/rules/difficulty.json`）。"""
-    return _load("difficulty", DEFAULT_DIFFICULTY)
+    return _load("difficulty", DEFAULT_DIFFICULTY, book_id=book_id, book_ids=book_ids)
 
 
-def band_config(band: str) -> dict:
+def band_config(band: str, *, book_ids: list[str] | None = None) -> dict:
     """取某阶段带的配置（未知阶段带回落 T1）。"""
-    bands = difficulty_rules().get("bands") or {}
+    bands = difficulty_rules(book_ids=book_ids).get("bands") or {}
     return bands.get(str(band or "").upper()) or bands.get("T1") or {}
 
 
-def band_scaling(band: str) -> tuple[float, float]:
+def band_scaling(band: str, *, book_ids: list[str] | None = None) -> tuple[float, float]:
     """阶段带的敌人数值倍率 (hp_mult, atk_mult)。"""
-    cfg = band_config(band)
+    cfg = band_config(band, book_ids=book_ids)
     try:
         hp = float(cfg.get("enemy_hp_mult", 1.0) or 1.0)
         atk = float(cfg.get("enemy_atk_mult", 1.0) or 1.0)

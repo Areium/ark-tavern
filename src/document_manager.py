@@ -15,8 +15,9 @@ from typing import Optional
 
 import frontmatter
 import yaml
-from data_paths import categories_path
+from data_paths import categories_path, content_root
 from content_scope import is_content_visible
+from worldbook_content import category_roots
 
 logger = logging.getLogger(__name__)
 
@@ -155,10 +156,34 @@ class DocumentManager:
     def get_hierarchy(self) -> list[dict]:
         return self._hierarchy
 
+    @staticmethod
+    def _selected_book_ids(book_id: str | None):
+        if book_id is not None and not isinstance(book_id, str):
+            raise ValueError("worldbook_id 必须是字符串")
+        return [book_id] if book_id else None
+
+    def _category_roots(self, category_id: str, book_ids=None) -> list[tuple[str | None, str]]:
+        cat = self._categories[category_id]
+        content_base = os.path.abspath(content_root(self._root))
+        directory = os.path.abspath(cat.directory)
+        try:
+            relative = os.path.relpath(directory, content_base).replace("\\", "/")
+            inside = relative != ".." and not relative.startswith("../")
+        except ValueError:
+            inside = False
+        roots = ([(owner, str(path)) for owner, path in category_roots(
+            relative, book_ids=book_ids, project_root=self._root)]
+            if inside and relative != "." else [])
+        # User-authored files in the shared tree remain available without a binding.
+        if book_ids is None and os.path.isdir(directory) and directory not in [path for _, path in roots]:
+            roots.append((None, directory))
+        return roots
+
     # ── 文档列举 ──
 
     def list_documents(self, category_id: str,
-                       include_content: bool = False) -> list[dict]:
+                       include_content: bool = False, *, book_id: str | None = None,
+                       book_ids=None, include_duplicates: bool = False) -> list[dict]:
         """列出指定类别下的所有文档。
 
         支持两种文档模式：
@@ -177,7 +202,21 @@ class DocumentManager:
             raise ValueError(f"未知文档类别: {category_id}")
 
         docs = []
-        base = cat.directory
+        seen = set()
+        selected = self._selected_book_ids(book_id)
+        roots = ([(None, cat.directory)] if book_id == "" else
+                 self._category_roots(category_id,
+                                      selected if book_id is not None else book_ids))
+        for owner, base in roots:
+            for doc in self._list_documents_in_root(category_id, base, include_content, owner):
+                if include_duplicates or doc["id"] not in seen:
+                    docs.append(doc)
+                    seen.add(doc["id"])
+        return docs
+
+    def _list_documents_in_root(self, category_id: str, base: str,
+                                include_content: bool, owner: str | None) -> list[dict]:
+        docs = []
         if not os.path.isdir(base):
             return docs
 
@@ -198,13 +237,14 @@ class DocumentManager:
 
                     title = d
                     summary = ""
-                    worldbook_id = ""
+                    worldbook_id = owner or ""
                     # 实体文件夹总是解析 frontmatter：`worldbook_id`（来源世界书）
                     # 与 include_content 无关，title/summary 仍只在需要时取用。
                     try:
                         with open(index_md, "r", encoding="utf-8") as fh:
                             data = frontmatter.load(fh)
-                        worldbook_id = str(data.metadata.get("worldbook_id") or "")
+                        if not owner:
+                            worldbook_id = str(data.metadata.get("worldbook_id") or "")
                         if include_content:
                             title = data.metadata.get("name", d)
                             summary = data.metadata.get("summary", "")
@@ -275,11 +315,12 @@ class DocumentManager:
                     hash_str=file_hash,
                     mtime=stat.st_mtime,
                     summary=summary,
+                    worldbook_id=owner or "",
                 ).to_dict())
 
         # 第三遍：收集实体目录内的子文档（非 index.md）
         for entity_dir in entity_dirs:
-            entity_name = os.path.basename(entity_dir)
+            entity_name = os.path.relpath(entity_dir, base).replace("\\", "/")
             for sub_root, _sub_dirs, sub_files in os.walk(entity_dir):
                 _sub_dirs[:] = [d for d in _sub_dirs if is_content_visible(os.path.join(sub_root, d), project_root=self._root)]
                 for f in sorted(sub_files):
@@ -322,6 +363,7 @@ class DocumentManager:
                         hash_str=file_hash,
                         mtime=stat.st_mtime,
                         summary=summary,
+                        worldbook_id=owner or "",
                     ).to_dict())
 
         return docs
@@ -370,6 +412,7 @@ class DocumentManager:
                         "mtime": doc["mtime"],
                         "summary": doc["summary"],
                         "category_id": doc["category_id"],
+                        "worldbook_id": doc["worldbook_id"],
                     }
                     if part in current and "children" in current[part]:
                         # 已有中间路径创建的 folder → 升级为可展开文档
@@ -399,7 +442,8 @@ class DocumentManager:
 
     # ── 文档读写 ──
 
-    def read_document(self, category_id: str, doc_path: str) -> dict:
+    def read_document(self, category_id: str, doc_path: str, *,
+                      book_id: str | None = None, book_ids=None) -> dict:
         """读取文档内容。
 
         Args:
@@ -410,7 +454,9 @@ class DocumentManager:
             {"metadata": {...}, "content": "...", "hash": "...", "path": "...",
              "filepath": "...", "frontmatter_raw": "..."}
         """
-        filepath = self._resolve_path(category_id, doc_path)
+        selected = self._selected_book_ids(book_id) if book_id is not None else book_ids
+        filepath = self._resolve_path(category_id, doc_path, book_ids=selected,
+                                      local_only=book_id == "")
         if not filepath or not os.path.isfile(filepath) or not is_content_visible(filepath, project_root=self._root):
             raise DocumentNotFoundError(
                 f"文档不存在: {category_id}/{doc_path}"
@@ -444,7 +490,7 @@ class DocumentManager:
 
     def save_document(self, category_id: str, doc_path: str,
                       content: str, metadata: dict = None,
-                      expected_hash: str = None) -> dict:
+                      expected_hash: str = None, *, book_id: str | None = None) -> dict:
         """保存文档。
 
         如果提供了 expected_hash，写入前会校验文件当前哈希，
@@ -460,8 +506,11 @@ class DocumentManager:
         Returns:
             {"hash": "...", "path": "..."}
         """
-        filepath = self._resolve_path(category_id, doc_path)
-        if not filepath or not is_content_visible(filepath, project_root=self._root):
+        filepath = self._resolve_path(category_id, doc_path,
+                                      book_ids=self._selected_book_ids(book_id),
+                                      local_only=book_id == "")
+        if (not filepath or (book_id is not None and not os.path.isfile(filepath))
+                or not is_content_visible(filepath, project_root=self._root)):
             raise DocumentNotFoundError(
                 f"文档不存在: {category_id}/{doc_path}"
             )
@@ -554,13 +603,16 @@ class DocumentManager:
         logger.info("文档已创建: %s", rel_path)
         return {"hash": new_hash, "path": rel_path}
 
-    def delete_document(self, category_id: str, doc_path: str):
+    def delete_document(self, category_id: str, doc_path: str, *,
+                        book_id: str | None = None):
         """删除文档。
 
         实体文件夹模式：删除整个实体目录（含所有资产）。
         传统文件模式：仅删除 .md 文件。
         """
-        filepath = self._resolve_path(category_id, doc_path)
+        filepath = self._resolve_path(category_id, doc_path,
+                                      book_ids=self._selected_book_ids(book_id),
+                                      local_only=book_id == "")
         if not filepath or not os.path.isfile(filepath) or not is_content_visible(filepath, project_root=self._root):
             raise DocumentNotFoundError(
                 f"文档不存在: {category_id}/{doc_path}"
@@ -606,26 +658,30 @@ class DocumentManager:
     # ── 移动/重命名 ──
 
     def move_document(self, category_id: str, doc_path: str,
-                      new_path: str = None) -> dict:
+                      new_path: str = None, *, book_id: str | None = None) -> dict:
         """移动/重命名文档。
 
         实体文件夹：移动/重命名整个实体目录。
         传统文件：移动/重命名 .md 文件。
         new_path 为新的相对路径（相对于类别目录，不含 .md）。
         """
-        old_filepath = self._resolve_path(category_id, doc_path)
+        old_filepath = self._resolve_path(category_id, doc_path,
+                                          book_ids=self._selected_book_ids(book_id),
+                                          local_only=book_id == "")
         if not old_filepath or not os.path.isfile(old_filepath) or not is_content_visible(old_filepath, project_root=self._root):
             raise DocumentNotFoundError(f"文档不存在: {category_id}/{doc_path}")
 
         target_rel = new_path or doc_path
         cat = self._categories[category_id]
-        target_candidates = self._document_candidates(category_id, target_rel)
+        source_base = next((base for _, base in self._category_roots(category_id)
+                            if os.path.commonpath((base, old_filepath)) == base), cat.directory)
+        target_candidates = self._document_candidates(category_id, target_rel, base=source_base)
         if not target_candidates:
             raise ValueError(f"非法目标路径: {target_rel}")
         target_entity_file, target_flat_file = target_candidates
         if not is_content_visible(target_entity_file, project_root=self._root) or not is_content_visible(target_flat_file, project_root=self._root):
             raise ValueError(f"目标路径不可用: {target_rel}")
-        existing_target = self._resolve_path(category_id, target_rel)
+        existing_target = next((path for path in target_candidates if os.path.isfile(path)), None)
         if existing_target and os.path.isfile(existing_target):
             raise FileExistsError(f"目标已存在: {target_rel}")
 
@@ -714,14 +770,14 @@ class DocumentManager:
     # ── 内部方法 ──
 
     def _document_candidates(self, category_id: str,
-                             doc_path: str) -> Optional[tuple[str, str]]:
+                             doc_path: str, *, base: str | None = None) -> Optional[tuple[str, str]]:
         """Return safe entity and flat-file candidates for a document id."""
         cat = self._categories.get(category_id)
         if not cat or not isinstance(doc_path, str) or not doc_path.strip():
             return None
 
         relative = doc_path.strip().replace("\\", os.sep).replace("/", os.sep)
-        base = os.path.realpath(cat.directory)
+        base = os.path.realpath(base or cat.directory)
         entity_raw = os.path.abspath(os.path.join(base, relative, "index.md"))
         flat_raw = os.path.abspath(os.path.join(base, f"{relative}.md"))
         entity_path = os.path.realpath(entity_raw)
@@ -735,22 +791,29 @@ class DocumentManager:
             return None
         return entity_path, flat_path
 
-    def _resolve_path(self, category_id: str, doc_path: str) -> Optional[str]:
+    def _resolve_path(self, category_id: str, doc_path: str, *, book_ids=None,
+                      local_only: bool = False) -> Optional[str]:
         """将 category_id + doc_path 解析为实际文件路径。
 
         实体文件夹 `{dir}/{doc_path}/index.md` 优先；若不存在则回退到
         传统平铺文件 `{dir}/{doc_path}.md`。两者都不存在时返回实体路径，
         供保存/创建沿用默认的实体文件夹格式。
         """
-        candidates = self._document_candidates(category_id, doc_path)
-        if not candidates:
+        local_candidates = self._document_candidates(category_id, doc_path)
+        if not local_candidates:
             return None
-        entity_path, flat_path = candidates
-        if os.path.isfile(entity_path):
-            return entity_path
-        if os.path.isfile(flat_path):
-            return flat_path
-        return entity_path
+        roots = ([(None, self._categories[category_id].directory)] if local_only else
+                 self._category_roots(category_id, book_ids))
+        for _, base in roots:
+            candidates = self._document_candidates(category_id, doc_path, base=base)
+            if not candidates:
+                continue
+            entity_path, flat_path = candidates
+            if os.path.isfile(entity_path):
+                return entity_path
+            if os.path.isfile(flat_path):
+                return flat_path
+        return local_candidates[0] if book_ids is None and not local_only else None
 
     @staticmethod
     def _hash_file(filepath: str) -> str:

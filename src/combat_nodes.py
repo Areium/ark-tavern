@@ -29,6 +29,7 @@ from pathlib import Path
 
 from data_paths import CONTENT_ROOT
 from content_scope import is_content_visible
+from worldbook_content import book_directory, category_roots, enabled_book_ids, resolve_content
 
 from combat_map import MapError, resolve_map
 from shared.json_hash import compute_json_hash
@@ -79,19 +80,36 @@ class NodeConflictError(NodeError):
 
 # ── 路径与读取 ──
 
-def node_path(node_id: str) -> Path:
+def node_path(node_id: str, *, book_id: str | None = None) -> Path:
+    if book_id:
+        if book_id in enabled_book_ids():
+            return book_directory(book_id) / "combat" / "nodes" / f"{node_id}.json"
+        if (book_directory(book_id) / "book.json").is_file():
+            raise NodeError("节点所属世界书未安装或已停用")
     return NODE_DIR / f"{node_id}.json"
 
 
-def node_exists(node_id: str) -> bool:
-    path = node_path(node_id)
-    return path.is_file() and _visible(path)
+def node_exists(node_id: str, *, book_id: str | None = None,
+                book_ids: list[str] | None = None) -> bool:
+    return _read_path(node_id, book_id=book_id, book_ids=book_ids) is not None
 
 
-def load_node_file(node_id: str) -> dict | None:
+def _read_path(node_id: str, *, book_id: str | None = None,
+               book_ids: list[str] | None = None) -> Path | None:
+    if book_id is not None and book_ids is not None:
+        raise ValueError("Specify book_id or book_ids")
+    selected = [book_id] if book_id is not None else book_ids
+    if NODE_DIR != _DEFAULT_NODE_DIR:
+        path = node_path(node_id)
+        return path if path.is_file() and _visible(path) else None
+    return resolve_content(f"combat/nodes/{node_id}.json", book_ids=selected)
+
+
+def load_node_file(node_id: str, *, book_id: str | None = None,
+                   book_ids: list[str] | None = None) -> dict | None:
     """直接读节点文件（不经过 loader 的别名索引，编辑器保存前校验用）。"""
-    path = node_path(node_id)
-    if not path.is_file() or not _visible(path):
+    path = _read_path(node_id, book_id=book_id, book_ids=book_ids)
+    if path is None:
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -101,11 +119,21 @@ def load_node_file(node_id: str) -> dict | None:
     return data
 
 
-def list_node_files() -> list[Path]:
-    if not NODE_DIR.is_dir():
-        return []
-    return sorted(p for p in NODE_DIR.glob("*.json")
-                  if not p.stem.upper().startswith("TEMPLATE") and _visible(p))
+def list_node_files(*, book_id: str | None = None,
+                    book_ids: list[str] | None = None) -> list[Path]:
+    if book_id is not None and book_ids is not None:
+        raise ValueError("Specify book_id or book_ids")
+    selected = [book_id] if book_id is not None else book_ids
+    roots = [(None, NODE_DIR)] if NODE_DIR != _DEFAULT_NODE_DIR else [
+        (owner, root / "nodes") for owner, root in category_roots("combat", book_ids=selected)]
+    files: dict[str, Path] = {}
+    for owner, root in roots:
+        for path in sorted(root.glob("*.json")):
+            visible = (_visible(path) if NODE_DIR != _DEFAULT_NODE_DIR else
+                       is_content_visible(path, allowed_book_ids=selected))
+            if not path.stem.upper().startswith("TEMPLATE") and visible:
+                files.setdefault(path.stem, path)
+    return list(files.values())
 
 
 def template_data() -> dict:
@@ -163,7 +191,10 @@ def validate_node(data: dict, *, enemy_names: set[str] | None = None,
 
     # 地图（尺寸/格子/部署区/软锁）
     try:
-        battle_map = resolve_map(data.get("map"), tiles_dir=TILES_DIR)
+        owner = str(data.get("worldbook_id") or "")
+        tiles_dir = (book_directory(owner) / "combat" / "tiles"
+                     if owner and owner in enabled_book_ids() else TILES_DIR)
+        battle_map = resolve_map(data.get("map"), tiles_dir=tiles_dir)
         warnings.extend(battle_map.warnings)
     except MapError as e:
         battle_map = None
@@ -286,8 +317,9 @@ def save_node(data: dict, expected_hash: str = "",
     if report["errors"]:
         raise NodeError(report["errors"])
 
-    path = node_path(node_id)
-    if path.is_file() and not _visible(path):
+    book_id = str(data.get("worldbook_id") or "")
+    path = node_path(node_id, book_id=book_id)
+    if path.is_file() and path.is_relative_to(NODE_DIR) and not _visible(path):
         raise NodeError("节点所属世界书未安装或已停用")
     if path.is_file():
         current = json.loads(path.read_text(encoding="utf-8"))
@@ -298,7 +330,7 @@ def save_node(data: dict, expected_hash: str = "",
 
     data.pop("_hash", None)
     data["_hash"] = compute_json_hash(data)
-    NODE_DIR.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
                     encoding="utf-8")
     logger.info("战斗节点已保存: %s", path.name)
@@ -318,7 +350,8 @@ def create_node(node_id: str, name: str = "", *, from_template: bool = True,
         raise NodeError("缺少 node_id")
     if not re.fullmatch(r"[A-Za-z0-9_\u4e00-\u9fff-]{1,64}", node_id):
         raise NodeError(f"node_id '{node_id}' 含非法字符（允许中英文/数字/下划线/连字符）")
-    if node_path(node_id).is_file():
+    path = node_path(node_id, book_id=worldbook_id)
+    if path.is_file():
         raise NodeError(f"节点已存在: {node_id}")
     data = template_data() if from_template else {}
     data.update({"node_id": node_id, "name": name or node_id,
@@ -327,20 +360,20 @@ def create_node(node_id: str, name: str = "", *, from_template: bool = True,
 
     data.pop("_hash", None)
     data["_hash"] = compute_json_hash(data)
-    NODE_DIR.mkdir(parents=True, exist_ok=True)
-    node_path(node_id).write_text(
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     logger.info("战斗节点已创建: %s", node_id)
     return data
 
 
-def delete_node(node_id: str, *, force: bool = False,
+def delete_node(node_id: str, *, force: bool = False, book_id: str | None = None,
                 bindings: dict | None = None) -> dict:
     """删除节点。被剧情节拍引用时默认拒绝（避免剧情打不开战斗）。"""
-    path = node_path(node_id)
-    if not path.is_file() or not _visible(path):
+    path = _read_path(node_id, book_id=book_id)
+    if path is None:
         raise NodeError(f"节点不存在: {node_id}")
-    refs = (bindings or node_bindings()).get(node_id, [])
+    refs = (bindings if bindings is not None else node_bindings(book_id=book_id)).get(node_id, [])
     if refs and not force:
         where = "、".join(f"{r['plot_id']}/{r.get('beat_id') or '?'}" for r in refs[:3])
         raise NodeError(f"节点被剧情引用（{where}），如需删除请显式确认")
@@ -351,14 +384,26 @@ def delete_node(node_id: str, *, force: bool = False,
 
 # ── 剧情节拍绑定与进度 ──
 
-def node_bindings() -> dict[str, list[dict]]:
+def _plot_files(*, book_id: str | None = None,
+                book_ids: list[str] | None = None) -> list[tuple[str | None, Path]]:
+    if book_id is not None and book_ids is not None:
+        raise ValueError("Specify book_id or book_ids")
+    selected = [book_id] if book_id else book_ids
+    roots = [(None, PLOT_DIR)] if PLOT_DIR != _DEFAULT_PLOT_DIR else category_roots(
+        "plots", book_ids=selected)
+    files: list[tuple[str | None, Path]] = []
+    for owner, root in roots:
+        files.extend((owner or book_id, path) for path in sorted(root.glob("*/index.md"))
+                     if (_visible(path) if PLOT_DIR != _DEFAULT_PLOT_DIR else
+                         is_content_visible(path, allowed_book_ids=selected)))
+    return files
+
+
+def node_bindings(*, book_id: str | None = None,
+                  book_ids: list[str] | None = None) -> dict[str, list[dict]]:
     """扫描 plot 文档，返回 node_id → [{plot_id, chapter_id, beat_id}]。"""
     bindings: dict[str, list[dict]] = {}
-    if not PLOT_DIR.is_dir():
-        return bindings
-    for path in sorted(PLOT_DIR.glob("*/index.md")):
-        if not _visible(path):
-            continue
+    for owner, path in _plot_files(book_id=book_id, book_ids=book_ids):
         plot_id = path.parent.name
         chapter_id = ""
         beat_id = ""
@@ -384,6 +429,7 @@ def node_bindings() -> dict[str, list[dict]]:
                     "plot_id": plot_id,
                     "chapter_id": chapter_id,
                     "beat_id": beat_id,
+                    "worldbook_id": owner or "",
                 })
     return bindings
 
@@ -445,10 +491,11 @@ def node_overview(session=None, *, book_id: str | None = None) -> tuple[list[dic
     """
     from combat_data_loader import CombatDataLoader
 
-    loader = CombatDataLoader()
-    bindings = node_bindings()
+    loader = CombatDataLoader(book_id=book_id) if book_id else CombatDataLoader()
+    bindings = node_bindings(book_id=book_id) if book_id else node_bindings()
     progress, plot_ctx = node_progress(session) if session is not None else ({}, {})
-    plot_book = {p["plot_id"]: p.get("worldbook_id", "") for p in plot_flows()}
+    plot_book = {p["plot_id"]: p.get("worldbook_id", "")
+                 for p in (plot_flows(book_id=book_id) if book_id else plot_flows())}
 
     def _in_book(row: dict) -> bool:
         if book_id is None:
@@ -462,8 +509,9 @@ def node_overview(session=None, *, book_id: str | None = None) -> tuple[list[dic
 
     rows: list[dict] = []
     seen: set[str] = set()
-    for path in list_node_files():
-        node = load_node_file(path.stem) or {}
+    for path in (list_node_files(book_id=book_id) if book_id else list_node_files()):
+        node = (json.loads(path.read_text(encoding="utf-8"))
+                if path.is_file() else load_node_file(path.stem) or {})
         node_id = node.get("node_id", path.stem)
         seen.add(node_id)
         summary = next((n for n in loader.list_nodes() if n["node_id"] == node_id), {})
@@ -479,7 +527,9 @@ def node_overview(session=None, *, book_id: str | None = None) -> tuple[list[dic
             "markers": bindings.get(node_id, []),
             "progress": progress.get(node_id),
             "source_worldbook": (node.get("source") or {}).get("book_id", ""),
-            "worldbook_id": str(node.get("worldbook_id", "") or ""),
+            "worldbook_id": (book_id if book_id and path.is_file()
+                             and path.is_relative_to(book_directory(book_id)) else
+                             str(node.get("worldbook_id", "") or "")),
             "hash": node.get("_hash", ""),
         }
         if _in_book(row):
@@ -519,7 +569,8 @@ _BEAT_RE = re.compile(r"^####\s+(beat_\w+)(（.*）)?\s*$")
 _COMBAT_REF_RE = re.compile(r"\[COMBAT:([\w-]+)\]")
 
 
-def plot_flows(book_mgr=None) -> list[dict]:
+def plot_flows(book_mgr=None, *, book_id: str | None = None,
+               book_ids: list[str] | None = None) -> list[dict]:
     """解析 data/plots/*/index.md，返回剧情流程（章节 → 节拍 → 战斗引用）。
 
     每个 plot：`{plot_id, name, summary, worldbook_id, source, combat_nodes, chapters}`；
@@ -541,11 +592,7 @@ def plot_flows(book_mgr=None) -> list[dict]:
     import frontmatter
 
     flows: list[dict] = []
-    if not PLOT_DIR.is_dir():
-        return flows
-    for path in sorted(PLOT_DIR.glob("*/index.md")):
-        if not _visible(path):
-            continue
+    for owner, path in _plot_files(book_id=book_id, book_ids=book_ids):
         plot_id = path.parent.name
         try:
             md = frontmatter.load(path)
@@ -557,7 +604,7 @@ def plot_flows(book_mgr=None) -> list[dict]:
             "plot_id": plot_id,
             "name": str(meta.get("name") or meta.get("id") or plot_id),
             "summary": str(meta.get("summary") or "")[:120],
-            "worldbook_id": str(meta.get("worldbook_id") or ""),
+            "worldbook_id": owner or str(meta.get("worldbook_id") or ""),
             "source": "narrative",
             "combat_nodes": [],
             "chapters": [],
@@ -625,8 +672,9 @@ def plot_flows(book_mgr=None) -> list[dict]:
                     beat["summary"] = text[:80]
 
         if not plot["chapters"]:
-            outline_chapters = _outline_flow_chapters(plot_id, meta, md.content or "",
-                                                      plot["worldbook_id"], book_mgr)
+            outline_chapters = _outline_flow_chapters(
+                plot_id, meta, md.content or "", plot["worldbook_id"], book_mgr,
+                book_ids=[owner] if owner else book_ids)
             if outline_chapters:
                 plot["chapters"] = outline_chapters
                 plot["source"] = "outline"
@@ -658,7 +706,7 @@ def _outline_chapter_label(chapter: dict, main_idx: int, branch_idx: int) -> str
 
 
 def _outline_flow_chapters(plot_id: str, meta: dict, body: str, worldbook_id: str,
-                           book_mgr) -> list[dict]:
+                           book_mgr, book_ids: list[str] | None = None) -> list[dict]:
     """无节拍骨架的剧情：把参考大纲折算成节点图章节。失败（无法切幕 / 大纲损坏）返回 []。"""
     from story_outline import OutlineError, heuristic_outline, load_outline
 
@@ -681,8 +729,10 @@ def _outline_flow_chapters(plot_id: str, meta: dict, body: str, worldbook_id: st
 
     # 节点文件 bind 到该剧情节拍的战斗节点（现场生成的节点回填在 bind 里，不在正文）
     bound: dict[str, list[str]] = {}
-    for path in list_node_files():
-        node = load_node_file(path.stem) or {}
+    for path in (list_node_files(book_ids=book_ids) if book_ids is not None
+                 else list_node_files()):
+        node = (json.loads(path.read_text(encoding="utf-8"))
+                if path.is_file() else load_node_file(path.stem) or {})
         bind = node.get("bind") or {}
         if str(bind.get("plot_id") or "") == plot_id and bind.get("beat_id"):
             bound.setdefault(str(bind["beat_id"]), []).append(str(node.get("node_id") or path.stem))
@@ -731,7 +781,7 @@ def node_graph(book_id: str, session=None, book_mgr=None) -> dict:
     （护栏式剧情的章节来源，见 `plot_flows`）。
     """
     rows, meta = node_overview(session, book_id=book_id)
-    flows = plot_flows(book_mgr)
+    flows = plot_flows(book_mgr, book_id=book_id)
     referenced_plots = {m.get("plot_id", "") for r in rows for m in r.get("markers", [])}
     referenced_plots |= {str((r.get("bind") or {}).get("plot_id") or "") for r in rows}
     referenced_plots.discard("")
@@ -830,7 +880,7 @@ def import_worldbook_nodes(entries: list[dict], *, book_id: str = "",
             errors.append(f"条目 '{entry.get('name', '')}' 缺少 node_id")
             continue
         data.setdefault("name", entry.get("name", node_id))
-        if node_exists(node_id) and not overwrite:
+        if node_exists(node_id, book_id=book_id or None) and not overwrite:
             skipped.append(node_id)
             continue
         data["source"] = {"type": "worldbook", "book_id": book_id,

@@ -1,7 +1,7 @@
 """
 card_json_loader — 战术卡单一真相源（design 方案 §10.1 / P0-4）。
 
-运行时战术卡只从 data/classes/<职业>/cards.json 读取：
+运行时战术卡从绑定世界书的 classes/<职业>/cards.json 读取：
 - 完整透传 effects / ignore_def / cleanse / exhaust / rank / upgrade_branch /
   power_tier / cv_budget / cv_estimated / balance_version（Card.from_dict 白名单
   随 dataclass 字段自动扩展，未知键被忽略）；
@@ -16,12 +16,13 @@ from pathlib import Path
 from combat_engine.card import Card
 from data_paths import CONTENT_ROOT
 from content_scope import is_content_visible
+from worldbook_content import category_roots, resolve_content
 
 logger = logging.getLogger(__name__)
 
 _CLASS_DIR = CONTENT_ROOT / "classes"
 
-_cache: dict[str, list[Card]] = {}
+_cache: dict[tuple[str, int, int, tuple[str, ...] | None], list[Card]] = {}
 _cache_lock = threading.Lock()
 
 
@@ -31,31 +32,42 @@ def clear_cache() -> None:
         _cache.clear()
 
 
-def load_class_cards(char_class: str, data_dir: str | Path | None = None) -> list[Card]:
+def load_class_cards(char_class: str, data_dir: str | Path | None = None,
+                     *, book_ids: list[str] | None = None) -> list[Card]:
     """读取某职业的 cards.json 并转换为 Card 列表（未找到返回 []）。"""
     if (not char_class or char_class in (".", "..")
             or "/" in char_class or "\\" in char_class
             or Path(char_class).name != char_class):
         return []
     base = Path(data_dir) if data_dir is not None else _CLASS_DIR
-    path = base / char_class / "cards.json"
+    scoped = data_dir is None or base.resolve() == _CLASS_DIR.resolve()
     try:
-        if path.resolve() != path.absolute() or not path.resolve().is_relative_to(base.resolve()):
+        path = (resolve_content(f"classes/{char_class}/cards.json", book_ids=book_ids)
+                if scoped and _CLASS_DIR.resolve() == (CONTENT_ROOT / "classes").resolve()
+                else base / char_class / "cards.json")
+    except ValueError:
+        return []
+    if path is None:
+        return []
+    if path.is_relative_to(base):
+        try:
+            if path.resolve() != path.absolute() or not path.resolve().is_relative_to(base.resolve()):
+                return []
+        except (OSError, ValueError):
             return []
-    except (OSError, ValueError):
-        return []
-    if (data_dir is None or base.resolve() == _CLASS_DIR.resolve()) and not is_content_visible(path, content_base=base.parent):
-        with _cache_lock:
-            _cache.pop(char_class, None)
-        return []
-
-    with _cache_lock:
-        if char_class in _cache and data_dir is None:
-            return list(_cache[char_class])
+        if scoped and not is_content_visible(path, content_base=base.parent,
+                                             allowed_book_ids=book_ids):
+            return []
 
     if not path.is_file():
         logger.warning("cards.json not found: %s", path)
         return []
+    stat = path.stat()
+    cache_key = (str(path), stat.st_mtime_ns, stat.st_size,
+                 tuple(book_ids) if book_ids is not None else None)
+    with _cache_lock:
+        if cache_key in _cache and data_dir is None:
+            return list(_cache[cache_key])
 
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -67,19 +79,31 @@ def load_class_cards(char_class: str, data_dir: str | Path | None = None) -> lis
     cards = [Card.from_dict(d) for d in doc.get("cards", [])]
     if data_dir is None:
         with _cache_lock:
-            _cache[char_class] = cards
+            _cache[cache_key] = cards
     return list(cards)
 
 
-def load_all_class_cards(data_dir: str | Path | None = None) -> dict[str, list[Card]]:
+def load_all_class_cards(data_dir: str | Path | None = None,
+                         *, book_ids: list[str] | None = None) -> dict[str, list[Card]]:
     """读取全部职业卡表 {职业名: [Card]}。"""
     base = Path(data_dir) if data_dir else _CLASS_DIR
     scoped = data_dir is None or base.resolve() == _CLASS_DIR.resolve()
     result: dict[str, list[Card]] = {}
-    if not base.is_dir():
+    try:
+        roots = (category_roots("classes", book_ids=book_ids)
+                 if scoped and _CLASS_DIR.resolve() == (CONTENT_ROOT / "classes").resolve()
+                 else [(None, base)])
+    except ValueError:
         return result
-    for subdir in sorted(base.iterdir()):
-        path = subdir / "cards.json"
-        if path.is_file() and (not scoped or is_content_visible(path, content_base=base.parent)):
-            result[subdir.name] = load_class_cards(subdir.name, data_dir)
+    for _, root in roots:
+        if not root.is_dir():
+            continue
+        for subdir in sorted(root.iterdir()):
+            if subdir.name in result:
+                continue
+            path = subdir / "cards.json"
+            if path.is_file() and (root != base or not scoped or is_content_visible(
+                    path, content_base=base.parent, allowed_book_ids=book_ids)):
+                result[subdir.name] = load_class_cards(subdir.name, data_dir,
+                                                        book_ids=book_ids)
     return result

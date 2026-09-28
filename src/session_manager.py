@@ -95,7 +95,7 @@ class Session:
             # 主控角色：与场景 NPC 一起构成阵容，但自己不是 NPC
             player_identity=self.player_identity,
         )
-        self.environment = EnvironmentState()
+        self.environment = EnvironmentState(overlay=self.overlay)
         self.environment.load_default()
 
         # 应用环境覆盖（优先恢复本会话上次持久化的场景）
@@ -190,7 +190,7 @@ class Session:
             plot_id = self.overlay.get_plot_id()
             if not plot_id:
                 return
-            result = _read_plot_file(plot_id)
+            result = _read_plot_file(plot_id, self.overlay.get_worldbook_ids())
             if not result:
                 return
             meta = result[0]
@@ -252,7 +252,7 @@ class Session:
             plot_id = self.overlay.get_plot_id()
             if not plot_id:
                 return []
-            result = _read_plot_file(plot_id)
+            result = _read_plot_file(plot_id, self.overlay.get_worldbook_ids())
             if not result:
                 return []
             player = self.player_identity

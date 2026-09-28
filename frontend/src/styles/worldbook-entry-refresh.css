@@ -583,3 +583,22 @@ html.light .wber-shell {
   .wber-samples header { flex-direction: column; gap: 12px; }
   .wber-samples li { align-items: flex-start; gap: 12px; }
 }
+
+/* Folder-first installation: native disclosure keeps instructions keyboard accessible. */
+.wber-folder-tools { margin: 0 14px 12px; display: grid; gap: 8px; flex-shrink: 0; }
+.wber-folder-guide { min-width: 0; color: var(--wber-muted); font-size: 13px; line-height: 1.65; }
+.wber-folder-guide summary { cursor: pointer; color: var(--wber-text); padding: 7px 0; }
+.wber-folder-guide summary:hover { color: var(--wber-accent); }
+.wber-folder-guide summary:focus-visible { outline: 2px solid var(--wber-accent); outline-offset: 3px; }
+.wber-folder-guide p { margin: 6px 0; }
+.wber-folder-guide code { overflow-wrap: anywhere; user-select: text; font-size: 12px; color: var(--wber-text); }
+.wber-folder-notice, .wber-folder-error { margin: 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.wber-folder-notice { color: var(--wber-muted); }
+.wber-folder-error { color: var(--wber-text); }
+.wber-book-folder { width: 220px; max-width: 100%; }
+@media (max-width: 560px) {
+  .wber-shelf { max-height: none; }
+  .wber-book-list { flex-shrink: 0; }
+  .wber-book-folder { width: 100%; }
+  .wber-hero-actions { flex-wrap: wrap; }
+}

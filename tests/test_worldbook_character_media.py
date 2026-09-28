@@ -49,7 +49,7 @@ def test_excerpt_copies_character_profile_and_images_into_book(setup):
     result = excerpt(manager, reference, story)
     copied_id = result["entries"][0]["character_id"]
     assert copied_id == f"amiya__wb_{story.id}"
-    copied = chars / copied_id
+    copied = manager._path(story.id).parent / "characters" / copied_id
     assert "角色设定" in (copied / "index.md").read_text(encoding="utf-8")
     assert (copied / "avatar" / "default.png").exists()
     assert (copied / "skin" / "default.png").exists()
@@ -72,7 +72,7 @@ def test_export_import_recreates_private_character_copy(setup):
     copied_id = imported.entries[0].character_id
     assert copied_id == f"amiya__wb_{imported.id}"
     assert copied_id in imported.character_profiles
-    assert (chars / copied_id / "skin" / "default.png").exists()
+    assert (manager._path(imported.id).parent / "characters" / copied_id / "skin" / "default.png").exists()
 
 
 def test_duplicate_book_recreates_private_character_copy(setup):
@@ -82,18 +82,19 @@ def test_duplicate_book_recreates_private_character_copy(setup):
     copied_id = duplicate.entries[0].character_id
     assert copied_id == f"amiya__wb_{duplicate.id}"
     assert copied_id in duplicate.character_profiles
-    assert (chars / copied_id / "index.md").exists()
+    assert (manager._path(duplicate.id).parent / "characters" / copied_id / "index.md").exists()
 
 
 def test_uninstall_removes_only_owned_character_copy(setup):
     manager, reference, story, chars = setup
     excerpt(manager, reference, story)
     copied_id = manager.load(story.id).entries[0].character_id
-    assert (chars / copied_id / "index.md").exists()
+    copied = manager._path(story.id).parent / "characters" / copied_id
+    assert (copied / "index.md").exists()
 
     assert manager.delete_book(story.id)
     assert manager.load(story.id) is None
-    assert not (chars / copied_id).exists()
+    assert not copied.exists()
     assert (chars / "amiya" / "index.md").exists()
     assert manager.load(reference.id) is not None
 
@@ -109,7 +110,7 @@ def test_uninstall_rejects_copy_used_by_another_book(setup):
     with pytest.raises(ValueError, match="仍被世界书"):
         manager.delete_book(story.id)
     assert manager.load(story.id) is not None
-    assert (chars / copied_id / "index.md").exists()
+    assert (manager._path(story.id).parent / "characters" / copied_id / "index.md").exists()
 
 
 def test_uninstall_api_rejects_copy_used_by_unbound_session(setup):
@@ -130,7 +131,7 @@ def test_uninstall_api_rejects_copy_used_by_unbound_session(setup):
     response = app.test_client().delete(f"/api/worldbook/{story.id}")
     assert response.status_code == 409
     assert manager.load(story.id) is not None
-    assert (chars / copied_id / "index.md").exists()
+    assert (manager._path(story.id).parent / "characters" / copied_id / "index.md").exists()
 
 
 def test_excerpt_save_failure_removes_new_character_copy(setup, monkeypatch):
@@ -140,7 +141,7 @@ def test_excerpt_save_failure_removes_new_character_copy(setup, monkeypatch):
     with pytest.raises(OSError):
         excerpt(manager, reference, story)
     assert manager.load(story.id).to_dict() == before
-    assert not (chars / f"amiya__wb_{story.id}").exists()
+    assert not (manager._path(story.id).parent / "characters" / f"amiya__wb_{story.id}").exists()
 
 
 def test_bound_book_media_uses_binding_order(setup):
@@ -174,10 +175,11 @@ def test_stage_and_image_route_use_copied_book_media(setup, tmp_path):
     manager, reference, story, chars = setup
     excerpt(manager, reference, story)
     copied_id = manager.load(story.id).entries[0].character_id
-    original_skin = (chars / copied_id / "skin" / "default.png").read_bytes()
+    copied_skin = manager._path(story.id).parent / "characters" / copied_id / "skin" / "default.png"
+    original_skin = copied_skin.read_bytes()
     # Prove the HTTP image comes from the book snapshot, even if its global
     # materialized copy later changes.
-    Image.new("RGBA", (2, 2), (255, 0, 0, 255)).save(chars / copied_id / "skin" / "default.png")
+    Image.new("RGBA", (2, 2), (255, 0, 0, 255)).save(copied_skin)
 
     class Overlay:
         def get_worldbook_ids(self):

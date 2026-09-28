@@ -22,8 +22,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from flask import Blueprint, jsonify, request
-from data_paths import content_root
-from content_scope import is_content_visible
+from worldbook_content import content_candidates
 
 from shared.helpers import json_error
 from document_manager import DocumentNotFoundError
@@ -37,14 +36,18 @@ _NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9_\-]{0,39}$")
 _MAX_PLUGIN_BYTES = 64 * 1024
 
 
-def _story_artwork(plot_id: str) -> list[dict]:
+def _story_artwork(plot_id: str, book_ids: list[str] | None = None) -> list[dict]:
     """Curated art is opt-in per plot; image paths stay inside that plot's art folder."""
     if plot_id != "beyond_twin":
         return []
-    art_dir = content_root() / "plots" / plot_id / "art"
-    catalog = art_dir / "index.json"
-    if not catalog.is_file() or not is_content_visible(catalog):
+    try:
+        sources = content_candidates(f"plots/{plot_id}/art/index.json", book_ids=book_ids)
+    except ValueError:
         return []
+    if not sources:
+        return []
+    owner, catalog = sources[0]
+    art_dir = catalog.parent
     try:
         entries = json.loads(catalog.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -59,26 +62,27 @@ def _story_artwork(plot_id: str) -> list[dict]:
         if not isinstance(filename, str) or Path(filename).name != filename or not filename.lower().endswith((".png", ".jpg", ".webp")):
             continue
         image = art_dir / filename
-        if not image.is_file() or not is_content_visible(image):
+        if not image.is_file():
             continue
         result.append({
             "id": str(entry.get("id") or filename),
             "act": str(entry.get("act") or ""),
             "title": str(entry.get("title") or ""),
             "caption": str(entry.get("caption") or ""),
-            "url": f"/api/assets/plots/{plot_id}/art/{quote(filename)}",
+            "url": (f"/api/assets/plots/{plot_id}/art/{quote(filename)}"
+                    + (f"?worldbook_id={quote(owner)}" if owner else "")),
         })
     return result
 
 
-def _skin_exists(name: str) -> bool:
+def _skin_exists(name: str, book_ids: list[str] | None = None) -> bool:
     from avatar_color import find_skin_path
-    return bool(find_skin_path(name))
+    return bool(find_skin_path(name, book_ids=book_ids))
 
 
-def _avatar_exists(name: str) -> bool:
+def _avatar_exists(name: str, book_ids: list[str] | None = None) -> bool:
     from avatar_color import find_avatar_path
-    return bool(find_avatar_path(name))
+    return bool(find_avatar_path(name, book_ids=book_ids))
 
 
 def register(app, managers):
@@ -141,7 +145,8 @@ def register(app, managers):
         from scene_media import resolve_scene_media
         from avatar_color import get_theme_color
 
-        loader = CombatDataLoader()
+        book_ids = session.overlay.get_worldbook_ids()
+        loader = CombatDataLoader(book_ids=book_ids)
         location = session.environment.location or ""
         bg_id = loader.location_background_id(location) if location else ""
         session_dir = Path(session.data_dir)
@@ -201,7 +206,8 @@ def register(app, managers):
                 return True
             if wb_mgr.character_media_for_session(session.overlay, name, kind):
                 return True
-            return _skin_exists(name) if kind == "skin" else _avatar_exists(name)
+            return (_skin_exists(name, book_ids) if kind == "skin"
+                    else _avatar_exists(name, book_ids))
 
         characters = []
         for name in session.scene_manager.get_scene_characters():
@@ -213,7 +219,7 @@ def register(app, managers):
                 "name": name,
                 "skin_url": media(name, "skin") if has_skin else None,
                 "avatar_url": media(name, "avatar") if has_avatar else None,
-                "color": get_theme_color(name),
+                "color": get_theme_color(name, book_ids=book_ids),
                 "active": session.scene_manager.active == name,
             })
         player_has_skin = has_media(player, "skin")
@@ -232,13 +238,13 @@ def register(app, managers):
                 "round": cue_round,
                 "cg": authored_media["cg"] if cue_key else None,
             },
-            "artwork": _story_artwork(getattr(session.overlay, "get_plot_id", lambda: None)() or ""),
+            "artwork": _story_artwork(getattr(session.overlay, "get_plot_id", lambda: None)() or "", book_ids),
             "characters": characters,
             "player": {
                 "name": player,
                 "skin_url": media(player, "skin") if player_has_skin else None,
                 "avatar_url": media(player, "avatar") if player_has_avatar else None,
-                "color": get_theme_color(player),
+                "color": get_theme_color(player, book_ids=book_ids),
             },
         })
 

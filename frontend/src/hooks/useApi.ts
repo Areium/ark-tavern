@@ -243,16 +243,19 @@ export function useApi() {
       }),
 
     // ── 文档（剧情节点图编辑 plots/*.md 用；文档管理 UI 已并入世界书） ──
-    readDocument: (category: string, id: string) =>
-      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}`),
+    readDocument: (category: string, id: string, bookId?: string) =>
+      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}` +
+        (bookId ? `?worldbook_id=${encodeURIComponent(bookId)}` : "")),
     saveDocument: (
       category: string,
       id: string,
       content: string,
       metadata?: Record<string, any>,
-      expectedHash?: string
+      expectedHash?: string,
+      bookId?: string
     ) =>
-      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}`, {
+      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}` +
+        (bookId ? `?worldbook_id=${encodeURIComponent(bookId)}` : ""), {
         method: "PUT",
         body: JSON.stringify({
           content,
@@ -381,6 +384,9 @@ export function useApi() {
     listWorldbooks: () =>
       request<{ books: import("../types").WorldBookSummary[];
         inbox?: { file: string; status: string; book_id?: string; error?: string }[] }>("/api/worldbook"),
+    getWorldbookDir: (bookId?: string) =>
+      request<{ path: string; needs_migration?: boolean }>(
+        `/api/worldbook/data-dir${bookId ? `?book_id=${encodeURIComponent(bookId)}` : ""}`),
     listAvailableWorldbookPacks: () =>
       request<{ packs: { id: string; name: string; description: string; book_type: string; entry_count: number; installed: boolean; repair_required: boolean }[] }>("/api/worldbook/available-packs"),
     installWorldbookPack: (id: string) =>
@@ -716,9 +722,10 @@ export function useApi() {
       ),
 
     /** 单个战斗节点完整 JSON（编辑器读取） */
-    getCombatNode: (nodeId: string) =>
+    getCombatNode: (nodeId: string, bookId?: string) =>
       request<{ node: BattleNodeDTO; bindings: any[]; validation: ValidationReportDTO; worldbook_entry: any }>(
-        `/api/combat/nodes/${encodeURIComponent(nodeId)}`,
+        `/api/combat/nodes/${encodeURIComponent(nodeId)}` +
+        (bookId ? `?book_id=${encodeURIComponent(bookId)}` : ""),
       ),
 
     /** 新建战斗节点（按模板；空波次可保存，开战前必须补敌人） */
@@ -729,16 +736,18 @@ export function useApi() {
       }),
 
     /** 保存战斗节点（`_hash` 冲突 → 409） */
-    saveCombatNode: (nodeId: string, node: BattleNodeDTO) =>
+    saveCombatNode: (nodeId: string, node: BattleNodeDTO, bookId?: string) =>
       request<{ ok: boolean; node: BattleNodeDTO }>(
-        `/api/combat/nodes/${encodeURIComponent(nodeId)}`,
+        `/api/combat/nodes/${encodeURIComponent(nodeId)}` +
+        (bookId ? `?book_id=${encodeURIComponent(bookId)}` : ""),
         { method: "PUT", body: JSON.stringify({ node, _hash: (node as any)._hash || "" }) },
       ),
 
     /** 删除战斗节点（被剧情引用时需 force） */
-    deleteCombatNode: (nodeId: string, force = false) =>
+    deleteCombatNode: (nodeId: string, force = false, bookId?: string) =>
       request<{ ok: boolean; deleted: string; referenced_by: any[] }>(
-        `/api/combat/nodes/${encodeURIComponent(nodeId)}${force ? "?force=1" : ""}`,
+        `/api/combat/nodes/${encodeURIComponent(nodeId)}` +
+        (() => { const params = new URLSearchParams(); if (force) params.set("force", "1"); if (bookId) params.set("book_id", bookId); return params.size ? `?${params}` : ""; })(),
         { method: "DELETE" },
       ),
 

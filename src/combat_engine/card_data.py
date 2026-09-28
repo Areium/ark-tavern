@@ -20,12 +20,13 @@ from combat_engine.card import Card
 from combat_engine.card_json_loader import load_class_cards
 
 
-def get_cards_for_class(char_class: str) -> list[Card]:
+def get_cards_for_class(char_class: str, *, book_ids: list[str] | None = None) -> list[Card]:
     """Get all cards available to a given class (from the JSON source of truth)."""
-    return load_class_cards(char_class)
+    return load_class_cards(char_class, book_ids=book_ids)
 
 
-def get_starting_deck(char_class: str, count: int = 7) -> list[Card]:
+def get_starting_deck(char_class: str, count: int = 7,
+                      *, book_ids: list[str] | None = None) -> list[Card]:
     """Draw a starting deck for a character.
 
     Returns all basic cards from the class pool, supplemented with
@@ -35,7 +36,7 @@ def get_starting_deck(char_class: str, count: int = 7) -> list[Card]:
     `add_player_unit` sets `card.owner`, which must not mutate the shared
     class pool or leak across characters.
     """
-    pool = get_cards_for_class(char_class)
+    pool = get_cards_for_class(char_class, book_ids=book_ids)
     basics = [copy.deepcopy(c) for c in pool if c.tier == "basic"]
     elites = [copy.deepcopy(c) for c in pool if c.tier == "elite"]
 

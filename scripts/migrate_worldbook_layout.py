@@ -1,60 +1,49 @@
-"""Move legacy installed books into data/worldbooks/books/ without editing them.
+"""Preview or explicitly copy old worldbooks into self-contained folders."""
 
-Run without --apply first. Stop the app before applying the move.
-"""
+from __future__ import annotations
 
 import argparse
 import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from data_paths import worldbooks_root  # noqa: E402
-from world_book import WorldBook, WorldBookManager  # noqa: E402
+from data_paths import WORLDBOOKS_ROOT
+from world_book import WorldBook
+from worldbook_bundle import _read_json
+from worldbook_folder_store import migrate_json
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--apply", action="store_true", help="move validated files")
+    parser.add_argument("--worldbooks-dir", type=Path, default=WORLDBOOKS_ROOT)
+    parser.add_argument("--apply", action="store_true", help="Copy books and owned resources; retain old sources")
     args = parser.parse_args()
-    root = worldbooks_root(ROOT)
-    planned = []
-    problems = []
-    for path in sorted(root.glob("*.json")):
-        if path.name in {"settings.json", "content_manifest.json",
-                         "local_content_manifest.json"}:
+    root = args.worldbooks_dir
+    sources = [*sorted((root / "books").glob("*.json")), *sorted(root.glob("*.json"))]
+    report = []
+    for source in sources:
+        if source.name in {"settings.json", "content_manifest.json", "local_content_manifest.json"}:
             continue
-        target = root / "books" / path.name
+        target = root / "books" / source.stem
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict) or data.get("id") != path.stem:
-                raise ValueError("file name and worldbook ID differ")
-            WorldBook.from_dict(data)
-            if target.exists():
-                raise FileExistsError(target)
-            planned.append(path.stem)
-        except (OSError, ValueError, TypeError, KeyError) as exc:
-            problems.append((path.name, str(exc)))
-    print(f"Legacy books ready to move: {len(planned)}")
-    for book_id in planned:
-        print(f"  {book_id}.json -> books/{book_id}.json")
-    for filename, reason in problems:
-        print(f"  SKIP {filename}: {reason}")
-    if args.apply:
-        manager = WorldBookManager(root)
-        moved = manager.migrate_legacy_books()
-        print(f"Moved: {len(moved)}")
-        if problems:
-            print("Skipped files remain in the legacy directory; repair them before retrying.")
-        return 0 if len(moved) == len(planned) and not problems else 1
-    if problems:
-        print("Resolve skipped files before applying; no files were moved.")
-        return 1
-    if not args.apply:
-        print("Preview only. Stop the app, then rerun with --apply.")
-    return 0
+            if source.is_symlink():
+                raise ValueError("Source is a symlink")
+            payload = _read_json(source.read_bytes())
+            if payload.get("id") != source.stem:
+                raise ValueError("Filename and book ID differ")
+            WorldBook.from_dict(payload)
+            if target.exists() or target.is_symlink():
+                raise FileExistsError("Target folder already exists")
+            if args.apply:
+                migrate_json(source, root)
+            report.append({"id": source.stem, "source": str(source),
+                           "target": str(target), "status": "copied" if args.apply else "ready"})
+        except (OSError, ValueError) as exc:
+            report.append({"source": str(source), "status": "skipped", "reason": str(exc)})
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0 if not any(item["status"] == "skipped" for item in report) else 1
 
 
 if __name__ == "__main__":

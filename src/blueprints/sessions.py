@@ -12,6 +12,7 @@ from pathlib import Path
 
 from data_paths import PROJECT_ROOT, content_root, memory_root
 from content_scope import is_content_visible
+from worldbook_content import category_roots, resolve_content
 from constants import DEFAULT_PLAYER_IDENTITY
 from urllib.parse import quote
 
@@ -34,6 +35,22 @@ _SESSION_BG_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 _REPO_ROOT = PROJECT_ROOT
 
 
+def _entity_files(category: str):
+    """Yield enabled book-owned entity indexes without using the shared tree."""
+    seen = set()
+    for owner, base in category_roots(category, project_root=_REPO_ROOT):
+        for folder in sorted(base.iterdir()):
+            index = folder / "index.md"
+            if not folder.is_dir() or not index.is_file() or not is_content_visible(
+                    index, project_root=_REPO_ROOT):
+                continue
+            key = (owner, folder.name)
+            if key in seen:
+                continue
+            seen.add(key)
+            yield owner, folder, index
+
+
 def _load_plot_opening(session, plot_id: str, load_characters: bool = True):
     """加载剧情的开场配置到会话中。
 
@@ -42,7 +59,7 @@ def _load_plot_opening(session, plot_id: str, load_characters: bool = True):
     from session_overlay import _read_plot_file, plot_initial_characters
 
     try:
-        result = _read_plot_file(plot_id)
+        result = _read_plot_file(plot_id, session.overlay.get_worldbook_ids())
         if not result:
             return
         meta, body = result
@@ -116,20 +133,24 @@ def register(app, managers):
         if combat_mode not in ("narrative", "tactical", "sideview"):
             return json_error("combat_mode 必须是 'narrative'、'tactical' 或 'sideview'")
 
+        raw_book_ids = data.get("worldbook_ids", [])
+        if (not isinstance(raw_book_ids, list) or
+                any(not isinstance(x, str) or not x.strip() for x in raw_book_ids)):
+            return json_error("worldbook_ids 必须是世界书 ID 数组")
+        worldbook_ids = list(dict.fromkeys(x.strip() for x in raw_book_ids if x.strip()))
+
         plot_id = data.get("plot_id", "").strip()
         plot_name = ""
         if plot_id and mode == "story":
-            from session_overlay import _resolve_plot_dir, _read_plot_file
-            resolved = _resolve_plot_dir(plot_id) or plot_id
-            plot_dir = content_root(_REPO_ROOT) / "plots" / resolved
-            if not is_content_visible(plot_dir, project_root=_REPO_ROOT):
+            from session_overlay import _resolve_plot_path, _read_plot_file
+            plot_dir = _resolve_plot_path(plot_id, worldbook_ids)
+            if plot_dir is None:
                 return json_error("剧情不存在或不可用", 404)
-            result = _read_plot_file(plot_id)
+            result = _read_plot_file(plot_id, worldbook_ids)
             if result:
                 plot_name = result[0].get("name", "")
             if not plot_name:
-                resolved = _resolve_plot_dir(plot_id) or plot_id
-                plot_name = resolved
+                plot_name = plot_dir.name
 
         # 主控角色（用户自身扮演的角色）：与角色入队合并为同一次选择。
         # 走该流程的客户端**总是**显式带上 identity；显式传空 = 明确没选 → 拒绝创建
@@ -141,15 +162,11 @@ def register(app, managers):
             player_identity = str(data.get("identity") or "").strip()
             if not player_identity:
                 return json_error("必须选择主控角色：identity 不能为空")
-        identity_path = content_root(_REPO_ROOT) / "characters" / player_identity / "index.md"
-        if not is_content_visible(identity_path, project_root=_REPO_ROOT):
+        identity_path = resolve_content(
+            f"characters/{player_identity}/index.md", book_ids=worldbook_ids,
+            project_root=_REPO_ROOT)
+        if player_identity != DEFAULT_PLAYER_IDENTITY and identity_path is None:
             return json_error("主控角色不存在或不可用", 404)
-
-        raw_book_ids = data.get("worldbook_ids", [])
-        if (not isinstance(raw_book_ids, list) or
-                any(not isinstance(x, str) or not x.strip() for x in raw_book_ids)):
-            return json_error("worldbook_ids 必须是世界书 ID 数组")
-        worldbook_ids = list(dict.fromkeys(x.strip() for x in raw_book_ids if x.strip()))
         roster = data.get("roster_character_ids", [])
         if not isinstance(roster, list) or not all(isinstance(x, str) and x.strip() for x in roster):
             return json_error("roster_character_ids 必须是非空字符串组成的数组")
@@ -168,10 +185,9 @@ def register(app, managers):
 
         def initialize(session):
             if plot_id and mode == "story":
-                from session_overlay import _resolve_plot_dir
-                resolved = _resolve_plot_dir(plot_id) or plot_id
-                plot_dir = content_root(_REPO_ROOT) / "plots" / resolved
-                if plot_dir.is_dir() and is_content_visible(plot_dir, project_root=_REPO_ROOT):
+                from session_overlay import _resolve_plot_path
+                plot_dir = _resolve_plot_path(plot_id, worldbook_ids)
+                if plot_dir is not None:
                     session.overlay.load_quests_from_plot(plot_id)
                     _load_plot_opening(session, plot_id, load_characters="roster_character_ids" not in data)
                     # 参考大纲：书里已生成的 LLM 大纲优先；剧情文件无节拍骨架时，
@@ -926,17 +942,8 @@ def register(app, managers):
         """列出所有可用剧情（从 data/plots/ 子目录扫描）。"""
         from session_overlay import plot_initial_characters
 
-        plots_dir = content_root(_REPO_ROOT) / "plots"
-        if not plots_dir.is_dir():
-            return jsonify([])
-
         plots = []
-        for entry in sorted(plots_dir.iterdir()):
-            if not entry.is_dir() or not is_content_visible(entry, project_root=_REPO_ROOT):
-                continue
-            md = entry / "index.md"
-            if not md.is_file() or not is_content_visible(md, project_root=_REPO_ROOT):
-                continue
+        for owner, entry, md in _entity_files("plots"):
             try:
                 with open(md, "r", encoding="utf-8") as f:
                     plot_data = frontmatter.load(f)
@@ -951,7 +958,7 @@ def register(app, managers):
                     # `worldbook_id` = 该剧情绑定的世界书；`player_identity` = 默认主控
                     # （玩家身份）。两者都是可选字段，缺失一律空串 —— 前端只做「有就选中」，
                     # 不从名字或正文猜主控（口径见 docs/notes.md）。
-                    "worldbook_id": str(meta.get("worldbook_id") or "").strip(),
+                    "worldbook_id": owner or str(meta.get("worldbook_id") or "").strip(),
                     "player_identity": str(meta.get("player_identity") or "").strip(),
                     "trigger_location": meta.get("trigger", {}).get("location", []),
                     "trigger_character": meta.get("trigger", {}).get("character", []),
@@ -966,27 +973,21 @@ def register(app, managers):
     @bp.route("/api/player-identities", methods=["GET"])
     def list_player_identities():
         """返回所有标记为 player_identity=true 的角色卡摘要。"""
-        chars_dir = content_root(_REPO_ROOT) / "characters"
         identities = []
-        if chars_dir.is_dir():
-            for entry in sorted(chars_dir.iterdir()):
-                if not entry.is_dir() or not is_content_visible(entry, project_root=_REPO_ROOT):
-                    continue
-                md = entry / "index.md"
-                if not md.is_file() or not is_content_visible(md, project_root=_REPO_ROOT):
-                    continue
-                try:
-                    with open(md, "r", encoding="utf-8") as f:
-                        data = frontmatter.load(f)
-                    if data.metadata.get("player_identity"):
-                        identities.append({
-                            "id": entry.name,
-                            "name": data.metadata.get("name", entry.name),
-                            "summary": data.metadata.get("summary", ""),
-                            "tags": data.metadata.get("tags", []),
-                        })
-                except Exception:
-                    continue
+        for owner, entry, md in _entity_files("characters"):
+            try:
+                with open(md, "r", encoding="utf-8") as f:
+                    data = frontmatter.load(f)
+                if data.metadata.get("player_identity"):
+                    identities.append({
+                        "id": entry.name,
+                        "name": data.metadata.get("name", entry.name),
+                        "summary": data.metadata.get("summary", ""),
+                        "tags": data.metadata.get("tags", []),
+                        "worldbook_id": owner or "",
+                    })
+            except Exception:
+                continue
         return jsonify(identities)
 
     @bp.route("/api/player-identities/<name>", methods=["PUT"])

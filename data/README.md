@@ -1,14 +1,21 @@
 # Data 目录
 
 世界设定、角色、剧情及配套资源集中在世界书目录。平台本体不预设世界观；
-《明日方舟》资料是可选的离线内容包。运行时由 `content_manifest.json`
-及已安装、已启用的书决定其可见性。
+《明日方舟》资料是可选的离线内容包。安装后的书及其资源放在同一文件夹中；
+旧版共享资源继续按归属清单读取，直到迁移完成。
 
 ```text
 data/
 ├── categories.yaml        类别注册表：逻辑类别 → content 内的物理目录
 ├── worldbooks/
-│   ├── content/           可编辑的结构化内容与资源（随程序分发）
+│   ├── books/             已安装世界书，每本书一个文件夹（本地数据）
+│   │   └── <book_id>/
+│   │       ├── book.json  书名、条目、启用状态等
+│   │       ├── characters/ 角色卡、头像与立绘
+│   │       ├── plots/     剧情、节拍与插画
+│   │       ├── combat/    战斗节点、背景、格子与规则
+│   │       └── audio/     音乐与音效；其他类别按需加入
+│   ├── content/           旧版共享资源（迁移期间保留，不是新书的存放位置）
 │   │   ├── characters/    角色 index.md、头像/立绘/Spine、专属 combat.json
 │   │   ├── classes/       职业设定与 cards.json
 │   │   ├── world/         世界观
@@ -23,9 +30,8 @@ data/
 │   │   ├── combat/        nodes/、backgrounds/、tiles/、rules/
 │   │   └── audio/         音乐及音效
 │   ├── packs/             可选离线内容包 JSON，受版本控制
-│   ├── books/             已安装的书，一本书一个 <book_id>.json，本地数据
-│   ├── inbox/             复制 .arkwb / 酒馆 JSON 到这里，刷新书架即导入
-│   ├── exports/           工作台导出的完整 .arkwb 包，可直接复制走
+│   ├── inbox/             复制完整书文件夹或酒馆 JSON 到这里，刷新书架即导入
+│   ├── exports/           可选 .arkwb 兼容导出
 │   ├── content_manifest.json  离线内容的世界书归属清单，受版本控制
 │   ├── local_content_manifest.json  完整包导入资源的本地归属，本地数据
 │   ├── <book_id>.json     旧版已安装书位置，可读取并迁移
@@ -37,8 +43,8 @@ data/
 
 ## 管理与读取
 
-- `src/data_paths.py` 定义内容根目录和离线内容包位置。Document/Wiki/资产管理使用
-  `categories.yaml`；角色、环境、剧情、卡牌、战斗加载器使用同一内容根目录。
+- `src/data_paths.py` 定义安装位置；`categories.yaml` 定义书内类别目录的相对路径。
+  会话按绑定书籍的顺序寻找资源，同名文件优先取顺序靠前的书。
 - 世界书工作台编辑书条目；节点图编辑关联剧情和战斗节点；资产与卡牌管理按
   `worldbook_id` 展示归属。仓库内的离线内容须显式安装相应内容包才可读取；
   停用或删除书后，其角色、剧情、战斗数据和素材从运行时目录与直达 URL 隐藏。
@@ -54,16 +60,14 @@ data/
 - `imports` 继续使用 `类别/文档ID`，例如 `classes/向导`，不写物理目录。
 ## 整本复制与直接导入
 
-- 在工作台点击「导出完整包」会下载 `<book_id>.arkwb`，同时在 `exports/` 留下一份。
-  包内有原生书 JSON、该书所属 `content/` 资源、每个资源的大小和 SHA-256。
-  酒馆 JSON 导出仍在「更多」中，适合和其他酒馆交换条目，但不包含全部剧情、战斗和图片文件。
-- 把 `.arkwb` 或已有酒馆 `.json` / `.jsonl` 复制到 `inbox/`，刷新世界书书架即可导入；
-  原文件保留，记录在 `inbox/.imported.json`，重启和再次刷新不会重复导入。同名文件内容更新后会重试。
-  也可以用工作台「导入」直接选择 `.arkwb`。完整包保留书 ID；若目标已有相同 ID，先处理冲突，系统不会覆盖。
-- 完整包导入先校验路径、哈希和现有资源；同路径同内容可共享，不同内容会拒绝。
-  导入的资源仍由现有加载器从 `content/` 读取，本地归属由 `local_content_manifest.json` 记录。
-  停用或删除书会隐藏其独占资源；删除不自动清掉可能仍被别处引用的共享文件。
-- 旧版根目录 `<book_id>.json` 可继续使用。停用应用后运行
+- **复制导出**：直接复制 `books/<book_id>/` 整个文件夹，包含 `book.json` 和书内图片、
+  音乐、剧情、战斗等文件。可以在副本内直接查看和修改资源。
+- **复制导入**：把完整文件夹放入 `books/`，或放入 `inbox/` 让应用复制安装，
+  然后在工作台刷新书架。文件夹名须与 `book.json` 的 `id` 一致；已有同 ID 的书不会被覆盖。
+  修改已安装文件后也要刷新书架。复制到 `inbox/` 的原件会保留。
+- 酒馆 `.json` / `.jsonl` 仍可复制到 `inbox/` 导入条目；酒馆格式通常不包含上述独立资源。
+  `.arkwb` 是可选的旧版兼容导入导出方式，完整内容导入后也会展开到书的文件夹。
+- 旧版 `books/<book_id>.json` 和根目录 `<book_id>.json` 仍可读取。先运行
   `python scripts/migrate_worldbook_layout.py` 预览，再运行
-  `python scripts/migrate_worldbook_layout.py --apply` 移入 `books/`；脚本不重写书内容，
-  不符合当前 schema 的书会留在原处，先在示例页备份并修复，再重新迁移。
+  `python scripts/migrate_worldbook_layout.py --apply` **复制**书 JSON 及归属该书的共享资源；
+  原文件保留。迁移前关闭正在编辑该书的应用，备份 `data/`。

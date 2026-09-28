@@ -37,9 +37,10 @@ from combat_nodes import (
 logger = logging.getLogger(__name__)
 
 
-def _enemy_names() -> set[str]:
+def _enemy_names(book_id: str | None = None) -> set[str]:
     from combat_data_loader import CombatDataLoader
-    return set(CombatDataLoader().list_enemy_names())
+    loader = CombatDataLoader(book_id=book_id) if book_id else CombatDataLoader()
+    return set(loader.list_enemy_names())
 
 
 def register(app, managers):
@@ -77,11 +78,14 @@ def register(app, managers):
 
     @bp.route("/api/combat/nodes/<path:node_id>", methods=["GET"])
     def get_node(node_id: str):
-        node = load_node_file(node_id)
+        book_id = request.args.get("book_id")
+        node = load_node_file(node_id, book_id=book_id)
         if not node:
             return json_error(f"战斗节点不存在: {node_id}", 404)
-        bindings = node_bindings().get(node_id, [])
-        report = validate_node(node, enemy_names=_enemy_names())
+        if book_id:
+            node.setdefault("worldbook_id", book_id)
+        bindings = node_bindings(book_id=book_id).get(node_id, [])
+        report = validate_node(node, enemy_names=_enemy_names(book_id))
         return jsonify({
             "node": node,
             "bindings": bindings,
@@ -94,9 +98,12 @@ def register(app, managers):
     @bp.route("/api/combat/nodes", methods=["POST"])
     def create():
         data = request.json or {}
+        book_id = request.args.get("book_id") or str(data.get("worldbook_id") or "")
+        if request.args.get("book_id") and data.get("worldbook_id") not in (None, "", book_id):
+            return json_error("book_id 与 worldbook_id 不一致", 400)
         try:
             node = create_node(str(data.get("node_id") or ""), str(data.get("name") or ""),
-                               worldbook_id=str(data.get("worldbook_id") or ""))
+                               worldbook_id=book_id)
         except NodeError as e:
             return json_error("；".join(e.errors), 400)
         return jsonify({"ok": True, "node": node}), 201
@@ -104,14 +111,20 @@ def register(app, managers):
     @bp.route("/api/combat/nodes/<path:node_id>", methods=["PUT"])
     def update(node_id: str):
         data = request.json or {}
+        book_id = request.args.get("book_id")
         payload = data.get("node") if isinstance(data.get("node"), dict) else data
         payload = dict(payload or {})
+        if book_id:
+            if payload.get("worldbook_id") not in (None, "", book_id):
+                return json_error("book_id 与 worldbook_id 不一致", 400)
+            payload["worldbook_id"] = book_id
         payload["node_id"] = node_id          # 路径即真相，避免改名走样
         expected_hash = str(data.get("_hash") or payload.pop("_hash", "") or "")
 
         from combat_nodes import save_node
         try:
-            node = save_node(payload, expected_hash, enemy_names=_enemy_names())
+            node = save_node(payload, expected_hash,
+                             enemy_names=_enemy_names(book_id or payload.get("worldbook_id")))
         except NodeConflictError as e:
             return json_error("；".join(e.errors), 409)
         except NodeError as e:
@@ -121,11 +134,12 @@ def register(app, managers):
     @bp.route("/api/combat/nodes/<path:node_id>", methods=["DELETE"])
     def remove(node_id: str):
         force = request.args.get("force", "") in ("1", "true", "yes")
+        book_id = request.args.get("book_id")
         from combat_nodes import node_exists
-        if not node_exists(node_id):
+        if not node_exists(node_id, book_id=book_id):
             return json_error(f"节点不存在: {node_id}", 404)
         try:
-            result = delete_node(node_id, force=force)
+            result = delete_node(node_id, force=force, book_id=book_id)
         except NodeError as e:
             # 被剧情引用 → 409（需 force）；其它校验错误 → 400
             return json_error("；".join(e.errors), 400 if force else 409)
@@ -137,11 +151,12 @@ def register(app, managers):
     def validate():
         payload = request.json or {}
         node = payload.get("node") if isinstance(payload.get("node"), dict) else payload
-        return jsonify(validate_node(node or {}, enemy_names=_enemy_names()))
+        book_id = request.args.get("book_id") or (node or {}).get("worldbook_id")
+        return jsonify(validate_node(node or {}, enemy_names=_enemy_names(book_id)))
 
     @bp.route("/api/combat/nodes/<path:node_id>/worldbook", methods=["GET"])
     def worldbook_preview(node_id: str):
-        node = load_node_file(node_id)
+        node = load_node_file(node_id, book_id=request.args.get("book_id"))
         if not node:
             return json_error(f"战斗节点不存在: {node_id}", 404)
         return jsonify({"entry": encode_node_for_worldbook(node)})
@@ -167,7 +182,7 @@ def register(app, managers):
 
         result = import_worldbook_nodes(
             entries, book_id=book_id, overwrite=bool(data.get("overwrite", True)),
-            enemy_names=_enemy_names())
+            enemy_names=_enemy_names(book_id))
         status = 200 if not result["errors"] else 207
         return jsonify({"ok": not result["errors"], **result}), status
 

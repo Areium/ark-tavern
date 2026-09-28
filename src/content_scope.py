@@ -4,8 +4,12 @@ import json
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Iterable
 
-from data_paths import CONTENT_ROOT, WORLDBOOKS_ROOT, content_root, worldbooks_root
+from data_paths import (
+    CONTENT_ROOT, WORLDBOOKS_ROOT, content_root, installed_books_root,
+    worldbooks_root,
+)
 
 
 @lru_cache(maxsize=8)
@@ -34,13 +38,23 @@ def _read_local_manifest(path: Path, mtime_ns: int, size: int) -> dict | None:
 @lru_cache(maxsize=64)
 def _book_enabled(path: Path, mtime_ns: int, size: int) -> bool:
     try:
-        return json.loads(path.read_text(encoding="utf-8")).get("enabled", True) is True
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return (isinstance(payload, dict) and payload.get("enabled", True) is True
+                and (path.name != "book.json" or payload.get("id") == path.parent.name))
     except (OSError, ValueError, AttributeError):
         return False
 
 
+def invalidate_visibility_cache() -> None:
+    """Forget visibility metadata after an explicit bookshelf refresh."""
+    _book_enabled.cache_clear()
+    _read_manifest.cache_clear()
+    _read_local_manifest.cache_clear()
+
+
 def is_content_visible(path: str | Path, *, project_root: str | Path | None = None,
-                       content_base: str | Path | None = None) -> bool:
+                       content_base: str | Path | None = None,
+                       allowed_book_ids: Iterable[str] | None = None) -> bool:
     """Return whether a content path belongs to an enabled installed worldbook.
 
     Paths absent from the distribution manifest are user content. ``project_root``
@@ -55,6 +69,31 @@ def is_content_visible(path: str | Path, *, project_root: str | Path | None = No
         books_root = worldbooks_root(project_root) if project_root is not None else WORLDBOOKS_ROOT
     root = Path(os.path.abspath(root))
     candidate = Path(os.path.abspath(path))
+    folder_books = Path(os.path.abspath(installed_books_root(project_root)))
+    try:
+        book_relative = candidate.relative_to(folder_books)
+    except ValueError:
+        book_relative = None
+    if book_relative is not None and len(book_relative.parts) >= 2:
+        book_id = book_relative.parts[0]
+        if allowed_book_ids is not None and book_id not in allowed_book_ids:
+            return False
+        folder = folder_books / book_id
+        if (folder.is_symlink() or folder.resolve() != folder or
+                any(part.startswith(".") for part in book_relative.parts)):
+            return False
+        current = folder
+        for part in book_relative.parts[1:]:
+            current /= part
+            if current.is_symlink():
+                return False
+        metadata = folder / "book.json"
+        try:
+            stat = metadata.stat()
+        except OSError:
+            return False
+        return (not metadata.is_symlink() and
+                _book_enabled(metadata, stat.st_mtime_ns, stat.st_size))
     try:
         relative = candidate.relative_to(root)
     except ValueError:
@@ -121,12 +160,19 @@ def is_content_visible(path: str | Path, *, project_root: str | Path | None = No
         if not isinstance(additional, list):
             return False
         owners = [*(owners or []), *additional]
+    allowed = set(allowed_book_ids) if allowed_book_ids is not None else None
     if owners is None:
-        return True
+        return allowed is None
     if not isinstance(owners, list):
         return False
     for book_id in owners:
         if not isinstance(book_id, str) or not book_id or Path(book_id).name != book_id:
+            continue
+        if allowed is not None and book_id not in allowed:
+            continue
+        if (books_root / "books" / book_id / "book.json").is_file():
+            # A migrated book owns its copy inside the folder. Its old shared
+            # path must not reappear through a retained legacy JSON file.
             continue
         book_path = books_root / "books" / f"{book_id}.json"
         if not book_path.is_file():

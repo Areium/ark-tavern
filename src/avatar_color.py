@@ -7,6 +7,7 @@ from pathlib import Path
 
 from data_paths import CONTENT_ROOT
 from content_scope import is_content_visible
+from worldbook_content import resolve_content
 
 import frontmatter
 from PIL import Image
@@ -17,7 +18,21 @@ _CHARS_ROOT = CONTENT_ROOT / "characters"
 
 
 def _visible(path: Path) -> bool:
-    return is_content_visible(path, content_base=_CHARS_ROOT.parent)
+    if path.is_relative_to(_CHARS_ROOT):
+        return is_content_visible(path, content_base=_CHARS_ROOT.parent)
+    return is_content_visible(path)
+
+
+def _character_dir(name: str, book_ids: list[str] | None = None) -> Path | None:
+    if not name or Path(name).name != name:
+        return None
+    found = resolve_content(f"characters/{name}", book_ids=book_ids)
+    if found is not None:
+        return found
+    if book_ids is not None:
+        return None
+    # Custom test roots and legacy installations still use the old directory.
+    return _CHARS_ROOT / name
 
 
 def extract_theme_color(image_path: str | Path) -> str:
@@ -68,9 +83,12 @@ def extract_theme_color(image_path: str | Path) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def _read_index_meta(name: str) -> dict:
+def _read_index_meta(name: str, book_ids: list[str] | None = None) -> dict:
     """读取角色 index.md 的 frontmatter 元数据。"""
-    index_path = _CHARS_ROOT / name / "index.md"
+    root = _character_dir(name, book_ids)
+    if root is None:
+        return {}
+    index_path = root / "index.md"
     if not index_path.exists() or not _visible(index_path):
         return {}
     try:
@@ -79,12 +97,15 @@ def _read_index_meta(name: str) -> dict:
         return {}
 
 
-def find_avatar_path(name: str) -> str | None:
+def find_avatar_path(name: str, book_ids: list[str] | None = None) -> str | None:
     """在角色目录下查找默认头像文件。优先读 index.md 的 default_avatar，否则取最短文件名。"""
-    avatar_dir = _CHARS_ROOT / name / "avatar"
+    root = _character_dir(name, book_ids)
+    if root is None:
+        return None
+    avatar_dir = root / "avatar"
     if not avatar_dir.is_dir() or not _visible(avatar_dir):
         return None
-    meta = _read_index_meta(name)
+    meta = _read_index_meta(name, book_ids)
     default = meta.get("default_avatar", "").strip()
     if default:
         path = avatar_dir / default
@@ -97,12 +118,15 @@ def find_avatar_path(name: str) -> str | None:
     return str(avatar_dir / pngs[0]) if pngs else None
 
 
-def find_skin_path(name: str) -> str | None:
+def find_skin_path(name: str, book_ids: list[str] | None = None) -> str | None:
     """在角色目录下查找默认立绘文件。优先读 index.md 的 default_skin，否则取最短文件名。"""
-    skin_dir = _CHARS_ROOT / name / "skin"
+    root = _character_dir(name, book_ids)
+    if root is None:
+        return None
+    skin_dir = root / "skin"
     if not skin_dir.is_dir() or not _visible(skin_dir):
         return None
-    meta = _read_index_meta(name)
+    meta = _read_index_meta(name, book_ids)
     default = meta.get("default_skin", "").strip()
     if default:
         path = skin_dir / default
@@ -115,25 +139,28 @@ def find_skin_path(name: str) -> str | None:
     return str(skin_dir / pngs[0]) if pngs else None
 
 
-def find_card_face_path(name: str) -> str | None:
+def find_card_face_path(name: str, book_ids: list[str] | None = None) -> str | None:
     """查找角色卡面文件。优先读 index.md 的 card_face 字段，回退到 skin → avatar。"""
-    meta = _read_index_meta(name)
+    meta = _read_index_meta(name, book_ids)
     card_face = meta.get("card_face", "").strip()
     if card_face:
-        card_face_dir = _CHARS_ROOT / name / "card_face"
+        root = _character_dir(name, book_ids)
+        if root is None:
+            return None
+        card_face_dir = root / "card_face"
         if card_face_dir.is_dir() and _visible(card_face_dir):
             path = card_face_dir / card_face
             if path.is_file() and _visible(path):
                 return str(path)
-    skin = find_skin_path(name)
+    skin = find_skin_path(name, book_ids)
     if skin:
         return skin
-    return find_avatar_path(name)
+    return find_avatar_path(name, book_ids)
 
 
-def get_card_face_crop(name: str) -> dict | None:
+def get_card_face_crop(name: str, book_ids: list[str] | None = None) -> dict | None:
     """读取卡面裁剪参数（百分比）。返回 {x, y, w, h} 或 None。"""
-    meta = _read_index_meta(name)
+    meta = _read_index_meta(name, book_ids)
     keys = ("card_face_crop_x", "card_face_crop_y", "card_face_crop_w", "card_face_crop_h")
     if all(k in meta for k in keys):
         try:
@@ -148,9 +175,12 @@ def get_card_face_crop(name: str) -> dict | None:
     return None
 
 
-def get_theme_color(name: str) -> str | None:
+def get_theme_color(name: str, book_ids: list[str] | None = None) -> str | None:
     """读取角色文档中已保存的 theme_color（不自动提取）。"""
-    index_path = _CHARS_ROOT / name / "index.md"
+    root = _character_dir(name, book_ids)
+    if root is None:
+        return None
+    index_path = root / "index.md"
     if not index_path.exists() or not _visible(index_path):
         return None
     try:
@@ -162,13 +192,16 @@ def get_theme_color(name: str) -> str | None:
         return None
 
 
-def ensure_theme_color(name: str) -> str | None:
+def ensure_theme_color(name: str, book_ids: list[str] | None = None) -> str | None:
     """确保角色文档中有 theme_color 字段。
 
     如果已有则直接返回；如果没有则从头像提取并写入 index.md。
     无法处理时返回 None。
     """
-    index_path = _CHARS_ROOT / name / "index.md"
+    root = _character_dir(name, book_ids)
+    if root is None:
+        return None
+    index_path = root / "index.md"
     if not index_path.exists() or not _visible(index_path):
         return None
 
@@ -184,7 +217,7 @@ def ensure_theme_color(name: str) -> str | None:
     if existing:
         return existing
 
-    avatar = find_avatar_path(name)
+    avatar = find_avatar_path(name, book_ids)
     if not avatar:
         return None
 

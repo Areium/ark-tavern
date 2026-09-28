@@ -148,9 +148,13 @@ def register(app, managers):
     def list_docs(category: str):
         """列出指定类别下的所有文档。"""
         try:
-            docs = doc_mgr.list_documents(category, include_content=True)
+            docs = doc_mgr.list_documents(
+                category, include_content=True,
+                book_id=request.args.get("worldbook_id"),
+                include_duplicates=request.args.get("include_duplicates") == "1",
+            )
         except ValueError as e:
-            return json_error(str(e), 404)
+            return json_error(str(e), 400)
         return jsonify(docs)
 
     # ── 4. GET /<category>/<doc_id> ──
@@ -158,9 +162,12 @@ def register(app, managers):
     def get_doc(category: str, doc_id: str):
         """读取单个文档（包含内容和元数据）。"""
         try:
-            doc = doc_mgr.read_document(category, doc_id)
+            doc = doc_mgr.read_document(
+                category, doc_id, book_id=request.args.get("worldbook_id"))
         except DocumentNotFoundError:
             return json_error(f"文档不存在: {category}/{doc_id}", 404)
+        except ValueError as e:
+            return json_error(str(e), 400)
         return jsonify({
             "content": doc["content"],
             "metadata": doc["metadata"],
@@ -174,12 +181,14 @@ def register(app, managers):
         data = request.json or {}
         content = data.get("content", "")
         new_id = data.get("new_id", "").strip()
-        expected_hash = data.get("hash", "")
+        expected_hash = data.get("hash") or data.get("expected_hash") or ""
+        book_id = data.get("worldbook_id", request.args.get("worldbook_id"))
 
         try:
             result = doc_mgr.save_document(
                 category, doc_id, content,
                 expected_hash=expected_hash or None,
+                book_id=book_id,
             )
         except ConflictError:
             return json_error(
@@ -188,11 +197,14 @@ def register(app, managers):
             )
         except DocumentNotFoundError:
             return json_error(f"文档不存在: {category}/{doc_id}", 404)
+        except ValueError as e:
+            return json_error(str(e), 400)
 
         # 重命名（如果提供了 new_id 且不同）
         if new_id and new_id != doc_id:
             try:
-                move_result = doc_mgr.move_document(category, doc_id, new_id)
+                move_result = doc_mgr.move_document(
+                    category, doc_id, new_id, book_id=book_id)
                 result.update(move_result)
             except Exception as e:
                 logger.warning("重命名失败 %s -> %s: %s", doc_id, new_id, e)
@@ -235,9 +247,12 @@ def register(app, managers):
     def delete_doc(category: str, doc_id: str):
         """删除文档。"""
         try:
-            doc_mgr.delete_document(category, doc_id)
+            doc_mgr.delete_document(
+                category, doc_id, book_id=request.args.get("worldbook_id"))
         except DocumentNotFoundError:
             return json_error(f"文档不存在: {category}/{doc_id}", 404)
+        except ValueError as e:
+            return json_error(str(e), 400)
 
         try:
             invalidate_all_caches(idxmgr, wiki_manager)
@@ -279,7 +294,9 @@ def register(app, managers):
         if not new_path:
             return json_error("需要 new_path 参数")
         try:
-            result = doc_mgr.move_document(category, doc_id, new_path)
+            result = doc_mgr.move_document(
+                category, doc_id, new_path,
+                book_id=data.get("worldbook_id", request.args.get("worldbook_id")))
         except (DocumentNotFoundError, FileExistsError, ValueError) as e:
             code = 404 if isinstance(e, DocumentNotFoundError) else 409
             return json_error(str(e), code)
@@ -373,9 +390,12 @@ def register(app, managers):
     def get_doc_imports(category: str, doc_id: str):
         """读取文档的 imports（含显示名称）。"""
         try:
-            doc = doc_mgr.read_document(category, doc_id)
+            doc = doc_mgr.read_document(
+                category, doc_id, book_id=request.args.get("worldbook_id"))
         except DocumentNotFoundError:
             return json_error(f"文档不存在: {category}/{doc_id}", 404)
+        except ValueError as e:
+            return json_error(str(e), 400)
 
         raw_imports = doc["metadata"].get("imports", [])
         if not isinstance(raw_imports, list):
@@ -396,9 +416,13 @@ def register(app, managers):
     def update_doc_imports(category: str, doc_id: str):
         """更新文档的 imports 并失效缓存。"""
         try:
-            doc = doc_mgr.read_document(category, doc_id)
+            doc = doc_mgr.read_document(
+                category, doc_id,
+                book_id=(request.json or {}).get("worldbook_id", request.args.get("worldbook_id")))
         except DocumentNotFoundError:
             return json_error(f"文档不存在: {category}/{doc_id}", 404)
+        except ValueError as e:
+            return json_error(str(e), 400)
 
         data = request.json or {}
         imports_list = data.get("imports", [])

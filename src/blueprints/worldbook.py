@@ -453,7 +453,32 @@ def register(app, managers):
     @bp.route("/api/worldbook", methods=["GET"])
     def list_books():
         books = wb_mgr.list_books()
+        from player_profile import invalidate_profile_cache
+        from worldbook_content import invalidate_content_cache
+        from content_scope import invalidate_visibility_cache
+        invalidate_profile_cache()
+        invalidate_content_cache()
+        invalidate_visibility_cache()
+        wiki = managers.get("wiki")
+        if wiki is not None:
+            wiki.refresh()
         return jsonify({"books": books, "inbox": wb_mgr.inbox_results()})
+
+    @bp.route("/api/worldbook/data-dir", methods=["GET"])
+    def worldbook_data_dir():
+        book_id = request.args.get("book_id")
+        if book_id is None:
+            return jsonify({"path": str(wb_mgr._books_dir.resolve())})
+        try:
+            book = wb_mgr.load(book_id)
+            if book is None:
+                return json_error("世界书不存在", 404)
+            installed = wb_mgr._installed_path(book_id)
+            folder = installed.name == "book.json"
+            return jsonify({"path": str((installed.parent if folder else wb_mgr._books_dir).resolve()),
+                            "needs_migration": not folder})
+        except ValueError:
+            return json_error("世界书 ID 无效", 400)
 
     @bp.route("/api/worldbook/available-packs", methods=["GET"])
     def list_available_packs():
@@ -678,7 +703,8 @@ def register(app, managers):
             return json_error(f"世界书正被 {len(sessions)} 个会话使用，请先解除绑定", 409)
         private_ids = {
             character_id for character_id in book.character_profiles
-            if owned_materialized_character_root(character_id, book_id) is not None
+            if owned_materialized_character_root(
+                    character_id, book_id, wb_mgr._path(book_id).parent) is not None
         }
         if private_ids and session_mgr is not None:
             try:

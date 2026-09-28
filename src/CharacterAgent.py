@@ -10,6 +10,7 @@ import yaml
 import data_paths
 from data_paths import CONTENT_ROOT
 from content_scope import is_content_visible
+from worldbook_content import resolve_content
 from memory import VectorMemory, resolve_embed_fn
 
 logger = logging.getLogger(__name__)
@@ -57,14 +58,18 @@ class CharacterAgent:
         )
 
     def load_character(self, character_name: str, overrides: dict = None) -> str:
-        chars_dir = str(CONTENT_ROOT / "characters")
-
-        # 查找实体文件夹（{name}/index.md）
-        entity_path = os.path.join(chars_dir, character_name, "index.md")
-        if (os.path.isfile(entity_path)
-                and (CONTENT_ROOT != data_paths.CONTENT_ROOT or is_content_visible(entity_path))):
-            file_path = entity_path
-        else:
+        overlay = getattr(self._session_context, "overlay", None)
+        book_ids = overlay.get_worldbook_ids() if overlay is not None else None
+        try:
+            file_path = resolve_content(
+                f"characters/{character_name}/index.md", book_ids=book_ids)
+        except ValueError:
+            file_path = None
+        if file_path is None and CONTENT_ROOT != data_paths.CONTENT_ROOT:
+            test_path = CONTENT_ROOT / "characters" / character_name / "index.md"
+            if test_path.is_file() and is_content_visible(test_path, content_base=CONTENT_ROOT):
+                file_path = test_path
+        if file_path is None:
             logger.warning("角色文件未找到: %s", character_name)
             return None
 
@@ -163,7 +168,9 @@ class CharacterAgent:
             player_section = f"\n当前玩家身份: {identity}\n"
             try:
                 from player_profile import load_player_profile
-                profile = load_player_profile(identity)
+                overlay = getattr(self._session_context, "overlay", None)
+                profile = load_player_profile(
+                    identity, overlay.get_worldbook_ids() if overlay is not None else None)
                 if profile:
                     player_section += "\n" + profile + "\n"
             except Exception:
@@ -210,7 +217,10 @@ class CharacterAgent:
         # 内置文档目录只在非自定义世界书下注入，避免把方舟角色/势力/地点
         # 泄漏到用户导入的第三方世界观中。
         if self._wiki_manager and not is_custom_worldbook:
-            catalog = self._wiki_manager.format_catalog_summary(
+            overlay = getattr(self._session_context, "overlay", None)
+            wiki = (self._wiki_manager.scoped(overlay.get_worldbook_ids())
+                    if overlay is not None else self._wiki_manager)
+            catalog = wiki.format_catalog_summary(
                 self._wiki_manager.CHARACTER_CATALOG_CATS
             )
             if catalog:
@@ -294,7 +304,10 @@ class CharacterAgent:
                     if tc["name"] == "wiki_query":
                         query_str = tc["arguments"].get("query", "")
                         logger.info("wiki_query: %s → %s", self.character_name, query_str[:80])
-                        wiki_result = self._wiki_manager.query(query_str)
+                        overlay = getattr(self._session_context, "overlay", None)
+                        wiki = (self._wiki_manager.scoped(overlay.get_worldbook_ids())
+                                if overlay is not None else self._wiki_manager)
+                        wiki_result = wiki.query(query_str)
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc.get("id", "wiki_0"),

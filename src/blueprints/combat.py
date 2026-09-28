@@ -248,7 +248,7 @@ def _build_ephemeral_settlement(session, combat_data: dict, reward_mult: float) 
 def _get_combat_inventory(session) -> list[dict]:
     """从会话背包读取战斗中可用的消耗品（category=consumable 且 count>0）。"""
     from combat_data_loader import CombatDataLoader
-    loader = CombatDataLoader()
+    loader = CombatDataLoader(book_ids=session.overlay.get_worldbook_ids())
     result = []
     for entry in session.overlay._data.get("inventory", []):
         name = entry.get("name", "")
@@ -319,7 +319,8 @@ def register(app, managers):
         approach_id = data.get("approach_id")
 
         from combat_data_loader import CombatDataLoader
-        encounter = CombatDataLoader().load_node(encounter_id)
+        book_ids = session.overlay.get_worldbook_ids()
+        encounter = CombatDataLoader(book_ids=book_ids).load_node(encounter_id)
         if encounter is None:
             return json_error("战斗节点不存在或所属世界书未安装", 404)
 
@@ -375,7 +376,7 @@ def register(app, managers):
                     })
 
         try:
-            combat = CombatSession(session_id)
+            combat = CombatSession(session_id, book_ids=book_ids)
             # 新开一场：清掉上一场遗留的挂起存档，避免「继续战斗」指向旧局
             _clear_resume_file(_session_resume_path(session))
             state = combat.start(
@@ -476,7 +477,8 @@ def register(app, managers):
 
         try:
             combat = CombatSession.from_suspend_snapshot(
-                payload, session_id, session_dir=str(session.data_dir))
+                payload, session_id, session_dir=str(session.data_dir),
+                book_ids=session.overlay.get_worldbook_ids())
         except ValueError as e:
             # 节点已删除等不可恢复的情形：清掉存档，避免入口永久卡住
             logger.warning("会话 %s: 战斗恢复失败，清理挂起存档: %s", session_id, e)

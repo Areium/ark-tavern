@@ -167,8 +167,11 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 
 ## 4. 内容工具与脚本
 
-数据布局见 `data/README.md`：内容与资源在 `data/worldbooks/content/`，可选离线包在
-`data/worldbooks/packs/`，其分发归属清单为 `data/worldbooks/content_manifest.json`；完整包导入的资源归属存于本地 `local_content_manifest.json`。`inbox/` 接收直接复制的书，`exports/` 保存完整导出包；统一路径由 `src/data_paths.py` 定义。旧版已安装书用 `scripts/migrate_worldbook_layout.py` 迁移。
+数据布局见 `data/README.md`：已安装书以 `data/worldbooks/books/<id>/` 为单位，
+`book.json` 与角色、剧情、战斗、音频等资源在同一目录。运行时按会话绑定书籍顺序定位资源；
+复制完整文件夹到 `books/` 或 `inbox/` 后刷新书架即可导入。`data/worldbooks/content/` 与
+`content_manifest.json` 只保留旧版共享内容兼容读取；可选离线包在 `packs/`。
+统一路径由 `src/data_paths.py` 定义，旧版已安装书用 `scripts/migrate_worldbook_layout.py` 复制迁移。
 
 
 战斗内容工具（`tools/`）：

@@ -6,11 +6,12 @@ import logging
 
 import frontmatter
 from flask import Blueprint, jsonify, request
-from data_paths import PROJECT_ROOT, content_root
+from data_paths import PROJECT_ROOT
 from content_scope import is_content_visible
+from worldbook_content import category_roots
 
 from shared.helpers import json_error
-from session_overlay import _resolve_plot_dir, _parse_quests_md
+from session_overlay import _resolve_plot_path, _parse_quests_md
 
 logger = logging.getLogger(__name__)
 
@@ -83,78 +84,77 @@ def register(app, managers):
     @bp.route("/api/environment/presets", methods=["GET"])
     def environment_presets():
         """扫描环境预设（地点、天气、时间）并返回可用选项。"""
-        env_root = content_root(_REPO_ROOT) / "environment"
-
-        # 扫描地点
         locations: list[dict] = []
-        loc_dir = env_root / "Location"
-        if loc_dir.is_dir():
-            for index_md in sorted(loc_dir.rglob("index.md")):
-                if not is_content_visible(index_md, project_root=_REPO_ROOT):
-                    continue
-                relative_id = index_md.parent.relative_to(loc_dir).as_posix()
-                if relative_id == ".":
-                    continue
-                fallback_name = index_md.parent.name
-                try:
-                    with open(index_md, "r", encoding="utf-8") as f:
-                        fm = frontmatter.load(f)
-                    locations.append({
-                        "id": relative_id,
-                        "name": fm.metadata.get("name", fallback_name),
-                    })
-                except Exception:
-                    locations.append({"id": relative_id, "name": fallback_name})
-
-            for item in sorted(loc_dir.rglob("*.md")):
-                if not is_content_visible(item, project_root=_REPO_ROOT):
-                    continue
-                stem = item.stem
-                if stem in ("_index", "_INDEX", "README", "TEMPLATE", "index"):
-                    continue
-                relative_id = item.relative_to(loc_dir).with_suffix("").as_posix()
-                try:
-                    with open(item, "r", encoding="utf-8") as f:
-                        fm = frontmatter.load(f)
-                    locations.append({
-                        "id": relative_id,
-                        "name": fm.metadata.get("name", stem),
-                    })
-                except Exception:
-                    locations.append({"id": relative_id, "name": stem})
-
-        # 扫描天气
         weathers: list[dict] = []
-        weather_dir = env_root / "weather"
-        if weather_dir.is_dir():
-            for item in sorted(weather_dir.iterdir()):
-                if item.is_dir():
-                    index_md = item / "index.md"
-                    if index_md.is_file() and is_content_visible(index_md, project_root=_REPO_ROOT):
-                        try:
-                            with open(index_md, "r", encoding="utf-8") as f:
-                                fm = frontmatter.load(f)
-                            wtype = fm.metadata.get("weather_type", {})
-                            weathers.append({
-                                "id": item.name,
-                                "name": wtype.get("name", item.name),
-                            })
-                        except Exception:
-                            weathers.append({"id": item.name, "name": item.name})
-                elif item.is_file() and item.suffix == ".md" and is_content_visible(item, project_root=_REPO_ROOT):
+        for _, env_root in category_roots("environment", project_root=_REPO_ROOT):
+            # 扫描地点
+            loc_dir = env_root / "Location"
+            if loc_dir.is_dir():
+                for index_md in sorted(loc_dir.rglob("index.md")):
+                    if not is_content_visible(index_md, project_root=_REPO_ROOT):
+                        continue
+                    relative_id = index_md.parent.relative_to(loc_dir).as_posix()
+                    if relative_id == ".":
+                        continue
+                    fallback_name = index_md.parent.name
+                    try:
+                        with open(index_md, "r", encoding="utf-8") as f:
+                            fm = frontmatter.load(f)
+                        locations.append({
+                            "id": relative_id,
+                            "name": fm.metadata.get("name", fallback_name),
+                        })
+                    except Exception:
+                        locations.append({"id": relative_id, "name": fallback_name})
+
+                for item in sorted(loc_dir.rglob("*.md")):
+                    if not is_content_visible(item, project_root=_REPO_ROOT):
+                        continue
                     stem = item.stem
                     if stem in ("_index", "_INDEX", "README", "TEMPLATE", "index"):
                         continue
+                    relative_id = item.relative_to(loc_dir).with_suffix("").as_posix()
                     try:
                         with open(item, "r", encoding="utf-8") as f:
                             fm = frontmatter.load(f)
-                        wtype = fm.metadata.get("weather_type", {})
-                        weathers.append({
-                            "id": stem,
-                            "name": wtype.get("name", stem),
+                        locations.append({
+                            "id": relative_id,
+                            "name": fm.metadata.get("name", stem),
                         })
                     except Exception:
-                        weathers.append({"id": stem, "name": stem})
+                        locations.append({"id": relative_id, "name": stem})
+
+            # 扫描天气
+            weather_dir = env_root / "weather"
+            if weather_dir.is_dir():
+                for item in sorted(weather_dir.iterdir()):
+                    if item.is_dir():
+                        index_md = item / "index.md"
+                        if index_md.is_file() and is_content_visible(index_md, project_root=_REPO_ROOT):
+                            try:
+                                with open(index_md, "r", encoding="utf-8") as f:
+                                    fm = frontmatter.load(f)
+                                wtype = fm.metadata.get("weather_type", {})
+                                weathers.append({
+                                    "id": item.name,
+                                    "name": wtype.get("name", item.name),
+                                })
+                            except Exception:
+                                weathers.append({"id": item.name, "name": item.name})
+                    elif item.is_file() and item.suffix == ".md" and is_content_visible(item, project_root=_REPO_ROOT):
+                        stem = item.stem
+                        if stem in ("_index", "_INDEX", "README", "TEMPLATE", "index"):
+                            continue
+                        try:
+                            with open(item, "r", encoding="utf-8") as f:
+                                fm = frontmatter.load(f)
+                            wtype = fm.metadata.get("weather_type", {})
+                            weathers.append({
+                                "id": stem,
+                                "name": wtype.get("name", stem),
+                            })
+                        except Exception:
+                            weathers.append({"id": stem, "name": stem})
 
         return jsonify({
             "locations": locations,
@@ -173,12 +173,12 @@ def register(app, managers):
         plot_id = session.overlay.get_plot_id()
         if not plot_id:
             return jsonify({"plot_id": None, "quests": []})
-        resolved = _resolve_plot_dir(plot_id) or plot_id
-        if not is_content_visible(content_root(_REPO_ROOT) / "plots" / resolved, project_root=_REPO_ROOT):
+        book_ids = session.overlay.get_worldbook_ids()
+        if _resolve_plot_path(plot_id, book_ids) is None:
             return jsonify({"plot_id": None, "quests": []})
 
         # 解析剧情任务定义
-        quests = _parse_quests_md(plot_id)
+        quests = _parse_quests_md(plot_id, book_ids)
         states = session.overlay.get_quest_states()
 
         # 合并状态，过滤 hidden
@@ -210,15 +210,14 @@ def register(app, managers):
             return json_error("需要 plot_id 参数")
 
         # 验证剧情目录存在
-        resolved = _resolve_plot_dir(plot_id) or plot_id
-        plot_dir = content_root(_REPO_ROOT) / "plots" / resolved
-        if not plot_dir.is_dir() or not is_content_visible(plot_dir, project_root=_REPO_ROOT):
+        book_ids = session.overlay.get_worldbook_ids()
+        if _resolve_plot_path(plot_id, book_ids) is None:
             return json_error(f"剧情不存在: {plot_id}", 404)
 
         # 加载任务
         session.overlay.load_quests_from_plot(plot_id)
 
-        quests = _parse_quests_md(plot_id)
+        quests = _parse_quests_md(plot_id, book_ids)
         states = session.overlay.get_quest_states()
 
         # 合并状态（返回所有任务，含 hidden 使前端可以管理可见性）

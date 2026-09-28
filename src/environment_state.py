@@ -6,6 +6,7 @@ from pathlib import Path
 import frontmatter
 from content_scope import is_content_visible
 from data_paths import CONTENT_ROOT
+from worldbook_content import category_roots
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +55,10 @@ class EnvironmentState:
         "记录", "信息", "情况", "程度", "水平",
     }
 
-    def __init__(self, data_dir: str = ""):
+    def __init__(self, data_dir: str = "", overlay=None):
         self.data_dir = data_dir or _DEFAULT_ENV_DIR
+        self._explicit_data_dir = bool(data_dir)
+        self.overlay = overlay
         self.location = ""
         self.location_desc = ""
         self.weather = ""
@@ -71,9 +74,20 @@ class EnvironmentState:
         self.reset()
 
     def _visible_file(self, path: str) -> bool:
-        if self.data_dir != _DEFAULT_ENV_DIR:
+        if self._explicit_data_dir:
             return True  # explicit standalone content directory
-        return is_content_visible(path, content_base=Path(self.data_dir).parent)
+        if self.data_dir != str(CONTENT_ROOT / "environment"):
+            return is_content_visible(path, content_base=Path(self.data_dir).parent)
+        return is_content_visible(path, allowed_book_ids=self._book_ids())
+
+    def _book_ids(self) -> list[str]:
+        return self.overlay.get_worldbook_ids() if self.overlay is not None else []
+
+    def _environment_roots(self) -> list[str]:
+        if self.data_dir != str(CONTENT_ROOT / "environment"):
+            return [self.data_dir]  # explicit standalone content directory
+        return [str(path) for _, path in category_roots(
+            "environment", book_ids=self._book_ids())]
 
     def load_location(self, name: str) -> bool:
         """从 data/environment/Location/ 下加载地点描述及默认物品。
@@ -81,11 +95,15 @@ class EnvironmentState:
         name 可以是文件名（含别名）或 frontmatter 中的 name 字段。
         支持实体文件夹（{name}/index.md）和传统 .md 文件。
         """
-        base = os.path.join(self.data_dir, "Location")
+        for env_root in self._environment_roots():
+            if self._load_location_from_root(os.path.join(env_root, "Location"), name):
+                return True
+        logger.info("未找到地点文件: %s", name)
+        return False
+
+    def _load_location_from_root(self, base: str, name: str) -> bool:
         if not os.path.isdir(base):
             return False
-
-        # 第一遍：按文件名匹配（精确 + 别名）
         for root, dirs, files in os.walk(base):
             # 实体文件夹
             for d in dirs:
@@ -118,12 +136,13 @@ class EnvironmentState:
                 except Exception:
                     continue
 
-        logger.info("未找到地点文件: %s", name)
         return False
 
     @staticmethod
     def _resolve_weather_path(data_dir: str, name: str) -> str | None:
         """解析天气文件路径（实体文件夹格式）。"""
+        if not isinstance(name, str) or name in ("", ".", "..") or "/" in name or "\\" in name:
+            return None
         base = os.path.join(data_dir, "weather")
         entity = os.path.join(base, name, "index.md")
         if os.path.isfile(entity):
@@ -137,12 +156,18 @@ class EnvironmentState:
         支持实体文件夹（{name}/index.md）和传统 .md 文件。
         """
         # 精确文件名匹配
-        filepath = self._resolve_weather_path(self.data_dir, name)
+        for env_root in self._environment_roots():
+            if self._load_weather_from_root(env_root, name):
+                return True
+        logger.info("未找到天气文件: %s", name)
+        return False
+
+    def _load_weather_from_root(self, env_root: str, name: str) -> bool:
+        filepath = self._resolve_weather_path(env_root, name)
         if filepath and self._visible_file(filepath):
             return self._parse_weather_file(filepath)
 
-        # 扫描 frontmatter name/别名匹配
-        base = os.path.join(self.data_dir, "weather")
+        base = os.path.join(env_root, "weather")
         if os.path.isdir(base):
             for entry in os.listdir(base):
                 # 实体文件夹
@@ -172,7 +197,6 @@ class EnvironmentState:
                     except Exception:
                         continue
 
-        logger.info("未找到天气文件: %s", name)
         return False
 
     # ── 上下文构建（注入 prompt）──
@@ -419,16 +443,23 @@ class EnvironmentState:
 
         支持实体文件夹和传统 .md 文件。
         """
-        base = os.path.join(self.data_dir, "Location")
-        if not os.path.isdir(base):
-            return []
         _EXCLUDED = {"TEMPLATE", "_index", "index"}
+        locs = []
+        for env_root in self._environment_roots():
+            base = os.path.join(env_root, "Location")
+            if not os.path.isdir(base):
+                continue
+            locs.extend(self._list_locations_from_root(base, _EXCLUDED))
+        return list(dict.fromkeys(locs))
+
+    def _list_locations_from_root(self, base: str, excluded: set[str]) -> list[str]:
         locs = []
         for root, dirs, _files in os.walk(base):
             # 实体文件夹
             for d in dirs:
                 d_full = os.path.join(root, d)
-                if os.path.isfile(os.path.join(d_full, "index.md")):
+                index_md = os.path.join(d_full, "index.md")
+                if os.path.isfile(index_md) and self._visible_file(index_md):
                     rel = os.path.relpath(d_full, base).replace("\\", "/")
                     locs.append(rel if rel != "." else d)
             # 传统 .md 文件（向后兼容）
@@ -436,7 +467,7 @@ class EnvironmentState:
                 if not f.endswith(".md"):
                     continue
                 stem = os.path.splitext(f)[0]
-                if stem in _EXCLUDED:
+                if stem in excluded or not self._visible_file(os.path.join(root, f)):
                     continue
                 # 跳过实体文件夹内的 index.md
                 parent = os.path.join(root, stem)

@@ -341,7 +341,7 @@ python -m pytest tests/ perf_tests/test_combat_runtime_v1.py perf_tests/test_com
 - 战斗 Spine 变体映射作为 `content/spine_variants.json` 分发，经 `/api/assets/spine-variants` 只返回当前可见角色；无模型的角色使用通用几何标记。导入的世界书角色私有副本在卸载时清理，被其他书引用则拒绝卸载。
 ### 可复制的完整世界书（2026-09-28）
 
-- 已安装书的新位置为 `data/worldbooks/books/<id>.json`；旧根目录书仍可读取。迁移前先停应用，再用 `scripts/migrate_worldbook_layout.py` 预览和执行。迁移只移动符合当前 schema 且 ID 匹配的 JSON，不改书内容；不兼容副本须先备份并修复。
-- `.arkwb` 包收集分发归属清单和本地清单中属于该书的文件，以及带 `worldbook_id` 的用户实体目录/JSON；包内保留 `content/` 相对路径和哈希。未知归属且无标记的自建资源不会被猜测为该书资源，作者需先给实体标记归属。跨书共享文件会随各自的包复制，导入时只接受同路径同内容。
-- `inbox/` 文件导入记录在 `.imported.json`，同一文件未变化时不会重复安装；导入失败显示在书架错误状态，修复或替换文件后会重试。资源落入共享 `content/`，本地归属单独记在 `local_content_manifest.json`，停用/删除后的可见性同时检查两份清单。卸载不会直接删共享资源文件，防止误删其它书的引用。
+- 已安装书以 `data/worldbooks/books/<id>/book.json` 为元数据，`characters/`、`plots/`、`combat/`、`audio/` 等资源目录直接放在同一本书的文件夹内。复制文件夹即完整分享；放入 `books/` 或 `inbox/` 后刷新书架发现。会话按绑定书顺序解析同名资源，无绑定时不读取书内资源。
+- `scripts/migrate_worldbook_layout.py` 默认预览，`--apply` 把旧 JSON 和归属共享资源**复制**到新文件夹，原文件保留，便于核对；不兼容旧 schema 仍需先备份并修复。迁移后，旧共享目录只为尚未迁移的书提供兼容读取，不能让旧副本绕过停用状态。
+- `.arkwb` 保留为可选兼容格式；导入后展开为普通书文件夹。酒馆 JSON/JSONL 只携带条目时仍可导入，但不会凭空获得图片、音乐、剧情和战斗文件。`inbox/` 的导入记录留在 `.imported.json`，同 ID 安装不覆盖。
 - 2026-09-28 本机旧 `arknights.json` 缺 `schema_version=3`，迁移预览会跳过；其与当前分发包的共同内容字段完全相同。临时目录内验证了「备份并修复」后迁移，254 条条目保持一致且留下 `.bak`。操作真实数据前仍需停止应用并确认保存。

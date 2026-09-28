@@ -14,6 +14,7 @@ import {
 
 interface Props {
   plotId: string;
+  bookId?: string | null;
   /** 打开抽屉时定位的节拍（可空 = 只展示章节概览） */
   beatId: string | null;
   onChanged: () => void;
@@ -26,7 +27,7 @@ interface DocState {
   hash: string;
 }
 
-export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: Props) {
+export default function StoryBeatEditor({ plotId, bookId, beatId, onChanged, onClose }: Props) {
   const api = useApi();
   const [doc, setDoc] = useState<DocState | null>(null);
   const [selectedBeat, setSelectedBeat] = useState<string | null>(beatId);
@@ -43,7 +44,7 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
   const loadDoc = useCallback(async () => {
     setBusy(true);
     try {
-      const res = await api.readDocument("plots", plotId);
+      const res = await api.readDocument("plots", plotId, bookId || undefined);
       setDoc({ content: res.content, metadata: res.metadata, hash: res.hash });
       setError(null);
       setConflict(false);
@@ -53,7 +54,7 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
     } finally {
       setBusy(false);
     }
-  }, [api, plotId]);
+  }, [api, bookId, plotId]);
 
   useEffect(() => { setDoc(null); setSelectedBeat(beatId); loadDoc(); }, [loadDoc, beatId]);
 
@@ -73,8 +74,8 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
     setError(null);
     try {
       const nextMd = mutate(doc.content);
-      await api.saveDocument("plots", plotId, nextMd, doc.metadata, doc.hash);
-      const fresh = await api.readDocument("plots", plotId);
+      await api.saveDocument("plots", plotId, nextMd, doc.metadata, doc.hash, bookId || undefined);
+      const fresh = await api.readDocument("plots", plotId, bookId || undefined);
       setDoc({ content: fresh.content, metadata: fresh.metadata, hash: fresh.hash });
       setNotice(message);
       setDirty(false);
@@ -90,7 +91,7 @@ export default function StoryBeatEditor({ plotId, beatId, onChanged, onClose }: 
     } finally {
       setBusy(false);
     }
-  }, [api, doc, plotId, onChanged]);
+  }, [api, bookId, doc, plotId, onChanged]);
 
   /** 保存当前节拍正文/偏离标记 */
   const saveBeat = useCallback(() => {
