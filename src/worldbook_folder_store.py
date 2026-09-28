@@ -1,26 +1,159 @@
-"""Validated, self-contained installed worldbook folders."""
+"""Validated, self-contained installed worldbook folders and pack resources."""
 
 from __future__ import annotations
 
+import json
 import os
-import shutil
-import stat
-import uuid
-import zipfile
-from pathlib import Path
+import re
+from pathlib import Path, PurePosixPath
 
-from worldbook_bundle import (
-    FORMAT, VERSION, MAX_BOOK_SIZE, MAX_METADATA_SIZE, MAX_FILES,
-    MAX_FILE_SIZE, MAX_TOTAL_SIZE, _HASH, _book_id, _file_digest,
-    _json_bytes, _no_links, _read_json, _relative, _source_resources,
-    _zip_digest,
-)
+MAX_FILES = 10_000
+MAX_FILE_SIZE = 64 * 1024 * 1024
+MAX_BOOK_SIZE = 256 * 1024 * 1024
+_ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
+_WINDOWS_DEVICE = re.compile(r"(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\..*)?\Z", re.I)
 
-# Ordinary local folders are the primary storage format. Archive transfer has
-# stricter limits; a large music or illustration file must not hide its book.
+# A local folder may contain large images and audio, but validation remains bounded.
 _MAX_FOLDER_FILE_SIZE = 2 * 1024 * 1024 * 1024
 _MAX_FOLDER_TOTAL_SIZE = 16 * 1024 * 1024 * 1024
 _MAX_FOLDER_FILES = 100_000
+
+
+def _book_id(value: str) -> str:
+    if not isinstance(value, str) or not _ID.fullmatch(value):
+        raise ValueError("Invalid worldbook ID")
+    return value
+
+
+def _relative(value: str) -> PurePosixPath:
+    if not isinstance(value, str) or not value or "\\" in value or ":" in value or "\x00" in value:
+        raise ValueError("Invalid content path")
+    path = PurePosixPath(value)
+    if (path.is_absolute() or path.as_posix() != value or
+            any(part in ("", ".", "..") or part.rstrip(" .") != part or
+                _WINDOWS_DEVICE.fullmatch(part) or any(ord(char) < 32 for char in part)
+                for part in value.split("/"))):
+        raise ValueError("Unsafe content path")
+    return path
+
+
+def _no_links(path: Path, root: Path) -> None:
+    """Reject existing symlinks in every component, including the root."""
+    root = Path(os.path.abspath(root))
+    path = Path(os.path.abspath(path))
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError as exc:
+        raise ValueError("Path escapes content root") from exc
+    current = root
+    if current.is_symlink():
+        raise ValueError("Symlink in content path")
+    for part in parts:
+        current /= part
+        if current.is_symlink():
+            raise ValueError("Symlink in content path")
+
+
+def _unique_pairs(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _read_json(raw: bytes) -> dict:
+    value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_pairs)
+    if not isinstance(value, dict):
+        raise ValueError("Expected JSON object")
+    return value
+
+
+def _owned_by(value: object, book_id: str) -> bool:
+    return isinstance(value, list) and book_id in value
+
+
+def _source_resources(book_id: str, worldbooks_dir: Path, content_dir: Path) -> list[tuple[str, Path]]:
+    manifest_path = worldbooks_dir / "content_manifest.json"
+    manifest = _read_json(manifest_path.read_bytes()) if manifest_path.exists() else {}
+    directories = manifest.get("directories", {})
+    files = manifest.get("files", {})
+    if not isinstance(directories, dict) or not isinstance(files, dict):
+        raise ValueError("Invalid distribution content manifest")
+    local_path = worldbooks_dir / "local_content_manifest.json"
+    local = _read_json(local_path.read_bytes()) if local_path.exists() else {}
+    local_files = local.get("files", {})
+    if not isinstance(local_files, dict):
+        raise ValueError("Invalid local content manifest")
+
+    selected: dict[str, Path] = {}
+    all_files: list[tuple[str, Path]] = []
+    if content_dir.exists():
+        _no_links(content_dir, content_dir)
+        for base, dirs, names in os.walk(content_dir, followlinks=False):
+            base_path = Path(base)
+            dirs[:] = [name for name in dirs if not (base_path / name).is_symlink()]
+            for name in names:
+                path = base_path / name
+                if path.is_symlink():
+                    continue
+                if not path.is_file():
+                    continue
+                key = path.relative_to(content_dir).as_posix()
+                _relative(key)
+                all_files.append((key, path))
+
+    # Distribution ownership follows the runtime rule: exact files first,
+    # otherwise the longest matching directory prefix.
+    for key, path in all_files:
+        owners = files.get(key)
+        if owners is None:
+            prefixes = [prefix for prefix in directories
+                        if isinstance(prefix, str) and prefix.endswith("/") and key.startswith(prefix)]
+            owners = directories[max(prefixes, key=len)] if prefixes else None
+        if _owned_by(owners, book_id) or _owned_by(local_files.get(key), book_id):
+            selected[key] = path
+
+    # User content outside either manifest can declare ownership on an index
+    # (the whole directory) or a JSON file (that file alone).
+    user_files = {key: path for key, path in all_files
+                  if key not in files and not any(
+                      isinstance(prefix, str) and prefix.endswith("/") and key.startswith(prefix)
+                      for prefix in directories) and key not in local_files}
+    owned_directories: set[str] = set()
+    for key, path in user_files.items():
+        if path.suffix.lower() not in {".md", ".json"}:
+            continue
+        if path.stat().st_size > MAX_FILE_SIZE:
+            raise ValueError(f"Unclassified content exceeds size limit: {key}")
+        if path.suffix.lower() == ".md":
+            try:
+                lines = path.read_text(encoding="utf-8-sig").splitlines()
+            except UnicodeError:
+                continue
+            if lines and lines[0].strip() == "---":
+                for line in lines[1:]:
+                    if line.strip() == "---":
+                        break
+                    match = re.fullmatch(r"\s*worldbook_id\s*:\s*['\"]?([^'\"#\s]+)['\"]?\s*", line)
+                    if match and match.group(1) == book_id:
+                        if path.name == "index.md":
+                            owned_directories.add(path.parent.relative_to(content_dir).as_posix() + "/")
+                        else:
+                            selected[key] = path
+        elif path.suffix.lower() == ".json":
+            try:
+                if _read_json(path.read_bytes()).get("worldbook_id") == book_id:
+                    selected[key] = path
+            except (UnicodeError, ValueError):
+                pass
+    for key, path in user_files.items():
+        if any(key.startswith(prefix) for prefix in owned_directories):
+            selected[key] = path
+    if len(selected) > MAX_FILES:
+        raise ValueError("Too many resources")
+    return sorted(selected.items())
 
 
 def validate_folder(folder: Path, *, expected_id: str | None = None) -> dict:
@@ -60,162 +193,3 @@ def validate_folder(folder: Path, *, expected_id: str | None = None) -> dict:
     if payload.get("id") != book_id:
         raise ValueError("Worldbook folder name and book ID differ")
     return payload
-
-
-def copy_folder(source: Path, books_dir: Path) -> Path:
-    """Copy a validated folder atomically, leaving its source untouched."""
-    source, books_dir = Path(source), Path(books_dir)
-    payload = validate_folder(source)
-    target = books_dir / payload["id"]
-    if target.exists() or target.is_symlink():
-        raise FileExistsError(f"Worldbook {payload['id']} already exists")
-    books_dir.mkdir(parents=True, exist_ok=True)
-    temporary = books_dir / f".import-{uuid.uuid4().hex}"
-    try:
-        shutil.copytree(source, temporary, symlinks=True)
-        # Check the copied files too; the source may have changed during copying.
-        validate_folder(temporary, expected_id=payload["id"])
-        if target.exists() or target.is_symlink():
-            raise FileExistsError(f"Worldbook {payload['id']} already exists")
-        temporary.rename(target)
-        return target
-    finally:
-        if temporary.exists():
-            shutil.rmtree(temporary)
-
-
-def migrate_json(source: Path, worldbooks_dir: Path) -> Path:
-    """Copy an old JSON book and its owned global content into a new folder."""
-    source, worldbooks_dir = Path(source), Path(worldbooks_dir)
-    if source.is_symlink() or not source.is_file():
-        raise ValueError("Legacy book source must be a regular file")
-    book_id = _book_id(source.stem)
-    payload = _read_json(source.read_bytes())
-    if payload.get("id") != book_id:
-        raise ValueError("Legacy filename and book ID differ")
-    books_dir = worldbooks_dir / "books"
-    target = books_dir / book_id
-    if target.exists() or target.is_symlink():
-        raise FileExistsError(f"Worldbook {book_id} already has a folder")
-    resources = _source_resources(book_id, worldbooks_dir, worldbooks_dir / "content")
-    books_dir.mkdir(parents=True, exist_ok=True)
-    temporary = books_dir / f".migrate-{uuid.uuid4().hex}"
-    try:
-        temporary.mkdir()
-        shutil.copy2(source, temporary / "book.json")
-        for name, resource in resources:
-            relative = _relative(name)
-            if relative.as_posix() == "book.json":
-                raise ValueError("Owned resource conflicts with book metadata")
-            _no_links(resource, worldbooks_dir / "content")
-            destination = temporary.joinpath(*relative.parts)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(resource, destination)
-        validate_folder(temporary, expected_id=book_id)
-        if target.exists() or target.is_symlink():
-            raise FileExistsError(f"Worldbook {book_id} already has a folder")
-        temporary.rename(target)
-        return target
-    finally:
-        if temporary.exists():
-            shutil.rmtree(temporary)
-
-
-def install_archive(archive_path: Path, books_dir: Path) -> str:
-    """Install a validated .arkwb into one self-contained folder."""
-    books_dir = Path(books_dir)
-    with zipfile.ZipFile(archive_path) as archive:
-        entries = {}
-        folded = set()
-        for info in archive.infolist():
-            name = info.filename
-            if info.is_dir():
-                raise ValueError("Directory archive member")
-            _relative(name)
-            if name in entries or name.casefold() in folded:
-                raise ValueError("Duplicate archive member")
-            if stat.S_IFMT(info.external_attr >> 16) == stat.S_IFLNK:
-                raise ValueError("Archive contains symlink")
-            limit = MAX_BOOK_SIZE if name == "book.json" else (MAX_METADATA_SIZE if name == "manifest.json" else MAX_FILE_SIZE)
-            if info.file_size > limit:
-                raise ValueError("Archive member exceeds size limit")
-            entries[name] = info
-            folded.add(name.casefold())
-        if (len(entries) > MAX_FILES + 2 or
-                sum(info.file_size for info in entries.values()) > MAX_TOTAL_SIZE + MAX_BOOK_SIZE + MAX_METADATA_SIZE):
-            raise ValueError("Archive exceeds size limit")
-        if "book.json" not in entries or "manifest.json" not in entries:
-            raise ValueError("Missing bundle metadata")
-        payload = _read_json(archive.read("book.json"))
-        manifest = _read_json(archive.read("manifest.json"))
-        if manifest.get("format") != FORMAT or manifest.get("version") != VERSION:
-            raise ValueError("Unsupported bundle format")
-        book_id = _book_id(manifest.get("book_id"))
-        if payload.get("id") != book_id:
-            raise ValueError("Worldbook ID does not match archive ID")
-        target = books_dir / book_id
-        if target.exists() or target.is_symlink():
-            raise FileExistsError(f"Worldbook {book_id} already exists")
-        resources = manifest.get("resources")
-        if not isinstance(resources, list) or len(resources) > MAX_FILES:
-            raise ValueError("Invalid resource list")
-        expected = {"book.json", "manifest.json"}
-        for item in resources:
-            if not isinstance(item, dict):
-                raise ValueError("Invalid resource record")
-            key = _relative(item.get("path")).as_posix()
-            digest, size = item.get("sha256"), item.get("size")
-            if (key == "book.json" or key == "manifest.json" or
-                    not isinstance(digest, str) or not _HASH.fullmatch(digest) or
-                    type(size) is not int or not 0 <= size <= MAX_FILE_SIZE):
-                raise ValueError("Invalid resource record")
-            member = "content/" + key
-            if member in expected or member not in entries:
-                raise ValueError("Missing or duplicate resource")
-            expected.add(member)
-            if entries[member].file_size != size or _zip_digest(archive, entries[member]) != (digest, size):
-                raise ValueError("Resource checksum mismatch")
-        if set(entries) != expected:
-            raise ValueError("Unexpected archive member")
-        books_dir.mkdir(parents=True, exist_ok=True)
-        temporary = books_dir / f".import-{uuid.uuid4().hex}"
-        try:
-            temporary.mkdir()
-            (temporary / "book.json").write_bytes(archive.read("book.json"))
-            for item in resources:
-                destination = temporary.joinpath(*_relative(item["path"]).parts)
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                with archive.open("content/" + item["path"]) as source, destination.open("xb") as output:
-                    shutil.copyfileobj(source, output)
-                if _file_digest(destination) != (item["sha256"], item["size"]):
-                    raise ValueError("Resource changed during extraction")
-            validate_folder(temporary, expected_id=book_id)
-            if target.exists() or target.is_symlink():
-                raise FileExistsError(f"Worldbook {book_id} already exists")
-            temporary.rename(target)
-            return book_id
-        finally:
-            if temporary.exists():
-                shutil.rmtree(temporary)
-
-
-def export_folder(folder: Path, target: Path) -> dict:
-    """Export the exact files belonging to a self-contained folder."""
-    payload = validate_folder(folder)
-    resources = []
-    for path in sorted(folder.rglob("*")):
-        if path.is_file() and path != folder / "book.json":
-            key = path.relative_to(folder).as_posix()
-            digest, size = _file_digest(path)
-            resources.append({"path": key, "sha256": digest, "size": size})
-    manifest = {"format": FORMAT, "version": VERSION, "book_id": payload["id"],
-                "resources": resources}
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
-        raise FileExistsError(target)
-    with zipfile.ZipFile(target, "x", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
-        archive.writestr("book.json", _json_bytes(payload))
-        archive.writestr("manifest.json", _json_bytes(manifest))
-        for item in resources:
-            archive.write(folder / item["path"], "content/" + item["path"])
-    return manifest

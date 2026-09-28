@@ -33,7 +33,6 @@ import threading
 import time
 import uuid
 import tempfile
-import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -46,9 +45,8 @@ from worldbook_scope import (
 )
 from worldbook_classify import classify_entries, needs_classification
 from worldbook_folder_store import (
-    copy_folder, export_folder, install_archive, migrate_json, validate_folder,
+    _source_resources, _relative, _no_links, validate_folder,
 )
-from worldbook_bundle import _source_resources, _relative, _no_links
 from character_stats import normalize_stat_fields
 from worldbook_media import (
     copied_character_id, materialize_character, normalize_character_media,
@@ -2369,7 +2367,7 @@ class WorldBookManager:
 
     整合包（Content Pack）机制：
     - data/worldbooks/packs/<id>.json 是可选分发源，启动不安装。
-    - 用户显式安装后复制到 data/worldbooks/<id>.json（source=preinstalled），
+    - 用户显式安装后复制到 data/worldbooks/books/<id>/book.json（source=preinstalled），
       与用户导入的书在同一列表、同一套规则下管理（启用/停用、编辑、删除、重装）。
     - 预装包被删除后，可通过 reinstall_book() 从分发源一键重装还原。
 
@@ -2381,16 +2379,11 @@ class WorldBookManager:
         self._dir.mkdir(parents=True, exist_ok=True)
         self._books_dir = self._dir / "books"
         self._books_dir.mkdir(exist_ok=True)
-        self._inbox_dir = self._dir / "inbox"
-        self._inbox_dir.mkdir(exist_ok=True)
-        self._exports_dir = self._dir / "exports"
         self._packs_dir = _PACKS_DIR
         self._cache: dict[str, WorldBook] = {}
         # 按书锁：覆盖「读修订 → 校验 → 提交」整段，避免原子替换仍然丢更新。
         self._book_locks: dict[str, threading.RLock] = {}
         self._locks_guard = threading.Lock()
-        self._inbox_lock = threading.RLock()
-        self._inbox_results: list[dict] = []
         # 分发包是可选导入源；启动时不安装任何世界观内容。
 
     def book_lock(self, book_id: str) -> threading.RLock:
@@ -2470,7 +2463,6 @@ class WorldBookManager:
 
     def list_books(self) -> list[dict]:
         """列出所有书（统一列表）：预装包在前，导入书按创建时间倒序。"""
-        self.scan_inbox()
         # Copied folders can change without passing through this manager.
         self._cache.clear()
         books = []
@@ -2567,167 +2559,6 @@ class WorldBookManager:
         finally:
             if temporary and temporary.exists():
                 temporary.unlink()
-
-    def migrate_legacy_books(self) -> list[str]:
-        """Explicitly copy old JSON books and owned resources into folders."""
-        moved = []
-        sources = [*self._books_dir.glob("*.json"), *self._dir.glob("*.json")]
-        for path in sorted(sources):
-            if path.name in {"settings.json", "content_manifest.json",
-                             "local_content_manifest.json"}:
-                continue
-            try:
-                payload = self._read_json(path)
-                if payload is None or payload.get("id") != path.stem:
-                    continue
-                WorldBook.from_dict(payload)
-                migrate_json(path, self._dir)
-                self._cache.pop(path.stem, None)
-                moved.append(path.stem)
-            except (ValueError, OSError) as exc:
-                logger.warning("跳过旧世界书 %s: %s", path, exc)
-        return moved
-
-    def export_bundle(self, book_id: str) -> tuple[Path, dict]:
-        """Create a copyable snapshot including the book and its owned content."""
-        book = self.load(book_id)
-        if book is None:
-            raise ValueError("世界书不存在")
-        self._exports_dir.mkdir(exist_ok=True)
-        target = self._exports_dir / f"{book_id}.arkwb"
-        temporary = self._exports_dir / f".{book_id}-{uuid.uuid4().hex}.tmp"
-        try:
-            report = export_folder(self._path(book_id).parent, temporary)
-            temporary.replace(target)
-            return target, report
-        finally:
-            temporary.unlink(missing_ok=True)
-
-    def install_bundle_file(self, archive: Path) -> WorldBook:
-        """Install a complete archive only when its original ID is free."""
-        from worldbook_bundle import MAX_BOOK_SIZE, MAX_METADATA_SIZE, MAX_TOTAL_SIZE
-
-        if archive.stat().st_size > MAX_TOTAL_SIZE + MAX_BOOK_SIZE + MAX_METADATA_SIZE + 64 * 1024 * 1024:
-            raise ValueError("完整包文件过大")
-        with zipfile.ZipFile(archive) as package:
-            def read_metadata(name: str) -> dict:
-                limit = MAX_BOOK_SIZE if name == "book.json" else MAX_METADATA_SIZE
-                if package.getinfo(name).file_size > limit:
-                    raise ValueError(f"完整包 {name} 超过大小限制")
-                with package.open(name) as stream:
-                    raw = stream.read(limit + 1)
-                if len(raw) > limit:
-                    raise ValueError(f"完整包 {name} 超过大小限制")
-                return json.loads(raw)
-
-            payload = read_metadata("book.json")
-            manifest = read_metadata("manifest.json")
-        book_id = manifest.get("book_id") if isinstance(manifest, dict) else None
-        if not isinstance(book_id, str):
-            raise ValueError("完整包缺少世界书 ID")
-        target = self._path(book_id)
-        if not isinstance(payload, dict) or payload.get("id") != book_id:
-            raise ValueError("完整包的世界书 ID 不一致")
-        WorldBook.from_dict(payload)
-        with self.book_lock(book_id):
-            if self._id_exists(book_id):
-                raise ValueError(f"世界书 {book_id} 已安装，请先处理同 ID 的书")
-            install_archive(archive, self._books_dir)
-            self._cache.pop(book_id, None)
-            try:
-                return self.load(book_id)
-            except Exception:
-                # A valid archive must load as a native book. Keep the archive
-                # available for diagnosis but never expose a half-imported book.
-                if target.parent.is_dir():
-                    shutil.rmtree(target.parent)
-                raise
-
-    def scan_inbox(self) -> list[dict]:
-        """Import files copied into inbox/ once, including after an app restart."""
-        with self._inbox_lock:
-            marker = self._inbox_dir / ".imported.json"
-            history = self._read_json(marker) or {}
-            if not isinstance(history, dict):
-                history = {}
-            changed = False
-            results = []
-            for path in sorted(self._inbox_dir.iterdir()):
-                if path.name.startswith(".") or (not path.is_dir() and path.suffix.lower() not in {".arkwb", ".json", ".jsonl"}):
-                    continue
-                if path.is_symlink() or not (path.is_file() or path.is_dir()):
-                    results.append({"file": path.name, "status": "error",
-                                    "error": "导入文件不能是符号链接"})
-                    continue
-                stat = path.stat()
-                signature = [stat.st_size, stat.st_mtime_ns]
-                if path.is_dir():
-                    # Refresh detects changed folder copies without consuming the source.
-                    # Never stat a link: a broken link would otherwise break the bookshelf.
-                    try:
-                        signature = sorted([
-                            item.relative_to(path).as_posix(),
-                            *(["symlink"] if item.is_symlink() else
-                              [item.stat().st_size, item.stat().st_mtime_ns]),
-                        ] for item in path.rglob("*")
-                            if item.is_file() or item.is_symlink())
-                    except OSError:
-                        signature = ["unreadable"]
-                previous = history.get(path.name)
-                if (isinstance(previous, dict) and previous.get("signature") == signature
-                        and previous.get("status") != "error"):
-                    results.append(previous)
-                    continue
-                try:
-                    if path.is_dir():
-                        payload = validate_folder(path)
-                        WorldBook.from_dict(payload)
-                        with self.book_lock(payload["id"]):
-                            if self._id_exists(payload["id"]):
-                                raise ValueError(f"世界书 {payload['id']} 已安装，请先处理同 ID 的书")
-                            copy_folder(path, self._books_dir)
-                        self._cache.pop(payload["id"], None)
-                        book = self.load(payload["id"])
-                    elif path.suffix.lower() == ".arkwb":
-                        book = self.install_bundle_file(path)
-                    else:
-                        source = path.read_text(encoding="utf-8-sig")
-                        parsed = json.loads(source) if path.suffix.lower() == ".json" else None
-                        if (isinstance(parsed, dict) and isinstance(parsed.get("entries"), list)
-                                and isinstance(parsed.get("id"), str)
-                                and any(key in parsed for key in ("source_format", "book_type", "entry_order", "edit_revision"))
-                                and all(isinstance(entry, dict) and "uid" in entry
-                                        and "trigger_keys" in entry for entry in parsed["entries"])):
-                            native = WorldBook.from_dict(parsed)
-                            with self.book_lock(native.id):
-                                if self._id_exists(native.id):
-                                    raise ValueError(f"世界书 {native.id} 已安装，请先处理同 ID 的书")
-                                self.save(native)
-                            book = native
-                        else:
-                            book, _ = self.import_book(path.stem, source)
-                    item = {"file": path.name, "status": "imported", "book_id": book.id,
-                            "signature": signature}
-                except Exception as exc:
-                    logger.warning("导入目录中的世界书 %s 失败: %s", path.name, exc)
-                    item = {"file": path.name, "status": "error", "error": str(exc),
-                            "signature": signature}
-                history[path.name] = item
-                results.append(item)
-                changed = True
-            if changed:
-                temporary = marker.with_name(f".imported-{uuid.uuid4().hex}.tmp")
-                try:
-                    temporary.write_text(json.dumps(history, ensure_ascii=False, indent=2) + "\n",
-                                         encoding="utf-8")
-                    temporary.replace(marker)
-                finally:
-                    temporary.unlink(missing_ok=True)
-            self._inbox_results = results
-            return results
-
-    def inbox_results(self) -> list[dict]:
-        return list(self._inbox_results)
 
     def create_book(self, name: str, entries: list = None,
                     source_format: str = SOURCE_MANUAL,

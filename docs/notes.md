@@ -341,8 +341,8 @@ python -m pytest tests/ perf_tests/test_combat_runtime_v1.py perf_tests/test_com
 - 战斗 Spine 变体映射作为 `content/spine_variants.json` 分发，经 `/api/assets/spine-variants` 只返回当前可见角色；无模型的角色使用通用几何标记。导入的世界书角色私有副本在卸载时清理，被其他书引用则拒绝卸载。
 ### 可复制的完整世界书（2026-09-28）
 
-- 已安装书以 `data/worldbooks/books/<id>/book.json` 为元数据，`characters/`、`plots/`、`combat/`、`audio/` 等资源目录直接放在同一本书的文件夹内。复制文件夹即完整分享；放入 `books/` 或 `inbox/` 后刷新书架发现。会话按绑定书顺序解析同名资源，无绑定时不读取书内资源。
-- `scripts/migrate_worldbook_layout.py` 默认预览，`--apply` 把旧 JSON 和归属共享资源**复制**到新文件夹，原文件保留，便于核对；不兼容旧 schema 仍需先备份并修复。运行时不双读旧 JSON 或旧共享资源；迁移后核对书内文件，再按需要处理原件。
-- `.arkwb` 保留为可选兼容格式；导入后展开为普通书文件夹。酒馆 JSON/JSONL 只携带条目时仍可导入，但不会凭空获得图片、音乐、剧情和战斗文件。`inbox/` 的导入记录留在 `.imported.json`，同 ID 安装不覆盖。
+- 已安装书以 `data/worldbooks/books/<id>/book.json` 为元数据，`characters/`、`plots/`、`combat/`、`audio/` 等资源目录直接放在同一本书的文件夹内。复制文件夹即完整分享；放入 `books/` 后刷新书架发现。会话按绑定书顺序解析同名资源，无绑定时不读取书内资源。
+- 应用内导入酒馆 JSON/JSONL 或含世界书的角色卡会新建 `books/<id>/book.json`；原文件只有条目时，不会凭空获得独立图片、音乐、剧情和战斗资源。酒馆 JSON 导出仍用于外部互通。
+- 旧版散装书 JSON、`inbox/` 和 `.arkwb` 不再参与导入；旧迁移脚本已下线。整理旧文件时先备份并核对完整书文件夹，不覆盖同 ID 的现有书。
 - 会话 ZIP 与世界书文件夹是不同的导出物。导入会话 ZIP 时，随档案保存的角色与背景快照会变成一册独立的会话资源世界书，并排在该会话绑定列表首位；不会写回旧共享目录或覆盖现有书籍。
-- 2026-09-28 本机旧 `arknights.json` 缺 `schema_version=3`，迁移预览会跳过；其与当前分发包的共同内容字段完全相同。临时目录内验证了「备份并修复」后迁移，254 条条目保持一致且留下 `.bak`。操作真实数据前仍需停止应用并确认保存。
+- 历史记录：2026-09-28 本机旧 `arknights.json` 缺 `schema_version=3`；当时临时目录内验证了「备份并修复」后迁移，254 条条目保持一致且留下 `.bak`。当前请以书文件夹为安装单位。

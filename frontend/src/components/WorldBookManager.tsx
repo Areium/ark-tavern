@@ -372,8 +372,6 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       setBooks(result.books);
       setShelfError("");
       setSelectedId((current) => result.books.some((book) => book.id === current) ? current : result.books[0]?.id || null);
-      const failed = result.inbox?.find((item) => item.status === "error");
-      if (failed) setError(`导入目录中的 ${failed.file} 未导入：${failed.error || "文件无效"}`);
       return true;
     } catch (reason: any) {
       setShelfError(reason?.message || "世界书列表加载失败，请重试刷新书架");
@@ -947,17 +945,6 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     } catch (reason: any) { setError(reason?.message || "导出失败：最新修改尚未保存"); }
   };
 
-  const exportBook = async () => {
-    if (!detail) return;
-    try {
-      await flushBook(detail.id);
-      const url = await api.exportWorldbookBundleUrl(detail.id);
-      const anchor = document.createElement("a");
-      anchor.href = url; anchor.download = `${detail.id}.arkwb`; anchor.click();
-      showToast("正在生成完整包，完成后会自动下载并保存在导出目录");
-    } catch (reason: any) { setError(reason?.message || "完整包导出失败"); }
-  };
-
   const deleteBook = async () => {
     if (!detail) return;
     try {
@@ -1485,7 +1472,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
           <summary>用文件夹安装与分享</summary>
           <p>在应用的数据目录中打开 <code>data/worldbooks/books/</code>，将整本世界书文件夹复制到这里，再刷新书架。</p>
           <p>每本书的文件夹内应包含 <code>book.json</code> 与书内资源目录。分享时复制整个文件夹，保留原有目录结构。</p>
-          <p>也可使用「导入文件」读取 .arkwb 压缩包或酒馆 JSON。</p>
+          <p>「导入文件」支持酒馆 JSON/JSONL 和含世界书的角色卡；导入后会自动创建独立的书文件夹。</p>
         </details>
         <button type="button" disabled={shelfRefreshing} onClick={() => void refreshShelf()}>
           <AppIcon name="refresh" size={14} />{shelfRefreshing ? "正在刷新…" : "刷新书架"}
@@ -1499,7 +1486,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       <button type="button" className="wber-samples-entry" aria-expanded={samplesOpen} aria-controls="worldbook-samples" onClick={() => setSamplesOpen(value => !value)}>
         <AppIcon name="download" size={14} />导入示例世界书
       </button>
-      <input ref={fileInput} className="wber-hidden" type="file" accept=".arkwb,.json,.jsonl,.txt,.png"
+      <input ref={fileInput} className="wber-hidden" type="file" accept=".json,.jsonl,.txt,.png"
         onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); event.target.value = ""; }} />
       <nav className="wber-filters" aria-label="书架筛选">
         {(["all", "story", "reference"] as BookTypeFilter[]).map((value) => <button key={value}
@@ -1642,7 +1629,6 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
               title="定义这本书下角色共用的数值字段（角色页「数值」与对话页场景面板「数值」按它渲染）">
               <AppIcon name="index" size={14} />数值字段{detail.stat_fields?.length ? ` · ${detail.stat_fields.length}` : ""}</button>}
             <details className="wber-more"><summary>更多<AppIcon name="expand" size={14} /></summary><div>
-              <button type="button" onClick={() => void exportBook()}>导出 .arkwb 压缩包（可选）</button>
               <button type="button" onClick={() => void exportLegacyBook()}>导出酒馆 JSON</button>
               {!isReference(detail) && <button type="button" onClick={() => void updateBookOption({ enabled: !detail.enabled })}>{detail.enabled ? "停用整书" : "启用整书"}</button>}
               <button type="button" onClick={() => void updateBookOption({ book_type: isReference(detail) ? "story" : "reference" })}>

@@ -51,7 +51,7 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 
 ### 2.3 世界书与记忆
 
-- `world_book.py` — 世界书（酒馆 Lorebook 兼容）：4 源解析（v1/v2/卡内嵌/jsonl）+ 关键词触发匹配 + 注入格式化 + 回灌导出 + `WorldBookManager`（已安装书为 `data/worldbooks/books/<id>/book.json`，资源同目录，均 gitignored）。`worldbook_folder_store.py` 校验和复制完整文件夹；`.arkwb` 可选交换格式导入后也展开为书文件夹。
+- `world_book.py` — 世界书（酒馆 Lorebook 兼容）：4 源解析（v1/v2/卡内嵌/jsonl）+ 关键词触发匹配 + 注入格式化 + 回灌导出 + `WorldBookManager`（已安装书为 `data/worldbooks/books/<id>/book.json`，资源同目录，均 gitignored）。`worldbook_folder_store.py` 校验完整书文件夹；应用内酒馆导入会自动创建书文件夹。
   **注入纪律：常驻 position-0 条目进稳定层，触发型条目一律进动态层（前缀缓存稳定）。**
   **另有第三类「系统层」**：节点图 / 节点绑定这类编辑器与运行时元数据条目（`is_system_entry`）按设计永不注入，不与前两层并列计入 token，也不进 Prompt 预览的 order / dropped；判定必须先系统层再按位置分层。详见 `docs/notes.md`「条目分层是三层，不是两层」。
   `eligible_uids_for` 返回 `EligibleSet`（候选集 + `forced_uids`/`position_overrides` 元数据随集合传递，注入调用点零改动）。
@@ -169,9 +169,9 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 
 数据布局见 `data/README.md`：已安装书以 `data/worldbooks/books/<id>/` 为单位，
 `book.json` 与角色、剧情、战斗、音频等资源在同一目录。运行时按会话绑定书籍顺序定位资源；
-复制完整文件夹到 `books/` 或 `inbox/` 后刷新书架即可导入。`data/worldbooks/content/` 与
+复制完整文件夹到 `books/` 后刷新书架即可导入。`data/worldbooks/content/` 与
 `content_manifest.json` 只作为分发安装和一次性迁移的归属清单；可选离线包在 `packs/`，运行时不读取旧书共享资源。
-统一路径由 `src/data_paths.py` 定义，旧版已安装书用 `scripts/migrate_worldbook_layout.py` 复制迁移。
+统一路径由 `src/data_paths.py` 定义。应用内导入酒馆 JSON/JSONL 时自动创建独立书文件夹。
 
 
 战斗内容工具（`tools/`）：

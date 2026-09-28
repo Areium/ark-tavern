@@ -6,6 +6,7 @@
 所有连接都走真实 Flask 路由与真实 WorldBookManager；没有 LLM 调用。
 """
 import hashlib
+import io
 import json
 import sys
 import threading
@@ -188,6 +189,32 @@ def test_import_accepts_explicit_book_type(api):
     assert res.status_code == 201, res.json
     assert res.json["book"]["book_type"] == "reference"
     assert manager.load(res.json["book"]["id"]).is_reference is True
+    assert manager._path(res.json["book"]["id"]).is_file()
+
+
+@pytest.mark.parametrize("filename, contents", [
+    ("external.json", json.dumps({"entries": {"0": {"uid": "e1", "content": "正文", "key": ["k"]}}})),
+    ("external.jsonl", json.dumps({"name": "user", "world": {"entries": {"0": {
+        "uid": "e1", "content": "正文", "key": ["k"]}}}}) + "\n"),
+])
+def test_uploaded_lorebook_creates_managed_folder(api, filename, contents):
+    client, manager = api
+    response = client.post("/api/worldbook/import", data={
+        "file": (io.BytesIO(contents.encode("utf-8")), filename),
+    }, content_type="multipart/form-data")
+    assert response.status_code == 201, response.json
+    book_id = response.json["book"]["id"]
+    assert manager._path(book_id).is_file()
+    assert WorldBookManager(manager._dir).load(book_id).entries[0].content == "正文"
+
+
+def test_retired_archive_upload_is_rejected_without_creating_book(api):
+    client, manager = api
+    response = client.post("/api/worldbook/import", data={
+        "file": (io.BytesIO(b"archive"), "old.arkwb"),
+    }, content_type="multipart/form-data")
+    assert response.status_code == 400
+    assert manager.list_books() == []
 
 
 def test_import_rejects_invalid_book_type(api):

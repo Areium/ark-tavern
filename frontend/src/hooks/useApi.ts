@@ -376,8 +376,7 @@ export function useApi() {
 
     // ── 世界书（酒馆 Lorebook 兼容） ──
     listWorldbooks: () =>
-      request<{ books: import("../types").WorldBookSummary[];
-        inbox?: { file: string; status: string; book_id?: string; error?: string }[] }>("/api/worldbook"),
+      request<{ books: import("../types").WorldBookSummary[] }>("/api/worldbook"),
     getWorldbookDir: (bookId?: string) =>
       request<{ path: string }>(
         `/api/worldbook/data-dir${bookId ? `?book_id=${encodeURIComponent(bookId)}` : ""}`),
@@ -432,10 +431,6 @@ export function useApi() {
     exportWorldbook: (id: string) =>
       request<{ name: string; format: string; data: any }>(
         `/api/worldbook/${encodeURIComponent(id)}/export`),
-    exportWorldbookBundleUrl: async (id: string): Promise<string> => {
-      const base = await getBaseUrl();
-      return `${base}/api/worldbook/${encodeURIComponent(id)}/bundle`;
-    },
     createWorldbookEntry: (bookId: string, entry: Partial<import("../types").WorldBookEntryDTO> & { expected_revision?: number }) =>
       request<{ entry: import("../types").WorldBookEntryDTO; edit_revision: number }>(
         `/api/worldbook/${encodeURIComponent(bookId)}/entries`, {
