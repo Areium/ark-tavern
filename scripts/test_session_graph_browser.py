@@ -31,6 +31,8 @@ NODES = [node("entry", None, "抵达雨中的卡瓦莱利亚基", 0),
          node("market", "bridge", "穿过旧城区集市", 2),
          node("tower", "bridge", "前往钟楼寻找线索", 2),
          node("dawn", "market", "天亮之前", 3)]
+NODES[1]["branches"] = [{"id": "to-market", "label": "穿过集市收集线索", "intent": "寻找证人", "target_beat_id": "market-ref", "child_id": "market", "taken": True},
+                         {"id": "to-tower", "label": "去钟楼", "intent": "调查钟声", "target_beat_id": "tower-ref", "child_id": "tower", "taken": False}]
 
 
 def run():
@@ -103,11 +105,22 @@ def run():
         page.get_by_role("button", name="收起场景面板", exact=True).click()
         current = page.locator(".session-story-graph [aria-current='step']")
         expect(current.locator(".session-graph-cast")).to_have_attribute("aria-label", "同处当前节点：博士、临光、瑕光")
-        page.get_by_role("button", name="缩小节点图").click(click_count=2)
+        for _ in range(20):
+            if page.get_by_role("button", name="缩小节点图").is_disabled():
+                break
+            page.get_by_role("button", name="缩小节点图").click()
         expect(page.get_by_role("button", name="缩小节点图")).to_be_disabled()
-        page.get_by_role("button", name="放大节点图").click(click_count=4)
+        for _ in range(25):
+            if page.get_by_role("button", name="放大节点图").is_disabled():
+                break
+            page.get_by_role("button", name="放大节点图").click()
         expect(page.get_by_role("button", name="放大节点图")).to_be_disabled()
-        page.get_by_role("button", name="缩小节点图").click(click_count=2)
+        page.get_by_role("button", name="适应全图").click()
+        expect(page.get_by_role("button", name="适应全图")).to_have_attribute("aria-pressed", "true")
+        canvas = page.get_by_role("region", name="剧情节点画布")
+        assert canvas.evaluate("el => el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1"), "fit includes all nodes"
+        page.get_by_role("button", name="缩小节点图").click()
+        page.get_by_role("button", name="定位当前节点").click()
         canvas = page.get_by_role("region", name="剧情节点画布")
         canvas.focus()
         page.keyboard.press("ArrowRight")
@@ -117,6 +130,9 @@ def run():
         current.focus()
         page.keyboard.press("Enter")
         expect(page.get_by_role("complementary", name="节点详情")).to_contain_text("只读查看")
+        expect(page.get_by_role("complementary", name="节点详情")).to_contain_text("穿过集市收集线索")
+        expect(page.get_by_role("complementary", name="节点详情")).to_contain_text("寻找证人")
+        expect(page.get_by_role("complementary", name="节点详情")).to_contain_text("market-ref")
         page.screenshot(path=str(SHOTS / "desktop.png"), full_page=True)
         page.set_viewport_size({"width": 390, "height": 844})
         page.wait_for_timeout(100)

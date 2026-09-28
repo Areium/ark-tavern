@@ -634,6 +634,8 @@ def plot_flows(book_mgr=None, *, book_id: str | None = None,
         for raw_line in (md.content or "").splitlines():
             line = raw_line.strip()
             if not line:
+                if beat is not None:
+                    beat["content"] += "\n"
                 continue
             ch = _CHAPTER_RE.match(line)
             if ch:
@@ -658,9 +660,11 @@ def plot_flows(book_mgr=None, *, book_id: str | None = None,
             if bt and chapter is not None:
                 beat = {"id": bt.group(1), "title": "",
                         "keep_on_deviate": not (bt.group(2) and "false" in bt.group(2)),
-                        "summary": "", "combat_nodes": []}
+                        "summary": "", "content": "", "combat_nodes": []}
                 chapter["beats"].append(beat)
                 continue
+            if beat is not None:
+                beat["content"] += raw_line + "\n"
             if line.startswith("#"):
                 continue  # h1 / beat 正文内的其它层级标题不打断收集
             for node_id in _COMBAT_REF_RE.findall(line):
@@ -757,13 +761,20 @@ def _outline_flow_chapters(plot_id: str, meta: dict, body: str, worldbook_id: st
                 "id": str(b.get("id") or ""),
                 "title": str(b.get("title") or ""),
                 "keep_on_deviate": bool(b.get("must_keep")),
-                "summary": str(b.get("summary") or "")[:80],
+                "summary": str(b.get("summary") or ""),
+                "content": str(b.get("content") or ""),
+                "must_keep": str(b.get("must_keep") or ""),
+                "guidance": str(b.get("guidance") or ""),
+                "min_rounds": b.get("min_rounds"),
+                "choice_required": b.get("choice_required") is True,
+                "branches": b.get("branches") or [],
                 "combat_nodes": refs,
             })
         chapters.append({
             "idx": len(chapters) + 1,
             "id": str(ch.get("id") or ""),
             "title": str(ch.get("title") or ""),
+            "summary": str(ch.get("summary") or ""),
             "label": _outline_chapter_label(ch, main_idx, branch_idx),
             "kind": "branch" if ch.get("kind") == "branch" else "main",
             "combat_nodes": [],

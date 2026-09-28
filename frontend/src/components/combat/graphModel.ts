@@ -312,6 +312,26 @@ export function importLayoutFromFlow(
     }
   }
 
+  // Authored branch targets replace inferred sequential exits. Layout remains
+  // editorial, but should not draw a different choice route from the outline.
+  for (const chapter of plot.chapters) for (const beat of chapter.beats) {
+    const targets = beat.branches?.filter(branch => branch.target_beat_id) ?? [];
+    if (!targets.length) continue;
+    const source = nodes.find(n => n.type === "beat" && n.ref?.beat_id === beat.id);
+    if (!source) continue;
+    for (let i = edges.length - 1; i >= 0; i--) {
+      if (edges[i].from === source.id && nodes.find(n => n.id === edges[i].to)?.type !== "combat") edges.splice(i, 1);
+    }
+    for (const branch of targets) {
+      const targetChapter = plot.chapters.find(ch => ch.beats[0]?.id === branch.target_beat_id);
+      const target = targetChapter ? nodes.find(n => n.type === "chapter" && n.ref?.chapter_idx === targetChapter.idx)
+        : nodes.find(n => n.type === "beat" && n.ref?.beat_id === branch.target_beat_id);
+      if (target && target.id !== source.id && !edges.some(e => e.from === source.id && e.to === target.id)) {
+        edges.push({ id: `branch_${source.id}_${target.id}`, from: source.id, to: target.id });
+      }
+    }
+  }
+
   return {
     schema_version: 1,
     plot_id: plot.plot_id,

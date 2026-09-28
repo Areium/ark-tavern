@@ -10,6 +10,7 @@
 .session-graph-heading h2 { font: 600 18px var(--chat-serif); color: var(--chat-text); }
 .session-graph-heading > span { color: var(--chat-body); font-size: 12px; }
 .session-graph-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.session-graph-tools button[aria-pressed="true"] { border-color: var(--chat-accent); color: var(--chat-accent); }
 .session-graph-tools button, .session-graph-empty button, .session-story-panel-heading button, .session-graph-status button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px;
   padding: 5px 10px; border: 1px solid var(--chat-line-strong); border-radius: 8px;
@@ -46,18 +47,36 @@
 .session-graph-node.is-branch { border-style: dashed; }
 .session-graph-node[aria-pressed="true"] { outline: 2px solid var(--chat-line-strong); outline-offset: 4px; }
 .session-graph-node:focus-visible { outline-color: var(--chat-accent); }
-.session-graph-node-meta { font-size: 11px; font-variant-numeric: tabular-nums; }
+.session-graph-node-top { display: flex; align-items: flex-start; gap: 8px; width: 100%; }
+.session-graph-node-kind { flex: 0 0 auto; padding: 1px 5px; border: 1px solid var(--chat-line-strong); border-radius: 4px; font-size: 11px; line-height: 1.5; }
+.session-graph-node-meta { font-size: 11px; line-height: 1.5; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .session-graph-node.is-current .session-graph-node-meta { color: var(--chat-accent); font-weight: 600; }
 .session-graph-node strong { font: 600 15px var(--chat-serif); color: var(--chat-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
 .session-graph-node-caption { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
 .session-graph-cast { display: flex; align-items: center; gap: 3px; margin-top: auto; }
 .session-graph-cast > span { margin-left: 4px; font-size: 10px; white-space: nowrap; }
 .session-graph-cast > img, .session-graph-cast > div { width: 26px; height: 26px; }
-.session-graph-detail { padding: 12px 16px; border-top: 1px solid var(--chat-line); max-height: 160px; overflow: auto; }
-.session-graph-detail > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+.session-graph-detail { flex: 0 1 auto; min-height: 0; padding: 14px 16px; border-top: 1px solid var(--chat-line); max-height: min(38vh, 320px); overflow: auto; overscroll-behavior: contain; scrollbar-color: var(--chat-line-strong) var(--chat-card); }
+.session-graph-detail-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; }
 .session-graph-detail h3 { font: 600 15px var(--chat-serif); color: var(--chat-text); overflow-wrap: anywhere; }
-.session-graph-detail span { font-size: 11px; }
-.session-graph-detail p { margin-top: 6px; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; max-width: 75ch; }
+.session-graph-detail-heading > span { font-size: 12px; }
+.session-graph-detail p { margin-top: 6px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; max-width: 75ch; }
+.session-graph-detail .session-graph-detail-meta { font-size: 12px; font-variant-numeric: tabular-nums; }
+.session-graph-detail-content { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 20px 28px; margin-top: 18px; }
+.session-graph-detail-content > section { min-width: 0; }
+.session-graph-detail h4 { font-size: 13px; font-weight: 600; color: var(--chat-text); }
+.session-graph-detail h4 > span { margin-left: 4px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.session-graph-detail dl { display: grid; grid-template-columns: minmax(56px, auto) minmax(0, 1fr); gap: 5px 12px; margin-top: 8px; font-size: 13px; line-height: 1.7; }
+.session-graph-detail dt { max-width: 9em; }
+.session-graph-detail dd { margin: 0; color: var(--chat-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.session-graph-detail .session-graph-detail-note { font-size: 12px; }
+.session-graph-detail-branches { grid-column: 1 / -1; }
+.session-graph-detail-branches ul { list-style: none; padding: 0; margin: 10px 0 0; }
+.session-graph-detail-branches li { padding: 12px 0; border-top: 1px solid var(--chat-line); }
+.session-graph-branch-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.session-graph-branch-heading strong { font-size: 13px; font-weight: 600; color: var(--chat-text); white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.session-graph-branch-heading > span { flex-shrink: 0; font-size: 12px; }
+.session-graph-branch-heading > .is-taken { color: var(--chat-accent); }
 .session-graph-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; overflow: auto; }
 .session-graph-empty h3 { font: 600 18px var(--chat-serif); color: var(--chat-text); }
 .session-graph-empty p { max-width: 48ch; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
@@ -67,9 +86,13 @@
 @media (max-width: 600px) {
   .session-graph-toolbar, .session-graph-navigation { padding: 8px 10px; gap: 6px; }
   .session-graph-heading h2 { font-size: 16px; }
-  .session-graph-tools button { min-height: 36px; padding: 5px 8px; }
+  .session-graph-tools button { min-height: 44px; min-width: 44px; padding: 5px 8px; }
   .session-graph-navigation p { flex-basis: 100%; }
-  .session-graph-detail { max-height: 112px; padding: 8px 10px; }
+  .session-graph-detail { max-height: min(35dvh, 280px); padding: 12px 10px; }
+  .session-graph-detail-content { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .session-graph-detail p, .session-graph-detail dl { font-size: 14px; }
+  .session-graph-detail dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .session-graph-detail dd + dt { margin-top: 8px; }
   .session-graph-status { padding: 4px 10px; font-size: 11px; }
   .session-graph-choices { max-height: 100px; padding: 8px 10px; }
   .chat-topbar { flex-wrap: wrap; height: auto; min-height: 42px; padding: 5px; }

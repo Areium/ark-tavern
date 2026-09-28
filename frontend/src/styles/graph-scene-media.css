@@ -307,6 +307,17 @@ html.light .ng-media-error {
   min-width:0;
   max-width:100%
 }
+.ng-detail-section { margin: 0 0 22px; overflow-wrap: anywhere; }
+.ng-detail-section h3 { margin-bottom: 8px; color: var(--ng-title); font-size: 14px; font-weight: 600; }
+.ng-detail-section p { white-space: pre-wrap; margin-top: 6px; max-width: 75ch; }
+.ng-detail-section li { margin: 10px 0; }
+.ng-detail-section summary { cursor: pointer; color: var(--ng-title); }
+.ng-media-field select { width: 100%; padding: 9px; color: var(--ng-title); background: var(--ng-card-bg); border: 1px solid var(--ng-card-border); border-radius: 6px; }
+.ng-media-panel :is(select,summary):focus-visible { outline: 2px solid var(--ng-beat); outline-offset: 3px; }
+.ng-edge-label { fill: var(--ng-title); stroke: var(--ng-drawer-bg); stroke-width: 5px; paint-order: stroke; font-size: 11px; cursor: pointer; }
+.ng-edge-description { position: absolute; bottom: 56px; left: 12px; right: 12px; padding: 10px 12px; background: var(--ng-card-bg); color: var(--ng-title); border: 1px solid var(--ng-card-border); border-radius: 6px; font-size: 13px; overflow-wrap: anywhere; pointer-events: none; }
+.ng-edge:focus-visible { outline: none; }
+.ng-edge:focus-visible .ng-edge-line { stroke: var(--ng-edge-color-hl); stroke-width: 4px; }
 .ng-media-scroll {
   overflow-x:hidden
 }

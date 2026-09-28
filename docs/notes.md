@@ -21,6 +21,7 @@
 ### 会话实时节点图（核对于 2026-09-28）
 
 - **数据口径**：会话「节点图」使用 `/story-state` 的实际 `tree`（`parent_id`、`current_id`、`path`），不是世界书编辑器的参考 `plot_graph`。头像代表主控和当前场景角色共同所在的会话节点，不推断角色各自的历史位置；节点详情只读，不执行回档。
+- **详情与缩放**：支持适应全图和剧情/节拍/战斗类型标识。入边选项按父节点 `branches[].child_id` 精确匹配，不按相似标签猜测；没有匹配时只展示节点已记录的 `branch_label/intent`。分支经历状态不等于当前可推进资格，不能据此假定物品或数值判定已经执行。
 - **刷新边界**：`ChatPanel.triggerNarrate` 在请求开始就增加轮次，单靠 `sessionNarrationCount` 会提前读到旧树。节点图须在 `sessionStreaming` / `sessionSending` 结束后读取已提交状态；回档、场景与角色变化同样刷新，失效请求不得覆盖新会话。
 - **验证入口**：`node scripts/test_session_graph_ui.cjs` 覆盖布局、分叉、回档位置、异常图与 12,000 节点深链；`python scripts/test_session_graph_browser.py` 默认使用独立 Vite `:5178`（可通过 `SESSION_GRAPH_URL` 指定），拦截 API，不操作用户存档。浏览器覆盖剧情子栏入口、1440×960 / 390×844、缩屏自动定位、头像降级、生成完成刷新、缩放边界、键盘、错误重试、空状态和自由模式退出。启动命令为 `npm run dev:web -- --host 127.0.0.1 --port 5178 --strictPort`。
 - **验收边界**：截图位于工作树 `.impeccable/review/`，不提交合成图片；未验证真实 LLM / SSE、真实回档写入、独立角色历史轨迹或万级节点浏览器性能。`scripts/test_stage_ui.cjs` 按当前四分组（场景、剧情、任务、资源）清理旧八页签断言，并移除一条恒真断言，不恢复已删除的旧面板。
@@ -327,8 +328,16 @@ python -m pytest tests/ perf_tests/test_combat_runtime_v1.py `
 ### 节点图从参考大纲生成布局（核对于 2026-09-28）
 
 - `combat_nodes.plot_flows(book_mgr=...)` 对没有正文节拍骨架的剧情，按书内大纲、启发式大纲的顺序回落；两者都无法切章时保持 `chapters=[]`。返回的 `source` 区分正文骨架与参考大纲，战斗引用合并大纲声明及节点文件中的 `bind`。
-- 大纲生成的节拍不在剧情正文里，双击节点只打开剧情文档，不能让 `StoryBeatEditor` 按 `#### beat_id` 定位。LLM 分析接口即使返回 200 也可能回落启发式，界面须查看 `outline.source` / `generation.error`。
-- 大纲重新生成后章节 ID 或顺序可能变化，已保存的画布节点可能成为“缺失”；需重建布局。验证见 `tests/test_node_graph_worldbook.py`。
+- 双击引用节点打开实际节点详情，展示大纲正文、必留内容、叙事指引、推进约束及分支落点；点击「打开剧情原文」才进入文档编辑器。大纲节拍不伪装成原文 `#### beat_id` 段。LLM 分析接口即使返回 200 也可能回落启发式，界面须查看 `outline.source` / `generation.error`。
+- 唯一节拍 ID 移动章节后仍能解析详情，并可「更新移动引用」后保存；真正删除或歧义引用需在详情明确重新关联，不按名称猜测。关联修改保留坐标、连线和演出配置，进入同一撤销栈。章节引用仍以序号为锚，大纲重排章节时应核对并重新关联；不能从旧序号推断原章节身份。不同世界书的同名剧情草稿分别缓存，避免串书。
+- 新生成布局按大纲 `branches[].target_beat_id` 连接作者分支；连线和节点详情展示声明的选项与意图。手工布局连线只是编辑器结构，不执行物品或数值条件。背景/CG 仍按保存的剧情、章节、节拍引用进入舞台，修复移动引用前不会自动改写运行时资源。
+- 验证：`tests/test_graph_node_details.py`、`tests/test_plot_graphs.py`、`tests/test_scene_media.py`、`tests/test_character_stats_api.py`（历史轮次的舞台图片）及 `node scripts/test_graph_references.cjs`。`python scripts/test_graph_details_browser.py` 使用独立 Vite `:5188`（`GRAPH_DETAILS_URL` 可覆盖），全拦截 API，覆盖详情、失效引用、撤销/保存、同名剧情跨书缓存和 1440×960 / 390×844；不是对用户本地书或在线服务的写入验收。
+
+### 待办：剧情数值与物品效果（task.md 6–7，2026-09-28 核查）
+
+- `blueprints/scene.py:get_character_merged` 和战术 `CombatUnit.from_character_metadata` 会生成未声明的等级/属性兜底；剧情角色详情尚未区分「作者声明的数值」与战术内部默认值。`SceneManager._stats_snapshot` 还会过滤仅有字段默认值的角色，与面板显示口径不一致。
+- 自定义 `character_stats` 已支持手工覆盖与树快照，但作者分支只有标签、意图和落点，没有通用条件/效果结算。场景物品、物品覆盖与效果执行记录也未完整纳入剧情回档；不能只补「消耗物品」按钮。
+- 下一阶段需统一书内初值、提示词和判定数据，加入服务端条件重验、效果与落点原子结算、重试幂等及物品回档，然后再改彼岸双生书内大纲与物品。当前本地书没有 `stat_fields`，Agent 终端/黑猫玩偶仍是描述性条目；这两项尚未实现或修改用户数据。
 
 ## 历史内容记录：灰灯渡口（2026-09-26）
 

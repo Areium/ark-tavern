@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useAppStore } from "../../stores/appStore";
-import type { StageDTO, StoryStateDTO } from "../../types";
-import { layoutSessionStoryGraph, STORY_GRAPH_NODE_HEIGHT, STORY_GRAPH_NODE_WIDTH } from "../../utils/sessionStoryGraph";
+import type { StageDTO, StoryStateDTO, StoryTreeNode } from "../../types";
+import { layoutSessionStoryGraph, sessionGraphFitZoom, sessionGraphIncoming, sessionGraphKindLabel,
+  STORY_GRAPH_MAX_ZOOM, STORY_GRAPH_NODE_HEIGHT, STORY_GRAPH_NODE_WIDTH, type SessionGraphNode } from "../../utils/sessionStoryGraph";
 import AvatarPlaceholder from "../chat/AvatarPlaceholder";
 import AppIcon from "../AppIcon";
 
@@ -13,6 +14,49 @@ export interface SessionStoryGraphProps {
 }
 
 const STATE_LABEL = { current: "当前节点", path: "当前路径", branch: "其他分支" };
+
+export function SessionStoryGraphDetails({ entry, parent, castNames, castError }: {
+  entry: SessionGraphNode; parent?: StoryTreeNode; castNames: string[]; castError: boolean;
+}) {
+  const { node } = entry;
+  const incoming = sessionGraphIncoming(node, parent);
+  return <>
+    <header className="session-graph-detail-heading">
+      <h3>{node.title || entry.id}</h3><span>只读查看 · 不会回档</span>
+    </header>
+    <p className="session-graph-detail-meta">{sessionGraphKindLabel(node.kind)} · {STATE_LABEL[entry.state]}
+      {node.round_start != null ? ` · 第 ${node.round_start}–${node.round_end ?? node.round_start} 轮` : ""}</p>
+    <div className="session-graph-detail-content">
+      <section aria-label="节点内容">
+        <h4>节点内容</h4>
+        <p>{node.summary || "此节点暂无摘要。"}</p>
+        {node.intent && <dl><dt>节点意图</dt><dd>{node.intent}</dd></dl>}
+        {entry.state === "current" && <p>同处当前节点：{castNames.join("、")}{castError ? "（场景角色加载失败，暂仅显示玩家）" : ""}</p>}
+      </section>
+      <section aria-label="到达此节点">
+        <h4>到达此节点</h4>
+        <dl>
+          <dt>来源节点</dt><dd>{node.parent_id ? parent?.title || node.parent_id : "无（起点）"}</dd>
+          <dt>入边选项</dt><dd>{incoming.label || "未记录入边选项"}</dd>
+          {incoming.intent && <><dt>选项意图</dt><dd>{incoming.intent}</dd></>}
+          {incoming.branch?.target_beat_id && <><dt>目标节拍</dt><dd>{incoming.branch.target_beat_id}</dd></>}
+          {node.branch_label && incoming.label !== node.branch_label && <><dt>节点保存的分支标签</dt><dd>{node.branch_label}</dd></>}
+        </dl>
+        {!incoming.branch && node.parent_id && <p className="session-graph-detail-note">未找到 child_id 对应的父节点选项，以上为此节点保存的记录。</p>}
+      </section>
+      <section className="session-graph-detail-branches" aria-label="节点分支记录">
+        <h4>节点分支 <span>{node.branches?.length ?? 0}</span></h4>
+        <p className="session-graph-detail-note">仅展示已记录的选项与经过状态，不代表当前可推进条件。</p>
+        {node.branches?.length ? <ul>{node.branches.map((branch, index) => <li key={`${branch.id}-${index}`}>
+          <div className="session-graph-branch-heading"><strong>{branch.label || "未命名选项"}</strong>
+            <span className={branch.taken === true ? "is-taken" : undefined}>{branch.taken === true ? "已走过" : branch.taken === false ? "未走过" : "未记录"}</span></div>
+          <dl><dt>意图</dt><dd>{branch.intent || "未记录"}</dd>
+            <dt>目标节拍</dt><dd>{branch.target_beat_id || "未指定"}</dd></dl>
+        </li>)}</ul> : <p>此节点尚无分支记录。</p>}
+      </section>
+    </div>
+  </>;
+}
 
 export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: SessionStoryGraphProps) {
   const api = useApi();
@@ -27,14 +71,22 @@ export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: Sess
   const [error, setError] = useState("");
   const [castError, setCastError] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [zoom, setZoom] = useState(1);
+  const [manualZoom, setManualZoom] = useState(1);
+  const [fitAll, setFitAll] = useState(false);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const viewport = useRef<HTMLDivElement>(null);
+  const detail = useRef<HTMLElement>(null);
   const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const markerId = useId().replace(/:/g, "");
+  const detailId = useId();
   const state = snapshot?.sessionId === sessionId ? snapshot.state : null;
   const stage = cast?.sessionId === sessionId ? cast.stage : null;
   const layout = useMemo(() => layoutSessionStoryGraph(state?.tree), [state?.tree]);
+  const fitZoom = sessionGraphFitZoom(layout, viewportSize);
+  const minZoom = Math.min(.1, fitZoom);
+  const zoom = fitAll ? fitZoom : Math.max(minZoom, manualZoom);
+  const hasGraph = !!state?.has_plot && !!layout.nodes.length && !error;
   const nodesById = useMemo(() => new Map(layout.nodes.map(node => [node.id, node])), [layout]);
   const current = nodesById.get(state?.tree?.current_id ?? "");
   const selected = nodesById.get(selectedId ?? "") ?? current;
@@ -44,7 +96,8 @@ export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: Sess
 
   useEffect(() => {
     setSelectedId(null);
-    setZoom(1);
+    setManualZoom(1);
+    setFitAll(false);
     setError("");
     setCastError(false);
   }, [sessionId]);
@@ -77,14 +130,32 @@ export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: Sess
       behavior: "auto",
     });
   }, [current, zoom]);
-  // Keep the current step visible after viewport/sidebar resizing as well as updates.
   useEffect(() => {
-    locateCurrent();
     if (!viewport.current) return;
-    const observer = new ResizeObserver(locateCurrent);
-    observer.observe(viewport.current);
+    const element = viewport.current;
+    const measure = () => setViewportSize({ width: element.clientWidth, height: element.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
     return () => observer.disconnect();
-  }, [locateCurrent, error, state?.has_plot]);
+  }, [hasGraph, sessionId]);
+  // Resizing keeps a fitted graph fitted, instead of recentering on one node.
+  useEffect(() => {
+    if (fitAll) viewport.current?.scrollTo({ left: 0, top: 0, behavior: "auto" });
+    else locateCurrent();
+  }, [fitAll, locateCurrent, viewportSize, hasGraph]);
+
+  useEffect(() => { detail.current?.scrollTo({ top: 0, behavior: "auto" }); }, [selected?.id]);
+
+  const showCurrent = () => {
+    setFitAll(false);
+    setManualZoom(value => Math.max(.75, value));
+    locateCurrent();
+  };
+  const changeZoom = (factor: number) => {
+    setManualZoom(Math.min(STORY_GRAPH_MAX_ZOOM, Math.max(minZoom, zoom * factor)));
+    setFitAll(false);
+  };
 
   return (
     <section className="session-story-graph" aria-label="实时剧情节点图">
@@ -99,15 +170,18 @@ export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: Sess
       <div className="session-graph-navigation">
         <p>当前节点 <strong>{current?.node.title || current?.id || "尚未生成"}</strong></p>
         <div className="session-graph-tools" role="group" aria-label="节点图缩放">
-          <button type="button" aria-label="缩小节点图" disabled={zoom <= .5 || !layout.nodes.length} onClick={() => setZoom(v => Math.max(.5, +(v - .25).toFixed(2)))}>−</button>
-          <output aria-label="缩放比例">{Math.round(zoom * 100)}%</output>
-          <button type="button" aria-label="放大节点图" disabled={zoom >= 1.5 || !layout.nodes.length} onClick={() => setZoom(v => Math.min(1.5, +(v + .25).toFixed(2)))}>+</button>
-          <button type="button" onClick={locateCurrent} disabled={!current}>定位当前节点</button>
+          <button type="button" aria-label="缩小节点图" disabled={zoom <= minZoom || !hasGraph} onClick={() => changeZoom(1 / 1.25)}>−</button>
+          <output aria-label="缩放比例">{zoom < .01 ? "<1" : Math.round(zoom * 100)}%</output>
+          <button type="button" aria-label="放大节点图" disabled={zoom >= STORY_GRAPH_MAX_ZOOM || !hasGraph} onClick={() => changeZoom(1.25)}>+</button>
+          <button type="button" aria-pressed={fitAll} disabled={!hasGraph} onClick={() => {
+            setFitAll(true); viewport.current?.scrollTo({ left: 0, top: 0, behavior: "auto" });
+          }}><AppIcon name="maximize" size={14} />适应全图</button>
+          <button type="button" onClick={showCurrent} disabled={!current || !hasGraph}>定位当前节点</button>
           <button type="button" aria-label="刷新节点图" disabled={loading || streaming || sending} onClick={() => setRetry(v => v + 1)}><AppIcon name="refresh" size={14} /></button>
         </div>
       </div>
       <div className="session-graph-status" role="status">
-        {sending || streaming ? "剧情生成中，完成后更新轨迹…" : loading ? "正在更新剧情轨迹…" : "实线为当前路径 · 虚线为其他分支 · 拖动空白或滚动浏览"}
+        {sending || streaming ? "剧情生成中，完成后更新轨迹…" : loading ? "正在更新剧情轨迹…" : "实线为当前路径 · 虚线为其他分支 · 拖动或滚动浏览 · 点击节点查看详情（键盘 Enter / 空格）"}
       </div>
       {error ? (
         <div className="session-graph-empty" role="alert"><h3>剧情轨迹加载失败</h3><p>{error}</p>
@@ -125,7 +199,7 @@ export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: Sess
               if (event.target !== event.currentTarget) return;
               const offsets: Record<string, [number, number]> = { ArrowLeft: [-100, 0], ArrowRight: [100, 0], ArrowUp: [0, -100], ArrowDown: [0, 100] };
               if (offsets[event.key]) { event.preventDefault(); const [left, top] = offsets[event.key]; event.currentTarget.scrollBy({ left, top }); }
-              if (event.key === "Home") { event.preventDefault(); locateCurrent(); }
+              if (event.key === "Home") { event.preventDefault(); showCurrent(); }
             }}
             onPointerDown={event => {
               if (event.pointerType !== "mouse" || event.button !== 0 || (event.target as HTMLElement).closest("button")) return;
@@ -154,8 +228,19 @@ export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: Sess
                   <button type="button" key={entry.id} className={`session-graph-node is-${entry.state}`}
                     style={{ left: entry.x, top: entry.y, width: STORY_GRAPH_NODE_WIDTH, height: STORY_GRAPH_NODE_HEIGHT }}
                     aria-current={entry.state === "current" ? "step" : undefined} aria-pressed={selected?.id === entry.id}
-                    aria-label={`${STATE_LABEL[entry.state]}：${entry.node.title || entry.id}`} onClick={() => setSelectedId(entry.id)}>
-                    <span className="session-graph-node-meta">{STATE_LABEL[entry.state]}{entry.node.round_start != null ? ` · 第 ${entry.node.round_start}–${entry.node.round_end ?? entry.node.round_start} 轮` : ""}</span>
+                    aria-controls={detailId}
+                    aria-label={`${sessionGraphKindLabel(entry.node.kind)} · ${STATE_LABEL[entry.state]}：${entry.node.title || entry.id}，查看节点详情`}
+                    onClick={event => {
+                      setSelectedId(entry.id);
+                      // Native buttons activate on Enter/Space. Move keyboard users to
+                      // the detail region without tabbing through the remaining graph.
+                      if (event.detail === 0) requestAnimationFrame(() => detail.current?.focus({ preventScroll: true }));
+                    }} onDoubleClick={() => {
+                      setSelectedId(entry.id);
+                      requestAnimationFrame(() => detail.current?.focus({ preventScroll: true }));
+                    }}>
+                    <span className="session-graph-node-top"><span className="session-graph-node-kind">{sessionGraphKindLabel(entry.node.kind)}</span>
+                      <span className="session-graph-node-meta">{STATE_LABEL[entry.state]}{entry.node.round_start != null ? ` · 第 ${entry.node.round_start}–${entry.node.round_end ?? entry.node.round_start} 轮` : ""}</span></span>
                     <strong>{entry.node.title || entry.id}</strong>
                     <span className="session-graph-node-caption">{entry.node.branch_label || entry.node.summary || "查看节点详情"}</span>
                     {entry.state === "current" && <span className="session-graph-cast" aria-label={`同处当前节点：${castNames.join("、")}`}>
@@ -167,10 +252,8 @@ export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: Sess
               </div>
             </div>
           </div>
-          {selected && <aside className="session-graph-detail" aria-label="节点详情">
-            <div><h3>{selected.node.title || selected.id}</h3><span>只读查看 · 不会回档</span></div>
-            <p>{selected.node.summary || selected.node.intent || "此节点暂无摘要。"}</p>
-            {selected.state === "current" && <p>同处当前节点：{castNames.join("、")}{castError ? "（场景角色加载失败，暂仅显示玩家）" : ""}</p>}
+          {selected && <aside ref={detail} id={detailId} className="session-graph-detail" aria-label="节点详情" tabIndex={0}>
+            <SessionStoryGraphDetails entry={selected} parent={nodesById.get(selected.node.parent_id ?? "")?.node} castNames={castNames} castError={castError} />
           </aside>}
         </>
       )}

@@ -1294,6 +1294,12 @@ export interface PlotFlowBeatDTO {
   title: string;
   keep_on_deviate: boolean;
   summary: string;
+  content?: string;
+  must_keep?: string;
+  guidance?: string;
+  min_rounds?: number;
+  choice_required?: boolean;
+  branches?: { label: string; intent?: string | null; target_beat_id?: string | null }[];
   combat_nodes: string[];
 }
 
@@ -1303,6 +1309,7 @@ export interface PlotFlowChapterDTO {
   /** 章节 id：正文骨架 `ch_N`；大纲章节用大纲里的 id（act_1 / route_a / dev_1） */
   id: string;
   title: string;
+  summary?: string;
   /** 展示标题：`章节 1：…` / `第一幕：…` / `路线 A：…` */
   label: string;
   /** main = 主线；branch = 续写路线 / 偏离分支（只有大纲章节会出现） */

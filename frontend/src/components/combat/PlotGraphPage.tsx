@@ -9,7 +9,7 @@
  *
  * 数据：图文档（布局层）整图存世界书条目（plot_graph_<plot_id>，见
  * src/plot_graphs.py）；剧情/战斗内容位于所属书内的 plots 与 combat/nodes，
- * 图节点用 ref 引用，点开走既有抽屉编辑器（StoryBeatEditor / BattleNodeForm）。
+ * 图节点用 ref 引用，双击先看实际节点详情，显式编辑再走 StoryBeatEditor / BattleNodeForm。
  * 编辑走快照撤销栈（Ctrl+Z / Ctrl+Shift+Z），保存 Ctrl+S，切剧情时自动落盘。
  *
  * 编辑器抽屉（双击节点 / 右键「打开编辑器」打开）：
@@ -33,6 +33,8 @@ import type {
 import BattleNodeForm from "./BattleNodeForm";
 import ConfirmDialog from "../common/ConfirmDialog";
 import StoryBeatEditor from "./StoryBeatEditor";
+import GraphNodeDetails from "./GraphNodeDetails";
+import { resolveGraphReference, repairGraphReferences, graphEdgeDescription } from "./graphReferences";
 import GraphCanvas, { type AvailableBeat, type AvailableCombat, type GraphCanvasApi, type GraphNodeDisplay } from "./GraphCanvas";
 import {
   emptyGraphDoc, importLayoutFromFlow, lastPlotKey, LAST_BOOK_KEY,
@@ -57,6 +59,7 @@ const errText = (e: unknown, fallback: string) =>
   e instanceof Error && e.message ? e.message : fallback;
 
 type Drawer =
+  | { kind: "detail"; nodeId: string }
   | { kind: "media"; nodeId: string }
   | { kind: "battle"; nodeId: string }
   | { kind: "story"; plotId: string; beatId: string | null }
@@ -83,6 +86,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
   const [books, setBooks] = useState<WorldBookSummary[]>([]);
   const [internalBookId, setInternalBookId] = useState("");
   const bookId = controlled ? (controlledBookId as string) : internalBookId;
+  const graphCacheKey = (id: string) => `${bookId}:${id}`;
   const setBookId = setInternalBookId;
   const [overview, setOverview] = useState<CombatNodeGraphDTO | null>(null);
   const [savedGraphs, setSavedGraphs] = useState<Set<string>>(new Set());
@@ -109,6 +113,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
   const [version, setVersion] = useState(0); // 缓存可变对象 → 用版本号驱动重渲染
 
   const caches = useRef(new Map<string, PlotCache>());
+  const overviewRequest = useRef(0);
   const canvasApi = useRef<GraphCanvasApi | null>(null);
   const canvasBox = useRef<HTMLDivElement | null>(null);
   const viewPersist = useRef<number | undefined>(undefined);
@@ -194,13 +199,13 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
 
   const dirty = useMemo(() => {
     void version;
-    return plotId ? (caches.current.get(plotId)?.dirty ?? false) : false;
-  }, [plotId, version, doc]);
+    return plotId ? (caches.current.get(graphCacheKey(plotId))?.dirty ?? false) : false;
+  }, [bookId, plotId, version, doc]);
 
   const bookName = (id: string) => books.find((b) => b.id === id)?.name || id;
   const currentPlot = useMemo(
-    () => overview?.plots.find((p) => p.plot_id === plotId) ?? null,
-    [overview, plotId],
+    () => overview?.book_id === bookId ? overview.plots.find((p) => p.plot_id === plotId) ?? null : null,
+    [overview, plotId, bookId],
   );
 
   // ── 世界书列表 + 记住上次选择 ──
@@ -222,6 +227,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
 
   // ── 换书：加载剧情总览 + 已存图列表 ──
   const loadOverview = useCallback(async (id: string) => {
+    const requestId = ++overviewRequest.current;
     if (!id) { setOverview(null); return; }
     setLoading(true);
     try {
@@ -229,18 +235,20 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
         api.getCombatNodeGraph(id, sessionId || undefined),
         api.listPlotGraphs(id).catch(() => ({ graphs: [] as string[] })),
       ]);
+      if (requestId !== overviewRequest.current) return;
       setOverview(g);
       setSavedGraphs(new Set(graphs.graphs || []));
       setError(null);
     } catch (e: any) {
+      if (requestId !== overviewRequest.current) return;
       setError(e.message || "剧情总览加载失败");
       setOverview(null);
     } finally {
-      setLoading(false);
+      if (requestId === overviewRequest.current) setLoading(false);
     }
   }, [api, sessionId]);
 
-  useEffect(() => { loadOverview(bookId); }, [bookId, loadOverview]);
+  useEffect(() => { loadOverview(bookId); return () => { overviewRequest.current++; }; }, [bookId, loadOverview]);
   useEffect(() => {
     // 受控模式下「上次选中的书」由工作台书架决定，不再写本地记忆
     try { if (bookId && !controlled) localStorage.setItem(LAST_BOOK_KEY, bookId); } catch { /* ignore */ }
@@ -258,7 +266,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
 
   // 总览就绪后恢复上次选中剧情（记住上次选中的剧情），否则选第一个
   useEffect(() => {
-    if (!overview || overview.plots.length === 0) return;
+    if (!overview || overview.book_id !== bookId || overview.plots.length === 0) return;
     if (overview.plots.some((p) => p.plot_id === plotId)) return;
     let last = "";
     try { last = localStorage.getItem(lastPlotKey(bookId)) || ""; } catch { /* ignore */ }
@@ -280,7 +288,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
   useEffect(() => {
     if (!plotId || !bookId) { setDoc(null); return; }
     // 有未保存缓存 → 直接用（切走再切回不丢编辑）
-    const cached = caches.current.get(plotId);
+    const cached = caches.current.get(graphCacheKey(plotId));
     if (cached) { setDoc(cached.doc); setVersion((v) => v + 1); return; }
     let cancelled = false;
     (async () => {
@@ -290,7 +298,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
         if (cancelled) return;
         const name = overview?.plots.find((p) => p.plot_id === plotId)?.name || plotId;
         const next = res.graph || emptyGraphDoc(plotId, name, bookId);
-        caches.current.set(plotId, { doc: next, dirty: false, hist: new GraphHistory() });
+        caches.current.set(graphCacheKey(plotId), { doc: next, dirty: false, hist: new GraphHistory() });
         setDoc(next);
         setError(null);
       } catch (e: any) {
@@ -320,37 +328,38 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
   // ── 编辑提交（入撤销栈 + 脏标记） ──
   const commit = useCallback((next: PlotGraphDocDTO) => {
     if (!plotId) return;
-    const cache = caches.current.get(plotId);
+    const cache = caches.current.get(graphCacheKey(plotId));
     if (!cache) return;
     cache.doc = cache.hist.commit(cache.doc, next);
     cache.dirty = true;
     setDoc(next);
     setVersion((v) => v + 1);
-  }, [plotId]);
+  }, [bookId, plotId]);
 
   const undo = useCallback(() => {
-    const cache = plotId ? caches.current.get(plotId) : null;
+    const cache = plotId ? caches.current.get(graphCacheKey(plotId)) : null;
     if (!cache) return;
     const prev = cache.hist.undo(cache.doc);
     if (prev) { cache.doc = prev; cache.dirty = true; setDoc(prev); setVersion((v) => v + 1); }
-  }, [plotId]);
+  }, [bookId, plotId]);
 
   const redo = useCallback(() => {
-    const cache = plotId ? caches.current.get(plotId) : null;
+    const cache = plotId ? caches.current.get(graphCacheKey(plotId)) : null;
     if (!cache) return;
     const next = cache.hist.redo(cache.doc);
     if (next) { cache.doc = next; cache.dirty = true; setDoc(next); setVersion((v) => v + 1); }
-  }, [plotId]);
+  }, [bookId, plotId]);
 
   // ── 保存到世界书 ──
   const save = useCallback(async (silent = false) => {
     if (!plotId || !bookId) return;
-    const cache = caches.current.get(plotId);
+    const cache = caches.current.get(graphCacheKey(plotId));
     if (!cache) return;
     setSaveState({ status: "saving", text: "保存中…" });
     try {
-      await api.savePlotGraph(plotId, bookId, cache.doc, currentPlot?.name || "");
-      cache.dirty = false;
+      const submitted = cache.doc;
+      await api.savePlotGraph(plotId, bookId, submitted, currentPlot?.name || "");
+      cache.dirty = cache.doc !== submitted;
       setSavedGraphs((prev) => new Set(prev).add(plotId));
       const at = new Date().toLocaleTimeString("zh-CN", { hour12: false });
       setSaveState({ status: "saved", text: `✓ 已保存到「${bookName(bookId)}」 · ${at}` });
@@ -407,12 +416,11 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
           title: row?.name || node.title || ref.node_id,
           subtitle: ref.node_id,
           body: row?.summary || node.content || "",
-          missing: !row,
+          missing: !row || row.missing,
           progress: row?.progress && row.progress.state !== "locked" ? row.progress.state : undefined,
         });
       } else if (node.type === "beat" && ref?.beat_id) {
-        const ch = currentPlot?.chapters.find((c) => c.idx === (ref.chapter_idx ?? -1));
-        const beat = ch?.beats.find((b) => b.id === ref.beat_id);
+        const { chapter: ch, beat } = resolveGraphReference(node, currentPlot);
         m.set(node.id, {
           title: beat?.title || node.title || ref.beat_id,
           subtitle: ch ? (beat?.title ? `${ref.beat_id} · ${ch.label}` : ch.label)
@@ -619,11 +627,13 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
   }, [doc, currentPlot, overview, commit, showNotice]);
 
   /**
-   * 双击节点 / 右键「打开编辑器」的落点：按节点类型选编辑器。
-   * 大纲章节的节拍（护栏式剧情）在正文里没有 `#### beat_id` 段，节拍编辑器定位不到，
-   * 只打开剧情文档本身而不预选节拍。
+   * 双击先看引用对应的实际内容；只有显式选择编辑原文才进入文档编辑器。
    */
   const openNode = useCallback((node: PlotGraphNodeDTO) => {
+    openDrawer({ kind: "detail", nodeId: node.id });
+  }, [openDrawer]);
+
+  const editNode = useCallback((node: PlotGraphNodeDTO) => {
     if (node.type === "combat" && node.ref?.node_id) openDrawer({ kind: "battle", nodeId: node.ref.node_id });
     else if (plotId) {
       const beatId = currentPlot?.source === "outline" ? null : (node.ref?.beat_id ?? null);
@@ -661,6 +671,8 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
     (node.type === "beat" && currentPlot?.chapters.some((c) => c.idx === node.ref?.chapter_idx && c.beats.some((b) => b.id === node.ref?.beat_id)))
   );
   const mediaNode = drawer?.kind === "media" ? doc?.nodes.find((n) => n.id === drawer.nodeId) : undefined;
+  const detailNode = drawer?.kind === "detail" ? doc?.nodes.find(n => n.id === drawer.nodeId) : undefined;
+  const movedRefs = doc?.nodes.filter(n => resolveGraphReference(n, currentPlot).moved).length ?? 0;
 
   return (
     <div className="relative flex flex-col h-full min-h-0 bg-gray-950 text-gray-200">
@@ -698,6 +710,10 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
           onClick={() => selectedNode && openDrawer({ kind: "media", nodeId: selectedNode.id })}>
           <Image size={15} aria-hidden="true" /> 演出配置
         </button>
+        {selectedNode && <button className="ng-media-entry" onClick={() => openNode(selectedNode)}>节点详情</button>}
+        {movedRefs > 0 && <button className="ng-media-entry" onClick={() => {
+          if (doc && currentPlot) { const result = repairGraphReferences(doc, currentPlot); commit(result.doc); showNotice("ok", `已更新 ${result.repaired} 个引用，请保存节点图`); }
+        }}>更新 {movedRefs} 个移动引用</button>}
         <div className="flex-1" />
         {notice && (
           <span className={"text-[12px] shrink-0 " + (notice.kind === "err" ? "text-red-300" : "text-emerald-300")}>
@@ -757,7 +773,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
         {loading && !overview && <span className="text-xs text-gray-500 px-2">加载中…</span>}
         {plots.map((p) => {
           const active = p.plot_id === plotId;
-          const isDirty = caches.current.get(p.plot_id)?.dirty;
+          const isDirty = caches.current.get(graphCacheKey(p.plot_id))?.dirty;
           const saved = savedGraphs.has(p.plot_id);
           return (
             <button
@@ -834,6 +850,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
             onSelect={setSelected}
             onDocChange={commit}
             displays={displays}
+            edgeDescriptions={new Map(doc.edges.map(e => [e.id, graphEdgeDescription(doc, currentPlot, e.from, e.to)]))}
             onOpenNode={openNode}
             onRequestDeleteNode={setConfirmDelete}
             onCreateCombat={(wx, wy) => setCombatModal({ wx, wy, id: "", name: "", error: "" })}
@@ -859,10 +876,10 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
               aria-hidden="true"
             />
             <div
-              className={"ng-drawer" + (drawer.kind === "media" ? " ng-media-drawer" : "") + (drawerOpen ? " ng-drawer-open" : "") + (resizing ? " ng-drawer-resizing" : "")}
+              className={"ng-drawer" + (["media", "detail"].includes(drawer.kind) ? " ng-media-drawer" : "") + (drawerOpen ? " ng-drawer-open" : "") + (resizing ? " ng-drawer-resizing" : "")}
               style={drawerW != null ? { width: drawerW } : undefined}
               role="complementary"
-              aria-label={drawer.kind === "media" ? "演出配置" : "节点编辑器"}
+              aria-label={drawer.kind === "media" ? "演出配置" : drawer.kind === "detail" ? "节点详情" : "节点编辑器"}
             >
               {/* 左边缘拖拽把手：调整宽度（双击恢复默认半屏） */}
               <div
@@ -873,7 +890,11 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
                 <i className="ng-drawer-grip-bar" />
               </div>
 
-              {drawer.kind === "media" ? (mediaNode && canConfigureMedia(mediaNode) ? (
+              {drawer.kind === "detail" ? (detailNode ? <GraphNodeDetails key={detailNode.id} node={detailNode} plot={currentPlot} overview={overview}
+                onClose={closeDrawer} onEdit={() => editNode(detailNode)} onMedia={() => openDrawer({ kind: "media", nodeId: detailNode.id })}
+                onRelink={ref => { if (doc) commit({ ...doc, nodes: doc.nodes.map(n => n.id === detailNode.id ? { ...n, ref } : n) }); }} />
+                : <div className="ng-media-panel"><p>节点已从图中移除。</p><button onClick={closeDrawer}>关闭</button></div>)
+              : drawer.kind === "media" ? (mediaNode && canConfigureMedia(mediaNode) ? (
                 <SceneMediaPanel key={`${bookId}:${plotId}:${mediaNode.id}`} node={mediaNode}
                   title={displays.get(mediaNode.id)?.title || mediaNode.title} bookId={bookId} plotId={plotId}
                   onClose={closeDrawer} onChange={(media) => {

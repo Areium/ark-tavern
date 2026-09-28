@@ -1,7 +1,8 @@
 import type { StoryTreeDTO, StoryTreeNode } from "../types";
 
 export const STORY_GRAPH_NODE_WIDTH = 244;
-export const STORY_GRAPH_NODE_HEIGHT = 140;
+export const STORY_GRAPH_NODE_HEIGHT = 156;
+export const STORY_GRAPH_MAX_ZOOM = 2;
 export type SessionGraphNodeState = "current" | "path" | "branch";
 export interface SessionGraphNode {
   id: string;
@@ -16,6 +17,29 @@ export interface SessionGraphLayout {
   edges: SessionGraphEdge[];
   width: number;
   height: number;
+}
+
+export function sessionGraphKindLabel(kind: StoryTreeNode["kind"]): string {
+  return kind ? ({ plot: "剧情", beat: "节拍", combat: "战斗" })[kind] || kind : "类型未记录";
+}
+
+/** Fit is allowed below the manual 10% floor, even for very long histories. */
+export function sessionGraphFitZoom(
+  layout: Pick<SessionGraphLayout, "width" | "height">,
+  viewport: { width: number; height: number },
+): number {
+  if (!layout.width || !layout.height || !viewport.width || !viewport.height) return 1;
+  return Math.min(1, Math.max(1, viewport.width - 24) / layout.width,
+    Math.max(1, viewport.height - 24) / layout.height);
+}
+
+/** Only a matching child_id proves which parent option led here. Labels may be
+ * truncated or repeated; never infer an incoming choice from text or taken. */
+export function sessionGraphIncoming(node: StoryTreeNode, parent?: StoryTreeNode) {
+  const branch = parent?.id === node.parent_id
+    ? parent.branches?.find(choice => choice.child_id === node.id)
+    : undefined;
+  return { branch, label: branch?.label || node.branch_label || "", intent: branch?.intent || node.intent || "" };
 }
 
 /** Linear-time, iterative forest layout. parent_id is authoritative, not depth/children.

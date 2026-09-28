@@ -59,6 +59,7 @@ interface Props {
   /** 不可变提交（页面负责入撤销栈与脏标记） */
   onDocChange: (next: PlotGraphDocDTO) => void;
   displays: Map<string, GraphNodeDisplay>;
+  edgeDescriptions?: Map<string, string>;
   onOpenNode: (node: PlotGraphNodeDTO) => void;
   onRequestDeleteNode: (id: string) => void;
   onCreateCombat: (wx: number, wy: number) => void;
@@ -587,9 +588,14 @@ export default function GraphCanvas(props: Props) {
             if (a.y > viewRect.y + viewRect.h && b.y > viewRect.y + viewRect.h) return null;
             const geo = edgeGeometry(a, b);
             return (
-              <g key={edge.id} data-ng-edge={edge.id} className={"ng-edge" + (isSel ? " ng-edge-selected" : "")}>
+              <g key={edge.id} data-ng-edge={edge.id} className={"ng-edge" + (isSel ? " ng-edge-selected" : "")}
+                role="button" tabIndex={0} aria-label={props.edgeDescriptions?.get(edge.id) || "结构连线：未声明分支条件"}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect({ kind: "edge", id: edge.id }); } }}>
+                <title>{props.edgeDescriptions?.get(edge.id) || "结构连线：未声明分支条件"}</title>
                 <path className="ng-edge-hit" d={geo.d} onPointerDown={(e) => onEdgePointerDown(e, edge.id)} />
                 <path className="ng-edge-line" d={geo.d} markerEnd={`url(#${isSel ? "ng-arrow-hl" : "ng-arrow"})`} />
+                {props.edgeDescriptions?.get(edge.id) && <text className="ng-edge-label" x={(geo.sx + geo.tx) / 2} y={(geo.sy + geo.ty) / 2 - 10} textAnchor="middle"
+                  onPointerDown={e => onEdgePointerDown(e, edge.id)}>{props.edgeDescriptions.get(edge.id)!.slice(0, 16)}{props.edgeDescriptions.get(edge.id)!.length > 16 ? "…" : ""}</text>}
               </g>
             );
           })}
@@ -638,6 +644,7 @@ export default function GraphCanvas(props: Props) {
         })()}
       </div>
 
+      {selected?.kind === "edge" && <div className="ng-edge-description" role="status">{props.edgeDescriptions?.get(selected.id) || "结构连线：大纲未为此连线声明固定选项或判定。"}</div>}
       {/* 缩放工具栏 */}
       <div className="ng-toolbar">
         <button className="ng-tool-btn" title="缩小（Ctrl+滚轮亦可）" onClick={() => zoomCenter(1 / ZOOM_STEP)}>−</button>
