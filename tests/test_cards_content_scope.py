@@ -12,6 +12,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from blueprints import cards as cards_bp
 from combat_engine import card_json_loader
+import content_scope
+import data_paths
 
 
 def _write_json(path, value):
@@ -30,6 +32,7 @@ def scoped_cards(tmp_path, monkeypatch):
     content = books / "content"
     classes = content / "classes"
     chars = content / "characters"
+    installed = books / "books" / "owner"
     for base in (classes, chars):
         (base / "Owned").mkdir(parents=True)
         (base / "Custom").mkdir()
@@ -41,19 +44,29 @@ def scoped_cards(tmp_path, monkeypatch):
         "directories": {"classes/Owned/": ["owner"], "characters/Owned/": ["owner"]},
         "files": {},
     })
+    (installed / "classes" / "Owned").mkdir(parents=True)
+    (installed / "characters" / "Owned").mkdir(parents=True)
+    _write_json(installed / "book.json", {"id": "owner", "enabled": False})
+    _write_json(installed / "classes" / "Owned" / "cards.json", {"cards": [_card("Owned card")]})
+    _write_json(installed / "characters" / "Owned" / "combat.json", {"exclusive_cards": [_card("Owned card")]})
+    monkeypatch.setattr(data_paths, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(content_scope, "CONTENT_ROOT", content)
+    monkeypatch.setattr(content_scope, "WORLDBOOKS_ROOT", books)
+    monkeypatch.setattr(cards_bp, "CONTENT_ROOT", content)
     monkeypatch.setattr(cards_bp, "CLASS_DIR", classes)
     monkeypatch.setattr(cards_bp, "CHAR_DIR", chars)
+    monkeypatch.setattr(card_json_loader, "CONTENT_ROOT", content)
     monkeypatch.setattr(card_json_loader, "_CLASS_DIR", classes)
     card_json_loader.clear_cache()
     app = Flask(__name__)
     cards_bp.register(app, {})
     app.config.update(TESTING=True)
-    yield app.test_client(), books, classes, chars
+    yield app.test_client(), installed, classes, chars
     card_json_loader.clear_cache()
 
 
 def test_card_api_filters_lists_tree_and_direct_reads(scoped_cards):
-    client, books, _, _ = scoped_cards
+    client, installed, _, _ = scoped_cards
     assert client.get("/api/cards").json["characters"] == ["Custom"]
     assert client.get("/api/cards/classes").json["classes"] == ["Custom"]
     assert client.get("/api/cards/tree").json["classes"] == ["Custom"]
@@ -61,17 +74,17 @@ def test_card_api_filters_lists_tree_and_direct_reads(scoped_cards):
     assert client.get("/api/cards/classes/Owned").status_code == 404
     assert client.get("/api/cards/classes/Custom").status_code == 200
 
-    _write_json(books / "owner.json", {"enabled": True})
+    _write_json(installed / "book.json", {"id": "owner", "enabled": True})
     assert client.get("/api/cards/Owned").status_code == 200
     assert client.get("/api/cards/classes/Owned").status_code == 200
     assert "Owned" in client.get("/api/cards/tree").json["characters"]
-    _write_json(books / "owner.json", {"enabled": False})
+    _write_json(installed / "book.json", {"id": "owner", "enabled": False})
     assert client.get("/api/cards/Owned").status_code == 404
     assert "Owned" not in client.get("/api/cards/tree").json["classes"]
 
 
 def test_card_api_rejects_hidden_writes_and_escaping_names(scoped_cards):
-    client, books, classes, chars = scoped_cards
+    client, installed, classes, chars = scoped_cards
     class_path = classes / "Owned" / "cards.json"
     char_path = chars / "Owned" / "combat.json"
     before = class_path.read_bytes(), char_path.read_bytes()
@@ -88,23 +101,23 @@ def test_card_api_rejects_hidden_writes_and_escaping_names(scoped_cards):
     assert client.get("/api/cards/classes/..").status_code == 404
     assert client.put("/api/cards/classes/..", json={"cards": []}).status_code == 404
 
-    _write_json(books / "owner.json", {"enabled": True})
+    _write_json(installed / "book.json", {"id": "owner", "enabled": True})
     assert client.post("/api/cards/classes/Owned/cards", json={"card_id": "new"}).status_code == 200
-    _write_json(books / "owner.json", {"enabled": False})
+    _write_json(installed / "book.json", {"id": "owner", "enabled": False})
     assert client.delete("/api/cards/classes/Owned/cards/new").status_code == 404
 
 
 def test_runtime_cache_evicts_disabled_book_and_custom_data_dir_works(scoped_cards, tmp_path):
-    _, books, classes, _ = scoped_cards
+    _, installed, classes, _ = scoped_cards
     assert card_json_loader.load_class_cards("Owned") == []
-    _write_json(books / "owner.json", {"enabled": True})
+    _write_json(installed / "book.json", {"id": "owner", "enabled": True})
     assert card_json_loader.load_class_cards("Owned")[0].name == "Owned card"
-    _write_json(books / "owner.json", {"enabled": False})
+    _write_json(installed / "book.json", {"id": "owner", "enabled": False})
     assert card_json_loader.load_class_cards("Owned") == []
     assert "Owned" not in card_json_loader.load_all_class_cards()
 
-    _write_json(classes / "Owned" / "cards.json", {"cards": [_card("Reenabled card")]})
-    _write_json(books / "owner.json", {"enabled": True})
+    _write_json(installed / "classes" / "Owned" / "cards.json", {"cards": [_card("Reenabled card")]})
+    _write_json(installed / "book.json", {"id": "owner", "enabled": True})
     assert card_json_loader.load_class_cards("Owned")[0].name == "Reenabled card"
     assert card_json_loader.load_class_cards("..") == []
 

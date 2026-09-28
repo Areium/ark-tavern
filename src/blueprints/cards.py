@@ -57,8 +57,11 @@ def _card_path(base: Path, entity_name: str, filename: str,
                 return path
             # PUT may add a card file to an existing entity in its owning book.
             folder = resolve_content(f"{base.name}/{entity_name}", book_ids=selected)
-            return folder / filename if folder is not None else None
+            if folder is not None:
+                return folder / filename
         except ValueError:
+            return None
+        if worldbook_id is not None:
             return None
     path = base / entity_name / filename
     try:
@@ -76,6 +79,8 @@ def _card_entries(base: Path, filename: str,
     try:
         roots = (category_roots(base.name, book_ids=selected)
                  if base == CONTENT_ROOT / base.name else [(None, base)])
+        if base == CONTENT_ROOT / base.name and worldbook_id is None:
+            roots.append((None, base))
     except ValueError:
         return []
     entries = {}

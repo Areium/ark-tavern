@@ -42,9 +42,10 @@ def load_class_cards(char_class: str, data_dir: str | Path | None = None,
     base = Path(data_dir) if data_dir is not None else _CLASS_DIR
     scoped = data_dir is None or base.resolve() == _CLASS_DIR.resolve()
     try:
-        path = (resolve_content(f"classes/{char_class}/cards.json", book_ids=book_ids)
-                if scoped and _CLASS_DIR.resolve() == (CONTENT_ROOT / "classes").resolve()
-                else base / char_class / "cards.json")
+        book_path = (resolve_content(f"classes/{char_class}/cards.json", book_ids=book_ids)
+                     if scoped and _CLASS_DIR.resolve() == (CONTENT_ROOT / "classes").resolve()
+                     else None)
+        path = book_path or (base / char_class / "cards.json" if book_ids is None or not scoped else None)
     except ValueError:
         return []
     if path is None:
@@ -93,6 +94,8 @@ def load_all_class_cards(data_dir: str | Path | None = None,
         roots = (category_roots("classes", book_ids=book_ids)
                  if scoped and _CLASS_DIR.resolve() == (CONTENT_ROOT / "classes").resolve()
                  else [(None, base)])
+        if scoped and book_ids is None and _CLASS_DIR.resolve() == (CONTENT_ROOT / "classes").resolve():
+            roots.append((None, base))
     except ValueError:
         return result
     for _, root in roots:

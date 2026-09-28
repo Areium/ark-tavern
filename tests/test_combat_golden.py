@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from combat_session import CombatSession  # noqa: E402
+from combat_data_loader import CombatDataLoader  # noqa: E402
 
 GOLDEN_PATH = Path(__file__).resolve().parent / "golden" / "combat_openings.json"
 NODE_DIR = ROOT / "data" / "worldbooks" / "content" / "combat" / "nodes"
@@ -51,6 +52,9 @@ def opening_snapshot(encounter_id: str) -> dict:
     """开局状态的结构化快照（不含路径/随机落点以外的易变字段）。"""
     random.seed(SEED)
     combat = CombatSession("golden")
+    # Golden snapshots check the authored source nodes, including packs that
+    # are intentionally not installed in the user's bookshelf.
+    combat.loader = CombatDataLoader(data_dir=str(NODE_DIR.parent))
     state = combat.start(encounter_id, character_names=ROSTER)
     if state.get("phase") == "NONE":
         return {"error": state.get("error", "启动失败")}
