@@ -81,7 +81,7 @@ export function stepsForMessage(msg: ChatMessage, sceneCharacters: string[], pla
   const steps: StageStep[] = [];
   for (const seg of segmentsOf(msg, sceneCharacters)) {
     if (seg.type === "dialogue") {
-      for (const text of splitLongText(seg.text)) steps.push({ kind: "dialogue", text, speaker: seg.speaker || msg.character });
+      for (const text of splitLongText(seg.text)) steps.push({ kind: "dialogue", text, speaker: seg.speaker });
     } else {
       for (const text of splitLongText(seg.text)) steps.push({ kind: "narration", text });
     }

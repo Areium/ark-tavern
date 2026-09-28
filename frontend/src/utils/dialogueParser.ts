@@ -4,160 +4,92 @@ export interface DialogueSegment {
   speaker?: string;
 }
 
-/**
- * Parse narrative text into dialogue and narration segments.
- *
- * Extracts text wrapped in 「」 as dialogue bubbles; everything else
- * becomes narration text. Speaker identification relies solely on
- * matching scene character names in the preceding narration text.
- * Adjacent 「」 pairs with little/no gap inherit the last speaker.
+type RawSegment = { type?: string; text?: unknown; speaker?: unknown };
+const SPEECH = "(?:说道|说|道|问道|问|答道|回答|答|喊道|喊|提醒|补充|解释|开口|喃喃|嘀咕)(?:道)?";
+const MODIFIER = "(?:(?:轻|低|沉|高|大|小)声|(?:平静|认真|缓缓|冷冷|淡淡|坚定|轻轻)(?:地)?|笑着|哭着|接着|继续|突然)";
+const punctuationOnly = /^[\s，,、：:；;。.!！?？…—]*$/;
+const escapeRegex = (name: string) => name.replace(/[.*+?^{}$()|[\]\\]/g, "\\$&");
+
+/** Require a named subject with a speech predicate or a bare name label.
+ * Merely mentioning/looking at a character never identifies a speaker.
  */
-export function parseDialogue(
-  text: string,
-  knownSpeaker: string | undefined,
-  sceneCharacters: string[],
-): DialogueSegment[] {
-  if (!text) return [];
-
-  const segments: DialogueSegment[] = [];
-  const regex = /([^「]*)「([^」]+)」/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let lastSpeaker: string | undefined;
-
-  while ((match = regex.exec(text)) !== null) {
-    const rawBefore = match[1];
-    const dialogue = match[2];
-    let before = rawBefore;
-
-    // 说话人优先取引号前的“角色名：/角色说：”前缀，并把前缀从叙述里剥离，
-    // 避免“银灰：”这类署名残留在叙述文字中。
-    let speaker: string | undefined = knownSpeaker;
-    if (!speaker) {
-      const extracted = extractSpeakerBefore(rawBefore, sceneCharacters);
-      speaker = extracted.speaker;
-      before = extracted.cleanBefore;
-    }
-
-    if (!speaker && sceneCharacters.length > 0) {
-      if (before) {
-        speaker = inferSpeaker(before, sceneCharacters);
-      }
-      if (!speaker && lastSpeaker && (!before || before.trim().length < 15)) {
-        speaker = lastSpeaker;
+function attribution(text: string, names: string[]): { speaker?: string; labelStart?: number } {
+  const recipient = [...names, "他", "她", "他们", "她们", "你", "你们", "众人", "大家"].map(escapeRegex).join("|");
+  const speechTail = new RegExp("^(?:" + MODIFIER + "|(?:对|向)(?:" + recipient + ")){0,3}" + SPEECH + "\\s*[：:，,。.!！?？]*\\s*$");
+  let result: { speaker?: string; labelStart?: number } = {};
+  let latest = -1;
+  for (const name of names) {
+    const pattern = new RegExp("(^|[\\s。！？!?；;，,])(" + escapeRegex(name) + ")(?![A-Za-z0-9_])", "g");
+    for (const match of text.matchAll(pattern)) {
+      const start = match.index! + match[1].length;
+      const tail = text.slice(start + name.length);
+      const label = /^\s*[：:]\s*$/.test(tail);
+      if ((label || speechTail.test(tail)) && start > latest) {
+        latest = start;
+        result = { speaker: name, labelStart: label || !/[，,对向]/.test(tail) ? start : undefined };
       }
     }
-
-    if (speaker) {
-      lastSpeaker = speaker;
-    }
-
-    if (before && before.trim()) {
-      segments.push({ type: "narration", text: before });
-    }
-    segments.push({ type: "dialogue", text: dialogue, speaker });
-
-    lastIndex = regex.lastIndex;
   }
-
-  if (lastIndex < text.length) {
-    const remainder = text.slice(lastIndex);
-    if (remainder.trim()) {
-      segments.push({ type: "narration", text: remainder });
-    }
-  }
-
-  if (segments.length === 0) {
-    return [{ type: "narration", text }];
-  }
-
-  return segments;
-}
-
-/**
- * Normalize dialogue segments before rendering — LLM 输出的结构化片段
- * 可能缺字段/含非法类型，这里做容错规范化：
- * - 过滤 text 为空或非字符串的段
- * - dialogue 缺 speaker 时继承上一条 dialogue 的说话人（连续对话场景）
- * - 未知 type 降级为叙述，避免产生错误气泡
- */
-export function normalizeSegments(
-  segments: ReadonlyArray<{ type?: string; text?: unknown; speaker?: unknown }>,
-): DialogueSegment[] {
-  if (!Array.isArray(segments)) return [];
-  const result: DialogueSegment[] = [];
-  let lastSpeaker: string | undefined;
-
-  for (const seg of segments) {
-    if (!seg || typeof seg !== "object") continue;
-    const text = typeof seg.text === "string" ? seg.text.trim() : "";
-    if (!text) continue;
-
-    if (seg.type === "narration") {
-      result.push({ type: "narration", text });
-      continue;
-    }
-
-    if (seg.type === "dialogue") {
-      let speaker =
-        typeof seg.speaker === "string" && seg.speaker.trim()
-          ? seg.speaker.trim()
-          : undefined;
-      if (!speaker) speaker = lastSpeaker;
-      if (speaker) lastSpeaker = speaker;
-      result.push({ type: "dialogue", text, speaker });
-      continue;
-    }
-
-    // 未知 type：降级为叙述，避免渲染出错误气泡
-    result.push({ type: "narration", text });
-  }
-
   return result;
 }
 
-/**
- * 从引号前的叙述中提取“角色名：/角色名说道：”这类署名。
- * 若命中且名字在场景角色列表内，返回说话人并清掉该前缀（cleanBefore）。
+/** Closed corner/curly quotes are dialogue; incomplete quotes stay untouched.
+ * Explicit attribution beats the message default. Continuation crosses only
+ * punctuation, never a narrative action or a new paragraph.
  */
-function extractSpeakerBefore(
-  before: string,
-  sceneCharacters: string[],
-): { speaker?: string; cleanBefore: string } {
-  if (!before) return { cleanBefore: before };
-
-  // 角色：「...」
-  let m = /([\u4e00-\u9fa5·A-Za-z0-9_-]{1,15})\s*[：:]\s*$/.exec(before);
-  if (m && sceneCharacters.includes(m[1])) {
-    return { speaker: m[1], cleanBefore: before.slice(0, m.index) };
+export function parseDialogue(text: string, knownSpeaker: string | undefined, sceneCharacters: string[]): DialogueSegment[] {
+  if (!text) return [];
+  const names = [...new Set([...sceneCharacters, knownSpeaker || ""].map(name => name.trim()).filter(Boolean))]
+    .sort((a, b) => b.length - a.length);
+  const quotes = [...text.matchAll(/「([^」]*)」|“([^”]*)”/g)];
+  const segments: DialogueSegment[] = [];
+  let cursor = 0;
+  let lastSpeaker: string | undefined;
+  for (let index = 0; index < quotes.length; index++) {
+    const quote = quotes[index];
+    const start = quote.index!;
+    const end = start + quote[0].length;
+    const before = text.slice(cursor, start);
+    const after = text.slice(end, quotes[index + 1]?.index ?? text.length);
+    const preceding = attribution(before, names);
+    // A postposed attribution must start immediately after this quote.
+    const postClause = after.match(/^[ \t，,]*([^。！？!?；;\n：:]+)(?:[。！？!?；;]|$)/)?.[1] || "";
+    const following = attribution(postClause, names);
+    const postSpeaker = following.speaker && postClause.trimStart().startsWith(following.speaker)
+      ? following.speaker : undefined;
+    const unknownLabel = !preceding.speaker && /[^\s：:]+\s*[：:]\s*$/.test(before);
+    const continuation = punctuationOnly.test(before) && !/\n\s*\n/.test(before);
+    const speaker = preceding.speaker || postSpeaker || (unknownLabel ? undefined : knownSpeaker || (continuation ? lastSpeaker : undefined));
+    const narration = preceding.labelStart === undefined ? before : before.slice(0, preceding.labelStart);
+    if (narration.trim()) segments.push({ type: "narration", text: narration });
+    segments.push({ type: "dialogue", text: quote[1] ?? quote[2], speaker });
+    lastSpeaker = speaker;
+    cursor = end;
   }
-
-  // 角色说道：「...」/ 角色低声说：「...」
-  m = /([\u4e00-\u9fa5·A-Za-z0-9_-]{1,15})(?:说道|轻声说|低声说|沉声说|笑着说|淡淡道|冷冷地说|冷冷道|问道|喊道|答道|回答(?:道)?|开口(?:道)?|喃喃道?|提醒道?|补充道?|重复道?|叹道?|解释(?:道)?|说|道|问|答|喊)\s*[：:]\s*$/.exec(before);
-  if (m && sceneCharacters.includes(m[1])) {
-    return { speaker: m[1], cleanBefore: before.slice(0, m.index) };
-  }
-
-  return { cleanBefore: before };
+  if (text.slice(cursor).trim()) segments.push({ type: "narration", text: text.slice(cursor) });
+  return segments;
 }
 
-/**
- * Find a scene character name in the text preceding 「.
- * Searches the entire preceding text, preferring the name closest
- * to the dialogue bracket.
+/** Missing speaker may continue adjacent dialogue; explicit null/empty means
+ * unknown and clears the chain. Narration and invalid segments end the chain.
  */
-function inferSpeaker(before: string, sceneCharacters: string[]): string | undefined {
-  const sorted = [...sceneCharacters].sort((a, b) => b.length - a.length);
-  let bestMatch: string | undefined;
-  let bestPos = -1;
-
-  for (const name of sorted) {
-    const pos = before.lastIndexOf(name);
-    if (pos > bestPos) {
-      bestPos = pos;
-      bestMatch = name;
+export function normalizeSegments(segments: ReadonlyArray<RawSegment>): DialogueSegment[] {
+  if (!Array.isArray(segments)) return [];
+  const result: DialogueSegment[] = [];
+  let lastSpeaker: string | undefined;
+  for (const seg of segments) {
+    if (!seg || typeof seg !== "object") { lastSpeaker = undefined; continue; }
+    const text = typeof seg.text === "string" ? seg.text.trim() : "";
+    if (seg.type !== "dialogue") {
+      lastSpeaker = undefined;
+      if (text) result.push({ type: "narration", text });
+      continue;
     }
+    const speaker = Object.prototype.hasOwnProperty.call(seg, "speaker")
+      ? (typeof seg.speaker === "string" ? seg.speaker.trim() || undefined : undefined)
+      : lastSpeaker;
+    lastSpeaker = speaker;
+    if (text) result.push({ type: "dialogue", text, speaker });
   }
-
-  return bestMatch;
+  return result;
 }
