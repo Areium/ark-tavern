@@ -119,6 +119,12 @@ assert.deepEqual(managerModule.WORLDBOOK_PANEL_TABS.map((tab) => tab.id),
 assert.deepEqual(managerModule.WORLDBOOK_PANEL_TABS.map((tab) => tab.label),
   ["条目", "Prompt 预览", "节点图", "会话条目"]);
 const managerSource = read("frontend/src/components/WorldBookManager.tsx");
+for (const removed of ["samplesOpen", "SampleWorldbooks", "导入示例世界书", "文件夹位置与分享", "停用整书", "启用整书"]) {
+  assert.ok(!managerSource.includes(removed), `世界书管理页不再提供 ${removed}`);
+}
+assert.ok(!fs.existsSync(path.join(root, "frontend/src/components/worldbook/SampleWorldbooks.tsx")));
+assert.ok(managerSource.includes("importWorldbook") && managerSource.includes("exportLegacyBook"),
+  "普通导入与酒馆格式导出仍保留");
 // 判据是「没有活的旧节点视图」：页签 id 与组件挂载都不允许回来（注释里提到历史名称是允许的）
 assert.ok(!/import\s+NodeViewTab/.test(managerSource) && !/id:\s*"nodes"/.test(managerSource),
   "世界书工作台不应再挂载旧的节点视图页签");

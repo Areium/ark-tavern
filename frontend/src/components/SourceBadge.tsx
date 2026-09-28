@@ -18,7 +18,7 @@ export default function SourceBadge({
     return (
       <span
         className={`${cls} bg-cyan-600/20 text-cyan-300 border border-cyan-500/30 shrink-0`}
-        title="离线内容包：由用户显式安装；可编辑、停用、删除，删除后可再次安装"
+        title="离线内容包：由用户显式安装；可编辑、删除，删除后可再次安装"
       >
         内容包
       </span>

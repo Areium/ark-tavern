@@ -12,7 +12,6 @@ import { LAYER_HINTS, LAYER_LABELS, bookEntryStats, entryLayer, entryTokens,
   isSortableEntry, sortEntriesByLayer, summaryEntryStats,
   type WorldBookEntryLayer } from "../utils/worldbookLayer";
 import type { WorldBookPanelProps } from "./worldbook/panel";
-import SampleWorldbooks from "./worldbook/SampleWorldbooks";
 import CoverPicker from "./worldbook/CoverPicker";
 import DeleteConfirmDialog from "./worldbook/DeleteConfirmDialog";
 import StatFieldsEditor from "./worldbook/StatFieldsEditor";
@@ -241,7 +240,6 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const worldbookEntryJump = useAppStore((state) => state.worldbookEntryJump);
   const setWorldbookEntryJump = useAppStore((state) => state.setWorldbookEntryJump);
 
-  const [samplesOpen, setSamplesOpen] = useState(false);
   const [books, setBooks] = useState<WorldBookSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<WorldBookDetail | null>(null);
@@ -956,7 +954,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     catch (reason: any) { setError(reason?.message || "删除失败"); }
   };
 
-  const updateBookOption = async (changes: { enabled?: boolean; book_type?: WorldBookType; stat_fields?: StatFieldDTO[] }) => {
+  const updateBookOption = async (changes: { book_type?: WorldBookType; stat_fields?: StatFieldDTO[] }) => {
     if (!detail) return false;
     try {
       await flushBook(detail.id);
@@ -1459,13 +1457,13 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     finally { setExcerptBusy(false); }
   };
 
-  return <main className={"wber-shell" + (effectiveTab === "graph" && !samplesOpen ? " is-graph" : "")}>
+  return <main className={"wber-shell" + (effectiveTab === "graph" ? " is-graph" : "")}>
     <aside className="wber-shelf" aria-label="世界书书架">
       <header className="wber-shelf-head">
         <div><span className="wber-eyebrow">LORE LIBRARY</span><h2>世界书</h2></div>
         <div className="wber-head-actions">
-          <button ref={createButton} type="button" className="is-primary" onClick={() => { setSamplesOpen(false); setCreateError(""); setCreateOpen(true); }}><AppIcon name="book" size={14} />新建</button>
-          <button type="button" onClick={() => { setSamplesOpen(false); fileInput.current?.click(); }}><AppIcon name="upload" size={14} />导入文件</button>
+          <button ref={createButton} type="button" className="is-primary" onClick={() => { setCreateError(""); setCreateOpen(true); }}><AppIcon name="book" size={14} />新建</button>
+          <button type="button" onClick={() => fileInput.current?.click()}><AppIcon name="upload" size={14} />导入文件</button>
         </div>
       </header>
       <div className="wber-folder-tools">
@@ -1484,9 +1482,6 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         {shelfNotice && <p className="wber-folder-notice" role="status">{shelfNotice}</p>}
         {shelfError && <p className="wber-folder-error" role="alert">{shelfError}</p>}
       </div>
-      <button type="button" className="wber-samples-entry" aria-expanded={samplesOpen} aria-controls="worldbook-samples" onClick={() => setSamplesOpen(value => !value)}>
-        <AppIcon name="download" size={14} />导入示例世界书
-      </button>
       <input ref={fileInput} className="wber-hidden" type="file" accept=".json,.jsonl,.txt,.png"
         onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); event.target.value = ""; }} />
       <nav className="wber-filters" aria-label="书架筛选">
@@ -1518,7 +1513,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
           // 只显示「会注入的条目 / token」：系统层条目不注入，它的条数不进书架标题栏。
           const stats = book.id === detail?.id ? liveStats : summaryEntryStats(book);
           return <button type="button" className="wber-book" data-active={selectedId === book.id}
-            key={book.id} onClick={() => { setSamplesOpen(false); setSelectedId(book.id); }} title={book.name}>
+            key={book.id} onClick={() => setSelectedId(book.id)} title={book.name}>
             <span className="wber-book-cover">{cover ? <img src={cover} alt="" /> : <span>{book.name.slice(0, 1) || "书"}</span>}</span>
             <span className="wber-book-copy"><strong>{book.name}</strong><small>
               {stats.injectable} 条 · 约 {stats.tokens} token
@@ -1529,11 +1524,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       </div>
     </aside>
 
-    <section className={"wber-main" + (effectiveTab === "graph" && !samplesOpen ? " is-graph" : "")}>
-      {samplesOpen ? <SampleWorldbooks api={api} onClose={() => setSamplesOpen(false)} onInstalled={async (id) => {
-        await loadBooks();
-        if (id) { setSelectedId(id); setListFilter("all"); }
-      }} /> : <>
+    <section className={"wber-main" + (effectiveTab === "graph" ? " is-graph" : "")}>
       {deleteTarget && detail?.id === deleteTarget.bookId && <DeleteConfirmDialog
         kind={deleteTarget.kind}
         name={deleteTarget.kind === "book" ? deleteTarget.name : deleteTarget.entry.name || deleteTarget.entry.uid}
@@ -1619,19 +1610,12 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
                 for (const retry of retryTasks.current.values()) retry();
               }}><AppIcon name="refresh" size={13} />重试</button>}</div>
           </div>
-          <div className="wber-hero-actions"><details className="wber-folder-guide wber-book-folder">
-            <summary>文件夹位置与分享</summary>
-            <p>在应用数据目录中打开：</p>
-            <code>data/worldbooks/books/{detail.id}/</code>
-            <p>等待修改保存完成后，复制整个文件夹即可分享，包含 book.json 与书内资源。</p>
-            <button type="button" onClick={() => void openBooksFolder(detail.id)}>打开这本书的文件夹</button>
-          </details>
+          <div className="wber-hero-actions">
             {!isReference(detail) && <button type="button" onClick={() => setStatFieldsOpen(true)}
               title="定义这本书下角色共用的数值字段（角色页「数值」与对话页场景面板「数值」按它渲染）">
               <AppIcon name="index" size={14} />数值字段{detail.stat_fields?.length ? ` · ${detail.stat_fields.length}` : ""}</button>}
             <details className="wber-more"><summary>更多<AppIcon name="expand" size={14} /></summary><div>
               <button type="button" onClick={() => void exportLegacyBook()}>导出酒馆 JSON</button>
-              {!isReference(detail) && <button type="button" onClick={() => void updateBookOption({ enabled: !detail.enabled })}>{detail.enabled ? "停用整书" : "启用整书"}</button>}
               <button type="button" onClick={() => void updateBookOption({ book_type: isReference(detail) ? "story" : "reference" })}>
                 {isReference(detail) ? "改为剧情世界书" : "移入资料库"}</button>
               {detail.is_preinstalled && <button type="button" onClick={() => void reinstallBook()}>重装整合包</button>}
@@ -1887,7 +1871,6 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         {effectiveTab === "index" && <div className="wber-index">
           <Suspense fallback={<p>正在加载会话条目…</p>}><IndexManager key={detail.id} book={detail}
             onRefresh={() => loadDetail(detail.id)} onEditDefaults={() => setWorldbookTab("entries")} /></Suspense></div>}
-      </>}
       </>}
     </section>
   </main>;

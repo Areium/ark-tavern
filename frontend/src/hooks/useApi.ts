@@ -380,10 +380,6 @@ export function useApi() {
     getWorldbookDir: (bookId?: string) =>
       request<{ path: string }>(
         `/api/worldbook/data-dir${bookId ? `?book_id=${encodeURIComponent(bookId)}` : ""}`),
-    listAvailableWorldbookPacks: () =>
-      request<{ packs: { id: string; name: string; description: string; book_type: string; entry_count: number; installed: boolean; repair_required: boolean }[] }>("/api/worldbook/available-packs"),
-    installWorldbookPack: (id: string) =>
-      request<{ book: import("../types").WorldBookSummary }>(`/api/worldbook/available-packs/${encodeURIComponent(id)}/install`, { method: "POST" }),
     createWorldbook: (name: string, budgetTokens = 0, bookType?: import("../types").WorldBookType,
       meta?: { description?: string; cover_image?: string }) =>
       request<{ book: import("../types").WorldBookSummary }>("/api/worldbook", {
@@ -393,7 +389,7 @@ export function useApi() {
     getWorldbook: (id: string) =>
       request<import("../types").WorldBookDetail>(`/api/worldbook/${encodeURIComponent(id)}`),
     updateWorldbook: (id: string, data: { name?: string; description?: string; cover_image?: string;
-      budget_tokens?: number; enabled?: boolean; book_type?: import("../types").WorldBookType;
+      budget_tokens?: number; book_type?: import("../types").WorldBookType;
       stat_fields?: import("../types").StatFieldDTO[];
       expected_revision?: number }) =>
       request<{ book: import("../types").WorldBookSummary }>(`/api/worldbook/${encodeURIComponent(id)}`, {

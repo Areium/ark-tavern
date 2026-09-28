@@ -23,7 +23,7 @@ def run():
 
         def api(route):
             path = urlparse(route.request.url).path
-            if route.request.method not in ("GET", "HEAD"):
+            if route.request.method not in ("GET", "HEAD") and not path.endswith("/scope-preview"):
                 writes.append((route.request.method, path))
             if path == "/api/worldbook":
                 body = {"books": BOOKS}
@@ -31,7 +31,8 @@ def run():
                 book = next((book for book in BOOKS if path.endswith(book["id"])), BOOKS[0])
                 body = {**book, "description": "合成数据，仅用于界面验收。", "entries": [], "categories": [],
                         "entry_groups": [], "entry_layout": [], "entry_group_map": {}, "stat_fields": [],
-                        "edit_revision": 1, "strategy": {}}
+                        "edit_revision": 1, "strategy": {}, "scope_mode": "full",
+                        "dependency_rules": {"roots": []}, "dependency_edges": [], "related_edges": []}
             elif path == "/api/characters":
                 body = CHARACTERS
             elif path in ("/api/player-identities", "/api/sessions", "/api/plots"):
@@ -79,7 +80,7 @@ def run():
             expect(page.get_by_role("heading", name=LONG_NAME, exact=True)).to_be_visible()
             for text in ("导入示例世界书", "文件夹位置与分享", "停用整书", "启用整书"):
                 expect(page.get_by_text(text, exact=True)).to_have_count(0)
-            expect(page.get_by_text("导入 JSON", exact=False).first).to_be_visible()
+            expect(page.get_by_role("button", name="导入文件", exact=True)).to_be_visible()
             page.screenshot(path=str(SHOTS / "worldbook-desktop.png"), full_page=True)
             page.locator(".wber-more summary").click()
             expect(page.get_by_role("button", name="导出酒馆 JSON", exact=True)).to_be_visible()
