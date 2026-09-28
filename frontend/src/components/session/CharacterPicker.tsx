@@ -10,7 +10,7 @@
  *  - 简介：空简介显示统一兜底文案，并标「缺简介」，让人知道是角色卡没写而不是加载失败；
  *  - id：没有目录 id 的条目用展示名当键（见 util），完全无法成键的在构建目录时剔除。
  */
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   catalogBooks,
   filterCharacterCatalog,
@@ -49,6 +49,12 @@ interface CharacterPickerProps {
   /** 选中项角标文案（单选模式），如「本次主控」 */
   selectedBadge?: string;
   searchPlaceholder: string;
+  /** 精简场景可隐藏搜索框，来源筛选仍保留 */
+  showSearch?: boolean;
+  /** 精简场景可隐藏“全部 / 自建 / 世界书”来源筛选 */
+  showSourceFilters?: boolean;
+  /** 默认展示简介；精简场景改为悬停或键盘聚焦磁贴时展示 */
+  descriptionOnHover?: boolean;
   emptyText: string;
   gridClassName?: string;
   listClassName?: string;
@@ -65,10 +71,14 @@ export default function CharacterPicker({
   skippedCount = 0,
   selectedBadge = "已选",
   searchPlaceholder,
+  showSearch = true,
+  showSourceFilters = true,
+  descriptionOnHover = false,
   emptyText,
   gridClassName = "grid-cols-2 sm:grid-cols-3 md:grid-cols-4",
   listClassName = "max-h-72",
 }: CharacterPickerProps) {
+  const descriptionIdPrefix = useId();
   const [query, setQuery] = useState("");
   const [source, setSource] = useState<CharacterSourceFilter>("all");
   const [bookId, setBookId] = useState("");
@@ -93,47 +103,51 @@ export default function CharacterPicker({
   return (
     <div className="space-y-2">
       {/* 工具栏：搜索 + 来源筛选 */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[10rem]">
-          <AppIcon
-            name="search"
-            size={13}
-            className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none"
-          />
-          <input
-            className="input text-xs w-full pl-7"
-            placeholder={searchPlaceholder}
-            aria-label={searchPlaceholder}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-        <div className="flex items-center gap-1" role="group" aria-label="按来源筛选">
-          {FILTERS.map((filter) => {
-            const active = source === filter.id;
-            return (
-              <button
-                key={filter.id}
-                type="button"
-                aria-pressed={active}
-                title={filter.id === "own"
-                  ? "玩家自己创建或导入的角色（角色卡未标注来源世界书）"
-                  : filter.id === "worldbook"
-                    ? "来源世界书里定义的角色（随书导入，带 worldbook_id 标注）"
-                    : "自建与世界书角色一起显示"}
-                onClick={() => { setSource(filter.id); if (filter.id !== "worldbook") setBookId(""); }}
-                className={`text-[12px] px-2.5 py-1 rounded-full border transition-colors ${
-                  active
-                    ? "bg-amber-600/25 text-amber-200 border-amber-500/40"
-                    : "bg-gray-800/60 text-gray-400 border-gray-700 hover:text-gray-200"
-                }`}
-              >
-                {filter.label}
-              </button>
-            );
-          })}
-        </div>
-        {source === "worldbook" && books.length > 0 && (
+      <div className={`flex flex-wrap items-center gap-2 ${!showSearch && !showSourceFilters ? "justify-end" : ""}`}>
+        {showSearch && (
+          <div className="relative flex-1 min-w-[10rem]">
+            <AppIcon
+              name="search"
+              size={13}
+              className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none"
+            />
+            <input
+              className="input text-xs w-full pl-7"
+              placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+        )}
+        {showSourceFilters && (
+          <div className="flex items-center gap-1" role="group" aria-label="按来源筛选">
+            {FILTERS.map((filter) => {
+              const active = source === filter.id;
+              return (
+                <button
+                  key={filter.id}
+                  type="button"
+                  aria-pressed={active}
+                  title={filter.id === "own"
+                    ? "玩家自己创建或导入的角色（角色卡未标注来源世界书）"
+                    : filter.id === "worldbook"
+                      ? "来源世界书里定义的角色（随书导入，带 worldbook_id 标注）"
+                      : "自建与世界书角色一起显示"}
+                  onClick={() => { setSource(filter.id); if (filter.id !== "worldbook") setBookId(""); }}
+                  className={`text-[12px] px-2.5 py-1 rounded-full border transition-colors ${
+                    active
+                      ? "bg-amber-600/25 text-amber-200 border-amber-500/40"
+                      : "bg-gray-800/60 text-gray-400 border-gray-700 hover:text-gray-200"
+                  }`}
+                >
+                  {filter.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {showSourceFilters && source === "worldbook" && books.length > 0 && (
           <select
             className="bg-gray-800/80 border border-gray-700 rounded-md px-1.5 py-1 text-[12px] text-gray-300 max-w-[12rem]"
             value={effectiveBookId}
@@ -186,23 +200,25 @@ export default function CharacterPicker({
         </p>
       ) : (
         <div className={`grid gap-2 overflow-y-auto lobby-scroll pr-1 ${gridClassName} ${listClassName}`}>
-          {filtered.map((item) => {
+          {filtered.map((item, index) => {
             const isSelected = selectedSet.has(item.key);
             const isLocked = lockedKeys.includes(item.key);
             const inBoundBook = !!preferredBookId && item.bookId === preferredBookId;
+            const descriptionId = `${descriptionIdPrefix}-description-${index}`;
             return (
               <button
                 key={item.key}
                 type="button"
                 aria-pressed={isSelected}
+                aria-describedby={descriptionOnHover ? descriptionId : undefined}
                 disabled={isLocked}
                 title={isLocked
                   ? `${item.name} 已经在阵容里（${lockedLabel}）`
                   : mode === "single"
-                    ? `选择「${item.name}」作为主控（玩家身份），它同时入队`
+                    ? `选择「${item.name}」作为主控（玩家身份）`
                     : isSelected ? `将「${item.name}」移出阵容` : `将「${item.name}」加入阵容`}
                 onClick={() => onSelect(item.key)}
-                className={`char-tile p-2.5 flex flex-col items-center gap-1.5 text-left ${
+                className={`char-tile group relative p-2.5 flex flex-col items-center gap-1.5 text-left ${
                   isSelected ? "selected" : ""} ${isLocked ? "opacity-50 cursor-not-allowed" : ""}`}
               >
                 <div className="relative w-full flex justify-center">
@@ -216,9 +232,11 @@ export default function CharacterPicker({
                 <span className={`text-xs truncate w-full text-center ${isSelected ? "text-amber-300 font-medium" : "text-gray-200"}`}>
                   {item.name}
                 </span>
-                <span className="text-[11px] text-gray-500 text-center line-clamp-2 w-full leading-snug">
-                  {summaryText(item)}
-                </span>
+                {!descriptionOnHover && (
+                  <span className="text-[11px] text-gray-500 text-center line-clamp-2 w-full leading-snug">
+                    {summaryText(item)}
+                  </span>
+                )}
                 <span className="flex flex-wrap items-center justify-center gap-1">
                   {item.source === "worldbook" ? (
                     <SourceBookBadge name={item.bookName || item.bookId} size="xs" />
@@ -246,6 +264,16 @@ export default function CharacterPicker({
                     </span>
                   )}
                 </span>
+                {descriptionOnHover && (
+                  <span
+                    id={descriptionId}
+                    role="tooltip"
+                    className="pointer-events-none absolute inset-1 z-20 flex flex-col items-center justify-center rounded-lg bg-gray-950/95 px-2.5 py-2 text-center opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+                  >
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-amber-300">人物简介</span>
+                    <span className="mt-1 line-clamp-4 text-[11px] leading-relaxed text-gray-200">{summaryText(item)}</span>
+                  </span>
+                )}
               </button>
             );
           })}

@@ -5,8 +5,7 @@
  * **点选剧情即自动选中剧情声明的默认配置**（`pickPlot` → `resolvePlotDefaults`）：
  * frontmatter 的 `worldbook_id` 自动绑定（书没装则保留玩家当前选择），`player_identity`
  * 自动选为主控（缺省回退 `initial_characters` 首位），**该世界书的角色花名册**
- * （各书 `character_ids`）与剧情开场角色整批入队并标「自动预选」—— 它们已经处于入队状态，
- * 点一下磁贴是取消而非选中。
+ * （各书 `character_ids`）与剧情开场角色整批加入预选队友，并在磁贴上标「自动预选」。
  *
  * **「主控与阵容」这一步只选角色**：候选范围、手动追加与全量兼容都不在这里调整
  * （按书配置在世界书工作台里做）。创建时仍与服务端同口径：预览指纹来自
@@ -84,10 +83,6 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const catalog = useMemo(() => buildCharacterCatalog(charDocs, books), [charDocs, books]);
   const plot = useMemo(() => plots.find((p) => p.id === plotId) || null, [plots, plotId]);
   const plotBookId = trimKey(plot?.worldbook_id);
-  // 剧情默认阵容（主控 + 队友）：界面用它解释「为什么已经选中了」
-  const plotDefaults = useMemo(
-    () => resolvePlotDefaults(plot, books, catalog.items, worldbookIds),
-    [plot, books, catalog.items, worldbookIds]);
   /**
    * 候选 = 已绑定世界书的角色（含**书内角色花名册**）+ 剧情自带阵容；未绑书时 = 自建角色 +
    * 剧情自带阵容。花名册与剧情阵容必须能选：拆分出来的剧情书里，书内条目带 `character_id`，
@@ -207,9 +202,6 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     if (key === mainControl) return;   // 主控已在阵容里，队友列表不再重复收
     setTeammates((prev) => (prev.includes(key) ? prev.filter((n) => n !== key) : [...prev, key]));
   };
-
-  /** 清空队友：留空是合法选择，但要让玩家知道这一点的后果（见下方空阵容提示）。 */
-  const clearTeammates = () => setTeammates([]);
 
   /**
    * 点选剧情：自动绑定剧情声明的世界书，并把**这本书的角色花名册 + 剧情开场角色**整批选中
@@ -513,8 +505,8 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
               <section className="space-y-2" aria-label="主控角色">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-gray-400">
-                    <span className="text-amber-300 font-medium">主控角色（必选）</span>
-                    {" "}— 你将以该角色身份参与对话，它同时作为入队角色加入本次会话。
+                    <span className="text-amber-300 font-medium">主控角色</span>
+                    {" "}— 你将以该角色身份参与对话。
                   </p>
                   <button
                     type="button"
@@ -525,25 +517,27 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   </button>
                 </div>
 
-                {/* 自动选中的主控如实说明来源：剧情声明 or 开场角色首位 */}
-                {!!plot && !!plotDefaults.main && mainControl === plotDefaults.main && (
-                  <p className="text-[12px] text-cyan-300" role="status">
-                    已按《{plotLabel}》自动选中默认主控
-                    {trimKey(plot.player_identity) ? `（剧情声明 ${trimKey(plot.player_identity)}）` : "（开场角色首位）"}
-                    ，可随时改选。
-                  </p>
-                )}
-
                 {mainControlItem ? (
                   <div className="pick-card p-3 flex items-center gap-3 selected">
                     <EntityAvatar name={mainControlItem.name} src={characterAvatarUrl(mainControlItem.key)} size={40} />
-                    <div className="min-w-0 flex-1">
+                    <div
+                      className="group relative min-w-0 flex-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                      tabIndex={0}
+                      aria-describedby="selected-main-control-description"
+                    >
                       <div className="text-sm font-medium text-gray-200 truncate">
                         {mainControlItem.name}
                         <span className="badge badge-narrative ml-2">本次主控 · 玩家身份</span>
                         <span className="badge badge-wb ml-1.5">已入队</span>
                       </div>
-                      <div className="text-[11px] text-gray-500 mt-0.5 truncate">{summaryText(mainControlItem)}</div>
+                      <span
+                        id="selected-main-control-description"
+                        role="tooltip"
+                        className="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden max-w-md rounded-lg bg-gray-950 px-3 py-2 text-[11px] leading-relaxed text-gray-200 shadow-lg group-hover:block group-focus-visible:block"
+                      >
+                        <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-amber-300">人物简介</span>
+                        {summaryText(mainControlItem)}
+                      </span>
                     </div>
                     <button
                       type="button"
@@ -555,7 +549,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   </div>
                 ) : (
                   <p className="text-[12px] text-amber-300" role="alert">
-                    还没选主控：选一个角色才能创建会话（它会是你的玩家身份，并同时入队）。
+                    还没选主控：选一个角色才能创建会话。
                   </p>
                 )}
 
@@ -568,6 +562,9 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   skippedCount={catalog.skipped}
                   selectedBadge="本次主控"
                   searchPlaceholder="搜索角色（自建 / 世界书）..."
+                  showSearch={false}
+                  showSourceFilters={false}
+                  descriptionOnHover
                   emptyText="暂无可用角色，可前往「角色」页面导入角色卡"
                   listClassName="max-h-60"
                 />
@@ -577,11 +574,10 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
               <section className="space-y-2 pt-1 border-t border-gray-700/60" aria-label="队友入队">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-gray-400">
-                    <span className="text-gray-200 font-medium">队友入队（可选）</span>
+                    <span className="text-gray-200 font-medium">队友入队</span>
                     {" "}— 一起进入场景的其他角色
                     {teammates.length > 0 && <span className="text-amber-300">
                       {" "}— 已选 {teammates.length} 名
-                      {presetSelected.length > 0 && <span className="text-cyan-300">（其中自动预选 {presetSelected.length} 名）</span>}
                     </span>}
                   </p>
                   {/* 手动全选：只有点它才按「全部已绑定世界书」取花名册，避免绑上大书就静默塞满阵容 */}
@@ -596,19 +592,6 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                     </button>
                   )}
                 </div>
-
-                {autoPreset.length > 0 && (
-                  <div className={`wbg-notice ${teammates.length === 0 ? "wbg-warn" : "wbg-ok"} rounded-md`} role="status">
-                    <span>
-                      《{plotLabel}》已按剧情与绑定世界书自动选中 <b>{autoPreset.length}</b> 名队友
-                      （该书角色花名册 + 剧情开场角色），磁贴上标为「<span className="text-cyan-300">自动预选</span>」。
-                      <b>它们已经处于入队状态</b>，点一下磁贴是取消而不是选中；不想要就逐个点掉，或直接清空队友。
-                    </span>
-                    {teammates.length > 0 && (
-                      <button type="button" onClick={clearTeammates}>清空队友</button>
-                    )}
-                  </div>
-                )}
 
                 {teammates.length === 0 && (
                   <p className="text-[12px] text-amber-300" role="alert">
@@ -628,6 +611,9 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   preferredBookId={worldbookId}
                   selectedBadge="已入队"
                   searchPlaceholder="搜索队友（自建 / 世界书）..."
+                  showSearch={false}
+                  showSourceFilters={false}
+                  descriptionOnHover
                   emptyText="暂无可用角色，可前往「角色」页面导入角色卡"
                   listClassName="max-h-60"
                 />
