@@ -14,6 +14,7 @@ import ScenePanel from "./scene/ScenePanel";
 import AppIcon from "./AppIcon";
 import "../plugins";
 import "../styles/chat.css";
+import "../styles/session-story-graph.css";
 
 export default function ChatView() {
   const {
@@ -36,6 +37,10 @@ export default function ChatView() {
   };
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const graphAvailable = chatMode === "story" && activeSession?.mode === "story";
+  useEffect(() => {
+    if (chatLayout === "graph" && (chatMode !== "story" || (activeSession && activeSession.mode !== "story"))) setChatLayout("log");
+  }, [chatMode, activeSession, chatLayout, setChatLayout]);
 
   return (
     <div className={`chat-view flex flex-col h-full ${stageOnly && chatLayout === "stage" ? "is-stage-only" : ""}`}>
@@ -88,12 +93,17 @@ export default function ChatView() {
 
         {/* 布局：消息流 / 舞台 */}
         <div className="chat-layout-switch" role="group" aria-label="对话布局">
-          <button type="button" aria-pressed={chatLayout === "log"} onClick={() => setChatLayout("log")} title="消息流：完整的对话记录">
+          <button type="button" aria-label="记录" aria-pressed={chatLayout === "log"} onClick={() => setChatLayout("log")} title="消息流：完整的对话记录">
             <AppIcon name="docs" size={13} /><span>记录</span>
           </button>
-          <button type="button" aria-pressed={chatLayout === "stage"} onClick={() => setChatLayout("stage")} title="舞台：背景 + 立绘 + 对话框，逐句推进">
+          <button type="button" aria-label="舞台" aria-pressed={chatLayout === "stage"} onClick={() => setChatLayout("stage")} title="舞台：背景 + 立绘 + 对话框，逐句推进">
             <AppIcon name="characters" size={13} /><span>舞台</span>
           </button>
+          {graphAvailable && (
+            <button type="button" aria-label="节点图" aria-pressed={chatLayout === "graph"} onClick={() => setChatLayout("graph")} title="节点图：查看会话实时剧情轨迹">
+              <AppIcon name="workflow" size={13} /><span>节点图</span>
+            </button>
+          )}
         </div>
         {chatLayout === "stage" && (
           <button type="button" className="chat-topbar-btn" onClick={() => setStageOnly(true)} title="只显示舞台" aria-label="进入纯舞台模式">

@@ -1,0 +1,76 @@
+.session-story-graph {
+  display: flex; flex-direction: column; flex: 1; min-height: 180px; min-width: 0;
+  overflow: hidden; color: var(--chat-body); background: var(--chat-card);
+}
+.session-graph-toolbar, .session-graph-navigation {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 8px 16px; padding: 10px 16px; border-bottom: 1px solid var(--chat-line);
+}
+.session-graph-heading { display: flex; align-items: center; gap: 8px; color: var(--chat-accent); }
+.session-graph-heading h2 { font: 600 18px var(--chat-serif); color: var(--chat-text); }
+.session-graph-heading > span { color: var(--chat-body); font-size: 12px; }
+.session-graph-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.session-graph-tools button, .session-graph-empty button, .session-story-panel-heading button, .session-graph-status button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px;
+  padding: 5px 10px; border: 1px solid var(--chat-line-strong); border-radius: 8px;
+  color: var(--chat-text); background: var(--chat-soft); font-size: 12px;
+}
+.session-story-graph button:hover:not(:disabled), .session-story-panel-heading button:hover { border-color: var(--chat-accent); background: var(--chat-soft); }
+.session-story-graph button:disabled { opacity: .45; cursor: not-allowed; }
+.session-story-graph :focus-visible, .session-story-panel-heading button:focus-visible, .session-graph-choices button:focus-visible {
+  outline: 2px solid var(--chat-accent); outline-offset: 3px;
+}
+.session-story-graph ::selection { color: var(--chat-card); background: var(--chat-accent); }
+.session-graph-navigation p { min-width: 0; flex: 1 1 220px; font-size: 12px; overflow-wrap: anywhere; }
+.session-graph-navigation strong { display: block; font-size: 14px; color: var(--chat-text); }
+.session-graph-tools output { min-width: 44px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.session-graph-status { padding: 6px 16px; font-size: 12px; color: var(--chat-body); }
+.session-graph-viewport {
+  flex: 1; min-height: 150px; overflow: auto; overscroll-behavior: contain; cursor: grab;
+  scrollbar-color: var(--chat-line-strong) var(--chat-card);
+  background-color: var(--chat-soft);
+}
+.session-graph-viewport:active { cursor: grabbing; }
+.session-graph-plane { position: relative; transform-origin: top left; }
+.session-graph-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.session-graph-edges > path { fill: none; stroke: var(--chat-line-strong); stroke-width: 2; }
+.session-graph-edges > .is-path { stroke: var(--chat-accent); }
+.session-graph-edges > .is-branch { stroke-dasharray: 5 5; }
+.session-graph-node {
+  position: absolute; display: flex; flex-direction: column; gap: 7px; padding: 12px;
+  border: 1px solid var(--chat-line-strong); border-radius: 12px; text-align: left;
+  background: var(--chat-card); color: var(--chat-body); cursor: pointer;
+}
+.session-graph-node.is-current { border: 2px solid var(--chat-accent); padding: 11px; }
+.session-graph-node.is-path { border-color: var(--chat-accent); }
+.session-graph-node.is-branch { border-style: dashed; }
+.session-graph-node[aria-pressed="true"] { outline: 2px solid var(--chat-line-strong); outline-offset: 4px; }
+.session-graph-node:focus-visible { outline-color: var(--chat-accent); }
+.session-graph-node-meta { font-size: 11px; font-variant-numeric: tabular-nums; }
+.session-graph-node.is-current .session-graph-node-meta { color: var(--chat-accent); font-weight: 600; }
+.session-graph-node strong { font: 600 15px var(--chat-serif); color: var(--chat-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
+.session-graph-node-caption { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
+.session-graph-cast { display: flex; align-items: center; gap: 3px; margin-top: auto; }
+.session-graph-cast > span { margin-left: 4px; font-size: 10px; white-space: nowrap; }
+.session-graph-cast > img, .session-graph-cast > div { width: 26px; height: 26px; }
+.session-graph-detail { padding: 12px 16px; border-top: 1px solid var(--chat-line); max-height: 160px; overflow: auto; }
+.session-graph-detail > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+.session-graph-detail h3 { font: 600 15px var(--chat-serif); color: var(--chat-text); overflow-wrap: anywhere; }
+.session-graph-detail span { font-size: 11px; }
+.session-graph-detail p { margin-top: 6px; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; max-width: 75ch; }
+.session-graph-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; overflow: auto; }
+.session-graph-empty h3 { font: 600 18px var(--chat-serif); color: var(--chat-text); }
+.session-graph-empty p { max-width: 48ch; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.session-graph-choices { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px; max-height: 150px; overflow-y: auto; border-top: 1px solid var(--chat-line); }
+.session-graph-choices > span { flex-basis: 100%; font-size: 12px; color: var(--chat-body); }
+.session-story-panel-heading { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 8px; }
+@media (max-width: 600px) {
+  .session-graph-toolbar, .session-graph-navigation { padding: 8px 10px; gap: 6px; }
+  .session-graph-heading h2 { font-size: 16px; }
+  .session-graph-tools button { min-height: 36px; padding: 5px 8px; }
+  .session-graph-navigation p { flex-basis: 100%; }
+  .session-graph-detail { max-height: 112px; padding: 8px 10px; }
+  .session-graph-status { padding: 4px 10px; font-size: 11px; }
+  .session-graph-choices { max-height: 100px; padding: 8px 10px; }
+  .chat-topbar { flex-wrap: wrap; height: auto; min-height: 42px; padding: 5px; }
+}

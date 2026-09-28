@@ -22,7 +22,7 @@ export interface CombatContext {
 type ViewName = "home" | "chat" | "sessions" | "settings" | "combat" | "worldbook" | "docs" | "characters";
 
 /** 对话页布局：消息流 / 视觉小说舞台 */
-export type ChatLayout = "log" | "stage";
+export type ChatLayout = "log" | "stage" | "graph";
 
 /** 读 localStorage 的小工具：SSR / 隐私模式下拿不到就用默认值 */
 function readLocal<T extends string>(key: string, fallback: T, allowed?: readonly T[]): T {
@@ -303,7 +303,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   scenePanelTab: readLocal("ark_scene_panel_tab", "characters"),
   setScenePanelTab: (tab) => { writeLocal("ark_scene_panel_tab", tab); set({ scenePanelTab: tab }); },
   // 对话页布局（默认消息流；舞台模式记住选择）
-  chatLayout: readLocal<ChatLayout>("ark_chat_layout", "log", ["log", "stage"] as const),
+  chatLayout: readLocal<ChatLayout>("ark_chat_layout", "log", ["log", "stage", "graph"] as const),
   setChatLayout: (layout) => { writeLocal("ark_chat_layout", layout); set({ chatLayout: layout }); },
   highlightedSpeaker: null,
   setHighlightedSpeaker: (name) => set({ highlightedSpeaker: name }),

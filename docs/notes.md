@@ -17,6 +17,12 @@
 - 创建客户端已统一发送 `manual_entry_uids_by_book`，不再发送服务端不使用的旧 `manual_entry_uids`。单本书 scope-preview 自身的 `manual_entry_uids` 仍是有效接口，不能混删。
 - 证据：`scripts/test_session_loading_browser.py`（:5185、API 全拦截）覆盖目录请求复用、冷加载、三类失败重试、表单重置及创建载荷；每个请求合成延迟 600ms 时，热打开模式页从约 906ms 降为 66ms，非真实内容库性能基准。`scripts/test_session_main_control_ui.cjs` 与主控/多书 pytest 保留契约覆盖。
 - 大厅首卡 hover 的上描边裁切由列表自身 `overflow-y-auto` 且无顶部内边距造成；列表增加 `pt-2`，不调整搜索框层级。上述浏览器脚本同时检查 1440/390 宽度、深浅主题及 PRTS/酒馆皮肤下的搜索后首卡边距。
+### 会话实时节点图（核对于 2026-09-28）
+
+- **数据口径**：会话「节点图」使用 `/story-state` 的实际 `tree`（`parent_id`、`current_id`、`path`），不是世界书编辑器的参考 `plot_graph`。头像代表主控和当前场景角色共同所在的会话节点，不推断角色各自的历史位置；节点详情只读，不执行回档。
+- **刷新边界**：`ChatPanel.triggerNarrate` 在请求开始就增加轮次，单靠 `sessionNarrationCount` 会提前读到旧树。节点图须在 `sessionStreaming` / `sessionSending` 结束后读取已提交状态；回档、场景与角色变化同样刷新，失效请求不得覆盖新会话。
+- **验证入口**：`node scripts/test_session_graph_ui.cjs` 覆盖布局、分叉、回档位置、异常图与 12,000 节点深链；`python scripts/test_session_graph_browser.py` 默认使用独立 Vite `:5178`（可通过 `SESSION_GRAPH_URL` 指定），拦截 API，不操作用户存档。浏览器覆盖剧情子栏入口、1440×960 / 390×844、缩屏自动定位、头像降级、生成完成刷新、缩放边界、键盘、错误重试、空状态和自由模式退出。启动命令为 `npm run dev:web -- --host 127.0.0.1 --port 5178 --strictPort`。
+- **验收边界**：截图位于工作树 `.impeccable/review/`，不提交合成图片；未验证真实 LLM / SSE、真实回档写入、独立角色历史轨迹或万级节点浏览器性能。`scripts/test_stage_ui.cjs` 按当前四分组（场景、剧情、任务、资源）清理旧八页签断言，并移除一条恒真断言，不恢复已删除的旧面板。
 
 ### 新建向导：选中剧情即自动选中世界书与该书全部角色（2026-09-27，`feat/plot-autoselect-roster` / `feat/worldbook-roster-autoselect`）
 

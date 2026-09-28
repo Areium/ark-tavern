@@ -7,11 +7,12 @@
  *
  * 仅在剧情模式且有剧情绑定时显示。
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
 import { confirmAction } from "../stores/confirmStore";
 import type { StoryStateDTO, StoryBeatNode } from "../types";
+import AppIcon from "./AppIcon";
 
 const NODE_STYLE: Record<StoryBeatNode["state"], { dot: string; text: string }> = {
   done: { dot: "bg-emerald-500", text: "text-gray-400" },
@@ -20,7 +21,9 @@ const NODE_STYLE: Record<StoryBeatNode["state"], { dot: string; text: string }> 
 };
 
 export default function StoryStatePanel() {
-  const { activeSessionId, chatMode, chatRefreshKey } = useAppStore();
+  const { activeSessionId, chatMode, chatRefreshKey, envRefreshKey, sceneSwitchKey, chatLayout, setChatLayout, sessions } = useAppStore();
+  const busy = useAppStore(s => !!s.sessionStreaming[activeSessionId || ""] || !!s.sessionSending[activeSessionId || ""]);
+  const requestId = useRef(0);
   const narrationCount = useAppStore(
     (s) => s.sessionNarrationCount[activeSessionId || ""] ?? 0
   );
@@ -36,24 +39,30 @@ export default function StoryStatePanel() {
   const [showHistory, setShowHistory] = useState(true);
 
   const load = useCallback(async () => {
+    const request = ++requestId.current;
     if (!activeSessionId || chatMode !== "story") {
       setState(null);
       return;
     }
+    if (busy) return;
     setLoading(true);
     setError(null);
     try {
-      setState(await api.getStoryState(activeSessionId));
+      const result = await api.getStoryState(activeSessionId);
+      if (request === requestId.current) setState(result);
     } catch (e: any) {
-      setError(e.message || "加载失败");
+      if (request === requestId.current) setError(e.message || "加载失败");
     } finally {
-      setLoading(false);
+      if (request === requestId.current) setLoading(false);
     }
-  }, [activeSessionId, chatMode, api]);
+  }, [activeSessionId, chatMode, api, busy]);
+
+  useEffect(() => { setState(null); setError(null); }, [activeSessionId]);
 
   useEffect(() => {
     load();
-  }, [load, narrationCount, chatRefreshKey]);
+    return () => { requestId.current++; };
+  }, [load, narrationCount, chatRefreshKey, envRefreshKey, sceneSwitchKey]);
 
   const handleRollback = useCallback(
     async (nodeId: string, roundEnd: number, label: string) => {
@@ -86,11 +95,22 @@ export default function StoryStatePanel() {
   );
 
   if (chatMode !== "story") return null;
+  const header = (
+    <div className="session-story-panel-heading">
+      <h3 className="panel-title">剧情进度</h3>
+      {sessions.find(s => s.id === activeSessionId)?.mode === "story" && (
+        <button type="button" aria-label={chatLayout === "graph" ? "切换回舞台" : "切换实时节点图"}
+          aria-pressed={chatLayout === "graph"} onClick={() => setChatLayout(chatLayout === "graph" ? "stage" : "graph")}>
+          <AppIcon name="workflow" size={14} />{chatLayout === "graph" ? "回到舞台" : "节点图"}
+        </button>
+      )}
+    </div>
+  );
 
   if (loading && !state) {
     return (
       <div className="space-y-2">
-        <h3 className="panel-title">剧情进度</h3>
+        {header}
         <div className="text-xs text-gray-500 text-center py-3">加载中...</div>
       </div>
     );
@@ -99,8 +119,9 @@ export default function StoryStatePanel() {
   if (error) {
     return (
       <div className="space-y-2">
-        <h3 className="panel-title">剧情进度</h3>
+        {header}
         <div className="text-xs text-red-400 bg-red-500/10 rounded px-2 py-1">{error}</div>
+        <button type="button" onClick={load} disabled={busy || loading}>重试加载剧情进度</button>
       </div>
     );
   }
@@ -108,7 +129,7 @@ export default function StoryStatePanel() {
   if (!state?.has_plot) {
     return (
       <div className="space-y-2">
-        <h3 className="panel-title">剧情进度</h3>
+        {header}
         <div className="text-xs text-gray-500 text-center py-3">当前会话未绑定剧情节点结构</div>
       </div>
     );
@@ -143,7 +164,7 @@ export default function StoryStatePanel() {
     <div className="space-y-3">
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
-        <h3 className="panel-title">剧情进度</h3>
+        {header}
         <button
           onClick={load}
           className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
