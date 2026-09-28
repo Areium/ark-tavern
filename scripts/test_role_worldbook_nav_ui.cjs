@@ -104,7 +104,8 @@ assert.ok(characterSource.includes('tab === "images" ? <AssetManager') && charac
   "资产 / 卡牌模块应分别挂载 AssetManager / CardManager");
 assert.ok(characterSource.includes("const tab = useAppStore((state) => state.characterTab)"),
   "角色页模块页签应来自 store（跨组件跳转要能指定落点）");
-assert.ok(characterSource.includes('setCharacterTab("cards")'), "角色卡详情的「编辑卡牌」应落到卡牌模块");
+assert.ok(characterSource.includes('setCharDetailTab("cards")') && characterSource.includes('<CardEditor key={`char-cards-'),
+  "角色详情的卡牌应留在当前角色的详情页签，不能跳到全局卡牌模块");
 // 两个迁入模块本体不变：仍然各自可渲染
 const cardsMarkup = renderToStaticMarkup(React.createElement(CardManager));
 const assetsMarkup = renderToStaticMarkup(React.createElement(AssetManager));
@@ -160,3 +161,16 @@ assert.ok(!assetSource.includes("groupedByBook"), "资产页按类别维度不�
 
 console.log("角色/世界书两级导航：一级入口只剩 角色 / 世界书（内容中心已删除）、"
   + "角色页四模块页签与世界书页签骨架、旧节点视图删除且节点图迁入、角色页重复入口已撤且共用控件到位，全部断言通过。");
+
+const WorldbookGroupList = require(path.join(root, "frontend/src/components/WorldbookGroupList.tsx")).default;
+const longBookName = "长夜归途与卡瓦莱利亚基的旧城区档案：这是一个完整的长世界书名称";
+const groupMarkup = renderToStaticMarkup(React.createElement(WorldbookGroupList, {
+  groups: [{ key: "long", label: longBookName, items: [{ id: "a" }], unclassified: false }],
+  totalCount: 1, activeKey: "long", collapsedKeys: new Set(), onSelect() {}, onToggleCollapse() {},
+  renderItems: () => "验收角色",
+}));
+assert.ok(groupMarkup.includes(longBookName) && groupMarkup.includes("wb-source-name"));
+assert.ok(groupMarkup.includes('aria-pressed="true"') && groupMarkup.includes('aria-expanded="true"'));
+assert.ok(groupMarkup.includes("验收角色"));
+assert.ok(!groupMarkup.includes('class="truncate"'), "书名不应被强制截断");
+console.log("世界书分类栏：长名称、当前来源、独立折叠与完整条目渲染通过。");

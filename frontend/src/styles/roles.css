@@ -136,3 +136,9 @@
 }
 .roles-detail-tabs button:hover { color: var(--roles-text); }
 .roles-detail-tabs button[aria-pressed="true"] { color: var(--roles-accent); border-bottom-color: var(--roles-accent); }
+
+@media (max-width: 640px) {
+  .roles-browser { flex-direction: column; }
+  .roles-browser-sidebar { width: 100%; flex: 0 1 55%; min-height: 240px; border-right: 0; border-bottom: 1px solid var(--roles-line); }
+  .roles-browser-detail { min-height: 180px; overflow-y: auto; }
+}

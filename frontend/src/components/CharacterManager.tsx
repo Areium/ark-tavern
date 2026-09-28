@@ -719,9 +719,9 @@ export default function CharacterManager() {
       </div>
 
       {isRoleModule ? (
-        <div className="flex flex-1 min-h-0">
+        <div className="roles-browser flex flex-1 min-h-0">
           {/* ── 左侧列表 ── */}
-          <div className="w-72 border-r border-gray-700 flex flex-col shrink-0">
+          <div className="roles-browser-sidebar w-72 border-r border-gray-700 flex flex-col shrink-0">
             {/* 工具栏：搜索 + 折叠；主动作（导入 / 新建）单独一行 */}
             <div className="p-2 border-b border-gray-700 space-y-2">
               {tab === "characters" ? (
@@ -824,7 +824,7 @@ export default function CharacterManager() {
           </div>
 
           {/* ── 右侧详情 ── */}
-          <div className="flex-1 min-w-0 bg-gray-900/30">
+          <div className="roles-browser-detail flex-1 min-w-0 bg-gray-900/30">
             {tab === "characters" ? renderCharDetail() : renderIdentityDetail()}
           </div>
         </div>

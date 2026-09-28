@@ -9,6 +9,7 @@
 import type { ReactNode } from "react";
 import AppIcon, { type AppIconName } from "./AppIcon";
 import { isGroupExpanded, type WorldbookSourceGroup } from "../utils/worldbookGrouping";
+import "../styles/worldbook-groups.css";
 
 interface WorldbookGroupListProps<T> {
   groups: WorldbookSourceGroup<T>[];
@@ -47,23 +48,18 @@ export default function WorldbookGroupList<T>({
   const activeMissing = !allSelected && !groups.some((g) => g.key === activeKey);
 
   return (
-    <div className="space-y-1">
+    <div className="wb-source-groups">
       {/* 「全部」：固定在最上，任何时候都能回到不按来源过滤的状态 */}
       <button
         type="button"
         onClick={() => onSelect("")}
         aria-pressed={allSelected}
         title="不按来源过滤，显示全部世界书的条目"
-        className={
-          "w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-xs transition-colors " +
-          (allSelected
-            ? "bg-amber-600/20 text-amber-300 border border-amber-500/30"
-            : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 border border-transparent")
-        }
+        className="wb-source-all"
       >
-        <AppIcon name="content" size={13} />
-        <span className="truncate">{allLabel}</span>
-        <span className="text-[12px] text-gray-500 ml-auto">({totalCount})</span>
+        <AppIcon name="content" size={17} />
+        <span className="wb-source-name">{allLabel}</span>
+        <span className="wb-source-count">{totalCount}</span>
       </button>
 
       {activeMissing && (
@@ -78,12 +74,7 @@ export default function WorldbookGroupList<T>({
         return (
           <div key={group.key}>
             <div
-              className={
-                "group flex items-center gap-1 rounded text-xs transition-colors select-none " +
-                (selected
-                  ? "bg-amber-600/20 text-amber-300"
-                  : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/50")
-              }
+              className={`wb-source-heading${selected ? " is-selected" : ""}`}
             >
               {/* 折叠箭头与选中分开：点箭头只折叠，点标题才切换来源 */}
               <button
@@ -91,29 +82,29 @@ export default function WorldbookGroupList<T>({
                 onClick={() => onToggleCollapse(group.key)}
                 aria-expanded={expanded}
                 aria-label={expanded ? `折叠 ${group.label}` : `展开 ${group.label}`}
-                className="w-4 shrink-0 flex items-center justify-center text-gray-500 hover:text-gray-300"
+                className="wb-source-collapse"
               >
-                <AppIcon name={expanded ? "expand" : "forward"} size={12} />
+                <AppIcon name={expanded ? "expand" : "forward"} size={16} />
               </button>
               <button
                 type="button"
                 onClick={() => onSelect(selected ? "" : group.key)}
                 aria-pressed={selected}
-                title={selected ? "取消选择，回到全部来源" : `只显示来源世界书「${group.label}」的条目`}
-                className="flex-1 min-w-0 flex items-center gap-1 py-0.5 text-left"
+                title={selected ? `${group.label} · 取消选择，回到全部来源` : `只显示来源世界书「${group.label}」的条目`}
+                className="wb-source-select"
               >
                 <AppIcon
                   name={group.unclassified ? "folder" : "worldbook"}
-                  size={12}
+                  size={17}
                 />
-                <span className="truncate">{group.label}</span>
-                <span className="text-[12px] text-gray-500 shrink-0">
-                  ({group.items.length})
+                <span className="wb-source-name">{group.label}</span>
+                <span className="wb-source-count">
+                  {group.items.length}
                 </span>
               </button>
             </div>
             {expanded && (
-              <div className="ml-2 pl-2 border-l border-gray-700/30 mt-0.5">
+              <div className="wb-source-items">
                 {renderItems(group.items, group)}
               </div>
             )}
