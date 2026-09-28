@@ -4,6 +4,7 @@ import { hasSideviewSpine, loadSideviewSpine, makeSideviewSpine } from './spineA
 import { ELITE_LUNGE, ENEMY_WINDUP, eliteLungeBox, exitBarrierX, exitLocked, guardStrikeBox, levelTables } from './simulation';
 import { loadSpineVariants } from '../../utils/spineVariants';
 import { drawContactEffect, drawStreetProps, drawStreetStructure, drawStreetSurface } from './scenePresentation';
+import { cameraEase } from './input';
 
 const C = { sky: 0x0b1722, stone: 0x243b43, cyan: 0x8ce5e0, orange: 0xf4a66b, red: 0xe77977, heal: 0xbde6a0, white: 0xe1ffff };
 /** A defeated enemy holds its death pose, then fades out. */
@@ -36,10 +37,11 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
   const failures = new Set<string>();
   const { specs } = levelTables(level);
   let pendingAssets = 5; // Four scenery assets and the content-owned model registry.
-  const report = () => onAssets([
+  let assetRevision = 0;
+  const report = () => { assetRevision++; onAssets([
     pendingAssets ? '正在装载场景与战斗模型…' : '',
     failures.size ? `简化显示：${[...failures].join('、')}；操作不受影响。` : '',
-  ].filter(Boolean).join(' '));
+  ].filter(Boolean).join(' ')); };
   const loadScenery = async (file: string, label: string, apply: (texture: Texture) => void) => {
     try {
       const texture = await Texture.fromURL(`./assets/sideview/${file}.png`);
@@ -90,7 +92,7 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
         if (!cache.has(name)) cache.set(name, loadSideviewSpine(name, variants[name]));
         const data = await cache.get(name)!;
         if (disposed) return;
-        const unit = makeSideviewSpine(data); units.set(id, unit); figures.addChild(unit.spine);
+        const unit = makeSideviewSpine(data); units.set(id, unit); figures.addChild(unit.spine); assetRevision++;
       } catch { if (!disposed) failures.add(name); }
     }));
   }).catch(() => { if (!disposed) failures.add('模型目录不可用'); })
@@ -182,7 +184,12 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
   }
 
   let camera = 0, anchor = 0.37;
-  const resize = () => app.renderer.resize(Math.max(1, host.clientWidth), Math.max(1, host.clientHeight));
+  const resize = () => {
+    const width = Math.max(1, host.clientWidth), height = Math.max(1, host.clientHeight);
+    // Even an identical WebGL resize can clear its drawing buffer.
+    if (app.screen.width === width && app.screen.height === height) return;
+    app.renderer.resize(width, height); assetRevision++;
+  };
   const observer = new ResizeObserver(resize); observer.observe(host);
   function token(g: Graphics, x: number, y: number, w: number, h: number, facing: number, color: number, hurt = false, alpha = 1) {
     // Explicit tactical token when the local model is absent; never an imitation character.
@@ -258,18 +265,23 @@ export function createRenderer(host: HTMLDivElement, level: SimulationLevel, red
     } else if (e.kind === 'hit') for (let n = 0; n < 6; n++) { const a = n * Math.PI / 3; const r = (0.3 - e.life) * 150; fx.lineStyle(2, C.orange, alpha).moveTo(e.x + Math.cos(a) * r, e.y + Math.sin(a) * r).lineTo(e.x + Math.cos(a) * (r + 10), e.y + Math.sin(a) * (r + 10)).lineStyle(0); }
   }
 
+  let drawnElapsed = -1, drawnWidth = 0, drawnHeight = 0, drawnAssets = -1;
   function render(s: Simulation) {
-    const dt = Math.max(0, Math.min(0.1, s.elapsed - lastElapsed)); lastElapsed = s.elapsed;
     const width = app.screen.width, height = app.screen.height;
+    // A paused/ready simulation is static. Resize and async asset arrivals still repaint.
+    if (s.elapsed === drawnElapsed && width === drawnWidth && height === drawnHeight && assetRevision === drawnAssets) return;
+    const resized = width !== drawnWidth || height !== drawnHeight;
+    drawnElapsed = s.elapsed; drawnWidth = width; drawnHeight = height; drawnAssets = assetRevision;
+    const dt = Math.max(0, Math.min(0.1, s.elapsed - lastElapsed)); lastElapsed = s.elapsed;
     const p = s.player;
     // Keep the play plane at a useful vertical size on portrait devices.
     // Narrow screens see less of the world and track the player horizontally.
     const scale = height / 640;
     const vw = width / scale, vh = height / scale;
     // Look ahead in the facing direction; ease the anchor so turning does not snap the view.
-    anchor += ((p.facing > 0 ? 0.37 : 0.6) - anchor) * (reducedMotion ? 1 : 0.035);
+    anchor += ((p.facing > 0 ? 0.37 : 0.6) - anchor) * (reducedMotion || firstFrame || resized ? 1 : cameraEase(0.035, dt));
     const target = Math.max(0, Math.min(level.worldWidth - vw, p.x - vw * anchor));
-    camera += (target - camera) * (reducedMotion ? 1 : 0.12);
+    camera += (target - camera) * (reducedMotion || firstFrame || resized ? 1 : cameraEase(0.12, dt));
     const cy = Math.max(0, Math.min(level.worldHeight - vh + 30, p.y - vh * 0.55));
     const shake = reducedMotion ? 0 : s.shake * 20;
     const sx = Math.sin(s.elapsed * 97) * shake, sy = Math.cos(s.elapsed * 83) * shake * 0.6;

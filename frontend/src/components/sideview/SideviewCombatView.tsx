@@ -176,7 +176,7 @@ export default function SideviewCombatView() {
         operator={state.operator} supportName={state.supportName}
         initialSnapshot={state.snapshot} onSnapshot={onSnapshot}
         onComplete={(result) => { void complete(result); }}
-        onExit={(snapshot) => { void saveAndLeave(snapshot); }}
+        onExit={saveAndLeave}
         onAbandon={abandon} />}
     {saveWarning && <p className="absolute bottom-2 left-4 z-30 rounded bg-red-950/90 px-3 py-1 text-sm text-red-100" role="status">{saveWarning}</p>}
     {error && <div className="absolute inset-x-4 top-4 z-50 mx-auto max-w-xl rounded-lg border border-red-500/60 bg-gray-950/95 p-4 text-red-100" role="alert">
