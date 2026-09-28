@@ -220,8 +220,9 @@ def test_authored_route_combat_and_single_ending(flow, route, winner):
 
     # All mutable state stays inside pytest's temporary directory.
     assert session.data_dir.is_relative_to(tmp_path)
-    assert (tmp_path / "worldbooks" / "grey-lantern.json").is_file()
-    assert json.loads((tmp_path / "worldbooks" / "grey-lantern.json").read_text(encoding="utf-8"))["id"] == BOOK_ID
+    installed = tmp_path / "worldbooks" / "books" / "grey-lantern.json"
+    assert installed.is_file()
+    assert json.loads(installed.read_text(encoding="utf-8"))["id"] == BOOK_ID
 
 
 def test_rollback_fork_can_choose_the_other_authored_route(flow):

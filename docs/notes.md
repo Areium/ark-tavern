@@ -339,3 +339,9 @@ python -m pytest tests/ perf_tests/test_combat_runtime_v1.py perf_tests/test_com
 - 启动时不安装或刷新任何离线世界书包。会话未显式绑定剧情世界书时不注入书内容；新会话主控称谓为「玩家」，环境为空。已有本地安装副本保留给用户管理，不自动删除。
 - 分发源仍存于 `data/worldbooks/packs/` 和 `data/worldbooks/content/`。`content_manifest.json` 标记仓库资源的归属；仅当至少一本归属书已安装且启用时，其角色、剧情、战斗节点和素材才可见。停用或删除已安装书使其独占内容退出运行时目录及直达 URL，分发源仍可供再次安装。改动离线资源后运行 `python scripts/generate_content_manifest.py` 并检查 `tests/test_distributed_content_manifest.py`。
 - 战斗 Spine 变体映射作为 `content/spine_variants.json` 分发，经 `/api/assets/spine-variants` 只返回当前可见角色；无模型的角色使用通用几何标记。导入的世界书角色私有副本在卸载时清理，被其他书引用则拒绝卸载。
+### 可复制的完整世界书（2026-09-28）
+
+- 已安装书的新位置为 `data/worldbooks/books/<id>.json`；旧根目录书仍可读取。迁移前先停应用，再用 `scripts/migrate_worldbook_layout.py` 预览和执行。迁移只移动符合当前 schema 且 ID 匹配的 JSON，不改书内容；不兼容副本须先备份并修复。
+- `.arkwb` 包收集分发归属清单和本地清单中属于该书的文件，以及带 `worldbook_id` 的用户实体目录/JSON；包内保留 `content/` 相对路径和哈希。未知归属且无标记的自建资源不会被猜测为该书资源，作者需先给实体标记归属。跨书共享文件会随各自的包复制，导入时只接受同路径同内容。
+- `inbox/` 文件导入记录在 `.imported.json`，同一文件未变化时不会重复安装；导入失败显示在书架错误状态，修复或替换文件后会重试。资源落入共享 `content/`，本地归属单独记在 `local_content_manifest.json`，停用/删除后的可见性同时检查两份清单。卸载不会直接删共享资源文件，防止误删其它书的引用。
+- 2026-09-28 本机旧 `arknights.json` 缺 `schema_version=3`，迁移预览会跳过；其与当前分发包的共同内容字段完全相同。临时目录内验证了「备份并修复」后迁移，254 条条目保持一致且留下 `.bak`。操作真实数据前仍需停止应用并确认保存。

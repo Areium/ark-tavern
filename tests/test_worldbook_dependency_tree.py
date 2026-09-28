@@ -234,7 +234,7 @@ def test_edges_are_never_dangling_from_outside_closure(make_api):
 def test_missing_or_unknown_entry_uids_return_400_without_writing(make_api):
     """entry_uids 为空 / 全是无效 uid → 400，且不写盘。"""
     client, _, tmp_path = make_api(book_fixture([("a", "b")]))
-    path = Path(tmp_path) / "book.json"
+    path = Path(tmp_path) / "books" / "book.json"
     before = (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns)
     for url in ("/api/worldbook/book/dependency-tree",
                 "/api/worldbook/book/dependency-tree?entry_uids=",

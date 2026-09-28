@@ -23,9 +23,14 @@ data/
 │   │   ├── combat/        nodes/、backgrounds/、tiles/、rules/
 │   │   └── audio/         音乐及音效
 │   ├── packs/             可选离线内容包 JSON，受版本控制
+│   ├── books/             已安装的书，一本书一个 <book_id>.json，本地数据
+│   ├── inbox/             复制 .arkwb / 酒馆 JSON 到这里，刷新书架即导入
+│   ├── exports/           工作台导出的完整 .arkwb 包，可直接复制走
 │   ├── content_manifest.json  离线内容的世界书归属清单，受版本控制
-│   ├── <book_id>.json     用户书及已安装副本，本地数据
-│   └── *.bak              用户手动重装内容包时的恢复副本，本地数据
+│   ├── local_content_manifest.json  完整包导入资源的本地归属，本地数据
+│   ├── <book_id>.json     旧版已安装书位置，可读取并迁移
+│   ├── settings.json      旧版本世界书设置，本地数据
+│   └── *.bak              手动重装或修复前的恢复副本，本地数据
 ├── memory/                运行时创建的会话、向量记忆、战斗恢复（本地数据）
 └── archive/               迁移时按需创建，保留已下线 AI 构建缓存
 ```
@@ -47,3 +52,18 @@ data/
 - `combat/nodes/*.json`、职业 `cards.json`、`combat/rules/*.json` 与 `combat/tiles/*.json`
   继续由引擎读取，不转换成自然语言世界书条目。战斗配置的唯一真相源不变。
 - `imports` 继续使用 `类别/文档ID`，例如 `classes/向导`，不写物理目录。
+## 整本复制与直接导入
+
+- 在工作台点击「导出完整包」会下载 `<book_id>.arkwb`，同时在 `exports/` 留下一份。
+  包内有原生书 JSON、该书所属 `content/` 资源、每个资源的大小和 SHA-256。
+  酒馆 JSON 导出仍在「更多」中，适合和其他酒馆交换条目，但不包含全部剧情、战斗和图片文件。
+- 把 `.arkwb` 或已有酒馆 `.json` / `.jsonl` 复制到 `inbox/`，刷新世界书书架即可导入；
+  原文件保留，记录在 `inbox/.imported.json`，重启和再次刷新不会重复导入。同名文件内容更新后会重试。
+  也可以用工作台「导入」直接选择 `.arkwb`。完整包保留书 ID；若目标已有相同 ID，先处理冲突，系统不会覆盖。
+- 完整包导入先校验路径、哈希和现有资源；同路径同内容可共享，不同内容会拒绝。
+  导入的资源仍由现有加载器从 `content/` 读取，本地归属由 `local_content_manifest.json` 记录。
+  停用或删除书会隐藏其独占资源；删除不自动清掉可能仍被别处引用的共享文件。
+- 旧版根目录 `<book_id>.json` 可继续使用。停用应用后运行
+  `python scripts/migrate_worldbook_layout.py` 预览，再运行
+  `python scripts/migrate_worldbook_layout.py --apply` 移入 `books/`；脚本不重写书内容，
+  不符合当前 schema 的书会留在原处，先在示例页备份并修复，再重新迁移。

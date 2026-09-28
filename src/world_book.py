@@ -33,6 +33,7 @@ import threading
 import time
 import uuid
 import tempfile
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -2374,11 +2375,18 @@ class WorldBookManager:
     def __init__(self, data_dir: Path | str = None):
         self._dir = Path(data_dir) if data_dir else _WORLDBOOKS_DIR
         self._dir.mkdir(parents=True, exist_ok=True)
+        self._books_dir = self._dir / "books"
+        self._books_dir.mkdir(exist_ok=True)
+        self._inbox_dir = self._dir / "inbox"
+        self._inbox_dir.mkdir(exist_ok=True)
+        self._exports_dir = self._dir / "exports"
         self._packs_dir = _PACKS_DIR
         self._cache: dict[str, WorldBook] = {}
         # 按书锁：覆盖「读修订 → 校验 → 提交」整段，避免原子替换仍然丢更新。
         self._book_locks: dict[str, threading.RLock] = {}
         self._locks_guard = threading.Lock()
+        self._inbox_lock = threading.RLock()
+        self._inbox_results: list[dict] = []
         # 分发包是可选导入源；启动时不安装任何世界观内容。
 
     def book_lock(self, book_id: str) -> threading.RLock:
@@ -2421,11 +2429,27 @@ class WorldBookManager:
     # ── 路径 ──
 
     def _path(self, book_id: str) -> Path:
-        """统一存储路径（预装包安装副本与导入书同目录）。"""
+        """新书的统一存储路径；旧版根目录 JSON 仍可读取。"""
         if (not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", book_id)
                 or book_id in {"settings", "content_manifest"}):
             raise ValueError("非法世界书 ID")
+        return self._books_dir / f"{book_id}.json"
+
+    def _legacy_path(self, book_id: str) -> Path:
+        self._path(book_id)  # 复用 ID 校验
         return self._dir / f"{book_id}.json"
+
+    def _installed_path(self, book_id: str) -> Path:
+        current = self._path(book_id)
+        legacy = self._legacy_path(book_id)
+        return current if current.is_file() or not legacy.is_file() else legacy
+
+    def _book_paths(self) -> list[Path]:
+        paths = {path.stem: path for path in self._dir.glob("*.json")
+                 if path.name not in {"settings.json", "content_manifest.json",
+                                      "local_content_manifest.json"}}
+        paths.update({path.stem: path for path in self._books_dir.glob("*.json")})
+        return sorted(paths.values(), key=lambda path: path.stat().st_mtime, reverse=True)
 
     def _pack_path(self, book_id: str) -> Path:
         """整合包分发源路径。"""
@@ -2437,14 +2461,12 @@ class WorldBookManager:
 
     def list_books(self) -> list[dict]:
         """列出所有书（统一列表）：预装包在前，导入书按创建时间倒序。"""
+        self.scan_inbox()
         books = []
 
         preinstalled = []
         imported = []
-        for path in sorted(self._dir.glob("*.json"),
-                           key=lambda p: p.stat().st_mtime, reverse=True):
-            if path.name in {"settings.json", "content_manifest.json"}:
-                continue
+        for path in self._book_paths():
             try:
                 book = self.load(path.stem)
             except Exception as e:
@@ -2487,7 +2509,7 @@ class WorldBookManager:
         }
 
     def load(self, book_id: str) -> Optional[WorldBook]:
-        path = self._path(book_id)
+        path = self._installed_path(book_id)
         if not path.is_file():
             self._cache.pop(book_id, None)
             return None
@@ -2496,6 +2518,8 @@ class WorldBookManager:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         book = WorldBook.from_dict(data)
+        if book.id != book_id:
+            raise ValueError("世界书文件名与内部 ID 不一致")
         if self.is_preinstalled(book_id):
             # 有分发源的书一律视为预装包安装副本（防旧数据缺字段）
             book.source = SOURCE_PREINSTALLED
@@ -2507,20 +2531,166 @@ class WorldBookManager:
         book.bump_edit_revision()
         book.updated_at = time.time()
         payload = book.to_dict()
+        target = self._installed_path(book.id)
         temporary = None
         try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self._dir,
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent,
                                              prefix=".worldbook-", suffix=".tmp", delete=False) as f:
                 temporary = Path(f.name)
                 json.dump(payload, f, ensure_ascii=False, indent=2)
                 f.write("\n")
-            temporary.replace(self._path(book.id))
+            temporary.replace(target)
             if book.entry_layout is not None:
                 book.entry_layout = payload["entry_layout"]
             self._cache[book.id] = book
         finally:
             if temporary and temporary.exists():
                 temporary.unlink()
+
+    def migrate_legacy_books(self) -> list[str]:
+        """Move only validated legacy book JSON files into books/ without rewriting them."""
+        moved = []
+        for path in sorted(self._dir.glob("*.json")):
+            if path.name in {"settings.json", "content_manifest.json",
+                             "local_content_manifest.json"}:
+                continue
+            try:
+                target = self._path(path.stem)
+                payload = self._read_json(path)
+                if payload is None or payload.get("id") != path.stem:
+                    continue
+                WorldBook.from_dict(payload)
+                if target.exists():
+                    raise ValueError(f"目标世界书已存在：{target}")
+                path.replace(target)
+                self._cache.pop(path.stem, None)
+                moved.append(path.stem)
+            except (ValueError, OSError) as exc:
+                logger.warning("跳过旧世界书 %s: %s", path, exc)
+        return moved
+
+    def export_bundle(self, book_id: str) -> tuple[Path, dict]:
+        """Create a copyable snapshot including the book and its owned content."""
+        from worldbook_bundle import export_bundle
+
+        book = self.load(book_id)
+        if book is None:
+            raise ValueError("世界书不存在")
+        self._exports_dir.mkdir(exist_ok=True)
+        target = self._exports_dir / f"{book_id}.arkwb"
+        temporary = self._exports_dir / f".{book_id}-{uuid.uuid4().hex}.tmp"
+        try:
+            report = export_bundle(book.to_dict(), book_id, self._dir,
+                                   self._dir / "content", temporary)
+            temporary.replace(target)
+            return target, report
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def install_bundle_file(self, archive: Path) -> WorldBook:
+        """Install a complete archive only when its original ID is free."""
+        from worldbook_bundle import MAX_BOOK_SIZE, MAX_METADATA_SIZE, MAX_TOTAL_SIZE, install_bundle
+
+        if archive.stat().st_size > MAX_TOTAL_SIZE + MAX_BOOK_SIZE + MAX_METADATA_SIZE + 64 * 1024 * 1024:
+            raise ValueError("完整包文件过大")
+        with zipfile.ZipFile(archive) as package:
+            def read_metadata(name: str) -> dict:
+                limit = MAX_BOOK_SIZE if name == "book.json" else MAX_METADATA_SIZE
+                if package.getinfo(name).file_size > limit:
+                    raise ValueError(f"完整包 {name} 超过大小限制")
+                with package.open(name) as stream:
+                    raw = stream.read(limit + 1)
+                if len(raw) > limit:
+                    raise ValueError(f"完整包 {name} 超过大小限制")
+                return json.loads(raw)
+
+            payload = read_metadata("book.json")
+            manifest = read_metadata("manifest.json")
+        book_id = manifest.get("book_id") if isinstance(manifest, dict) else None
+        if not isinstance(book_id, str):
+            raise ValueError("完整包缺少世界书 ID")
+        target = self._path(book_id)
+        if not isinstance(payload, dict) or payload.get("id") != book_id:
+            raise ValueError("完整包的世界书 ID 不一致")
+        WorldBook.from_dict(payload)
+        with self.book_lock(book_id):
+            if self._installed_path(book_id).exists():
+                raise ValueError(f"世界书 {book_id} 已安装，请先处理同 ID 的书")
+            install_bundle(archive, target, self._dir / "content",
+                           self._dir / "local_content_manifest.json")
+            self._cache.pop(book_id, None)
+            try:
+                return self.load(book_id)
+            except Exception:
+                # A valid archive must load as a native book. Keep the archive
+                # available for diagnosis but never expose a half-imported book.
+                target.unlink(missing_ok=True)
+                raise
+
+    def scan_inbox(self) -> list[dict]:
+        """Import files copied into inbox/ once, including after an app restart."""
+        with self._inbox_lock:
+            marker = self._inbox_dir / ".imported.json"
+            history = self._read_json(marker) or {}
+            if not isinstance(history, dict):
+                history = {}
+            changed = False
+            results = []
+            for path in sorted(self._inbox_dir.iterdir()):
+                if path.name.startswith(".") or path.suffix.lower() not in {".arkwb", ".json", ".jsonl"}:
+                    continue
+                if path.is_symlink() or not path.is_file():
+                    results.append({"file": path.name, "status": "error",
+                                    "error": "导入文件不能是符号链接"})
+                    continue
+                stat = path.stat()
+                signature = [stat.st_size, stat.st_mtime_ns]
+                previous = history.get(path.name)
+                if (isinstance(previous, dict) and previous.get("signature") == signature
+                        and previous.get("status") != "error"):
+                    results.append(previous)
+                    continue
+                try:
+                    if path.suffix.lower() == ".arkwb":
+                        book = self.install_bundle_file(path)
+                    else:
+                        source = path.read_text(encoding="utf-8-sig")
+                        parsed = json.loads(source) if path.suffix.lower() == ".json" else None
+                        if (isinstance(parsed, dict) and isinstance(parsed.get("entries"), list)
+                                and isinstance(parsed.get("id"), str)
+                                and any(key in parsed for key in ("source_format", "book_type", "entry_order", "edit_revision"))
+                                and all(isinstance(entry, dict) and "uid" in entry
+                                        and "trigger_keys" in entry for entry in parsed["entries"])):
+                            native = WorldBook.from_dict(parsed)
+                            with self.book_lock(native.id):
+                                if self._installed_path(native.id).exists():
+                                    raise ValueError(f"世界书 {native.id} 已安装，请先处理同 ID 的书")
+                                self.save(native)
+                            book = native
+                        else:
+                            book, _ = self.import_book(path.stem, source)
+                    item = {"file": path.name, "status": "imported", "book_id": book.id,
+                            "signature": signature}
+                except Exception as exc:
+                    logger.warning("导入目录中的世界书 %s 失败: %s", path.name, exc)
+                    item = {"file": path.name, "status": "error", "error": str(exc),
+                            "signature": signature}
+                history[path.name] = item
+                results.append(item)
+                changed = True
+            if changed:
+                temporary = marker.with_name(f".imported-{uuid.uuid4().hex}.tmp")
+                try:
+                    temporary.write_text(json.dumps(history, ensure_ascii=False, indent=2) + "\n",
+                                         encoding="utf-8")
+                    temporary.replace(marker)
+                finally:
+                    temporary.unlink(missing_ok=True)
+            self._inbox_results = results
+            return results
+
+    def inbox_results(self) -> list[dict]:
+        return list(self._inbox_results)
 
     def create_book(self, name: str, entries: list = None,
                     source_format: str = SOURCE_MANUAL,
@@ -2700,7 +2870,7 @@ class WorldBookManager:
         data["source"] = SOURCE_PREINSTALLED
         data.setdefault("enabled", True)
         # 同时写入内容指纹，避免下次启动被判定为「落后」再刷一遍
-        self._write_pack(self._path(book_id), data, _pack_rev(data))
+        self._write_pack(self._installed_path(book_id), data, _pack_rev(data))
         book = self.load(book_id)
         logger.info("已重装预装整合包: %s (%s)", book.name, book_id)
         return book
@@ -2718,7 +2888,7 @@ class WorldBookManager:
                 continue
             if not isinstance(data, dict) or data.get("id") != path.stem:
                 continue
-            installed_path = self._path(path.stem)
+            installed_path = self._installed_path(path.stem)
             repair_required = False
             installed = installed_path.is_file()
             if installed:
@@ -2741,7 +2911,7 @@ class WorldBookManager:
 
     def install_pack(self, book_id: str) -> WorldBook:
         """显式安装内容包；不符合当前 schema 的同名副本先备份再修复。"""
-        target = self._path(book_id)
+        target = self._installed_path(book_id)
         if target.exists():
             try:
                 installed_data = self._read_json(target)
@@ -2761,15 +2931,16 @@ class WorldBookManager:
         book = self.load(book_id)
         if book is None:
             return False
-        path = self._path(book_id)
-        if not path.is_file():
+        book_paths = [path for path in (self._path(book_id), self._legacy_path(book_id))
+                      if path.is_file()]
+        if not book_paths:
             return False
         owned = [root for character_id in book.character_profiles
                  if (root := owned_materialized_character_root(character_id, book_id))]
         owned_ids = {root.name for root in owned}
         if owned_ids:
-            for other_path in self._dir.glob("*.json"):
-                if other_path.stem in ("settings", "content_manifest", book_id):
+            for other_path in self._book_paths():
+                if other_path.stem == book_id:
                     continue
                 other = self.load(other_path.stem)
                 if other and (owned_ids.intersection(other.character_profiles)
@@ -2782,21 +2953,28 @@ class WorldBookManager:
             raise ValueError("资源卸载路径无效")
         moved: list[tuple[Path, Path]] = []
         try:
+            staging.mkdir()
             if owned:
-                staging.mkdir()
+                (staging / "characters").mkdir()
                 for root in owned:
-                    target = staging / root.name
+                    target = staging / "characters" / root.name
                     if (not root.resolve().is_relative_to(characters_dir)
                             or not target.resolve().is_relative_to(staging)):
                         raise ValueError("角色资源路径无效")
                     root.rename(target)
                     moved.append((root, target))
-            path.unlink()
+            (staging / "books").mkdir()
+            for index, path in enumerate(book_paths):
+                target = staging / "books" / f"{index}.json"
+                path.rename(target)
+                moved.append((path, target))
+            from worldbook_bundle import remove_book_ownership
+            remove_book_ownership(self._dir / "local_content_manifest.json", book_id)
         except Exception:
             for root, target in reversed(moved):
                 target.rename(root)
             if staging.exists():
-                staging.rmdir()
+                shutil.rmtree(staging)
             raise
         self._cache.pop(book_id, None)
         if staging.exists():
@@ -2823,11 +3001,8 @@ class WorldBookManager:
         if not q:
             return []
         results = []
-        paths = sorted(self._dir.glob("*.json"),
-                       key=lambda p: p.stat().st_mtime, reverse=True)
+        paths = self._book_paths()
         for path in paths:
-            if path.name in {"settings.json", "content_manifest.json"}:
-                continue
             try:
                 book = self.load(path.stem)
             except Exception:

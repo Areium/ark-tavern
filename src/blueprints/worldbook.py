@@ -29,9 +29,13 @@ import json
 import logging
 import uuid
 import copy
+import tempfile
+import zipfile
+import shutil
 from contextlib import contextmanager
+from pathlib import Path
 
-from flask import Blueprint, jsonify, request, g
+from flask import Blueprint, jsonify, request, g, send_file
 
 from shared.helpers import json_error
 from world_book import (
@@ -448,7 +452,8 @@ def register(app, managers):
 
     @bp.route("/api/worldbook", methods=["GET"])
     def list_books():
-        return jsonify({"books": wb_mgr.list_books()})
+        books = wb_mgr.list_books()
+        return jsonify({"books": books, "inbox": wb_mgr.inbox_results()})
 
     @bp.route("/api/worldbook/available-packs", methods=["GET"])
     def list_available_packs():
@@ -496,6 +501,31 @@ def register(app, managers):
 
         if "file" in request.files and request.files["file"]:
             f = request.files["file"]
+            if Path(f.filename or "").suffix.lower() == ".arkwb":
+                from worldbook_bundle import MAX_BOOK_SIZE, MAX_METADATA_SIZE, MAX_TOTAL_SIZE
+
+                limit = MAX_TOTAL_SIZE + MAX_BOOK_SIZE + MAX_METADATA_SIZE + 64 * 1024 * 1024
+                staged_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=".arkwb", delete=False) as staged:
+                        staged_path = Path(staged.name)
+                        size = 0
+                        while chunk := f.stream.read(1024 * 1024):
+                            size += len(chunk)
+                            if size > limit:
+                                return json_error("完整包文件过大", 413)
+                            staged.write(chunk)
+                    book = wb_mgr.install_bundle_file(staged_path)
+                except (ValueError, OSError, KeyError, json.JSONDecodeError,
+                        zipfile.BadZipFile, RuntimeError) as exc:
+                    return json_error(f"完整包导入失败: {exc}", 400)
+                finally:
+                    if staged_path is not None:
+                        staged_path.unlink(missing_ok=True)
+                return jsonify({"book": _book_detail(book, include_entries=False),
+                                "report": {"imported": len(book.entries),
+                                           "source_format": "arkwb"},
+                                "character": None, "combat_nodes": None}), 201
             name = str(request.form.get("name", "") or "").strip() or f.filename
             requested_type = request.form.get("book_type")
             raw = f.read()
@@ -704,6 +734,51 @@ def register(app, managers):
         return jsonify({"name": book.name, "format": "sillytavern_v1",
                         "data": book.export_st(),
                         "combat_nodes_refreshed": refreshed})
+
+    @bp.route("/api/worldbook/<book_id>/bundle", methods=["GET"])
+    def export_complete_book(book_id):
+        """Download a portable copy including resources owned by this book."""
+        book, err = _get_book_or_404(book_id)
+        if err:
+            return err
+        try:
+            with wb_mgr.book_lock(book_id):
+                refreshed = _refresh_combat_node_entries(book)
+                if refreshed:
+                    wb_mgr.save(book)
+                archive, _ = wb_mgr.export_bundle(book_id)
+                snapshot = archive.with_name(f".download-{book_id}-{uuid.uuid4().hex}.arkwb")
+                try:
+                    snapshot.hardlink_to(archive)
+                except OSError:
+                    try:
+                        shutil.copy2(archive, snapshot)
+                    except OSError:
+                        snapshot.unlink(missing_ok=True)
+                        raise
+        except (ValueError, OSError) as exc:
+            logger.exception("世界书完整包导出失败")
+            return json_error(f"完整包导出失败: {exc}", 500)
+        try:
+            response = send_file(snapshot, as_attachment=True,
+                                 download_name=f"{book_id}.arkwb",
+                                 mimetype="application/zip")
+        except Exception:
+            snapshot.unlink(missing_ok=True)
+            raise
+        file_body = response.response
+
+        def stream_snapshot():
+            try:
+                yield from file_body
+            finally:
+                if hasattr(file_body, "close"):
+                    file_body.close()
+                snapshot.unlink(missing_ok=True)
+
+        response.response = stream_snapshot()
+        response.call_on_close(lambda: snapshot.unlink(missing_ok=True))
+        return response
 
     # ── 4. 条目 CRUD ──
 
