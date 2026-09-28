@@ -22,7 +22,7 @@ import combat_rules
 import session_export
 
 
-def test_session_snapshot_cannot_restore_over_hidden_pack_content(tmp_path, monkeypatch):
+def test_session_snapshot_restores_to_its_own_book_without_touching_hidden_content(tmp_path, monkeypatch):
     books = tmp_path / "data" / "worldbooks"
     content = books / "content"
     characters = content / "characters"
@@ -35,12 +35,12 @@ def test_session_snapshot_cannot_restore_over_hidden_pack_content(tmp_path, monk
     (books / "content_manifest.json").write_text(json.dumps({
         "directories": {"characters/Pack/": ["pack"]}, "files": {},
     }), encoding="utf-8")
-    monkeypatch.setattr(session_export, "_CHARS_DIR", characters)
-    monkeypatch.setattr(session_export, "_BG_ROOT", content / "combat" / "backgrounds")
-
-    with pytest.raises(ValueError, match="未启用的内容包资源冲突"):
-        session_export._restore_snapshots(tmp_path / "snapshots")
-    assert not (characters / "A_Custom").exists()  # preflight avoids partial copy
+    monkeypatch.setattr(session_export, "_REPO_ROOT", tmp_path)
+    book_id = session_export._restore_snapshots(tmp_path / "snapshots", "sess_example")
+    assert book_id
+    assert (books / "books" / book_id / "characters" / "A_Custom" / "index.md").is_file()
+    assert (books / "books" / book_id / "characters" / "Pack" / "index.md").is_file()
+    assert not (characters / "A_Custom").exists()
     assert not (characters / "Pack").exists()
 
 
