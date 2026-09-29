@@ -56,15 +56,19 @@ def estimate_output_token_budget(word_limit: int, structured: bool = False) -> i
 def build_character_metas(session, doc_mgr):
     """从 session overlay 和磁盘构建角色元数据列表，供战斗初始化使用。
 
-    对每个场景角色：加载角色文档 → 合并 session overlay 覆盖 →
+    对主控与每个队友：按会话绑定加载角色文档 → 合并 session overlay 覆盖 →
     返回合并后的 metadata 列表。
     """
     character_metas = []
-    character_names = session.scene_manager.get_scene_characters()
+    from pathlib import Path
+    from worldbook_content import content_candidates
+
+    character_names = session.scene_manager.get_roster()
+    book_ids = session.overlay.get_worldbook_ids()
 
     for name in character_names:
         try:
-            doc = doc_mgr.read_document("characters", name)
+            doc = doc_mgr.read_document("characters", name, book_ids=book_ids)
         except Exception:
             logger.warning("Character doc not found: %s", name)
             continue
@@ -72,6 +76,11 @@ def build_character_metas(session, doc_mgr):
         merged_meta, _merged_content = session.overlay.apply_character_overrides(
             name, doc["metadata"], doc.get("content", "")
         )
+        merged_meta["character_id"] = name
+        candidates = content_candidates(f"characters/{name}/index.md", book_ids=book_ids,
+                                        project_root=doc_mgr._root)
+        merged_meta["worldbook_id"] = next((owner for owner, path in candidates
+                                           if path == Path(doc["filepath"])), "")
         character_metas.append(merged_meta)
 
         if not session.overlay.has_character_overrides(name):

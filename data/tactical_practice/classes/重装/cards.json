@@ -1,0 +1,40 @@
+{
+  "cards": [
+    {
+      "card_id": "practice_defender_attack",
+      "name": "训练打击",
+      "description": "训练打击：基础演练专用卡牌。",
+      "damage_type": "physical",
+      "min_damage": 10,
+      "max_damage": 14,
+      "atk_scale": 0.6,
+      "target": "SINGLE",
+      "range": 1,
+      "cost": 1,
+      "tier": "basic",
+      "class_required": "重装",
+      "effects": []
+    },
+    {
+      "card_id": "practice_defender_shield",
+      "name": "稳固防守",
+      "description": "稳固防守：基础演练专用卡牌。",
+      "damage_type": "healing",
+      "min_damage": 0,
+      "max_damage": 0,
+      "atk_scale": 0,
+      "target": "SELF",
+      "range": 0,
+      "cost": 1,
+      "tier": "basic",
+      "class_required": "重装",
+      "effects": [
+        {
+          "type": "shield",
+          "value": 18,
+          "duration": 2
+        }
+      ]
+    }
+  ]
+}

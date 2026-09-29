@@ -9,12 +9,14 @@
  */
 import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Application, Container, Graphics, Texture } from "pixi.js";
-import { AtlasAttachmentLoader, SkeletonBinary, Spine } from "@pixi-spine/runtime-3.8";
+import { AtlasAttachmentLoader, SkeletonBinary, Spine, type SkeletonData } from "@pixi-spine/runtime-3.8";
 import { TextureAtlas } from "@pixi-spine/base";
 import type { CombatUnitDTO } from "../../types";
 import { getCellCenter } from "./gridUtils";
 import { resolveAnimSpec, type AnimSpec } from "./spineAnimSpecs";
-import { loadSpineVariants, hasSpineVariant, type SpineVariants } from "../../utils/spineVariants";
+import { createSpineVariantCache, type SpineVariants } from "../../utils/spineVariants";
+import { createGridResourceLoadGuard, gridSpineActor, gridSpineResource, gridSpineFileUrl,
+  gridUnitResourceKey, type GridSpineResource } from "../../utils/gridCombatResources";
 import { makeFallbackToken } from "./fallbackToken";
 
 // ---------------------------------------------------------------------------
@@ -68,16 +70,8 @@ export interface PixiCombatSceneProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function hasSpine(name: string, variants: SpineVariants): boolean { return hasSpineVariant(name, variants); }
-function spineFileName(name: string, variants: SpineVariants): string {
-  // 变体可能是嵌套路径（如 char_4064_mlynar/char_4064_mlynar_iteration_3），文件名取 basename
-  return variants[name].split("/").pop()!;
-}
-function spineAssetUrl(name: string, dir: "Front" | "Back", variants: SpineVariants): string {
-  return `/api/assets/characters/${encodeURIComponent(name)}/spine/${variants[name]}/${dir}`;
-}
-
 interface UnitEntry {
+  resourceKey: string;
   displayObject: Container;
   cell: [number, number];
   yAnchorOffset: number;
@@ -111,30 +105,38 @@ function calcFootAnchor(localBottom: number, scale: number, cellSize: number): n
 }
 
 /** Load a Spine 3.8 character from .atlas + .skel files. */
-async function loadSpine(baseUrl: string, fn: string): Promise<Spine> {
-  const atlasUrl = `${baseUrl}/${fn}.atlas`;
-  const skelUrl = `${baseUrl}/${fn}.skel`;
+async function loadSpine(resource: GridSpineResource, signal: AbortSignal): Promise<SkeletonData> {
+  const atlasUrl = gridSpineFileUrl(resource, `${resource.fileName}.atlas`);
+  const skelUrl = gridSpineFileUrl(resource, `${resource.fileName}.skel`);
+  const fetchFile = async (url: string) => {
+    const response = await fetch(url, { signal });
+    if (!response.ok) throw new Error(`模型资源读取失败（${response.status}）：${url}`);
+    return response;
+  };
 
   const [atlasText, skelBuffer] = await Promise.all([
-    fetch(atlasUrl).then((r) => r.text()),
-    fetch(skelUrl).then((r) => r.arrayBuffer()),
+    fetchFile(atlasUrl).then((r) => r.text()),
+    fetchFile(skelUrl).then((r) => r.arrayBuffer()),
   ]);
+  signal.throwIfAborted();
 
-  return new Promise((resolve, reject) => {
+  let onAbort: () => void;
+  return new Promise<SkeletonData>((resolve, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
     new TextureAtlas(
       atlasText,
       (path, loaderFn) => {
-        const imgUrl = `${baseUrl}/${path}`;
+        const imgUrl = gridSpineFileUrl(resource, path);
         Texture.fromURL(imgUrl).then((tex) => {
+          signal.throwIfAborted();
           loaderFn(tex.baseTexture);
-        }).catch((e) => {
-          console.error(`[loadSpine] Texture load error for ${path}:`, e);
-          loaderFn(null as any);
-        });
+        }).catch(reject);
       },
       (atlas) => {
-        if (!atlas) { console.error(`[loadSpine] TextureAtlas callback got null`); reject(new Error("TextureAtlas returned null")); return; }
+        if (!atlas) { reject(new Error("TextureAtlas returned null")); return; }
         try {
+          signal.throwIfAborted();
           const al = new AtlasAttachmentLoader(atlas);
           const skeletonData = new SkeletonBinary(al).readSkeletonData(new Uint8Array(skelBuffer));
           // 兼容「附件存放在命名 skin、defaultSkin 为空」的模型（如 enemy_1011_wizard）：
@@ -143,15 +145,13 @@ async function loadSpine(baseUrl: string, fn: string): Promise<Spine> {
           if (!skeletonData.defaultSkin && skeletonData.skins.length > 0) {
             skeletonData.defaultSkin = skeletonData.skins[0];
           }
-          const spine = new Spine(skeletonData);
-          resolve(spine);
+          resolve(skeletonData);
         } catch (e) {
-          console.error(`[loadSpine] Parse/Skeleton error:`, e);
           reject(e);
         }
       },
     );
-  });
+  }).finally(() => signal.removeEventListener("abort", onAbort));
 }
 
 // ---------------------------------------------------------------------------
@@ -192,35 +192,32 @@ function playChain(spine: Spine, names: string[], finalIdle: string) {
 const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(function PixiCombatScene(
   { units, gridEl, containerEl, resizeTick, cellSize = 64, enemyScale = 1 }, ref,
 ) {
-  const [variants, setVariants] = useState<SpineVariants>({});
+  const [variants, setVariants] = useState<Map<string, SpineVariants>>(() => new Map());
+  const [loadVariants] = useState(createSpineVariantCache);
+  const ownerKey = JSON.stringify([...new Set(units.filter(unit => unit.is_alive)
+    .map(gridSpineActor).filter(actor => actor !== null).map(actor => actor.bookId))].sort());
   useEffect(() => {
     let cancelled = false;
-    void loadSpineVariants().then(registry => {
-      if (cancelled) return;
-      // Replace loading-time tokens only when an installed model actually exists.
-      for (const [id, entry] of unitMapRef.current) {
-        const unit = latestUnitsRef.current.find(item => item.unit_id === id);
-        if (!entry.isSpine && unit && hasSpineVariant(unit.name, registry)) {
-          entry.cancelTween?.();
-          if (entry.killTimeout) clearTimeout(entry.killTimeout);
-          unitLayerRef.current?.removeChild(entry.displayObject);
-          entry.displayObject.destroy({ children: true });
-          unitMapRef.current.delete(id);
-        }
-      }
-      setVariants(registry);
-    }).catch(error => { if (!cancelled) console.warn("模型目录不可用，使用几何棋子", error); });
+    // Owners load in parallel; duplicate units and rerenders share one request per book.
+    for (const bookId of JSON.parse(ownerKey) as string[]) {
+      void loadVariants(bookId).then(registry => {
+        if (!cancelled) setVariants(previous => new Map(previous).set(bookId, registry));
+      }).catch(error => {
+        if (!cancelled) console.warn(`模型目录不可用（${bookId}），使用职业棋子`, error);
+      });
+    }
     return () => { cancelled = true; };
-  }, []);
+  }, [ownerKey, loadVariants]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
   const unitLayerRef = useRef<Container | null>(null);
   const unitMapRef = useRef<Map<string, UnitEntry>>(new Map());
   const latestUnitsRef = useRef(units);
   latestUnitsRef.current = units;
-  const loadedRef = useRef<Set<string>>(new Set());
-  const loadingRef = useRef<Map<string, Promise<Spine | void>>>(new Map());
-  const loadingUnitsRef = useRef<Set<string>>(new Set());
+  // Cache skeleton data, never a live Spine display object shared by multiple units.
+  const loadingRef = useRef<Map<string, Promise<SkeletonData>>>(new Map());
+  const loadingUnitsRef = useRef(createGridResourceLoadGuard());
+  const loadAbortRef = useRef<AbortController | null>(null);
   /** 加载失败的资产负缓存（cacheKey）：避免每次重渲染重复请求 404 */
   const failedRef = useRef<Set<string>>(new Set());
   const [ready, setReady] = useState(false);
@@ -279,6 +276,8 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
     canvas.style.pointerEvents = "none";
     container.appendChild(canvas);
     appRef.current = app;
+    const loadAbort = new AbortController();
+    loadAbortRef.current = loadAbort;
 
     const unitLayer = new Container();
     unitLayer.sortableChildren = true;
@@ -289,6 +288,8 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
     syncCanvasSizeRef.current();
 
     return () => {
+      loadAbort.abort();
+      loadAbortRef.current = null;
       for (const entry of unitMapRef.current.values()) {
         entry.cancelTween?.();
         if (entry.killTimeout) clearTimeout(entry.killTimeout);
@@ -297,7 +298,6 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
       appRef.current = null;
       unitLayerRef.current = null;
       unitMapRef.current.clear();
-      loadedRef.current.clear();
       loadingRef.current.clear();
       loadingUnitsRef.current.clear();
       failedRef.current.clear();
@@ -351,13 +351,20 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
     if (!ul) return;
 
     const alive = units.filter((u) => u.is_alive);
-    const aliveIds = new Set(alive.map((u) => u.unit_id));
+    const aliveById = new Map(alive.map((u) => [u.unit_id, u]));
     const map = unitMapRef.current;
+    const requests = loadingUnitsRef.current;
+    for (const [id, request] of requests.entries()) {
+      const unit = aliveById.get(id);
+      if (!unit || gridUnitResourceKey(unit) !== request.resourceKey) requests.cancel(id);
+    }
 
     // Remove departed — 尊重 dying（死亡动画播完再销毁，由 playDeath 的 timeout 负责）
     for (const [id, entry] of map) {
-      if (!aliveIds.has(id)) {
-        if (entry.dying) continue;
+      const unit = aliveById.get(id);
+      const identityChanged = unit && gridUnitResourceKey(unit) !== entry.resourceKey;
+      if (!unit || identityChanged) {
+        if (entry.dying && !identityChanged) continue;
         entry.cancelTween?.();
         if (entry.killTimeout) clearTimeout(entry.killTimeout);
         ul.removeChild(entry.displayObject);
@@ -368,11 +375,24 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
 
     // Add / update
     for (const u of alive) {
-      const exists = map.get(u.unit_id);
+      const resourceKey = gridUnitResourceKey(u);
+      let exists = map.get(u.unit_id);
       const pos = getCanvasPos(u.pos[0], u.pos[1]);
       const sx = pos?.[0] ?? 0;
       const sy = pos?.[1] ?? 0;
       const zIndex = u.pos[0]; // higher row = closer to camera = render on top
+
+      // Keep the established token visible while the registry/model is loading.
+      if (!exists) {
+        const fb = makeFallbackToken(u, sx, sy, cellSize);
+        fb.container.zIndex = zIndex;
+        ul.addChild(fb.container);
+        exists = {
+          resourceKey, displayObject: fb.container, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0,
+          isSpine: false, flipped: u.team === "enemy", hpBar: fb.hpBar, hpWidth: fb.hpWidth,
+        };
+        map.set(u.unit_id, exists);
+      }
 
       if (exists) {
         // fallback 令牌：按最新 hp/max_hp 更新 HP 条宽度（前景几何左锚定，scale.x 即宽度比例）
@@ -389,55 +409,32 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
         if (exists.displayObject.zIndex !== zIndex) {
           exists.displayObject.zIndex = zIndex;
         }
-      } else if (hasSpine(u.name, variants)) {
+      }
+      const resource = gridSpineResource(u, variants);
+      if (!exists.isSpine && resource && !failedRef.current.has(resource.cacheKey)) {
         // Guard: skip if this unit is already being loaded (prevents duplicate on re-render)
-        if (loadingUnitsRef.current.has(u.unit_id)) continue;
-        loadingUnitsRef.current.add(u.unit_id);
-
-        const dir: "Front" | "Back" = u.team === "player" ? "Front" : "Back";
-        const baseUrl = spineAssetUrl(u.name, dir, variants);
-        const fn = spineFileName(u.name, variants);
-        const cacheKey = baseUrl;
-
-        // 曾加载失败的资产（负缓存）直接走 fallback，不再重复请求
-        if (failedRef.current.has(cacheKey)) {
-          loadingUnitsRef.current.delete(u.unit_id);
-          const fb = makeFallbackToken(u, sx, sy, cellSize);
-          fb.container.zIndex = zIndex;
-          ul.addChild(fb.container);
-          map.set(u.unit_id, {
-            displayObject: fb.container, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0,
-            isSpine: false, flipped: u.team === "enemy", hpBar: fb.hpBar, hpWidth: fb.hpWidth,
-          });
-          continue;
-        }
+        if (requests.get(u.unit_id)) continue;
+        const request = requests.begin(u.unit_id, resourceKey);
+        const { cacheKey } = resource;
 
         const loadingApp = appRef.current;
+        const signal = loadAbortRef.current!.signal;
         const stillCurrent = () => appRef.current === loadingApp && !ul.destroyed
-          && latestUnitsRef.current.some(unit => unit.unit_id === u.unit_id && unit.is_alive);
+          && !signal.aborted && requests.isCurrent(request)
+          && latestUnitsRef.current.some(unit => unit.unit_id === u.unit_id && unit.is_alive
+            && gridUnitResourceKey(unit) === resourceKey);
         (async () => {
+          let spine: Spine | undefined;
           try {
-            let spine: Spine;
-            if (loadedRef.current.has(cacheKey)) {
-              const pending = loadingRef.current.get(cacheKey);
-              const cached = (pending ? await pending : null) as Spine | null;
-              if (!cached) { loadingUnitsRef.current.delete(u.unit_id); return; }
-              // 复用模板的 spineData，但每个单位新建独立实例：直接复用同一个 Spine 对象
-              // 会被 addChild 重新挂到新父节点（同型单位 —— 例如第二波的同名敌人 ——
-              // 于是只剩一个可见），且上一实例残留的 scale/position 会污染本次包围盒测量。
-              spine = new Spine((cached as any).spineData);
-            } else {
-              const p = loadSpine(baseUrl, fn);
-              loadingRef.current.set(cacheKey, p);
-              spine = await p;
-              if (stillCurrent()) loadedRef.current.add(cacheKey);
+            let pending = loadingRef.current.get(cacheKey);
+            if (!pending) {
+              pending = loadSpine(resource, signal);
+              loadingRef.current.set(cacheKey, pending);
             }
-            if (!stillCurrent()) {
-              spine.destroy({ children: true });
-              if (appRef.current === loadingApp) loadingUnitsRef.current.delete(u.unit_id);
-              return;
-            }
-            if (!spine) { loadingUnitsRef.current.delete(u.unit_id); return; }
+            const skeletonData = await pending;
+            if (!stillCurrent()) return;
+            // Sharing data coalesces concurrent requests without reparenting live actors.
+            spine = new Spine(skeletonData);
 
             // Re-compute position from DOM now that Spine is ready (layout has settled)
             const latestUnit = latestUnitsRef.current.find(unit => unit.unit_id === u.unit_id)!;
@@ -466,9 +463,9 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
               if (bounds && bounds.height > 0) localBottom = bounds.y + bounds.height;
             } catch { /* 保持原点锚定 */ }
 
-            const scale = unitScaleFor(u.name, u.team, cellSize, enemyScale);
+            const scale = unitScaleFor(resource.characterId, u.team, cellSize, enemyScale);
             const yOff = calcFootAnchor(localBottom, scale, cellSize);
-            spine.zIndex = zIndex;
+            spine.zIndex = latestUnit.pos[0];
             spine.x = finalSx;
             spine.y = finalSy + yOff;
             const flipped = u.team === "enemy";
@@ -477,51 +474,43 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
             spine.state.setAnimation(0, startAnim, !spec.start);
             if (spec.start) {
               const e = spine.state.tracks[0];
-              if (e) e.listener = { complete: () => spine.state.setAnimation(0, spec.idle, true) };
+              const actor = spine;
+              if (e) e.listener = { complete: () => actor.state.setAnimation(0, spec.idle, true) };
             }
             if (flipped) { spine.scale.set(-scale, scale); }
             else { spine.scale.set(scale); }
 
+            const previous = map.get(u.unit_id);
+            if (previous) {
+              previous.cancelTween?.();
+              if (previous.killTimeout) clearTimeout(previous.killTimeout);
+              previous.displayObject.removeFromParent();
+              previous.displayObject.destroy({ children: true });
+            }
             ul.addChild(spine);
             map.set(u.unit_id, {
-              displayObject: spine, cell: [latestUnit.pos[0], latestUnit.pos[1]], yAnchorOffset: yOff,
+              resourceKey, displayObject: spine, cell: [latestUnit.pos[0], latestUnit.pos[1]], yAnchorOffset: yOff,
               isSpine: true, spec, baseScale: scale, flipped,
             });
-            loadingUnitsRef.current.delete(u.unit_id);
+            spine = undefined; // The scene now owns the display object's lifetime.
             setPosTick((t) => t + 1);
           } catch (err) {
-            if (!stillCurrent()) {
-              if (appRef.current === loadingApp) loadingUnitsRef.current.delete(u.unit_id);
-              return;
-            }
+            spine?.destroy({ children: true });
+            if (!stillCurrent()) return;
             // 负缓存：失败资产只记一次详细日志，之后直接走 fallback
             if (!failedRef.current.has(cacheKey)) {
-              console.error(`[PixiCombatScene] Spine load failed for ${u.name}:`, err);
+              console.error(`[PixiCombatScene] Spine load failed for ${resource.bookId}/${resource.characterId}:`, err);
               if (err instanceof Error) {
                 console.error(`[PixiCombatScene]   message: ${err.message}`);
                 console.error(`[PixiCombatScene]   stack:`, err.stack);
               }
             }
             failedRef.current.add(cacheKey);
-            const fb = makeFallbackToken(u, sx, sy, cellSize);
-            fb.container.zIndex = zIndex;
-            ul.addChild(fb.container);
-            map.set(u.unit_id, {
-              displayObject: fb.container, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0,
-              isSpine: false, flipped: u.team === "enemy", hpBar: fb.hpBar, hpWidth: fb.hpWidth,
-            });
-            loadingUnitsRef.current.delete(u.unit_id);
-            setPosTick((t) => t + 1);
+            // The loading-time token already has current HP, position and avatar.
+          } finally {
+            requests.finish(request);
           }
         })();
-      } else {
-        const fb = makeFallbackToken(u, sx, sy, cellSize);
-        fb.container.zIndex = zIndex;
-        ul.addChild(fb.container);
-        map.set(u.unit_id, {
-          displayObject: fb.container, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0,
-          isSpine: false, flipped: u.team === "enemy", hpBar: fb.hpBar, hpWidth: fb.hpWidth,
-        });
       }
     }
 
@@ -534,7 +523,7 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
         if (unitLayerRef.current === ul && !ul.destroyed) setPosTick((t) => t + 1);
       });
     }
-  }, [ready, units, getCanvasPos, gridReady, posTick, enemyScale, variants]);
+  }, [ready, units, getCanvasPos, gridReady, posTick, cellSize, enemyScale, variants]);
 
   // ── Reposition units on resize ─────────────────────────────────────
   useEffect(() => {

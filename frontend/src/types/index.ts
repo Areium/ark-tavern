@@ -283,6 +283,10 @@ export interface PlotInfo {
 export interface CombatUnitDTO {
   unit_id: string;
   name: string;
+  character_id: string;
+  worldbook_id: string;
+  avatar_url: string;
+  portrait_url: string;
   team: "player" | "enemy";
   char_class: string;
   hp: number;
@@ -475,6 +479,7 @@ export interface TileTypeDTO {
 
 /** 战斗状态快照 */
 export interface CombatStateDTO {
+  battle_id: string;
   round_num: number;
   phase: string;
   winner: string | null;

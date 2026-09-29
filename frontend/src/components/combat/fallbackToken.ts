@@ -4,7 +4,7 @@
  * 由 PixiCombatScene 在 hasSpine() 为 false（或 Spine 加载失败）时创建，替代旧版 10px 圆点：
  *   - 队伍色圆环（玩家青 / 敌方红）+ 半透明深色底座，尺寸随 cellSize 缩放（直径 ≈ cellSize * 0.72）
  *   - 异步尝试加载角色头像（同源 /api 资源），成功后经 Graphics 圆形蒙版裁剪嵌入令牌
- *   - 加载失败（敌人无该资源会 404/onerror）→ 显示职业徽章：职业色填充 + 职业首字
+ *   - 无头像 URL 或加载失败 → 显示职业徽章：职业色填充 + 职业首字
  *   - 令牌上方名字（白字描边）、下方 HP 条（红底绿条，宽度 = 直径 × hp/max_hp）
  */
 import { Container, Graphics, Sprite, Text, Texture } from "pixi.js";
@@ -103,9 +103,8 @@ export function makeFallbackToken(
   photoSlot.mask = circleMask;
   c.addChild(photoSlot);
 
-  // 玩家角色头像为同源 API 资源；敌人通常 404 → catch 兜底保留职业徽章
-  const avatarUrl = `/api/characters/${encodeURIComponent(unit.name)}/avatar`;
-  Texture.fromURL(avatarUrl)
+  // DTO 已给出带来源书的资源 URL；空值直接保留职业徽章，不猜测显示名路径。
+  if (unit.avatar_url) Texture.fromURL(unit.avatar_url)
     .then((tex) => {
       // 加载期间令牌可能已随单位离场被销毁
       if (c.destroyed || photoSlot.destroyed) return;

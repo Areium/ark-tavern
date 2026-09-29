@@ -287,6 +287,9 @@ def test_empty_node_cannot_start_battle(client, tmp_path, monkeypatch):
     """新建的空节点（无敌人）可保存，但开战必须被拒绝并给出可读原因。"""
     import combat_data_loader
     import combat_nodes
+    from combat_session import CombatSession
+
+    monkeypatch.setattr(CombatSession, "_load_character_meta", lambda self, name: {"name": name, "class": "近卫"})
 
     node_dir = tmp_path / "combat" / "nodes"
     monkeypatch.setattr(combat_nodes, "NODE_DIR", node_dir)
@@ -296,7 +299,7 @@ def test_empty_node_cannot_start_battle(client, tmp_path, monkeypatch):
     node_id = "enc_empty_test"
     try:
         assert client.post("/api/combat/nodes", json={"node_id": node_id}).status_code == 201
-        res = client.post("/api/combat/test/start", json={"node_id": node_id, "characters": ["临光"]})
+        res = client.post("/api/combat/test/start", json={"node_id": node_id, "characters": ["测试角色"]})
         assert res.status_code == 400
         assert "没有可出场的敌人" in res.get_json()["error"]
     finally:

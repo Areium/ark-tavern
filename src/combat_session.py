@@ -13,6 +13,7 @@ import sys
 import time
 import random
 import uuid
+from urllib.parse import quote, urlencode
 
 # Ensure project root and src/ are importable
 _src_dir = os.path.dirname(os.path.abspath(__file__))
@@ -27,7 +28,7 @@ from combat_engine.card_data import get_starting_deck
 from combat_engine.engine import CombatEngine, CombatEvent
 from combat_data_loader import CombatDataLoader, apply_enemy_overrides
 from combat_rules import band_scaling, difficulty_rules
-from worldbook_content import resolve_content
+from worldbook_content import content_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class CombatSession:
 
     def __init__(self, session_id: str = "", *, book_ids: list[str] | None = None):
         self.session_id = session_id
+        self._battle_id = uuid.uuid4().hex
         self.book_ids = book_ids
         self.engine: CombatEngine | None = None
         self.loader = CombatDataLoader(book_ids=book_ids)
@@ -100,7 +102,7 @@ class CombatSession:
         self._inventory = inventory or []
         self._reward_mult = reward_mult
         self._enemy_scale = float((combat_params or {}).get("enemy_scale", 1.0) or 1.0)
-        self._custom_enemies = dict(custom_enemies or {})
+        self._custom_enemies = {**(custom_enemies or {}), **(node.get("enemies_def") or {})}
         # 阶段带缩放（可选）：节点 difficulty.apply_band_scaling 或全局默认开启时生效
         self._band_scaling = self._resolve_band_scaling(node)
         self._background_url = self.loader.resolve_background(
@@ -124,15 +126,23 @@ class CombatSession:
             self._character_metas = character_metas
         elif character_names:
             self._character_metas = []
-            for name in character_names:
+            for name in dict.fromkeys(character_names):
                 meta = self._load_character_meta(name)
-                if meta:
-                    self._character_metas.append(meta)
+                if not meta:
+                    raise ValueError(f"参战角色不存在或不在当前世界书中: {name}")
+                self._character_metas.append(meta)
+
+        if not self._character_metas:
+            raise ValueError("没有可参战角色，请先选择阵容")
+        names = [meta.get("name") for meta in self._character_metas]
+        if len(names) != len(set(names)):
+            raise ValueError("参战角色显示名重复，请使用不同名称以区分卡牌归属")
 
         player_slots = self._player_slots(len(self._character_metas))
 
         for i, meta in enumerate(self._character_metas):
             unit = CombatUnit.from_character_metadata(meta, team="player")
+            self._apply_character_media(unit)
             char_class = unit.char_class
 
             # Apply narrative-driven status effects
@@ -142,9 +152,9 @@ class CombatSession:
             # Load cards: use the class engine pool. Character-specific cards in
             # combat.json are narrative cards (0 damage / narrative SP cost), not
             # combat-engine cards — they belong to the story layer, not the engine.
-            cards = get_starting_deck(char_class, count=7, book_ids=self.book_ids)
+            cards = self._starting_deck(char_class)
             if not cards:
-                cards = get_starting_deck("辅助", count=7, book_ids=self.book_ids)
+                cards = self._starting_deck("辅助")
                 logger.warning("No card pool for class '%s', using 辅助 fallback", char_class)
 
             self.engine.add_player_unit(unit, cards, player_slots[i])
@@ -193,6 +203,13 @@ class CombatSession:
                     if not enemy_unit:
                         logger.warning("Enemy '%s' not found, skipping", enemy_name)
                         continue
+                    if enemy_name in self._custom_enemies:
+                        enemy_unit.worldbook_id = node.get("worldbook_id", "")
+                    else:
+                        path = self.loader.enemy_path(enemy_name)
+                        enemy_unit.worldbook_id = next((owner or "" for owner, root
+                                                       in self.loader._owned_roots("enemies")
+                                                       if path and path.is_relative_to(root)), "")
 
                     # 唯一 unit_id（同名 count>1 或跨波次重复都不冲突）
                     enemy_seq += 1
@@ -229,6 +246,9 @@ class CombatSession:
         return self.get_state()
 
     # ── 落点选择（部署区优先，容错兜底）──
+
+    def _starting_deck(self, char_class: str) -> list[Card]:
+        return get_starting_deck(char_class, count=7, book_ids=self.book_ids)
 
     def _resolve_band_scaling(self, node: dict) -> tuple[float, float]:
         """节点阶段带的敌人数值倍率：默认不缩放，需显式开启（或改全局默认）。"""
@@ -294,6 +314,7 @@ class CombatSession:
             return None
         if custom:
             unit.name = name
+            unit.unit_id = name
 
         hp_mult, atk_mult = self._band_scaling
         if hp_mult != 1.0:
@@ -308,7 +329,8 @@ class CombatSession:
         """Load a character's YAML frontmatter from data/characters/<name>/index.md."""
         import frontmatter
         try:
-            path = resolve_content(f"characters/{name}/index.md", book_ids=self.book_ids)
+            candidates = content_candidates(f"characters/{name}/index.md", book_ids=self.book_ids)
+            owner, path = candidates[0] if candidates else ("", None)
         except ValueError:
             path = None
         if path is None or not path.is_file():
@@ -316,7 +338,8 @@ class CombatSession:
             return None
         try:
             with open(path, "r", encoding="utf-8") as f:
-                return frontmatter.load(f).metadata
+                meta = frontmatter.load(f).metadata
+            return {**meta, "character_id": name, "worldbook_id": owner}
         except Exception as e:
             logger.error("Failed to load character %s: %s", name, e)
             return None
@@ -550,17 +573,35 @@ class CombatSession:
 
     # ── State queries ──
 
-    @staticmethod
-    def _refresh_skin_crop(u) -> dict | None:
+    def _apply_character_media(self, unit) -> None:
+        """Resolve media by directory identity; display names never select assets."""
+        if not unit.character_id:
+            return
+        from avatar_color import find_avatar_path, find_skin_path, find_card_face_path
+        from session_resources import find_session_media_path
+
+        selected = [unit.worldbook_id] if unit.worldbook_id else []
+        query = ({"session_id": self.session_id} if self._session_dir else
+                 {"worldbook_id": unit.worldbook_id})
+        base = f"/api/characters/{quote(unit.character_id, safe='')}"
+        for field, endpoint, finder in (("avatar_url", "avatar", find_avatar_path),
+                                         ("portrait_url", "skin", find_skin_path),
+                                         ("skin_url", "card-face", find_card_face_path)):
+            exists = (self._session_dir and find_session_media_path(
+                self._session_dir, unit.character_id, endpoint)) or finder(
+                    unit.character_id, book_ids=selected)
+            setattr(unit, field, f"{base}/{endpoint}?{urlencode(query)}" if exists else "")
+        unit.skin_crop = self._refresh_skin_crop(unit)
+
+    def _refresh_skin_crop(self, u) -> dict | None:
         """Re-read skin crop from disk for player units so asset edits take effect."""
-        if u.team != "player":
+        if u.team != "player" or not u.character_id:
             return u.skin_crop
         try:
             from avatar_color import get_card_face_crop
-            fresh = get_card_face_crop(u.name)
-            if fresh is not None:
-                u.skin_crop = fresh
-                return fresh
+            fresh = get_card_face_crop(u.character_id, book_ids=[u.worldbook_id] if u.worldbook_id else [])
+            u.skin_crop = fresh
+            return fresh
         except Exception:
             pass
         return u.skin_crop
@@ -599,6 +640,10 @@ class CombatSession:
                 "attributes": dict(u.attributes) if u.attributes else {},
                 "status": dict(u.status),
                 "skin_url": u.skin_url,
+                "character_id": u.character_id,
+                "worldbook_id": u.worldbook_id,
+                "avatar_url": u.avatar_url,
+                "portrait_url": u.portrait_url,
                 "skin_crop": self._refresh_skin_crop(u),
                 "action_slots": u.action_slots,
                 "power_tier": u.power_tier,
@@ -642,6 +687,7 @@ class CombatSession:
         battle_map = self._map or e.map
 
         return {
+            "battle_id": self._battle_id,
             "round_num": e.state.round_num,
             "phase": e.state.phase,
             "winner": e.state.winner or None,
@@ -754,8 +800,10 @@ class CombatSession:
             raise ValueError("没有进行中的战斗")
         return {
             "version": self.SUSPEND_VERSION,
+            "battle_id": self._battle_id,
             "session_id": self.session_id,
             "encounter_id": self._encounter_id,
+            "book_ids": self.book_ids,
             "session_dir": self._session_dir,
             "background_url": self._background_url,
             "inventory": copy.deepcopy(self._inventory),
@@ -775,7 +823,9 @@ class CombatSession:
 
         `session_dir` 非空时覆盖存档内的路径（会话可能被移动/导入到别处）。
         """
-        combat = cls(session_id or data.get("session_id", ""), book_ids=book_ids)
+        selected_books = book_ids if book_ids is not None else data.get("book_ids")
+        combat = cls(session_id or data.get("session_id", ""), book_ids=selected_books)
+        combat._battle_id = data.get("battle_id") or combat._battle_id
         combat._encounter_id = data.get("encounter_id", "")
         combat._session_dir = session_dir if session_dir is not None else data.get("session_dir", "")
         combat._background_url = data.get("background_url")
@@ -793,6 +843,9 @@ class CombatSession:
         combat.engine = CombatEngine.from_snapshot(
             data.get("engine") or {}, battle_map=combat._map,
             rules=combat.loader.rules_of(node))
+        for unit in combat.engine.units.values():
+            if unit.team == "player":
+                combat._apply_character_media(unit)
         combat.last_activity_at = time.time()
         return combat
 

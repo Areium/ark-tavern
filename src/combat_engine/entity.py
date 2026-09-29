@@ -96,6 +96,10 @@ class CombatUnit:
     # Card face / portrait
     skin_url: str = ""
     skin_crop: dict | None = None
+    character_id: str = ""
+    worldbook_id: str = ""
+    avatar_url: str = ""
+    portrait_url: str = ""
 
     # Position on grid
     pos: tuple[int, int] = (-1, -1)  # (row, col)
@@ -251,19 +255,8 @@ class CombatUnit:
             eva = int(overrides.get("eva", eva))
             max_ap = max(1, min(int(overrides.get("max_ap", max_ap)), 4))
 
-        # Card face URL
-        skin_url = ""
-        skin_crop = None
-        try:
-            from avatar_color import find_card_face_path, get_card_face_crop
-            if find_card_face_path(name):
-                skin_url = f"/api/characters/{name}/card-face"
-                skin_crop = get_card_face_crop(name)
-        except Exception:
-            pass
-
         return cls(
-            unit_id=unit_id or name,
+            unit_id=unit_id or meta.get("character_id") or name,
             name=name,
             team=team,
             char_class=char_class,
@@ -280,8 +273,8 @@ class CombatUnit:
             AP=max_ap,
             MAX_AP=max_ap,
             attributes=a,
-            skin_url=skin_url,
-            skin_crop=skin_crop,
+            character_id=meta.get("character_id", ""),
+            worldbook_id=meta.get("worldbook_id", ""),
             action_slots=overrides.get("action_slots", meta.get("action_slots", 1)),
             power_tier=meta.get("power_tier", ""),
             role=meta.get("role", ""),
@@ -338,6 +331,10 @@ class CombatUnit:
             "status": copy.deepcopy(self.status),
             "skin_url": self.skin_url,
             "skin_crop": copy.deepcopy(self.skin_crop),
+            "character_id": self.character_id,
+            "worldbook_id": self.worldbook_id,
+            "avatar_url": self.avatar_url,
+            "portrait_url": self.portrait_url,
         }
 
     @classmethod
@@ -375,6 +372,10 @@ class CombatUnit:
             attributes=copy.deepcopy(d.get("attributes") or {}),
             skin_url=d.get("skin_url", ""),
             skin_crop=copy.deepcopy(d.get("skin_crop")),
+            character_id=d.get("character_id", ""),
+            worldbook_id=d.get("worldbook_id", ""),
+            avatar_url=d.get("avatar_url", ""),
+            portrait_url=d.get("portrait_url", ""),
             pos=pos,
             status=status,
             action_slots=int(d.get("action_slots", 1) or 0),

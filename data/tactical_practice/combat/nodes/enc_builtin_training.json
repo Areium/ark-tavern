@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "node_id": "enc_builtin_training",
+  "name": "基础战术演练",
+  "summary": "使用四名通用训练员练习移动、掩体与卡牌配合；不读取世界书，也不改变会话进度。",
+  "rules": {
+    "range_metric": "manhattan",
+    "allow_corner_cut": false
+  },
+  "map": {
+    "rows": 5,
+    "cols": 7,
+    "tiles": [
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "cover",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "high_ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "cover",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ]
+    ],
+    "deploy": {
+      "player": {
+        "rect": [
+          0,
+          0,
+          3,
+          0
+        ]
+      },
+      "enemy": {
+        "cells": [
+          [
+            1,
+            5
+          ],
+          [
+            3,
+            5
+          ]
+        ]
+      }
+    }
+  },
+  "enemies_def": {
+    "训练靶机": {
+      "name": "训练靶机",
+      "class": "近卫",
+      "role": "minion",
+      "combat_stats": {
+        "hp": 70,
+        "patk": 12,
+        "matk": 1,
+        "defense": 3,
+        "resist": 3,
+        "spd": 8,
+        "hit": 6,
+        "eva": 2,
+        "max_ap": 2
+      }
+    }
+  },
+  "waves": [
+    {
+      "enemies": [
+        {
+          "enemy": "训练靶机",
+          "count": 2,
+          "positions": [
+            [
+              1,
+              5
+            ],
+            [
+              3,
+              5
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "conditions": {
+    "max_rounds": 10,
+    "escape_enabled": true
+  },
+  "rewards": {
+    "xp": 0,
+    "items": []
+  },
+  "difficulty": {
+    "category": "test",
+    "encounter_type": "teaching",
+    "band": "T0",
+    "threat_budget": 2,
+    "target_rounds": 4,
+    "apply_band_scaling": false
+  }
+}

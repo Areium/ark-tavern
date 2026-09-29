@@ -232,9 +232,8 @@ def test_resumes_list_reports_suspended_tests(client):
 def session_id(client):
     """建一个战术会话并把角色载入场景，用于会话战链路；结束后删除会话。
 
-    注意：`combat/start` 的参战角色取自**场景角色**（`build_character_metas`
-    读 scene_manager），创建会话时传 `characters` 并不进场景，必须显式
-    `characters/load`，否则 start 直接 400「没有可用角色」。
+    此夹具主控使用通用称谓，另把 Hero 作为队友入场；战斗阵容取 get_roster
+    （有角色资料的主控 + 场景队友），不从创建请求的旧 characters 字段读。
     """
     res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical", "worldbook_ids": [BOOK_ID]})
     assert res.status_code in (200, 201), res.get_json()
@@ -250,6 +249,22 @@ def session_id(client):
 def _managers(client):
     """取 app 上挂的 Manager 注册表（app factory 在 `app._managers` 暴露）。"""
     return client.application._managers
+
+
+def test_player_identity_alone_is_a_combatant(client):
+    created = client.post("/api/sessions", json={
+        "mode": "free", "combat_mode": "tactical", "worldbook_ids": [BOOK_ID],
+        "identity": ACTOR, "roster_character_ids": []})
+    assert created.status_code in (200, 201), created.get_json()
+    sid = created.get_json()["id"]
+    try:
+        assert client.get(f"/api/sessions/{sid}/characters").get_json()["characters"] == []
+        started = client.post(f"/api/sessions/{sid}/combat/start", json={"encounter_id": SESSION_NODE_ID})
+        assert started.status_code == 200, started.get_json()
+        units = [u for u in started.get_json()["state"]["units"] if u["team"] == "player"]
+        assert [(u["character_id"], u["worldbook_id"]) for u in units] == [(ACTOR, BOOK_ID)]
+    finally:
+        client.delete(f"/api/sessions/{sid}")
 
 
 def _session_dir(client, session_id: str) -> Path:

@@ -299,24 +299,11 @@ python -m pytest tests/ perf_tests/test_combat_runtime_v1.py `
 - **证据**：`tests/test_data_layout.py` 覆盖 Document/Wiki 与内容 API、素材 URL、临时候选剧情、
   战斗节点提示刷新、背景引用和生成器临时输出。
 
-### 「来源世界书」只有一个字段：实体 index.md 的 `worldbook_id`（2026-09-22）
+### 资源来源以实际书文件夹为准（核对于 2026-09-29）
 
-- **口径**：角色 / 职业 / 其它实体目录的**唯一**来源标注是 `index.md` frontmatter 的
-  `worldbook_id`。写入端只有两处：导入角色卡时 `character_card._stamp_worldbook_id`（把随卡
-  自带的内嵌世界书记到角色目录上），以及资产/卡牌界面里的「标注来源世界书」
-  （`PUT /api/assets/<category>/<entity>/worldbook`）。没有单独的 `source` / `worldBookName` 字段——
-  展示名一律由前端拿 `listWorldbooks()` 现查，查不到（书被删/停用/还没加载）回落显示 id 本身。
-- **未分类的判定**：`worldbook_id` 缺失、`null`、空白串都算「未分类」。后端原样透传（`null` → 空串），
-  归一化只在前端 `utils/worldbookGrouping.ts` 的 `worldbookKeyOf` 做一次；该函数产出的
-  `UNCLASSIFIED_KEY = "__none__"` 是资产/卡牌来源下拉与分组选择共用的哨兵值，三个界面都引用这个
-  常量（不要再用 `"__none__"` 字面量），改哨兵只需改这一处。
-- **两种数据都要能读**：`list_documents` 的实体文件夹分支现在**无条件**解析 frontmatter（此前只在
-  `include_content=True` 时解析），因此 `DocumentInfo.worldbook_id` 与 `include_content` 无关；
-  传统 `.md` 文档与实体子文档两个分支仍受 `include_content` 门控，其 `worldbook_id` 恒为空串。
-  这是纯追加字段，`_docs_to_tree` 与 `blueprints/documents.py` 的全文检索**按固定键重建**结果，
-  会静默丢掉它——那两条链路目前没有前端消费者，将来接线时要一并补上。
-- **证据**：`tests/test_document_worldbook_source.py` 覆盖有标注 / 缺字段 / `null` / 空白四种取值，
-  以及「不请求内容摘要时也能拿到来源」「原有键值不变」，外加 `/api/characters` 端点层的字段断言。
+- `worldbook_content` 按绑定顺序解析 `books/<book_id>/`；`DocumentInfo.worldbook_id` 来自实际文件夹。卡片 frontmatter 可能保留拆分前的来源标记，不能据此定位运行时资源。
+- 战斗单位的 `character_id` 是角色目录 ID，`name` 只是显示名；单位的 `worldbook_id` 必须来自本次解析路径。头像、立绘、卡面、裁剪和 Spine 不能用显示名重新全局搜索。
+- 证据：`tests/test_document_worldbook_source.py`、`tests/test_tactical_practice.py`，后者覆盖旧来源标记、目录 ID 与显示名不同、跨书同名与挂起恢复。
 
 ### 资产页实体行上传的图片无法直接设为默认形象（核对于 2026-09-28）
 
@@ -361,8 +348,16 @@ python -m pytest tests/ perf_tests/test_combat_runtime_v1.py `
 - 旧共享内容与分发包已从项目移除；本机当前书架不含灰灯渡口。若需恢复，应从项目外副本整理为 `data/worldbooks/books/<book_id>/` 下的完整书文件夹。
 - 确定性选路需结构化大纲 `branches[].target_beat_id`。本书一章一节拍，分叉 `choice_required=true`；模型完成标记和超时均不能替玩家选择，也不能通过模型生成的其它落点跳过分叉。回档需保留树分支的 `target_beat_id`。
 - 固定战斗节拍使用 `min_rounds=1`，声明了节点就不再现场生成第二个节点。合流用三轮，结局只用一个尾声节拍，避免互斥结局顺序串播。
-- 模拟器曾忽略内联敌人造成空场假胜，本次补齐；生产会话仍依赖注册敌人文件，本书已提供。战前绕行缺结构化结算，结局事实仍受模型一致性限制。
+- 模拟器曾忽略内联敌人造成空场假胜；2026-09-29 生产 `CombatSession` 也已统一读取节点 `enemies_def`，优先级为内联定义 → 会话自定义 → 书内敌人文件。战前绕行缺结构化结算，结局事实仍受模型一致性限制。
 - 不要把接口脚本化验收、180 场策略模拟、13 轮真实模型绕行线当成同一种验证。
+
+## 网格战斗演练（核对于 2026-09-29）
+
+- **现象与根因**：演练只读取已安装世界书节点，空书架无法开始；角色候选误用叙事 `combat.json` 目录。会话开战只取 NPC，漏主控；单位显示名被当作资源键，且媒体查询丢失书籍范围。
+- **现状**：`/api/combat/practice` 默认提供 `data/tactical_practice/` 的显式基础演练（训练员、职业牌组、自包含节点）；不安装世界书，也不向剧情会话注入示例。选择世界书后，节点和角色限定在该书，切书清空旧选择；参战角色不再依赖叙事卡文件。不存在的角色不再静默跳过，同显示名阵容明确拒绝，避免卡牌归属歧义。
+- **角色身份**：会话使用 `get_roster()`（有资料的主控 + 队友），文档按绑定书加载；`character_id`、实际来源书与媒体 URL 随单位和恢复快照保存，结算按角色 ID 写回。Spine 的目录、骨架、图集和贴图均携带来源书，缓存键包含来源，不复用其他书的同名形象。
+- **验证入口**：`tests/test_tactical_practice.py`、`tests/test_combat_resume.py`；`node --test src/utils/gridCombatResources.test.mjs src/utils/spineVariants.test.mjs`（frontend 下）；`scripts/test_tactical_practice_browser.py`（先用 `npm exec vite -- --config vite.config.shot.ts --host 127.0.0.1 --port 5192 --strictPort` 启动独立前端）。浏览器用临时书籍和真实 Flask 战斗路由，不写用户存档；覆盖 1440/390px 入口、开战与结束回合、切书、空书、失败重试。没有覆盖用户正在运行的旧进程或全部真实 Spine 动画。
+- **关卡门禁**：`tools/validate_battle_spec.py` 校验通过；`tools/simulate_battle.py --book-folder data/tactical_practice --node enc_builtin_training --runs 30 --min-win-rate 0.9 --max-median-rounds 5 --max-hp-loss 0.2` 为 100% 胜率、中位 4 回合、首回合清场 0%、血损约 1%，实际威胁 2.0 与预算一致。
 
 ## 横版战斗
 

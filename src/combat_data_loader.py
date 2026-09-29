@@ -349,6 +349,8 @@ class CombatDataLoader:
             logger.error("战斗节点解析失败 %s: %s", path, e)
             return None
         data.setdefault("node_id", path.stem)
+        data["worldbook_id"] = next((owner or "" for owner, root in self._owned_roots("combat")
+                                     if path.is_relative_to(root)), "")
         return data
 
     def list_nodes(self) -> list[dict]:

@@ -831,10 +831,15 @@ export function useApi() {
     listCombatResumes: () => request<CombatResumesDTO>("/api/combat/resumes"),
 
     // ── Combat Test (no session required) ──
-    combatTestStart: (nodeId?: string, characters?: string[]) =>
+    combatPracticeCatalog: (bookId?: string) =>
+      request<{ books: { id: string; name: string }[]; nodes: BattleNodeOverviewDTO[]; characters: string[] }>(
+        "/api/combat/practice" + (bookId ? `?book_id=${encodeURIComponent(bookId)}` : ""),
+      ),
+    combatTestStart: (nodeId?: string, characters?: string[], options?: { practice_source: "builtin" | "worldbook"; worldbook_id?: string }) =>
       request<{ test_id: string; node_id: string; state: any }>("/api/combat/test/start", {
         method: "POST",
         body: JSON.stringify({
+          ...options,
           ...(nodeId ? { node_id: nodeId } : {}),
           ...(characters?.length ? { characters } : {}),
         }),

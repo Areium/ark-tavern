@@ -761,16 +761,33 @@ def register(app, managers):
     # Test Combat
     # ══════════════════════════════════════════════════════
 
+    @bp.route("/api/combat/practice", methods=["GET"])
+    def combat_practice_catalog():
+        from combat_practice import practice_catalog
+        try:
+            return jsonify(practice_catalog(request.args.get("book_id")))
+        except ValueError as e:
+            return json_error(str(e), 400)
+
     @bp.route("/api/combat/test/start", methods=["POST"])
     def combat_test_start():
         """Start an ad-hoc combat from a battle node (no session required).
 
-        直接按节点 JSON 开战：不再走 `data/plots/combat-test` 的敌人池随机采样，
-        编排完全由节点决定（便于编辑器"试打这个节点"）。
+        builtin 是显式的独立演练；世界书节点按选定书籍读取，不安装或修改内容。
         """
         from combat_session import CombatSession
 
         data = request.json or {}
+        source = data.get("practice_source", "worldbook")
+        if source not in ("builtin", "worldbook"):
+            return json_error("未知演练来源", 400)
+        book_id = data.get("worldbook_id")
+        if book_id is not None:
+            from worldbook_content import enabled_book_ids
+            if not isinstance(book_id, str) or book_id not in enabled_book_ids():
+                return json_error("世界书未安装或已停用，请重新选择演练内容", 400)
+        if source == "builtin" and book_id is not None:
+            return json_error("基础演练不能混用世界书内容", 400)
         node_id = data.get("node_id") or data.get("encounter_id") or ""
         if not isinstance(node_id, str) or not node_id.strip():
             return json_error("请选择战斗节点", 400)
@@ -783,7 +800,11 @@ def register(app, managers):
 
         test_id = uuid.uuid4().hex[:12]
         try:
-            combat = CombatSession(test_id)
+            if source == "builtin":
+                from combat_practice import PracticeCombatSession
+                combat = PracticeCombatSession(test_id)
+            else:
+                combat = CombatSession(test_id, book_ids=[book_id] if book_id else None)
             _clear_resume_file(_test_resume_path(test_id))
             state = combat.start(node_id, character_names=character_names)
             combat_test_mgr.create(test_id, combat)
@@ -877,7 +898,10 @@ def register(app, managers):
             return json_error("没有可恢复的战斗测试", 404)
 
         try:
-            restored = CombatSession.from_suspend_snapshot(payload, test_id)
+            from combat_practice import PracticeCombatSession
+            combat_class = (PracticeCombatSession if payload.get("practice_source") == "builtin"
+                            else CombatSession)
+            restored = combat_class.from_suspend_snapshot(payload, test_id)
         except ValueError as e:
             logger.warning("战斗测试 %s: 恢复失败，清理挂起存档: %s", test_id, e)
             _clear_resume_file(path)

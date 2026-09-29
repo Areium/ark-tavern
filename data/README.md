@@ -7,6 +7,8 @@
 ```text
 data/
 ├── categories.yaml        类别注册表：逻辑类别 → 书内物理目录
+├── tactical_practice/     显式网格演练示例；不安装到书架、不参与会话内容解析
+├── sideview_levels/       横版演练示例
 ├── worldbooks/
 │   └── books/             忽略的本地世界书数据；每本书一个文件夹
 │       └── <book_id>/

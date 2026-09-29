@@ -347,13 +347,13 @@ def aggregate_items(items: list[str]) -> list[dict]:
 
 # ── 战后卡牌奖励（1 选 1） ──
 
-def squad_card_pool(character_metas: list[dict]) -> list[dict]:
+def squad_card_pool(character_metas: list[dict], *, book_ids=None) -> list[dict]:
     """聚合小队各职业的卡池（去重）。"""
     from combat_engine.card_data import get_cards_for_class
     seen: set[str] = set()
     cards: list[dict] = []
     for meta in character_metas or []:
-        for card in get_cards_for_class(meta.get("class", "")):
+        for card in get_cards_for_class(meta.get("class", ""), book_ids=book_ids):
             if card.card_id not in seen:
                 seen.add(card.card_id)
                 cards.append(card.to_dict())
@@ -363,7 +363,8 @@ def squad_card_pool(character_metas: list[dict]) -> list[dict]:
 def generate_card_choices(session, character_metas: list[dict], count: int = 3) -> list[dict]:
     """战后 1 选 1：从小队卡池随机抽 count 张（排除已拥有的卡）。"""
     owned = {c.get("card_id") for c in session.overlay._data.get("combat_deck", [])}
-    pool = [c for c in squad_card_pool(character_metas) if c.get("card_id") not in owned]
+    pool = [c for c in squad_card_pool(character_metas, book_ids=session.overlay.get_worldbook_ids())
+            if c.get("card_id") not in owned]
     if not pool:
         return []
     random.shuffle(pool)
@@ -380,7 +381,7 @@ def build_settlement(session, combat_data: dict, reward_mult: float = 1.0,
     """
     if loader is None:
         from combat_data_loader import CombatDataLoader
-        loader = CombatDataLoader()
+        loader = CombatDataLoader(book_ids=session.overlay.get_worldbook_ids())
 
     encounter_id = combat_data.get("encounter_id", "") or ""
     encounter = loader.load_node(encounter_id) or {}
@@ -393,7 +394,7 @@ def build_settlement(session, combat_data: dict, reward_mult: float = 1.0,
     player_alive: dict[str, bool] = {}
     for u in units.values():
         if u.get("team") == "player":
-            player_alive[u.get("name", "")] = bool(u.get("is_alive", True))
+            player_alive[u.get("character_id") or u.get("name", "")] = bool(u.get("is_alive", True))
 
     victory = winner == "player"
     rolled = roll_rewards(encounter, enemy_units, reward_mult, loader=loader) if victory \
@@ -410,16 +411,18 @@ def build_settlement(session, combat_data: dict, reward_mult: float = 1.0,
     for meta in character_metas:
         if not meta.get("name"):
             continue
-        progress = (session.overlay.get_character_overrides(meta["name"]) or {}).get("progress", {}) or {}
-        progress_by_name[meta["name"]] = progress
+        character_id = meta.get("character_id") or meta["name"]
+        progress = (session.overlay.get_character_overrides(character_id) or {}).get("progress", {}) or {}
+        progress_by_name[character_id] = progress
         team_max_level = max(team_max_level, int(progress.get("level", 1) or 1))
 
     for meta in character_metas:
         name = meta.get("name", "")
         if not name:
             continue
-        overrides = session.overlay.get_character_overrides(name) or {}
-        progress = progress_by_name.get(name) or (overrides.get("progress", {}) or {})
+        character_id = meta.get("character_id") or name
+        overrides = session.overlay.get_character_overrides(character_id) or {}
+        progress = progress_by_name.get(character_id) or (overrides.get("progress", {}) or {})
 
         # 当前属性 = 模板 attributes + 已存档覆盖（与 build_character_metas 同源）
         attrs = dict(meta.get("attributes", {}) or {})
@@ -427,14 +430,14 @@ def build_settlement(session, combat_data: dict, reward_mult: float = 1.0,
         for k, v in ov_attrs.items():
             attrs[k] = v
 
-        alive = player_alive.get(name, True)
+        alive = player_alive.get(character_id, True)
         xp_gain = xp_total
         if not XP_FOR_DEAD_CHARACTERS and not alive:
             xp_gain = 0
 
-        characters.append(compute_character_growth(
+        characters.append({**compute_character_growth(
             name, attrs, progress, xp_gain, in_battle=True, alive=alive,
-            team_max_level=team_max_level))
+            team_max_level=team_max_level), "character_id": character_id})
 
     cards = generate_card_choices(session, character_metas) if victory else []
 
@@ -497,7 +500,7 @@ def apply_settlement(session, pending: dict) -> dict:
     done_chars: list[str] = []
     try:
         for ch in data.get("characters", []):
-            name = ch.get("name", "")
+            name = ch.get("character_id") or ch.get("name", "")
             if not name or name in applied["characters"]:
                 continue
             # 无经验、无升级、无属性变化（战败/撤退）→ 不触碰剧情侧存档

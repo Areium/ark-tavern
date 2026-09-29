@@ -16,7 +16,7 @@ from combat_session import CombatSession  # noqa: E402
 from combat_engine.card_data import get_cards_for_class  # noqa: E402
 from combat_settlement import generate_card_choices, squad_card_pool  # noqa: E402
 from combat_engine import card_json_loader  # noqa: E402
-from test_combat_resume import prepare_combat_book  # noqa: E402
+from test_combat_resume import BOOK_ID, prepare_combat_book  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +42,9 @@ def combat_cards(tmp_path, monkeypatch):
 class _FakeOverlay:
     def __init__(self):
         self._data = {}
+
+    def get_worldbook_ids(self):
+        return [BOOK_ID]
 
 
 class _FakeSession:
