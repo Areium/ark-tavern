@@ -38,5 +38,6 @@ print("\n重复检查: visited 集天然去重，无重复文档。")
 
 # Check: would combat.md appear in the catalog?
 print("\n=== combat.md 是否在 Wiki 目录中? ===")
-combat_in_catalog = wm._catalog.get("characters/临光/combat")
+catalog, _ = wm.catalog_snapshot()
+combat_in_catalog = catalog.get("characters/临光/combat")
 print(f"  characters/临光/combat: {'存在' if combat_in_catalog else '不存在（正确——不在预加载链中）'}")

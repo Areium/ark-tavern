@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 from pathlib import Path, PurePosixPath
 
 MAX_BOOK_SIZE = 256 * 1024 * 1024
@@ -35,23 +36,6 @@ def _relative(value: str) -> PurePosixPath:
     return path
 
 
-def _no_links(path: Path, root: Path) -> None:
-    """Reject existing symlinks in every component, including the root."""
-    root = Path(os.path.abspath(root))
-    path = Path(os.path.abspath(path))
-    try:
-        parts = path.relative_to(root).parts
-    except ValueError as exc:
-        raise ValueError("Path escapes content root") from exc
-    current = root
-    if current.is_symlink():
-        raise ValueError("Symlink in content path")
-    for part in parts:
-        current /= part
-        if current.is_symlink():
-            raise ValueError("Symlink in content path")
-
-
 def _unique_pairs(pairs: list[tuple[str, object]]) -> dict:
     result = {}
     for key, value in pairs:
@@ -73,29 +57,39 @@ def validate_folder(folder: Path, *, expected_id: str | None = None) -> dict:
     folder = Path(folder)
     book_id = _book_id(expected_id or folder.name)
     _relative(book_id)
-    if folder.is_symlink() or not folder.is_dir():
+    try:
+        root_stat = folder.lstat()
+    except FileNotFoundError as exc:
+        raise ValueError("Worldbook folder must be a real directory") from exc
+    if (not stat.S_ISDIR(root_stat.st_mode) or
+            getattr(root_stat, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
         raise ValueError("Worldbook folder must be a real directory")
-    _no_links(folder, folder)
     count = 0
     total = 0
-    for base, dirs, files in os.walk(folder, followlinks=False):
-        base_path = Path(base)
-        for name in dirs + files:
-            path = base_path / name
-            _relative(path.relative_to(folder).as_posix())
-            _no_links(path, folder)
-            if path.is_symlink():
-                raise ValueError("Symlink in worldbook folder")
-            if path.is_file():
-                count += 1
-                size = path.stat().st_size
-                if size > _MAX_FOLDER_FILE_SIZE and path.name != "book.json":
-                    raise ValueError("Worldbook resource exceeds size limit")
-                total += size
-                if count > _MAX_FOLDER_FILES or total > _MAX_FOLDER_TOTAL_SIZE:
-                    raise ValueError("Worldbook folder exceeds size limit")
-            elif not path.is_dir():
-                raise ValueError("Unsupported worldbook folder entry")
+    # Each parent was checked before it entered the queue. Rechecking every
+    # ancestor for every resource makes a large book need tens of thousands of
+    # filesystem calls. DirEntry supplies one no-follow stat per entry instead.
+    pending = [folder]
+    while pending:
+        with os.scandir(pending.pop()) as entries:
+            for entry in entries:
+                _relative(entry.name)
+                info = entry.stat(follow_symlinks=False)
+                if (stat.S_ISLNK(info.st_mode) or
+                        getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+                    raise ValueError("Symlink or junction in worldbook folder")
+                if stat.S_ISDIR(info.st_mode):
+                    pending.append(entry.path)
+                elif stat.S_ISREG(info.st_mode):
+                    count += 1
+                    size = info.st_size
+                    if size > _MAX_FOLDER_FILE_SIZE and entry.name != "book.json":
+                        raise ValueError("Worldbook resource exceeds size limit")
+                    total += size
+                    if count > _MAX_FOLDER_FILES or total > _MAX_FOLDER_TOTAL_SIZE:
+                        raise ValueError("Worldbook folder exceeds size limit")
+                else:
+                    raise ValueError("Unsupported worldbook folder entry")
     book_path = folder / "book.json"
     if not book_path.is_file():
         raise ValueError("Worldbook folder is missing book.json")

@@ -12,28 +12,31 @@ CHARS = ["临光", "瑕光"]
 CATS = {"characters", "factions", "locations", "items", "world"}
 
 
-def doc_full_tokens(wm: WikiManager, cat: str, doc_id: str) -> int:
-    content = wm.get_document(cat, doc_id, "full") or ""
+def doc_full_tokens(wm: WikiManager, cat: str, doc_id: str, *, snapshot=None) -> int:
+    content = wm.get_document(cat, doc_id, "full", snapshot=snapshot) or ""
     return estimate_tokens(content)
 
 
 def build_full(wm: WikiManager) -> int:
     """全量注入：把目录内全部文档全文直接拼接。"""
     total = 0
+    snapshot = wm.catalog_snapshot()
+    _, by_category = snapshot
     for cat in CATS:
-        for doc_id in wm._by_category.get(cat, []):
-            total += doc_full_tokens(wm, cat, doc_id)
+        for doc_id in by_category.get(cat, []):
+            total += doc_full_tokens(wm, cat, doc_id, snapshot=snapshot)
     return total
 
 
 def build_layered(wm: WikiManager) -> int:
     """分层注入：目录摘要 + 角色 imports 链 core 提取 + 历史 3000 字 + 世界书触发样例。"""
     total = 0
-    catalog = wm.format_catalog_summary(CATS)
+    snapshot = wm.catalog_snapshot()
+    catalog = wm.format_catalog_summary(CATS, snapshot=snapshot)
     total += estimate_tokens(catalog)
 
     for name in CHARS:
-        chain = wm.resolve_imports_chain([f"characters/{name}"], max_depth=1)
+        chain = wm.resolve_imports_chain([f"characters/{name}"], max_depth=1, snapshot=snapshot)
         for path, d in chain.items():
             total += estimate_tokens(d.get("content") or "")
             total += estimate_tokens(d.get("summary") or "")
@@ -50,7 +53,8 @@ def run():
     wm = WikiManager(str(ROOT))
     full = build_full(wm)
     layered = build_layered(wm)
-    doc_count = sum(len(wm._by_category.get(c, [])) for c in CATS)
+    _, by_category = wm.catalog_snapshot()
+    doc_count = sum(len(by_category.get(c, [])) for c in CATS)
     print(json.dumps({
         "docs_in_catalog": doc_count,
         "characters_preloaded": CHARS,

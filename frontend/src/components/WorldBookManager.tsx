@@ -4,13 +4,12 @@ import remarkGfm from "remark-gfm";
 import { useApi } from "../hooks/useApi";
 import { useAppStore, type WorldBookTab } from "../stores/appStore";
 import type { StatFieldDTO, WorldBookDetail, WorldBookEntryDTO, WorldBookEntryGroupDTO, WorldBookEntryLayoutItemDTO, WorldBookSearchHit, WorldBookSummary, WorldBookType } from "../types";
-import { useScopePreview, useWorldbookDraft } from "../hooks/useWorldbookDraft";
+import { useWorldbookDraft } from "../hooks/useWorldbookDraft";
 import { BOOK_TYPE_LABELS, bookTypeOf, filterBooksByType, isReference,
   normalizeWorldbookTab, type BookTypeFilter } from "../utils/worldbookLibrary";
 import { LAYER_HINTS, LAYER_LABELS, bookEntryStats, entryLayer, entryTokens,
   isSortableEntry, sortEntriesByLayer, summaryEntryStats,
   type WorldBookEntryLayer } from "../utils/worldbookLayer";
-import type { WorldBookPanelProps } from "./worldbook/panel";
 import CoverPicker from "./worldbook/CoverPicker";
 import DeleteConfirmDialog from "./worldbook/DeleteConfirmDialog";
 import StatFieldsEditor from "./worldbook/StatFieldsEditor";
@@ -547,15 +546,10 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
 
   const effectiveTab = normalizeWorldbookTab(worldbookTab, detail);
   const visibleTabs = visibleWorldbookTabs(detail);
-  const { draft: configDraft, patch, dirty: configDirty, saving: configSaving,
-    save: saveConfig, undo: undoConfig, error: configError, conflict: configConflict } = useWorldbookDraft(detail);
-  const { preview, loading: previewing, error: previewError } = useScopePreview(
-    detail?.id || "", detail?.updated_at, configDraft, [], [], !!detail && !isReference(detail));
-  const panelProps: WorldBookPanelProps | null = detail && configDraft ? {
-    detail, draft: configDraft, patch, dirty: configDirty, saving: configSaving,
-    save: async () => { await saveConfig(); }, undo: undoConfig, saveError: configError,
-    conflict: configConflict, preview, previewing, previewError, roster: [], setRoster: () => undefined,
-  } : null;
+  const { draft: configDraft, dirty: configDirty, saving: configSaving,
+    save: saveConfig, undo: undoConfig, error: configError } = useWorldbookDraft(detail);
+  // Prompt preview owns its request and only mounts when its tab is opened.
+  const promptContext = detail && configDraft ? { detail, draft: configDraft } : null;
 
   const orderedEntries = useMemo(() => {
     if (!detail) return [];
@@ -581,12 +575,21 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
     const groupMap = detail?.entry_group_map || {};
     const byGroup = new Map(groups.map((group) => [group.id, group]));
     const visibleByUid = new Map(visibleEntries.map((entry) => [entry.uid, entry]));
+    const orderByUid = new Map(orderedEntries.map((entry, index) => [entry.uid, index]));
+    const entriesByGroup = new Map<string, WorldBookEntryDTO[]>();
+    for (const entry of visibleEntries) {
+      const groupId = groupMap[entry.uid];
+      if (!groupId) continue;
+      const members = entriesByGroup.get(groupId) || [];
+      members.push(entry);
+      entriesByGroup.set(groupId, members);
+    }
     const rows: EntryListRow[] = [];
     let previousLayer: WorldBookEntryLayer | null = null;
     const addEntries = (items: WorldBookEntryDTO[]) => {
       for (const entry of items) {
         const layer = entryLayer(entry);
-        rows.push({ kind: "entry", entry, orderIndex: orderedEntries.findIndex((item) => item.uid === entry.uid),
+        rows.push({ kind: "entry", entry, orderIndex: orderByUid.get(entry.uid) ?? -1,
           firstSystem: layer === "system" && previousLayer !== "system" });
         previousLayer = layer;
       }
@@ -595,7 +598,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       if (item.kind === "entry") { const entry = visibleByUid.get(item.uid); if (entry) addEntries([entry]); continue; }
       const group = byGroup.get(item.id);
       if (!group) continue;
-      const entries = visibleEntries.filter((entry) => groupMap[entry.uid] === group.id);
+      const entries = entriesByGroup.get(group.id) || [];
       rows.push({ kind: "group", group, count: entries.length });
       if (!collapsedGroups.has(group.id)) addEntries(entries);
     }
@@ -1861,7 +1864,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
 
         </div>}
 
-        {effectiveTab === "prompt" && panelProps && <PromptPreviewTab ctx={panelProps} onNotice={showToast} onReload={() => loadDetail(detail.id)} />}
+        {effectiveTab === "prompt" && promptContext && <PromptPreviewTab ctx={promptContext} onNotice={showToast} />}
         {/* 节点图（迁自「内容中心 → 节点图」）：按当前选中的世界书编辑，整页画布。
             不常驻挂载：画布自带全局 Ctrl+S / Ctrl+Z 快捷键，常驻会在其它页签抢键。 */}
         {effectiveTab === "graph" && <div className="wber-graph">

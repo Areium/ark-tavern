@@ -14,12 +14,14 @@ def register(app, managers):
 
     @bp.route("/api/wiki/catalog", methods=["GET"])
     def wiki_catalog():
+        snapshot = wiki_manager.catalog_snapshot()
+        catalog, by_category = snapshot
         return jsonify({
-            "summary": wiki_manager.format_catalog_summary(),
-            "total_docs": len(wiki_manager._catalog),
+            "summary": wiki_manager.format_catalog_summary(snapshot=snapshot),
+            "total_docs": len(catalog),
             "categories": {
                 cat: ids
-                for cat, ids in wiki_manager._by_category.items()
+                for cat, ids in by_category.items()
             },
         })
 
@@ -34,7 +36,8 @@ def register(app, managers):
     @bp.route("/api/wiki/refresh", methods=["POST"])
     def wiki_refresh():
         wiki_manager.refresh()
-        return jsonify({"message": "目录已刷新", "total": len(wiki_manager._catalog)})
+        catalog, _ = wiki_manager.catalog_snapshot()
+        return jsonify({"message": "目录已刷新", "total": len(catalog)})
 
     @bp.route("/api/wiki/backfill-summaries", methods=["POST"])
     def wiki_backfill_summaries():

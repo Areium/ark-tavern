@@ -72,7 +72,8 @@ class WikiPreFetchHook(NarrativeHook):
             return
 
         # 2. 提取匹配 catalog 的实体
-        entities = self._extract_entities(wm, texts, sc, overlay)
+        snapshot = wm.catalog_snapshot()
+        entities = self._extract_entities(wm, texts, sc, overlay, snapshot=snapshot)
 
         if not entities:
             logger.debug("WikiPreFetch: 无新实体可预取")
@@ -87,7 +88,7 @@ class WikiPreFetchHook(NarrativeHook):
                 category, doc_id = path.split("/", 1)
             except ValueError:
                 continue
-            content = wm.get_document(category, doc_id, "core")
+            content = wm.get_document(category, doc_id, "core", snapshot=snapshot)
             if content:
                 sc.add_wiki_result(path, content)
                 logger.debug("WikiPreFetch: 预取 %s (%s)", path, name)
@@ -146,17 +147,18 @@ class WikiPreFetchHook(NarrativeHook):
     # ── 实体提取 ──
 
     @staticmethod
-    def _extract_entities(wm, texts: list[str], sc, overlay) -> list[tuple[str, str]]:
+    def _extract_entities(wm, texts: list[str], sc, overlay, *, snapshot=None) -> list[tuple[str, str]]:
         """扫描 catalog 中所有文档名，在文本源中匹配。
 
         Returns:
             [(canonical_path, display_name), ...] 去重去已加载后的列表
         """
+        catalog, _ = snapshot if snapshot is not None else wm.catalog_snapshot()
         combined = "\n".join(texts)
         results = []
         seen = set()
 
-        for path, entry in wm._catalog.items():
+        for path, entry in catalog.items():
             name = entry.get("name", "")
             if not name or len(name) < 2:
                 continue

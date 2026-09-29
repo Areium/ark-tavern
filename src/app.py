@@ -138,8 +138,9 @@ def main():
     print(f"  文档类别: {len(doc_manager.list_categories())} 个")
 
     # 检查摘要缺失情况
-    total_docs = len(wiki_manager._catalog)
-    missing = sum(1 for entry in wiki_manager._catalog.values()
+    catalog, _ = wiki_manager.catalog_snapshot()
+    total_docs = len(catalog)
+    missing = sum(1 for entry in catalog.values()
                   if wiki_manager._needs_summary(entry["path"]))
     if total_docs > 0 and missing / total_docs > 0.5:
         print(f"  Wiki 摘要: {total_docs - missing}/{total_docs} 有摘要，"

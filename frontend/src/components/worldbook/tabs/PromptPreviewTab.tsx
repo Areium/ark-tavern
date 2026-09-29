@@ -3,7 +3,7 @@ import { useApi } from "../../../hooks/useApi";
 import { buildSaveBody } from "../../../hooks/useWorldbookDraft";
 import type { WorldBookEntryDTO, WorldBookPromptLayer, WorldBookPromptPreviewDTO, WorldBookPromptPreviewRequest } from "../../../types";
 import { bookEntryStats } from "../../../utils/worldbookLayer";
-import type { WorldBookTabProps } from "./types";
+import type { WorldBookPanelProps } from "../panel";
 import "../../../styles/worldbook-prompt-preview.css";
 
 export const PROMPT_PREVIEW_SCOPE_NOTE = "预览本世界书全部启用条目的插入内容，未启用的条目不参与预览。";
@@ -74,7 +74,10 @@ function usePromptPreview(
   return { data, loading, error, retry };
 }
 
-export default function PromptPreviewTab({ ctx, onNotice }: WorldBookTabProps) {
+export default function PromptPreviewTab({ ctx, onNotice }: {
+  ctx: Pick<WorldBookPanelProps, "detail" | "draft">;
+  onNotice: (text: string) => void;
+}) {
   const { detail, draft } = ctx;
   const [layer, setLayer] = useState<WorldBookPromptLayer>("stable");
   const policy = useMemo(() => buildSaveBody(draft), [draft]);

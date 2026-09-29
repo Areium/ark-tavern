@@ -458,7 +458,7 @@ def register(app, managers):
         invalidate_visibility_cache()
         wiki = managers.get("wiki")
         if wiki is not None:
-            wiki.refresh()
+            wiki.invalidate()
         return jsonify({"books": books})
 
     @bp.route("/api/worldbook/data-dir", methods=["GET"])

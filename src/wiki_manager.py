@@ -16,6 +16,7 @@ WikiManager — 统一文档入口。
 import os
 import re
 import logging
+from threading import RLock
 
 import yaml
 import frontmatter
@@ -27,46 +28,68 @@ logger = logging.getLogger(__name__)
 
 from constants import CORE_SECTIONS, ATTR_ENG_TO_CN
 
+CatalogSnapshot = tuple[dict[str, dict], dict[str, list[str]]]
+
 
 class WikiManager:
-    def __init__(self, project_root: str = None, *, book_ids=None):
+    def __init__(self, project_root: str = None, *, book_ids=None, _lock=None):
         if project_root is None:
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self._root = project_root
         # None is the global bookshelf; an empty binding sees no documents.
         self._book_ids = tuple(dict.fromkeys(book_ids)) if book_ids is not None else None
-        # "category/id" → {category, id, name, summary, path, imports: [str]}
-        self._catalog: dict[str, dict] = {}
-        # {category: [id, ...]}
-        self._by_category: dict[str, list[str]] = {}
+        self._lock = _lock if _lock is not None else RLock()
+        self._dirty = True
+        # Publish both indexes together; never mutate a published snapshot.
+        self._snapshot: CatalogSnapshot = ({}, {})
         self._scoped_cache: dict[tuple[str, ...], "WikiManager"] = {}
-        self._build_catalog()
+        self.catalog_snapshot()
+
+    def catalog_snapshot(self) -> CatalogSnapshot:
+        """Return one catalog generation. Callers must not mutate its dictionaries."""
+        with self._lock:
+            if self._dirty:
+                # A failed build leaves the old snapshot intact and dirty for retry.
+                snapshot = self._build_catalog()
+                self._snapshot = snapshot
+                self._dirty = False
+            return self._snapshot
+
+    def invalidate(self):
+        """Mark this catalog and already-held scoped catalogs dirty without scanning."""
+        with self._lock:
+            self._dirty = True
+            for child in self._scoped_cache.values():
+                child.invalidate()
 
     def refresh(self):
         """重建全量目录索引（文档增删后调用）。"""
-        self._catalog.clear()
-        self._by_category.clear()
-        self._scoped_cache.clear()
-        self._build_catalog()
-        logger.info("WikiManager: 目录已刷新，共 %d 个文档", len(self._catalog))
+        with self._lock:
+            self.invalidate()
+            catalog, _ = self.catalog_snapshot()
+        logger.info("WikiManager: 目录已刷新，共 %d 个文档", len(catalog))
 
     def scoped(self, book_ids):
         """Build an independent catalog for an ordered session worldbook binding."""
         key = tuple(dict.fromkeys(book_ids))
-        if key not in self._scoped_cache:
-            self._scoped_cache[key] = WikiManager(self._root, book_ids=key)
-        return self._scoped_cache[key]
+        with self._lock:
+            if key not in self._scoped_cache:
+                self._scoped_cache[key] = WikiManager(
+                    self._root, book_ids=key, _lock=self._lock)
+            return self._scoped_cache[key]
 
     # ── 目录构建 ──
 
-    def _build_catalog(self):
+    def _build_catalog(self) -> CatalogSnapshot:
         """扫描 categories.yaml 所有类别，解析 frontmatter 构建全量索引。"""
+        catalog: dict[str, dict] = {}
+        by_category: dict[str, list[str]] = {}
         if self._book_ids == ():
-            return
+            return catalog, by_category
         yaml_path = categories_path(self._root)
         if not os.path.isfile(yaml_path):
             logger.warning("categories.yaml 未找到: %s", yaml_path)
-            return
+            return catalog, by_category
 
         with open(yaml_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
@@ -83,14 +106,15 @@ class WikiManager:
                 logger.warning("忽略非法类别目录 %s: %s", cat_name, dir_rel)
                 continue
             for _, root in roots:
-                self._scan_category(cat_name, str(root))
+                self._scan_category(cat_name, str(root), catalog, by_category)
 
-        total = len(self._catalog)
-        logger.info("WikiManager: 已索引 %d 个文档, %d 个类别", total, len(self._by_category))
+        logger.info("WikiManager: 已索引 %d 个文档, %d 个类别", len(catalog), len(by_category))
+        return catalog, by_category
 
-    def _scan_category(self, cat_name: str, dir_path: str):
+    def _scan_category(self, cat_name: str, dir_path: str, catalog: dict,
+                       by_category: dict):
         """Index Markdown files beneath one category, retaining the first book's ID."""
-        ids = self._by_category.setdefault(cat_name, [])
+        ids = by_category.setdefault(cat_name, [])
         excluded = {"_index", "_INDEX", "README", "TEMPLATE"}
         entities = []
         files_found = []
@@ -114,14 +138,14 @@ class WikiManager:
                 (entities if stem == "index" else files_found).append((doc_id, filepath))
         for doc_id, filepath in entities + files_found:
             path_key = f"{cat_name}/{doc_id}"
-            if path_key in self._catalog:
+            if path_key in catalog:
                 continue
             entry = self._parse_doc(cat_name, doc_id, filepath)
             if entry:
-                self._catalog[path_key] = entry
+                catalog[path_key] = entry
                 ids.append(doc_id)
         if not ids:
-            self._by_category.pop(cat_name, None)
+            by_category.pop(cat_name, None)
 
     def _parse_doc(self, category: str, doc_id: str, filepath: str) -> dict | None:
         """解析单个文档的 frontmatter，返回 catalog entry。"""
@@ -166,13 +190,15 @@ class WikiManager:
 
     # ── 依赖链展开 ──
 
-    def resolve_imports_chain(self, entry_paths: list[str], max_depth: int = 2) -> dict[str, dict]:
+    def resolve_imports_chain(self, entry_paths: list[str], max_depth: int = 2,
+                              *, snapshot: CatalogSnapshot | None = None) -> dict[str, dict]:
         """从入口文档沿 imports 链 BFS 展开，返回 {path: {depth, name, summary, content}}。
 
         depth 0: 入口文档 → full content
         depth 1: 直接 imports → core (关键章节)
         depth 2: imports 的 imports → summary (one-liner)
         """
+        catalog, _ = snapshot if snapshot is not None else self.catalog_snapshot()
         result: dict[str, dict] = {}
         visited: set[str] = set()
         # queue: (path, depth)
@@ -186,7 +212,7 @@ class WikiManager:
 
         while queue:
             path, depth = queue.pop(0)
-            entry = self._catalog.get(path)
+            entry = catalog.get(path)
             if not entry or not is_content_visible(entry["path"], project_root=self._root):
                 continue
 
@@ -227,18 +253,19 @@ class WikiManager:
 
     def query(self, query_str: str) -> str:
         """模糊匹配文档。命中 1 个返回全文，多个返回候选列表，否则返回提示。"""
+        catalog, _ = self.catalog_snapshot()
         q = query_str.strip().lower()
         if not q:
             return "（wiki_query: 请提供查询关键词）"
 
         # 精确 path 匹配
         exact = self._normalize_path(query_str)
-        if exact and exact in self._catalog and is_content_visible(self._catalog[exact]["path"], project_root=self._root):
-            return self._format_doc_full(exact)
+        if exact and exact in catalog and is_content_visible(catalog[exact]["path"], project_root=self._root):
+            return self._format_doc_full(catalog[exact])
 
         # 按 name/id 匹配
-        matches: list[str] = []
-        for path_key, entry in self._catalog.items():
+        matches: list[tuple[int, str]] = []
+        for path_key, entry in catalog.items():
             if not is_content_visible(entry["path"], project_root=self._root):
                 continue
             score = 0
@@ -261,20 +288,22 @@ class WikiManager:
             return f"（wiki_query: 未找到与 '{query_str}' 相关的文档。可用文档列表请参见目录摘要。）"
 
         if len(matches) == 1 or matches[0][0] >= 90:
-            return self._format_doc_full(matches[0][1])
+            return self._format_doc_full(catalog[matches[0][1]])
 
         # 多个候选：返回列表
         lines = [f"找到 {len(matches)} 个与 '{query_str}' 相关的文档："]
         for score, path_key in matches[:8]:
-            entry = self._catalog[path_key]
+            entry = catalog[path_key]
             lines.append(f"- [{path_key}] {entry['name']}: {entry['summary'][:60]}")
         lines.append("\n请指定确切名称或路径以获取全文。")
         return "\n".join(lines)
 
-    def get_document(self, category: str, doc_id: str, depth: str = "full") -> str:
+    def get_document(self, category: str, doc_id: str, depth: str = "full",
+                     *, snapshot: CatalogSnapshot | None = None) -> str:
         """精确获取指定文档内容。"""
+        catalog, _ = snapshot if snapshot is not None else self.catalog_snapshot()
         path_key = f"{category}/{doc_id}"
-        entry = self._catalog.get(path_key)
+        entry = catalog.get(path_key)
         if not entry or not is_content_visible(entry["path"], project_root=self._root):
             return ""
         if depth == "summary":
@@ -296,6 +325,7 @@ class WikiManager:
         Returns:
             格式化的上下文文本。
         """
+        snapshot = self.catalog_snapshot()
         if not metadata:
             return ""
 
@@ -315,19 +345,19 @@ class WikiManager:
 
         race = metadata.get("race", "")
         if race and _is_entity_allowed("races", race):
-            text = self.get_document("races", race, "core")
+            text = self.get_document("races", race, "core", snapshot=snapshot)
             if text:
                 parts.append(f"【种族：{race}】\n{text}")
 
         class_ = metadata.get("class", "")
         if class_ and _is_entity_allowed("classes", class_):
-            text = self.get_document("classes", class_, "core")
+            text = self.get_document("classes", class_, "core", snapshot=snapshot)
             if text:
                 parts.append(f"【职业：{class_}】\n{text}")
 
         faction = metadata.get("faction", "")
         if faction and _is_entity_allowed("factions", faction):
-            text = self.get_document("factions", faction, "summary")
+            text = self.get_document("factions", faction, "summary", snapshot=snapshot)
             if text:
                 parts.append(f"【所属势力：{faction}】\n{text}")
 
@@ -336,7 +366,7 @@ class WikiManager:
             item_texts = []
             for item_name in key_items:
                 if _is_entity_allowed("items", item_name):
-                    text = self.get_document("items", item_name, "core")
+                    text = self.get_document("items", item_name, "core", snapshot=snapshot)
                     if text:
                         item_texts.append(f"「{item_name}」：{text}")
             if item_texts:
@@ -344,14 +374,16 @@ class WikiManager:
 
         attrs = metadata.get("attributes", {})
         if attrs:
-            attr_texts = self.build_character_attributes_context(attrs)
+            attr_texts = self.build_character_attributes_context(attrs, snapshot=snapshot)
             if attr_texts:
                 parts.append(f"【角色属性】\n{attr_texts}")
 
         return "\n\n".join(parts) if parts else ""
 
-    def build_character_attributes_context(self, attributes: dict) -> str:
+    def build_character_attributes_context(self, attributes: dict,
+                                           *, snapshot: CatalogSnapshot | None = None) -> str:
         """为角色的属性数值构建等级描述上下文。"""
+        snapshot = snapshot if snapshot is not None else self.catalog_snapshot()
         if not attributes:
             return ""
 
@@ -363,9 +395,9 @@ class WikiManager:
             level = int(level) if level else 5
             level = max(1, min(10, level))
 
-            full = self.get_document("attributes", cn_name, "full")
+            full = self.get_document("attributes", cn_name, "full", snapshot=snapshot)
             if not full:
-                summary = self.get_document("attributes", cn_name, "summary")
+                summary = self.get_document("attributes", cn_name, "summary", snapshot=snapshot)
                 lines.append(f"· {summary}: {level}/10")
                 continue
 
@@ -373,7 +405,7 @@ class WikiManager:
             if level_text:
                 lines.append(f"· {level_text}")
             else:
-                summary = self.get_document("attributes", cn_name, "summary")
+                summary = self.get_document("attributes", cn_name, "summary", snapshot=snapshot)
                 lines.append(f"· {summary}: {level}/10")
 
         return "\n".join(lines)
@@ -402,19 +434,19 @@ class WikiManager:
 
     def validate_imports(self) -> list[str]:
         """校验 catalog 中所有 imports 的引用完整性，返回问题描述列表。"""
+        catalog, _ = self.catalog_snapshot()
         issues = []
-        for path_key, entry in self._catalog.items():
+        for path_key, entry in catalog.items():
             for imp in entry.get("imports", []):
                 norm = self._normalize_path(imp)
-                if norm and norm not in self._catalog:
+                if norm and norm not in catalog:
                     issues.append(f"[{entry['category']}] '{entry['name']}': 引用不存在 → {imp}")
         if issues:
             logger.warning("imports 完整性检查发现 %d 个问题", len(issues))
         return issues
 
-    def _format_doc_full(self, path_key: str) -> str:
+    def _format_doc_full(self, entry: dict) -> str:
         """格式化返回文档全文。"""
-        entry = self._catalog[path_key]
         if not is_content_visible(entry["path"], project_root=self._root):
             return ""
         content = self._read_content(entry["path"])
@@ -432,12 +464,15 @@ class WikiManager:
     CHARACTER_CATALOG_CATS = {"characters", "factions", "locations", "items",
                                "races", "classes", "attributes", "world"}
 
-    def format_catalog_summary(self, categories: set[str] | None = None) -> str:
+    def format_catalog_summary(self, categories: set[str] | None = None,
+                               *, snapshot: CatalogSnapshot | None = None) -> str:
         """格式化轻量目录，按类别分组，供 system prompt 注入。
 
         Args:
             categories: 要包含的类别集合。为 None 时包含全部类别。
+            snapshot: 已取得的同代目录；省略时读取当前目录。
         """
+        catalog, by_category = snapshot if snapshot is not None else self.catalog_snapshot()
         if categories is not None and not isinstance(categories, set):
             categories = set(categories)
 
@@ -452,12 +487,12 @@ class WikiManager:
         for cat_name, cat_label in category_order:
             if categories is not None and cat_name not in categories:
                 continue
-            ids = self._by_category.get(cat_name, [])
+            ids = by_category.get(cat_name, [])
             if not ids:
                 continue
             entries = []
             for doc_id in ids:
-                entry = self._catalog.get(f"{cat_name}/{doc_id}")
+                entry = catalog.get(f"{cat_name}/{doc_id}")
                 if entry and is_content_visible(entry["path"], project_root=self._root):
                     entries.append((entry["name"], entry["summary"][:50]))
             if entries:
@@ -562,12 +597,13 @@ class WikiManager:
         Returns:
             {"generated": int, "skipped": int, "errors": int, "details": [...]}
         """
+        catalog, _ = self.catalog_snapshot()
         generated = 0
         skipped = 0
         errors = 0
         details: list[dict] = []
 
-        for path_key, entry in self._catalog.items():
+        for path_key, entry in catalog.items():
             filepath = entry["path"]
             if not self._needs_summary(filepath):
                 skipped += 1

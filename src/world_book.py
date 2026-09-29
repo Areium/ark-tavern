@@ -2420,9 +2420,7 @@ class WorldBookManager:
             return None
         if book_id in self._cache:
             return self._cache[book_id]
-        validate_folder(path.parent)
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = validate_folder(path.parent)
         book = WorldBook.from_dict(data)
         if book.id != book_id:
             raise ValueError("世界书文件名与内部 ID 不一致")
