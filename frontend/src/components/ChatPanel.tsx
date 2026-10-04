@@ -25,6 +25,7 @@ function isVisibleSession(sessionId: string): boolean {
 
 function enterSessionCombat(sessionId: string, state: CombatStateDTO | null = null, navigationRevision?: number) {
   const store = useAppStore.getState();
+  if (!store.sessions.some(session => session.id === sessionId)) return;
   store.setSessions(store.sessions.map(session => session.id === sessionId
     ? { ...session, in_combat: true } : session));
   // 后台会话仍完成自身请求，但不能抢占正在查看的页面。
@@ -150,7 +151,10 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   const briefingCombatState = result?.briefing === pendingBriefing ? result?.state : null;
   const briefingRequests = useRef(new Set<string>());
   const [briefingBusy, setBriefingBusy] = useState<Record<string, boolean>>({});
-  const [briefingErrors, setBriefingErrors] = useState<Record<string, string>>({});
+  const [briefingErrors, setBriefingErrors] = useState<Record<string, { briefing: CombatBriefingDTO; message: string }>>({});
+  const briefingError = pendingBriefing && briefingErrors[pendingBriefing.session_id]?.briefing === pendingBriefing
+    ? briefingErrors[pendingBriefing.session_id].message : "";
+  const manualCombatRequest = useRef(0);
   const [initialLoading, setInitialLoading] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
@@ -429,7 +433,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
     if (briefingRequests.current.has(b.session_id)) return;
     briefingRequests.current.add(b.session_id);
     setBriefingBusy(prev => ({ ...prev, [b.session_id]: true }));
-    setBriefingErrors(prev => ({ ...prev, [b.session_id]: "" }));
+    setBriefingErrors(prev => ({ ...prev, [b.session_id]: { briefing: b, message: "" } }));
     try {
       const sideview = sessions.find((session) => session.id === b.session_id)?.combat_mode === "sideview";
       const resp = sideview
@@ -452,7 +456,9 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
         setPendingAutoNarrate(b.session_id, { action: `战斗已避免（${resp.label}），描述当前场景与去向` });
       }
     } catch (err: any) {
-      setBriefingErrors(prev => ({ ...prev, [b.session_id]: "启动战斗失败: " + (err.message || "未知错误") }));
+      if (useAppStore.getState().sessionBriefings[b.session_id] === b) {
+        setBriefingErrors(prev => ({ ...prev, [b.session_id]: { briefing: b, message: "启动战斗失败: " + (err.message || "未知错误") } }));
+      }
     } finally {
       briefingRequests.current.delete(b.session_id);
       setBriefingBusy(prev => ({ ...prev, [b.session_id]: false }));
@@ -793,7 +799,11 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                     ? "enc_quick_test_1"
                     : prompt("输入世界书中的战斗节点 ID（可在节点图查看）")?.trim();
                   if (!encounterId) return;
-                  const navigationRevision = useAppStore.getState().navigationRevision;
+                  const requestId = ++manualCombatRequest.current;
+                  const before = useAppStore.getState();
+                  const navigationRevision = before.navigationRevision;
+                  const epoch = before.sessionEpochs[activeSession.id!] || 0;
+                  const previousBriefing = before.sessionBriefings[activeSession.id!];
                   try {
                     let response: any;
                     if (activeSession.combat_mode === "sideview") {
@@ -801,7 +811,13 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                     } else {
                       response = await api.combatStart(activeSession.id!, encounterId, []);
                     }
+                    const latest = useAppStore.getState();
+                    if (requestId !== manualCombatRequest.current
+                      || (latest.sessionEpochs[activeSession.id!] || 0) !== epoch
+                      || latest.sessionBriefings[activeSession.id!] !== previousBriefing
+                      || !latest.sessions.some(session => session.id === activeSession.id)) return;
                     if (response.kind === "approaches") {
+                      if (!isVisibleSession(activeSession.id!) || latest.navigationRevision !== navigationRevision) return;
                       setPendingBriefing(activeSession.id!, { session_id: activeSession.id!, encounter_id: encounterId,
                         name: encounterId, approaches: response.approaches });
                       return;
@@ -1248,7 +1264,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
               </button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
-              {briefingErrors[pendingBriefing.session_id] && <p role="alert" className="text-sm text-red-300 mb-3">{briefingErrors[pendingBriefing.session_id]}</p>}
+              {briefingError && <p role="alert" className="text-sm text-red-300 mb-3">{briefingError}</p>}
               <p className="text-[12px] text-gray-500 mb-3">
                 战斗选项为必选流程节点，无法关闭；可最小化后继续查看剧情，完成后自动恢复。
               </p>

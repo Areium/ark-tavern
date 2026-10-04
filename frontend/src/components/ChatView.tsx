@@ -24,6 +24,16 @@ export default function ChatView() {
 
   const [stageOnly, setStageOnly] = useState(false);
   const [musicMuted, setMusicMuted] = useState(() => audioManager.getSettings().muted);
+  // ChatView 常驻挂载。返回同一会话时补拉在后台完成的角色、环境、数值与回忆。
+  useEffect(() => {
+    if (currentView !== "chat") return;
+    const store = useAppStore.getState();
+    if (!store.activeSessionId) return;
+    store.triggerCharacterRefresh();
+    store.triggerEnvRefresh();
+    store.triggerStatsRefresh();
+    store.triggerMemoryRefresh();
+  }, [currentView]);
   useEffect(() => {
     if (chatLayout !== "stage" || currentView !== "chat") setStageOnly(false);
     if (currentView === "chat") setMusicMuted(audioManager.getSettings().muted);

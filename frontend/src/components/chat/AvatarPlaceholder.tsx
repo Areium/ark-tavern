@@ -33,18 +33,22 @@ export default function AvatarPlaceholder({ name, size = "sm", sessionId }: Avat
   const initial = name.charAt(0);
   const sizeClass = size === "sm" ? "w-8 h-8 text-xs" : "w-10 h-10 text-sm";
   const resourceVersion = useAppStore((s) => s.resourceVersion);
-  // 失败只属于这个 URL；切会话或刷新资源立即重试，旧图片事件不污染新地址。
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const src = avatarUrl(name, sessionId, resourceVersion);
+  // URL 变化即换实例，包括 A → B → A；旧图片事件不能污染新地址。
+  return <AvatarImage key={src} src={src} name={name} sizeClass={sizeClass} bg={bg} initial={initial} />;
+}
 
-  if (failedSrc !== src) {
+function AvatarImage({ src, name, sizeClass, bg, initial }: {
+  src: string; name: string; sizeClass: string; bg: string; initial: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  if (!failed) {
     return (
       <img
-        key={src}
         src={src}
         alt={name}
         className={`dlg-ava ${sizeClass} rounded-full object-cover flex-shrink-0`}
-        onError={() => setFailedSrc(src)}
+        onError={() => setFailed(true)}
       />
     );
   }

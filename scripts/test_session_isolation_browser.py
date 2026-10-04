@@ -122,6 +122,12 @@ def run(baseline=False):
         }""")
         page.wait_for_timeout(300)
         report["no_unscoped_avatar_fallback"] = not any("session_id" not in q for q in avatar_requests)
+        page.evaluate("qaPortrait('story-b')")
+        page.wait_for_function("document.querySelector('#qa-portrait img')?.naturalWidth === 32")
+        before = len(avatar_requests)
+        page.evaluate("qaPortrait('portrait-missing')")
+        page.wait_for_timeout(150)
+        report["avatar_retries_after_session_roundtrip"] = any(q.get("session_id") == ["portrait-missing"] for q in avatar_requests[before:])
         page.evaluate("qaPortrait('portrait-refresh')")
         page.wait_for_timeout(300)
         before = len(avatar_requests)
@@ -269,6 +275,33 @@ def run(baseline=False):
             page.evaluate("session => {qaHoldSession=false;qaSessionReads.forEach(resolve=>resolve(session));}", SESSIONS[0])
             page.wait_for_timeout(150)
             report["cancelled_initial_load_does_not_narrate"] = page.evaluate("qaNarrations.length") == count
+            for scenario in ("replaced", "cleared", "navigation"):
+                page.evaluate("""() => {
+                  const store=qaStore.getState();
+                  store.setSessionMessages('combat-a',[{role:'narrator',content:'手动战斗测试',round:1}]);
+                  store.setSessions(store.sessions.map(s=>({...s,in_combat:false})));
+                  store.setPendingBriefing('combat-a',null);store.setActiveSession('combat-a');
+                }""")
+                count = page.evaluate("qaRequests.length")
+                page.once("dialog", lambda dialog: dialog.accept("manual-gate"))
+                page.get_by_title("手动触发战斗", exact=True).click()
+                page.wait_for_function("count => qaRequests.length > count", arg=count)
+                if scenario == "replaced":
+                    page.evaluate("qaStore.getState().setPendingBriefing('combat-a',{...qaBriefing('combat-a'),name:'新简报'})")
+                elif scenario == "cleared":
+                    page.evaluate("qaStore.getState().clearSessionStream('combat-a')")
+                else:
+                    page.evaluate("qaStore.getState().setActiveSession('story-b');qaStore.getState().setActiveSession('combat-a')")
+                page.evaluate("qaRequests.at(-1).resolve({kind:'approaches',approaches:qaBriefing('combat-a').approaches})")
+                page.wait_for_timeout(150)
+                actual = page.evaluate("qaStore.getState().sessionBriefings['combat-a']?.name || null")
+                report[f"manual_start_{scenario}_response_ignored"] = actual == ("新简报" if scenario == "replaced" else None)
+            page.evaluate("qaStore.getState().setCurrentView('home')")
+            before = page.evaluate("[qaStore.getState().envRefreshKey,qaStore.getState().memoryRefreshKey,qaStore.getState().statsRefreshKey,qaStore.getState().characterRefreshKey]")
+            page.evaluate("qaStore.getState().setCurrentView('chat')")
+            page.wait_for_timeout(150)
+            after = page.evaluate("[qaStore.getState().envRefreshKey,qaStore.getState().memoryRefreshKey,qaStore.getState().statsRefreshKey,qaStore.getState().characterRefreshKey]")
+            report["returning_view_refreshes_background_changes"] = all(a > b for a, b in zip(after, before))
         report["no_page_errors"] = not errors
         report["no_unexpected_console_errors"] = not unexpected_console
         print(json.dumps({**report, "page_errors": errors, "console_errors": unexpected_console}, ensure_ascii=False, indent=2))

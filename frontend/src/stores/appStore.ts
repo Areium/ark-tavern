@@ -193,6 +193,7 @@ interface AppState {
   sessionSending: Record<string, boolean>;
   sessionNarrationCount: Record<string, number>;
   sessionAbortFns: Record<string, (() => void) | null>;
+  sessionEpochs: Record<string, number>;
 
   setSessionMessages: (sessionId: string, updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => void;
   setSessionStreaming: (sessionId: string, streaming: boolean) => void;
@@ -374,6 +375,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sessionSending: {},
   sessionNarrationCount: {},
   sessionAbortFns: {},
+  sessionEpochs: {},
 
   setSessionMessages: (sessionId, updater) => set((state) => ({
     sessionMessages: {
@@ -397,7 +399,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   })),
   clearSessionStream: (sessionId) => {
     get().sessionAbortFns[sessionId]?.();
-    set(({ sessionMessages, sessionStreaming, sessionSending, sessionNarrationCount, sessionAbortFns, sessionBriefings, sessionAutoNarrate }) => {
+    set(({ sessionMessages, sessionStreaming, sessionSending, sessionNarrationCount, sessionAbortFns, sessionBriefings, sessionAutoNarrate, sessionEpochs }) => {
       const { [sessionId]: _, ...restMessages } = sessionMessages;
       const { [sessionId]: __, ...restStreaming } = sessionStreaming;
       const { [sessionId]: ___, ...restSending } = sessionSending;
@@ -413,6 +415,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sessionAbortFns: restAbort,
         sessionBriefings: restBriefings,
         sessionAutoNarrate: restActions,
+        sessionEpochs: { ...sessionEpochs, [sessionId]: (sessionEpochs[sessionId] || 0) + 1 },
       };
     });
   },
