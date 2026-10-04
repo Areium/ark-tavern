@@ -229,6 +229,8 @@ async function serve() {
   const fixtureStats = ['玩家', 'narrative', 'tactical', 'sideview', '空白'].map(name => ({ ...structuredClone(playerStats), name, is_player: name === '玩家',
     ...(name === '空白' ? { fields: [], values: {}, sources: {} } : {}) }));
   let graphMode = 'normal';
+  let worldbookFlow, worldbookDoc;
+  const { sessionPlotFlow, sessionGraphDocument } = require(src('utils/sessionStoryGraph.ts'));
   const fixture = `
 import React, {useState} from 'react';
 import {createRoot} from 'react-dom/client';
@@ -239,7 +241,7 @@ import '/src/style.css';
 import '/src/styles/chat.css';
 import '/src/styles/session-story-graph.css';
 const choices = ${JSON.stringify(choiceMessage)};
-const session = {id:'fixture', name:'前端测试', mode:'story', combat_mode:'narrative', player_identity:'玩家', characters:['同伴'], narration_count:1};
+const session = {id:'fixture', name:'前端测试', mode:'story', combat_mode:'narrative', player_identity:'玩家', characters:['同伴'], narration_count:1,worldbook_ids:['fixture-book']};
 useAppStore.setState({activeSessionId:'fixture', chatMode:'story', sessions:[session], chatLayout:'graph', currentView:'chat', sessionMessages:{fixture:[choices]}, sessionNarrationCount:{fixture:1}});
 function Fixture(){
  const state=useAppStore(); const [card,setCard]=useState(false); const [cardName,setCardName]=useState('');
@@ -308,7 +310,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`;
         if (url.pathname.includes('/overrides/characters/')) data = /\/(tactical|sideview)$/.test(url.pathname) ? { progress: { level: 4, xp: 15 }, combat_stats: { hp: 120, patk: 30, matk: 20, heal: 0, def: 10, res: 5, spd: 7, hit: 95, eva: 3, max_ap: 6 } } : { progress: null, combat_stats: null };
         if (url.pathname.endsWith('/stage')) data = { session_id:'fixture', location:'雨夜入口', weather:'小雨', time:'夜晚', atmosphere:[],
           background:{url:null,source:'none',bg_id:''}, player:{name:'玩家',skin_url:null,avatar_url:null,color:null}, characters:[{name:'同伴',skin_url:null,avatar_url:null,color:null,active:true}], scene_media:null };
-        if (url.pathname.endsWith('/story-state')) data = { has_plot:true, plot_name:'长夜归途', roads:[
+        if (url.pathname.endsWith('/story-state')) data = { has_plot:true, plot_id:'fixture-plot', plot_name:'长夜归途', roads:[
           {chapter_idx:0,id:'rain',kind:'main',title:'雨中的约定',state:'current',beats:[
             {id:'gate',title:'抵达旧城',summary:'长夜开始，灯火渐次亮起。',state:'done',choice_required:false},
             {id:'bridge',title:'桥头的约定',summary:'与同伴会合，寻找雨中的线索。',state:'current',choice_required:false},
@@ -324,6 +326,14 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`;
         if (url.pathname.endsWith('/stage')) data.scene_media = { round:1, beat_id:graphMode === 'rollback' ? 'gate' : 'bridge', chapter_idx:1 };
         if (url.pathname.endsWith('/story-state') && graphMode === 'rollback') { data.tree.current_id = 'root'; data.tree.path=['root']; }
         if (url.pathname.endsWith('/story-state') && graphMode === 'empty') data={has_plot:false,roads:[]};
+        if (url.pathname.endsWith('/story-state') && data.has_plot && !worldbookFlow) {
+          worldbookFlow = {...sessionPlotFlow(data),worldbook_id:'fixture-book'};
+          worldbookDoc = sessionGraphDocument(data,worldbookFlow);
+          worldbookDoc.nodes.find(node=>node.ref?.beat_id==='bridge').y=160;
+          worldbookDoc.nodes.push({id:'author-note',type:'note',title:'世界书备注',content:'保存图位置沿用测试',x:552,y:360});
+        }
+        if (url.pathname === '/api/combat/nodes/graph') data={book_id:'fixture-book',plots:worldbookFlow?[worldbookFlow]:[],nodes:[],meta:{}};
+        if (url.pathname === '/api/plot-graphs/fixture-plot') data={plot_id:'fixture-plot',book_id:'fixture-book',graph:worldbookDoc};
         res.end(JSON.stringify(data));
       }); },
     }],

@@ -22,6 +22,7 @@
  *       视口外节点/连线跳过渲染（视口裁剪）。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type {
   PlotGraphDocDTO, PlotGraphNodeDTO, PlotGraphNodeType,
 } from "../../types";
@@ -45,12 +46,15 @@ export interface GraphCanvasApi {
   zoomBy: (factor: number) => void;
   resetZoom: () => void;
   fit: () => void;
+  focusNode: (id: string, zoom?: number) => void;
 }
 
 export interface AvailableBeat { chapterIdx: number; beatId: string; label: string }
 export interface AvailableCombat { nodeId: string; label: string }
 
 interface Props {
+  mode?: "editor" | "session";
+  renderNodeOverlay?: (node: PlotGraphNodeDTO) => ReactNode;
   doc: PlotGraphDocDTO;
   view: ViewState;
   onViewChange: (v: ViewState) => void;
@@ -114,6 +118,8 @@ const SIDES: { side: "top" | "right" | "bottom" | "left"; fx: (r: NodeRect) => n
 
 export default function GraphCanvas(props: Props) {
   const { doc, view, onViewChange, selected, onSelect, onDocChange, displays } = props;
+  const sessionMode = props.mode === "session";
+  const sessionModeRef = useRef(sessionMode); sessionModeRef.current = sessionMode;
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef(view); viewRef.current = view;
   const docRef = useRef(doc); docRef.current = doc;
@@ -138,6 +144,15 @@ export default function GraphCanvas(props: Props) {
   const sizes = useRef(new Map<string, NodeRect>());
   const [sizesTick, setSizesTick] = useState(0);
   const ro = useRef<ResizeObserver | null>(null);
+
+  useEffect(() => {
+    if (!sessionMode) return;
+    setMenu(null);
+    setEditingId(null);
+    setLinkPos(null);
+    setRewirePos(null);
+    if (interaction.current?.kind === "link" || interaction.current?.kind === "rewire") interaction.current = null;
+  }, [sessionMode]);
 
   // ── 坐标换算（唯一入口：client → 视口内屏幕坐标 → 图内坐标）──
   const toScreen = useCallback((clientX: number, clientY: number) => {
@@ -180,6 +195,20 @@ export default function GraphCanvas(props: Props) {
     onViewChange(fitView(docRef.current.nodes, sizes.current, rect.width, rect.height));
   }, [onViewChange]);
 
+  const focusNode = useCallback((id: string, zoom?: number) => {
+    const node = docRef.current.nodes.find((n) => n.id === id);
+    const viewport = viewportRef.current;
+    if (!node || !viewport) return;
+    const rect = viewport.getBoundingClientRect();
+    const measured = sizes.current.get(id);
+    const targetZoom = clampZoom(zoom ?? viewRef.current.zoom);
+    onViewChange({
+      zoom: targetZoom,
+      x: rect.width / 2 - (node.x + (measured?.w ?? NODE_W) / 2) * targetZoom,
+      y: rect.height / 2 - (node.y + (measured?.h ?? estimateNodeH(node)) / 2) * targetZoom,
+    });
+  }, [onViewChange]);
+
   // 对外 API（页面新建节点取视口中心、工具栏联动）
   useEffect(() => {
     if (props.canvasApiRef) {
@@ -192,9 +221,10 @@ export default function GraphCanvas(props: Props) {
         zoomBy: zoomCenter,
         resetZoom: () => zoomCenter(1 / viewRef.current.zoom),
         fit,
+        focusNode,
       };
     }
-  }, [props.canvasApiRef, zoomCenter, fit]);
+  }, [props.canvasApiRef, zoomCenter, fit, focusNode]);
 
   // ── 滚轮：缩放/平移（必须非 passive 才能 preventDefault）──
   useEffect(() => {
@@ -332,7 +362,7 @@ export default function GraphCanvas(props: Props) {
         const prev = lastNodeClick.current;
         const isDouble = !!prev && prev.id === it.id && now - prev.t <= DBLCLICK_MS;
         lastNodeClick.current = isDouble ? null : { id: it.id, t: now };
-        if (isDouble) {
+        if (isDouble && !sessionMode) {
           const node = docRef.current.nodes.find((n) => n.id === it.id);
           if (node) { enterNodeEdit(node); return; }
         }
@@ -350,6 +380,7 @@ export default function GraphCanvas(props: Props) {
     }
     if (it.kind === "link") {
       setLinkPos(null);
+      if (sessionMode) return;
       // 落点命中节点 → 连线；落在空白 → 生成新分支节点（自由节点）并连线
       const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-ng-node]");
       const targetId = hit?.dataset.ngNode;
@@ -363,6 +394,7 @@ export default function GraphCanvas(props: Props) {
     }
     if (it.kind === "rewire") {
       setRewirePos(null);
+      if (sessionMode) return;
       const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-ng-node]");
       const targetId = hit?.dataset.ngNode;
       if (targetId) {
@@ -397,6 +429,7 @@ export default function GraphCanvas(props: Props) {
   };
 
   const onAnchorPointerDown = (e: React.PointerEvent, node: PlotGraphNodeDTO, side: "top" | "right" | "bottom" | "left") => {
+    if (sessionMode) return;
     if (e.button !== 0) return;
     e.stopPropagation(); e.preventDefault();
     closeMenu();
@@ -415,6 +448,7 @@ export default function GraphCanvas(props: Props) {
   };
 
   const onReconnectHandleDown = (e: React.PointerEvent, edgeId: string, end: "from" | "to") => {
+    if (sessionMode) return;
     if (e.button !== 0) return;
     e.stopPropagation(); e.preventDefault();
     capture(e);
@@ -428,6 +462,7 @@ export default function GraphCanvas(props: Props) {
    * 自由节点内联编辑标题与备注，其余类型打开既有抽屉编辑器编辑其内容/属性。
    */
   const enterNodeEdit = (node: PlotGraphNodeDTO) => {
+    if (sessionMode) return;
     lastEditAt.current = performance.now();
     closeMenu();
     setEditingId(null);
@@ -452,6 +487,7 @@ export default function GraphCanvas(props: Props) {
    * 统一走节点工厂：手动与 LLM 生成共用同一入口，页面只需要处理结果文档。
    */
   const createNoteAt = useCallback(async (wx: number, wy: number, opts?: { attachFrom?: string }) => {
+    if (sessionModeRef.current) return;
     try {
       const res = await createNodes({
         source: "manual",
@@ -461,6 +497,7 @@ export default function GraphCanvas(props: Props) {
           ? { connect: "none", attach: { fromNodeId: opts.attachFrom } }
           : { connect: "none" },
       }, docRef.current);
+      if (sessionModeRef.current) return;
       const created = res.nodes[0];
       onDocChange(res.doc);
       onSelect({ kind: "node", id: created.id });
@@ -473,6 +510,7 @@ export default function GraphCanvas(props: Props) {
   // ── 右键菜单 ──
   const onContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
+    if (sessionMode) return;
     const rect = viewportRef.current!.getBoundingClientRect();
     const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
     const hit = (e.target as HTMLElement).closest<HTMLElement>("[data-ng-node]");
@@ -612,12 +650,16 @@ export default function GraphCanvas(props: Props) {
             rect={rects.get(n.id)!}
             display={displays.get(n.id) ?? { title: n.title }}
             selected={selected?.kind === "node" && selected.id === n.id}
-            editing={editingId === n.id}
+            sessionMode={sessionMode}
+            overlay={props.renderNodeOverlay?.(n)}
+            onSelect={() => onSelect({ kind: "node", id: n.id })}
+            editing={!sessionMode && editingId === n.id}
             linkSource={linkPos != null}
             onPointerDown={onNodePointerDown}
             onAnchorDown={onAnchorPointerDown}
             onDoubleClick={onNodeDoubleClick}
             onEditCommit={(title, content) => {
+              if (sessionMode) return;
               const cur = docRef.current.nodes.find((x) => x.id === n.id);
               setEditingId(null);
               if (cur && (cur.title !== title || (cur.content ?? "") !== content)) {
@@ -629,7 +671,7 @@ export default function GraphCanvas(props: Props) {
         ))}
 
         {/* 选中连线的重连端点 */}
-        {selected?.kind === "edge" && (() => {
+        {!sessionMode && selected?.kind === "edge" && (() => {
           const edge = doc.edges.find((e) => e.id === selected.id);
           if (!edge) return null;
           const a = rects.get(edge.from), b = rects.get(edge.to);
@@ -681,25 +723,29 @@ export default function GraphCanvas(props: Props) {
         <div className="ng-empty">
           <div className="ng-empty-card">
             <p className="ng-empty-title">这张图还是空的</p>
-            <p className="ng-empty-sub">
-              从剧情文档的章节结构生成初始布局；没有章节骨架的剧情可先让 LLM 分析文本切出章节与节拍。
-              也可右键空白处新建自由节点。
-            </p>
-            <div className="ng-empty-actions">
-              <button className="ng-empty-btn primary" disabled={props.analyzing} onClick={props.onImportLayout}>从剧情结构生成布局</button>
-              {props.onAnalyzePlot && (
-                <button className="ng-empty-btn" disabled={props.analyzing} onClick={props.onAnalyzePlot}>
-                  {props.analyzing ? "LLM 分析中…" : "LLM 分析剧情结构"}
-                </button>
-              )}
-              <button className="ng-empty-btn" disabled={props.analyzing} onClick={() => createNoteAt(0, 0)}>新建自由节点</button>
-            </div>
+            {sessionMode ? <p className="ng-empty-sub">当前会话暂无剧情节点。</p> : (
+              <>
+                <p className="ng-empty-sub">
+                  从剧情文档的章节结构生成初始布局；没有章节骨架的剧情可先让 LLM 分析文本切出章节与节拍。
+                  也可右键空白处新建自由节点。
+                </p>
+                <div className="ng-empty-actions">
+                  <button className="ng-empty-btn primary" disabled={props.analyzing} onClick={props.onImportLayout}>从剧情结构生成布局</button>
+                  {props.onAnalyzePlot && (
+                    <button className="ng-empty-btn" disabled={props.analyzing} onClick={props.onAnalyzePlot}>
+                      {props.analyzing ? "LLM 分析中…" : "LLM 分析剧情结构"}
+                    </button>
+                  )}
+                  <button className="ng-empty-btn" disabled={props.analyzing} onClick={() => createNoteAt(0, 0)}>新建自由节点</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
 
       {/* 右键菜单（视口内绝对定位） */}
-      {menu && (
+      {!sessionMode && menu && (
         <div className="ng-menu" style={{
           left: Math.min(menu.sx, (viewportRef.current?.clientWidth ?? 800) - 230),
           top: Math.min(menu.sy, (viewportRef.current?.clientHeight ?? 600) - 260),
@@ -771,6 +817,9 @@ interface CardProps {
   selected: boolean;
   editing: boolean;
   linkSource: boolean;
+  sessionMode: boolean;
+  overlay?: ReactNode;
+  onSelect: () => void;
   onPointerDown: (e: React.PointerEvent, node: PlotGraphNodeDTO) => void;
   onAnchorDown: (e: React.PointerEvent, node: PlotGraphNodeDTO, side: "top" | "right" | "bottom" | "left") => void;
   onDoubleClick: (e: React.MouseEvent, node: PlotGraphNodeDTO) => void;
@@ -779,7 +828,7 @@ interface CardProps {
 }
 
 const GraphCard = memo(function GraphCard({
-  node, rect, display, selected, editing, linkSource,
+  node, rect, display, selected, editing, linkSource, sessionMode, overlay, onSelect,
   onPointerDown, onAnchorDown, onDoubleClick, onEditCommit, onEditCancel,
 }: CardProps) {
   const meta = NODE_META[node.type as PlotGraphNodeType] ?? NODE_META.note;
@@ -796,6 +845,12 @@ const GraphCard = memo(function GraphCard({
   return (
     <div
       data-ng-node={node.id}
+      data-ng-progress={display.progress}
+      aria-current={display.progress === "current" ? "step" : undefined}
+      role={sessionMode ? "button" : undefined}
+      tabIndex={sessionMode ? 0 : undefined}
+      aria-label={sessionMode ? display.title || node.title || meta.label : undefined}
+      aria-pressed={sessionMode ? selected : undefined}
       className={
         "ng-node " + `ng-node-${node.type}` +
         (selected ? " ng-selected" : "") +
@@ -807,6 +862,12 @@ const GraphCard = memo(function GraphCard({
       onDoubleClick={(e) => onDoubleClick(e, node)}
       onBlur={(e) => { if (editing && !e.currentTarget.contains(e.relatedTarget as Node)) submit(); }}
       onKeyDown={(e) => {
+        if (sessionMode && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          e.stopPropagation();
+          onSelect();
+          return;
+        }
         if (editing && e.key === "Escape") onEditCancel();
         if (editing && e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT") submit();
       }}
@@ -847,8 +908,9 @@ const GraphCard = memo(function GraphCard({
           )}
         </>
       )}
+      {overlay}
       {/* 边缘锚点：悬停浮现，拖出即连线 */}
-      {SIDES.map((s) => (
+      {!sessionMode && SIDES.map((s) => (
         <i
           key={s.side}
           className={"ng-anchor ng-anchor-" + s.side}

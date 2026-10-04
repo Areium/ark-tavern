@@ -1,164 +1,120 @@
-import type { StageDTO, StoryStateDTO, StoryTreeDTO } from "../types";
+import type { PlotFlowDTO, PlotGraphDocDTO, PlotGraphNodeDTO, StageDTO, StoryStateDTO } from "../types";
+import type { GraphNodeDisplay } from "../components/combat/GraphCanvas";
+import { importLayoutFromFlow, nodeIdentity, NODE_W, LAYOUT_H_GAP } from "../components/combat/graphModel";
 
-export const STORY_GRAPH_NODE_WIDTH = 224;
-export const STORY_GRAPH_NODE_HEIGHT = 128;
-export const STORY_GRAPH_MAX_ZOOM = 2;
-export type SessionGraphNodeState = "current" | "path" | "visited" | "locked";
-export interface SessionGraphNode {
-  id: string;
-  title: string;
-  summary: string;
-  type: "plot" | "chapter" | "beat" | "combat";
-  subtitle: string;
-  x: number;
-  y: number;
-  state: SessionGraphNodeState;
-}
-export interface SessionGraphEdge { source: string; target: string; onPath: boolean; label?: string }
-export interface SessionGraphLayout {
-  nodes: SessionGraphNode[];
-  edges: SessionGraphEdge[];
-  width: number;
-  height: number;
-}
-const EMPTY: SessionGraphLayout = { nodes: [], edges: [], width: 0, height: 0 };
-export const SESSION_GRAPH_STATE_LABEL = { current: "当前位置", path: "已抵达", visited: "已探索分支", locked: "未抵达" };
-export const SESSION_GRAPH_KIND_LABEL = { plot: "剧情入口", chapter: "章节", beat: "剧情节拍", combat: "战斗节点" };
+export type SessionGraphPositions = Record<string, { x: number; y: number }>;
+export const sessionPositionKey = (node: PlotGraphNodeDTO) => node.id.startsWith("scene:") ? node.id : nodeIdentity(node);
 
-export function sessionGraphFitZoom(layout: Pick<SessionGraphLayout, "width" | "height">,
-  viewport: { width: number; height: number }): number {
-  if (!layout.width || !layout.height || !viewport.width || !viewport.height) return 1;
-  return Math.min(1, Math.max(1, viewport.width - 24) / layout.width, Math.max(1, viewport.height - 24) / layout.height);
+/** The same worldbook ordering/layout, including when only a session roadmap exists. */
+export function sessionPlotFlow(state: StoryStateDTO): PlotFlowDTO {
+  return { plot_id: state.plot_id || "session", name: state.plot_name || "剧情节点图", summary: "",
+    worldbook_id: "", source: "outline", combat_nodes: [],
+    chapters: (state.roads ?? []).map(road => ({ idx: road.chapter_idx + 1, id: road.id,
+      title: road.title, summary: road.summary, label: road.title, kind: road.kind, combat_nodes: [],
+      beats: road.beats.map(beat => ({ id: beat.id, title: beat.title, summary: beat.summary,
+        keep_on_deviate: !!beat.keep_on_deviate, choice_required: beat.choice_required,
+        branches: beat.authored_branches, combat_nodes: [] })) })) };
 }
 
-/** All authored chapters/beats and every generated scene.
- * A narration may advance the roadmap before it is committed: the round-bound
- * stage cue identifies the beat the player just saw. It must never mark a second
- * node current. The runtime tree owns the avatar; cues only color authored beats.
- * Chapter progress is derived from its beats, not array order (branches can be skipped).
- */
-export function layoutSessionStoryGraph(state?: StoryStateDTO | null, cue?: StageDTO["scene_media"] | null): SessionGraphLayout {
-  if (!state?.has_plot) return EMPTY;
-  const tree = state.tree;
-  const hasTree = !!tree?.has_tree;
-  const roads = state.roads ?? [];
-  const currentBeat = cue?.round && cue.beat_id ? cue.beat_id : hasTree ? undefined : state.beat?.id;
-  const currentChapter = cue?.round && cue.beat_id ? roads.find(road => road.chapter_idx + 1 === cue.chapter_idx)?.id
-    : hasTree ? undefined : state.chapter?.id;
-  const nodes: SessionGraphNode[] = [];
-  const edges: SessionGraphEdge[] = [];
+/** Keep saved positions/edges, completing missing authored nodes with the shared importer. */
+export function sessionGraphDocument(state: StoryStateDTO, flow = sessionPlotFlow(state), saved?: PlotGraphDocDTO | null): PlotGraphDocDTO {
+  const generated = importLayoutFromFlow(flow, new Map());
+  if (!saved?.nodes.length) return generated;
+  const nodes = saved.nodes.map(node => ({ ...node }));
+  const byIdentity = new Map(nodes.map(node => [nodeIdentity(node), node]));
+  const mapped = new Map<string, string>();
+  const added = new Set<string>();
+  for (const node of generated.nodes) {
+    let target = byIdentity.get(nodeIdentity(node));
+    if (!target) {
+      target = { ...node, id: `session:${node.id}` };
+      nodes.push(target); added.add(target.id); byIdentity.set(nodeIdentity(node), target);
+    }
+    mapped.set(node.id, target.id);
+  }
+  const edges = [...saved.edges];
+  for (const edge of generated.edges) {
+    const from = mapped.get(edge.from)!; const to = mapped.get(edge.to)!;
+    if ((added.has(from) || added.has(to)) && !edges.some(e => e.from === from && e.to === to)) edges.push({ ...edge, id: `session:${edge.id}`, from, to });
+  }
+  return { ...saved, nodes, edges };
+}
+
+export function applySessionGraphPositions(doc: PlotGraphDocDTO, positions: SessionGraphPositions): PlotGraphDocDTO {
+  return { ...doc, nodes: doc.nodes.map(node => {
+    const pos = positions[sessionPositionKey(node)];
+    return pos && Number.isFinite(pos.x) && Number.isFinite(pos.y) ? { ...node, x: pos.x, y: pos.y } : node;
+  }) };
+}
+
+/** Tree refs can already point ahead; use the round-bound scene cue for arrival. */
+export function sessionGraphProgress(state: StoryStateDTO, base: PlotGraphDocDTO, cue?: StageDTO["scene_media"] | null) {
+  let doc = base;
+  const displays = new Map<string, GraphNodeDisplay>();
+  const arrived = new Set<string>();
   const completed = new Set(state.completed_beats ?? []);
-  const beatNodes = new Map<string, SessionGraphNode>();
-  const chapterNodes = new Map<string, SessionGraphNode>();
-  const ids = new Set<string>();
-  const addEdge = (source: string, target: string, label?: string) => {
-    if (source === target || !ids.has(source) || !ids.has(target) || edges.some(e => e.source === source && e.target === target)) return;
-    const a = nodes.find(node => node.id === source)!;
-    const b = nodes.find(node => node.id === target)!;
-    edges.push({ source, target, onPath: a.state !== "locked" && b.state !== "locked" && b.state !== "visited", label });
-  };
-  for (const [row, road] of roads.entries()) {
-    const y = 76 + row * 224;
-    const chapter: SessionGraphNode = { id: `chapter:${road.chapter_idx}:${road.id}`, title: road.title || `章节 ${road.chapter_idx + 1}`,
-      summary: road.summary || "", type: "chapter", subtitle: road.kind === "branch" ? "分支路线" : `第 ${road.chapter_idx + 1} 章`,
-      x: 48, y, state: "locked" };
-    nodes.push(chapter); ids.add(chapter.id); chapterNodes.set(road.id, chapter);
-    for (const [col, beat] of road.beats.entries()) {
-      const arrived = beat.id === currentBeat && (!currentChapter || road.id === currentChapter);
-      const progress = arrived ? hasTree ? "path" : "current" : beat.state === "done" || completed.has(beat.id) || beat.round_start != null ? "path" : "locked";
-      const entry: SessionGraphNode = { id: `beat:${road.chapter_idx}:${beat.id}`, title: beat.title || beat.summary || beat.id,
-        summary: beat.summary, type: beat.has_combat ? "combat" : "beat", subtitle: `节拍 ${col + 1} · ${beat.id}`,
-        x: 360 + col * 312, y, state: progress };
-      nodes.push(entry); ids.add(entry.id); beatNodes.set(beat.id, entry);
-    }
-    // Chapter cards group beats; the runtime tree owns the avatar when present.
-    if (road.beats.some(beat => beatNodes.get(beat.id)?.state === "current" || beatNodes.get(beat.id)?.state === "path")) chapter.state = "path";
-    else if (road.beats.some(beat => beatNodes.get(beat.id)?.state === "visited")) chapter.state = "visited";
+  for (const road of state.roads ?? []) for (const beat of road.beats) {
+    if (beat.state === "done" || completed.has(beat.id) || beat.round_start != null) arrived.add(`${road.chapter_idx + 1}:${beat.id}`);
   }
-  let previousMain: SessionGraphNode | undefined;
-  let previousRequiresChoice = false;
-  for (const road of roads) {
-    const chapter = chapterNodes.get(road.id)!;
-    const first = beatNodes.get(road.beats[0]?.id);
-    if (first) addEdge(chapter.id, first.id);
-    if (road.kind === "branch") {
-      const origin = beatNodes.get(road.origin?.beat_id || "") || chapterNodes.get(road.origin?.chapter_id || "");
-      if (origin) addEdge(origin.id, chapter.id);
-    } else {
-      if (previousMain && !previousRequiresChoice) addEdge(previousMain.id, chapter.id);
-      previousMain = beatNodes.get(road.beats[road.beats.length - 1]?.id) || chapter;
-      previousRequiresChoice = !!road.beats[road.beats.length - 1]?.choice_required;
-    }
-    road.beats.forEach((beat, index) => {
-      const from = beatNodes.get(beat.id)!;
-      const branches = beat.authored_branches ?? [];
-      const targets = branches.map(branch => ({ target: beatNodes.get(branch.target_beat_id || ""), label: branch.label }));
-      for (const { target, label } of targets) if (target) addEdge(from.id, target.id, label);
-      // Optional choices preserve normal progression; mandatory choices do not.
-      if (!beat.choice_required) {
-        const next = beatNodes.get(road.beats[index + 1]?.id);
-        if (next) addEdge(from.id, next.id);
-      }
-    });
-  }
-  // Keep every generated scene and its real parent edges. Multiple scenes can
-  // share or change a beat ref: collapsing them would erase genuine forks.
-  // The tree current ID is the sole avatar position when a tree exists, even
-  // when the historical stage cue fails or progress has advanced ahead.
-  const journey = layoutRuntimeTree(tree, 76 + roads.length * 224);
-  nodes.push(...journey.nodes);
-  edges.push(...journey.edges);
-  if (!nodes.length) return EMPTY;
-  return { nodes, edges, width: nodes.reduce((max, node) => Math.max(max, node.x), 0) + STORY_GRAPH_NODE_WIDTH + 48,
-    height: nodes.reduce((max, node) => Math.max(max, node.y), 0) + STORY_GRAPH_NODE_HEIGHT + 64 };
-}
-
-/** Iterative forest layout: deep scenes, orphan roots and malformed cycles stay
- * visible without recursion. parent_id is authoritative; no guessed choice edges.
- */
-function layoutRuntimeTree(tree: StoryTreeDTO | undefined, top: number) {
-  if (!tree?.has_tree) return { nodes: [], edges: [] };
-  const records = new Map<string, StoryTreeDTO["nodes"][number]>();
-  for (const node of tree.nodes) if (node.id && !records.has(node.id)) records.set(node.id, node);
-  const children = new Map<string, string[]>();
-  const roots: string[] = [];
-  for (const node of records.values()) {
-    if (!node.parent_id || node.parent_id === node.id || !records.has(node.parent_id)) roots.push(node.id);
+  const tree = state.tree?.has_tree ? state.tree : undefined;
+  const currentScene = tree?.nodes.find(node => node.id === tree.current_id);
+  let current: PlotGraphNodeDTO | undefined;
+  if (!tree || currentScene) {
+    if (currentScene?.kind === "combat") current = doc.nodes.find(node => node.type === "combat" && node.ref?.node_id === currentScene.combat_node_id);
     else {
-      const siblings = children.get(node.parent_id) ?? [];
-      siblings.push(node.id);
-      children.set(node.parent_id, siblings);
+      const beatId = cue?.round ? cue.beat_id : !tree ? state.beat?.id : undefined;
+      const chapterIdx = cue?.round ? cue.chapter_idx : (state.chapter?.idx ?? -1) + 1;
+      current = doc.nodes.find(node => node.type === "beat" && node.ref?.beat_id === beatId && node.ref?.chapter_idx === chapterIdx);
     }
   }
-  const path = new Set(tree.path ?? []);
-  const placed = new Map<string, SessionGraphNode>();
-  const edges: SessionGraphEdge[] = [];
-  let lane = 0;
-  for (const root of [...roots, ...records.keys()]) {
-    if (placed.has(root)) continue;
-    const stack = [{ id: root, depth: 0, exit: false, descendants: [] as string[] }];
-    while (stack.length) {
-      const frame = stack.pop()!;
-      if (frame.exit) {
-        placed.get(frame.id)!.y = frame.descendants.length
-          ? (placed.get(frame.descendants[0])!.y + placed.get(frame.descendants[frame.descendants.length - 1])!.y) / 2
-          : top + lane++ * 184;
-        continue;
-      }
-      if (placed.has(frame.id)) continue;
-      const node = records.get(frame.id)!;
-      const entry: SessionGraphNode = { id: `scene:${node.id}`, title: node.title || node.id, summary: node.summary,
-        type: node.kind || "beat", subtitle: "会话剧情", x: 48 + frame.depth * 312, y: 0,
-        state: node.id === tree.current_id ? "current" : path.has(node.id) ? "path" : node.has_state ? "visited" : "locked" };
-      placed.set(node.id, entry);
-      const descendants = (children.get(node.id) ?? []).filter(id => !placed.has(id));
-      stack.push({ ...frame, exit: true, descendants });
-      for (let i = descendants.length - 1; i >= 0; i--) {
-        const id = descendants[i];
-        edges.push({ source: entry.id, target: `scene:${id}`, onPath: path.has(node.id) && (path.has(id) || id === tree.current_id) });
-        stack.push({ id, depth: frame.depth + 1, exit: false, descendants: [] });
+  // A scene without an author anchor stays a normal shared card on the same canvas.
+  if (doc.nodes.length <= 1 && doc.nodes.every(node => node.type === "plot") && tree) {
+    const nodes: PlotGraphNodeDTO[] = [];
+    const records = new Map(tree.nodes.map(node => [node.id, node]));
+    const placed = new Set<string>();
+    const children = new Map<string, string[]>();
+    for (const node of tree.nodes) {
+      const siblings = children.get(node.parent_id || "") ?? [];
+      siblings.push(node.id); children.set(node.parent_id || "", siblings);
+    }
+    let lane = 0;
+    for (const root of [...tree.nodes.filter(node => !node.parent_id || !records.has(node.parent_id)), ...tree.nodes]) {
+      const stack = [{ id: root.id, depth: 0 }];
+      while (stack.length) {
+        const item = stack.pop()!;
+        if (placed.has(item.id)) continue;
+        placed.add(item.id);
+        const record = records.get(item.id)!;
+        nodes.push({ id: `scene:${record.id}`, type: record.kind || "beat", title: record.title || record.id,
+          content: record.summary, x: 40 + item.depth * (NODE_W + LAYOUT_H_GAP), y: 200 + lane++ * 160 });
+        for (const id of [...(children.get(item.id) ?? [])].reverse()) stack.push({ id, depth: item.depth + 1 });
       }
     }
+    doc = { ...doc, nodes, edges: tree.nodes.filter(node => node.parent_id && node.parent_id !== node.id && records.has(node.parent_id))
+      .map(node => ({ id: `scene-edge:${node.id}`, from: `scene:${node.parent_id}`, to: `scene:${node.id}` })) };
+    current = doc.nodes.find(node => node.id === `scene:${tree.current_id}`);
+  } else if (!current && currentScene) {
+    const dynamic: PlotGraphNodeDTO = { id: `scene:${currentScene.id}`, type: currentScene.kind || "beat",
+      title: currentScene.title || "当前场景", content: currentScene.summary,
+      x: Math.max(40, ...doc.nodes.map(node => node.x + NODE_W + LAYOUT_H_GAP)), y: 200 };
+    doc = { ...doc, nodes: [...doc.nodes, dynamic] }; current = dynamic;
   }
-  return { nodes: [...placed.values()], edges };
+  const runtimeById = new Map(tree?.nodes.map(node => [`scene:${node.id}`, node]) ?? []);
+  for (const node of doc.nodes) {
+    let progress: GraphNodeDisplay["progress"] = "locked";
+    if (node.id.startsWith("scene:")) {
+      if (runtimeById.get(node.id)?.has_state) progress = "done";
+    } else if (node.type === "plot") {
+      if (currentScene || arrived.size || current) progress = "done";
+    } else if (node.type === "beat") {
+      if (arrived.has(`${node.ref?.chapter_idx}:${node.ref?.beat_id}`)) progress = "done";
+    } else if (node.type === "chapter") {
+      if ([...arrived].some(key => key.startsWith(`${node.ref?.chapter_idx}:`)) || current?.ref?.chapter_idx === node.ref?.chapter_idx) progress = "done";
+    } else if (node.type === "combat") {
+      if (tree?.nodes.some(item => item.kind === "combat" && item.combat_node_id === node.ref?.node_id && item.has_state)) progress = "done";
+    }
+    if (node.id === current?.id) progress = "current";
+    displays.set(node.id, { title: node.title, body: node.content, progress });
+  }
+  return { doc, displays, currentId: current?.id };
 }

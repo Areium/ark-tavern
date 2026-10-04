@@ -2,15 +2,11 @@
   display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0;
   overflow: hidden; color: var(--ng-body); background: var(--chat-card);
 }
-.session-graph-toolbar, .session-graph-navigation {
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-  gap: 8px 16px; padding: 12px 20px; border-bottom: 1px solid var(--chat-line);
-}
-.session-graph-heading { display: flex; align-items: center; gap: 12px; min-width: 0; color: var(--chat-accent); }
-.session-graph-heading h2 { font: 600 18px var(--chat-serif); color: var(--ng-title); margin: 0; }
-.session-graph-heading span { color: var(--ng-muted); font-size: 11px; letter-spacing: .04em; }
-.session-graph-navigation { padding: 8px 20px; background: var(--chat-soft); }
-.session-graph-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.session-graph-toolbar { display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 10px 20px; border-bottom: 1px solid var(--chat-line); }
+.session-graph-heading { display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--chat-accent); }
+.session-graph-heading h2 { font: 600 16px var(--chat-serif); color: var(--ng-title); margin: 0; }
+.session-graph-tools { display: flex; align-items: center; gap: 4px; }
 .session-graph-tools button, .session-graph-empty button, .session-story-panel-heading button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px;
   padding: 5px 10px; border: 1px solid var(--chat-line-strong); border-radius: 6px;
@@ -19,73 +15,34 @@
 .session-graph-tools button:hover:not(:disabled), .session-graph-empty button:hover, .session-story-panel-heading button:hover {
   border-color: var(--chat-accent); color: var(--chat-accent);
 }
-.session-graph-tools button[aria-pressed="true"] { border-color: var(--chat-accent); color: var(--chat-accent); }
 .session-story-graph button:disabled { opacity: .4; cursor: not-allowed; }
 .session-story-graph :focus-visible, .session-story-panel-heading button:focus-visible {
   outline: 2px solid var(--chat-accent); outline-offset: 3px;
 }
-.session-graph-tools output { min-width: 42px; text-align: center; font-size: 11px; font-variant-numeric: tabular-nums; }
-.session-graph-legend { display: flex; align-items: center; gap: 18px; font-size: 11px; color: var(--ng-muted); }
-.session-graph-legend > span { display: inline-flex; align-items: center; gap: 6px; }
-.session-graph-legend i { width: 7px; height: 7px; border-radius: 50%; background: var(--ng-muted); }
-.session-graph-legend .is-current i { background: var(--chat-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--chat-accent) 18%, transparent); }
-.session-graph-legend .is-path i { background: var(--ng-beat); }
 .session-graph-canvas { position: relative; flex: 1; min-height: 0; }
-.session-graph-viewport {
-  position: absolute; inset: 0; overflow: auto; overscroll-behavior: contain; cursor: grab;
-  scrollbar-color: var(--chat-line-strong) var(--chat-card); user-select: none;
-  background-color: var(--chat-soft);
-  background-image: radial-gradient(circle, var(--ng-grid-dot) 1px, transparent 1px);
-  background-size: 24px 24px;
+.session-story-graph .ng-node[data-ng-progress="current"] {
+  border-color: var(--chat-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--chat-accent) 12%, transparent);
 }
-.session-graph-viewport:active { cursor: grabbing; }
-.session-graph-plane { position: absolute; transform-origin: top left; }
-.session-graph-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
-.session-graph-edges > path { fill: none; stroke: var(--ng-edge-color); stroke-width: 1.8; }
-.session-graph-edges > .is-path { stroke: var(--ng-beat); }
-.session-graph-edges > .is-locked { stroke-dasharray: 5 5; opacity: .5; }
-.session-story-graph .session-graph-node {
-  position: absolute; display: flex; flex-direction: column; text-align: left;
-  cursor: default; transition: border-color .15s, box-shadow .15s;
+.session-story-graph .ng-node[data-ng-progress="locked"] {
+  border-color: color-mix(in srgb, var(--ng-muted) 35%, transparent);
+  background: color-mix(in srgb, var(--ng-card-bg) 92%, var(--ng-muted));
 }
-.session-graph-node .ng-node-head { flex-shrink: 0; padding: 9px 12px; gap: 6px; }
-.session-graph-node-kind { font-size: 10px; color: var(--ng-muted); }
-.session-graph-node-state { margin-left: auto; font-size: 10px; color: var(--ng-muted); white-space: nowrap; }
-.session-graph-node-title {
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-  overflow: hidden; margin: 11px 14px 0; font-size: 14px; font-weight: 600;
-  line-height: 1.5; color: var(--ng-title); overflow-wrap: anywhere;
-}
-.session-graph-node-caption { display: block; padding: 0 14px 12px; margin-top: auto;
-  font-size: 10px; color: var(--ng-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.session-story-graph .session-graph-node.is-current {
-  border: 2px solid var(--chat-accent);
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--chat-accent) 10%, transparent), 0 5px 24px rgba(0,0,0,.12);
-}
-.session-graph-node.is-current .session-graph-node-state { color: var(--chat-accent); font-weight: 600; }
-.session-story-graph .session-graph-node.is-locked { border-color: color-mix(in srgb, var(--ng-muted) 35%, transparent);
-  background: color-mix(in srgb, var(--ng-card-bg) 90%, var(--ng-muted)); box-shadow: none; }
-.session-graph-node.is-locked > .ng-node-bar { background: var(--ng-muted); opacity: .5; }
-.session-graph-node.is-locked > .ng-node-head { background: color-mix(in srgb, var(--ng-muted) 8%, transparent); }
-.session-graph-node.is-locked .ng-node-icon, .session-graph-node.is-locked .session-graph-node-title { color: var(--ng-muted); }
-.session-graph-node.is-visited { border-style: dashed; }
+.session-story-graph .ng-node[data-ng-progress="locked"] .ng-node-bar { background: var(--ng-muted); }
+.session-story-graph .ng-node[data-ng-progress="locked"] .ng-node-head { background: color-mix(in srgb, var(--ng-muted) 8%, transparent); }
+.session-story-graph .ng-node[data-ng-progress="locked"] .ng-node-title,
+.session-story-graph .ng-node[data-ng-progress="locked"] .ng-node-icon { color: var(--ng-muted); }
 .session-graph-cast {
-  position: absolute; display: flex; align-items: center; gap: 0; top: -30px; right: 10px;
+  position: absolute; display: flex; align-items: center; top: -30px; right: 10px; pointer-events: none;
   padding: 3px; border: 1px solid var(--chat-accent); border-radius: 22px;
   background: var(--ng-card-bg); box-shadow: 0 3px 12px rgba(0,0,0,.15);
 }
 .session-graph-cast > img, .session-graph-cast > div { width: 34px; height: 34px; border: 2px solid var(--ng-card-bg); }
-.session-graph-cast > img + img, .session-graph-cast > div + div, .session-graph-cast > img + div, .session-graph-cast > div + img { margin-left: -7px; }
+.session-graph-cast > * + * { margin-left: -7px; }
 .session-graph-cast > span { padding: 0 5px; font-size: 10px; color: var(--ng-title); }
-.session-graph-canvas-note {
-  position: absolute; left: 20px; bottom: 14px; right: 20px; display: flex; justify-content: space-between; gap: 16px;
-  color: var(--ng-muted); font-size: 11px; pointer-events: none;
-}
-.session-graph-canvas-note > span { opacity: .75; }
+.session-graph-status { position: absolute; left: 20px; top: 12px; color: var(--ng-muted); font-size: 11px; pointer-events: none; }
 .session-graph-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 12px; padding: 24px; text-align: center; overflow: auto; }
 .session-graph-empty h3 { font: 600 18px var(--chat-serif); color: var(--ng-title); }
 .session-graph-empty p { max-width: 48ch; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .session-story-panel-heading { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 8px; }
-
-.session-graph-section-title { position: absolute; font-size: 12px; letter-spacing: .1em; color: var(--ng-muted); }

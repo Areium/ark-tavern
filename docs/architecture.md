@@ -119,7 +119,7 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 - `components/ChatView.tsx` — 对话页容器：顶栏（左：返回大厅 / 主菜单 / **场景面板开合**；中：会话名 + 剧情/自由；右：**布局切换「记录 / 舞台 / 节点图」**）+ 左侧 `scene/ScenePanel.tsx` + `ChatPanel.tsx`（消息流/流式输出/选项/变体/回滚/对话气泡；舞台模式下挂 `stage/StageView.tsx`，消息流变成覆盖在舞台上的「记录」抽屉）。原右侧独立「会话资源」面板已并入场景面板的「资源」页，顶栏原「会话大厅 🏛 / 会话资源 🗂」两个小按钮撤销
 - `components/scene/ScenePanel.tsx` — 场景面板：竖向图标栏 + 当前页。页签来自**插件注册表** `plugins/scenePanels.tsx`（`registerScenePanel`）：内置八个面板（角色 / 物品 / 环境 / 剧情 / 回忆 / 任务 / **数值** / 资源）在 `plugins/builtin.tsx` 登记，第三方面板放 `plugins/custom/*.tsx` 由 `plugins/index.ts` 的 `import.meta.glob` 自动加载（示例 `custom/sessionNotes.tsx`）。面板拿到 `ScenePanelContext`（`stats` 会话数值读写 / `data` 命名空间插件数据 / `refresh` 刷新键 / `api`），在 `ErrorBoundary` 内渲染；收起时只剩图标栏。`scene/CharacterStatsPanel.tsx` 是「数值」页，也是 `ctx.stats` 的参考实现。开发说明 `plugins/README.md`，设计见 `docs/design/session-scene-plugins.md`
 - `components/stage/StageView.tsx` + `utils/stageScript.ts` — **舞台（视觉小说）视图**：`GET /api/sessions/<id>/stage` 给背景（会话覆盖 > 地点 `combat_bg` > default，都没有时按时段/天气生成渐变）与场景角色立绘；`stageScript` 把最新一条叙述/回复折算成逐句步骤（后端 `dialogueSegments` 优先），点击对话框推进、说话人立绘高亮（写 `appStore.highlightedSpeaker`，场景角色列表与消息流气泡点击共用）、走到末尾亮出选项；流式中实时显示
-- `components/story/SessionStoryGraph.tsx` + `utils/sessionStoryGraph.ts` — 会话完整剧情节点图：全量章节/节拍路线与实际生成轨迹同屏，未来节点置灰，头像按当前树节点定位；只显示图，剧情操作通过舞台/记录模式进行。
+- `components/story/SessionStoryGraph.tsx` + `utils/sessionStoryGraph.ts` — 会话剧情节点图：复用世界书 `GraphCanvas` 和排序布局，优先读取绑定书的已保存节点位置；未抵达置灰、头像定位本轮实际节拍，拖动位置仅本地保存。只显示图，剧情操作通过舞台/记录模式进行。
 - `components/chat/` — 气泡渲染子组件（DialogueBubble（点击台词高亮说话人）、NarrationText、AvatarPlaceholder 等）；对话页样式集中在 `styles/chat.css`（`--ng-*` 令牌，随皮肤 / 明暗）
 - `components/MarkdownRenderer.tsx` — 统一 Markdown 渲染
 - `utils/dialogueParser.ts` — 解析 `「」` 对话为 `DialogueSegment[]`，前文叙述匹配场景角色名确定说话人

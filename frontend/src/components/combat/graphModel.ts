@@ -312,14 +312,13 @@ export function importLayoutFromFlow(
     }
   }
 
-  // Authored branch targets replace inferred sequential exits. Layout remains
-  // editorial, but should not draw a different choice route from the outline.
+  // Required choices replace inferred exits; optional choices keep continuation.
   for (const chapter of plot.chapters) for (const beat of chapter.beats) {
     const targets = beat.branches?.filter(branch => branch.target_beat_id) ?? [];
-    if (!targets.length) continue;
+    if (!targets.length && !beat.choice_required) continue;
     const source = nodes.find(n => n.type === "beat" && n.ref?.beat_id === beat.id);
     if (!source) continue;
-    for (let i = edges.length - 1; i >= 0; i--) {
+    for (let i = edges.length - 1; beat.choice_required && i >= 0; i--) {
       if (edges[i].from === source.id && nodes.find(n => n.id === edges[i].to)?.type !== "combat") edges.splice(i, 1);
     }
     for (const branch of targets) {
