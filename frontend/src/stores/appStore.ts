@@ -24,7 +24,7 @@ export interface AutoNarrate {
   settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string; engine?: "sideview"; durationMs?: number };
 }
 
-type ViewName = "home" | "chat" | "sessions" | "settings" | "combat" | "worldbook" | "docs" | "characters";
+type ViewName = "home" | "chat" | "sessions" | "settings" | "combat" | "combat-modes" | "worldbook" | "docs" | "characters";
 
 /** 对话页布局：消息流 / 视觉小说舞台 */
 export type ChatLayout = "log" | "stage" | "graph";

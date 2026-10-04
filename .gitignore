@@ -7,6 +7,8 @@ data/worldbooks/*
 !data/worldbooks/README.md
 data/worldbook_jobs/
 data/worldbook_analysis/
+data/combat_modes/
+data/combat_mode_archive/
 config/llm_config.json
 venv/
 .venv/

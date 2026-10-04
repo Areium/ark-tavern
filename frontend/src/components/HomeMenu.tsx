@@ -19,7 +19,7 @@ import AppIcon, { type AppIconName } from "./AppIcon";
 
 const asset = (p: string) => import.meta.env.BASE_URL + p;
 
-type MenuView = "sessions" | "characters" | "worldbook" | "docs" | "settings";
+type MenuView = "sessions" | "characters" | "worldbook" | "combat-modes" | "docs" | "settings";
 
 interface MenuItem {
   id: MenuView;
@@ -33,6 +33,7 @@ const MENU_ITEMS: MenuItem[] = [
   { id: "sessions", label: "会话大厅", icon: "sessions", desc: "进入故事与战斗", primary: true },
   { id: "characters", label: "角色", icon: "characters", desc: "角色库 · 玩家身份 · 资产 · 卡牌" },
   { id: "worldbook", label: "世界书", icon: "worldbook", desc: "条目 · Prompt 预览 · 节点图 · 会话条目" },
+  { id: "combat-modes", label: "战斗模式", icon: "combat", desc: "插件安装 · 模式管理" },
   { id: "docs", label: "文档", icon: "docs", desc: "帮助与设定文档" },
   { id: "settings", label: "设置", icon: "settings", desc: "LLM · 主题 · 叙述选项" },
 ];

@@ -27,6 +27,7 @@ from document_manager import DocumentManager
 from wiki_manager import WikiManager
 from combat_session import CombatTestSessionManager
 from world_book import WorldBookManager
+from combat_mode_packages import CombatModePackages
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ def create_app():
         "document": DocumentManager(),
         "combat_test": CombatTestSessionManager(),
         "worldbook": WorldBookManager(),
+        "combat_modes": CombatModePackages(),
     }
     managers["session"] = SessionManager(
         managers["llm_backend"], wiki_manager=managers["wiki"],
@@ -67,6 +69,7 @@ def create_app():
     from blueprints.scene import register as reg_scene
     from blueprints.combat import register as reg_combat
     from blueprints.sideview import register as reg_sideview
+    from blueprints.combat_modes import register as reg_combat_modes
     from blueprints.combat_nodes import register as reg_combat_nodes
     from blueprints.documents import register as reg_documents
     from blueprints.index import register as reg_index
@@ -88,6 +91,7 @@ def create_app():
         reg_scene,
         reg_combat,
         reg_sideview,
+        reg_combat_modes,
         reg_combat_nodes,
         reg_documents,
         reg_index,
