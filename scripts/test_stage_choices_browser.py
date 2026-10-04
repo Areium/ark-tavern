@@ -40,6 +40,9 @@ def run():
         errors, requests = [], []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
+        # System fonts keep this isolated UI regression independent of Google
+        # Fonts availability (including screenshot font-loading waits).
+        page.route("https://fonts.googleapis.com/**", lambda route: route.fulfill(content_type="text/css", body=""))
 
         def route_api(route):
             url = urlparse(route.request.url)
@@ -170,9 +173,145 @@ def run():
         expect(composer).to_be_visible()
         expect(choices).to_have_count(0)
         assert dialogue.bounding_box() == before
+
+        # End skips the whole current script, including the final typewriter.
+        # Use several long steps so a normal advance/natural completion cannot
+        # accidentally satisfy these assertions.
+        stage = page.get_by_label("对话舞台", exact=True)
+        progress = page.locator(".stage-progress")
+        final_text = "她停在桥的另一端，安静地等待你的回答。" * 6
+        round_ = 20
+
+        def reset_skip(*, with_choices=True, count=3, variant=0, waiting=False, locked=False):
+            nonlocal round_
+            round_ += 1
+            segments = [{"type": "narration", "text": TEXT} for _ in range(count - 1)]
+            segments.append({"type": "dialogue", "speaker": "旅人", "text": final_text})
+            script = [{"role": "narrator", "round": round_, "variantIndex": variant,
+                       "content": "\n".join(s["text"] for s in segments), "dialogueSegments": segments}]
+            if with_choices:
+                script.append({"role": "system", "round": round_, "content": "请选择", "branches": BRANCHES})
+            page.evaluate("""({messages, round, waiting, locked, session}) => qaStore.setState({
+              sessions:[{...session,in_combat:locked}], sessionMessages:{'choices-qa':messages},
+              sessionNarrationCount:{'choices-qa':round},sessionStreaming:{'choices-qa':waiting},sessionSending:{}
+            })""", {"messages": script, "round": round_, "waiting": waiting, "locked": locked, "session": SESSION})
+            expect(choices).to_have_count(0)
+            expect(composer).not_to_be_visible()
+            if not waiting:
+                expect(progress).to_contain_text(f"1 / {count}")
+
+        def assert_skipped(*, with_choices=True, count=3):
+            expect(progress).to_have_text(f"{count} / {count}")
+            expect(page.locator(".stage-dialog-text")).to_have_text(final_text)
+            expect(composer).to_be_visible()
+            if with_choices:
+                expect(choices).to_be_visible()
+            else:
+                expect(choices).to_have_count(0)
+            # Observe several animation frames after passive effects have run:
+            # skip must never reset the last sentence back to its typewriter.
+            assert page.evaluate("""async () => {
+              for(let i=0;i<8;i++) {
+                await new Promise(requestAnimationFrame);
+                if(document.querySelector('.stage-caret')) return false;
+              }
+              return true;
+            }""")
+            assert len(requests) == 3, "skip never sends/chooses/starts a new narration"
+            assert page.evaluate("qaStore.getState().sessionNarrationCount['choices-qa']") == round_
+
+        # The existing checks left us in pure-stage mode; cover both layouts.
+        page.get_by_role("button", name="退出纯舞台", exact=True).click()
+        for pure in [False, True]:
+            if pure:
+                page.get_by_role("button", name="进入纯舞台模式").click()
+            reset_skip()
+            expect(progress).to_contain_text("End 跳至选项")
+            if not pure:
+                page.screenshot(path=str(shots / "skip-hint.png"))
+            dialogue.focus()
+            page.keyboard.press("End")
+            assert_skipped()
+            page.keyboard.press("End")
+            assert_skipped()
+            page.screenshot(path=str(shots / ("skip-pure-stage.png" if pure else "skip-desktop.png")))
+            # Returning to an earlier step must restore normal playback.
+            page.get_by_role("button", name="上一句", exact=True).click()
+            expect(progress).to_contain_text("2 / 3")
+            expect(choices).to_have_count(0)
+            page.keyboard.press("End")  # Native toolbar button retains its keyboard semantics.
+            expect(progress).to_contain_text("2 / 3")
+            stage.focus()
+            page.keyboard.press("End")
+            assert_skipped()
+
+        reset_skip(with_choices=False)
+        expect(progress).to_contain_text("End 跳至输入")
+        stage.press("End")
+        assert_skipped(with_choices=False)
+        composer.fill("测试文本")
+        composer.press("Home")
+        composer.press("End")
+        assert composer.evaluate("el => el.selectionStart === el.value.length")
+        assert len(requests) == 3
+
+        reset_skip(count=1)
+        dialogue.press("End")
+        assert_skipped(count=1)
+        # A variant of the same round is a fresh script, not a retained skip.
+        page.evaluate("""qaStore.setState(state => ({sessionMessages:{'choices-qa':
+          state.sessionMessages['choices-qa'].map(m => m.role==='narrator' ? {...m,variantIndex:1} : m)}}))""")
+        expect(choices).to_have_count(0)
+        expect(composer).not_to_be_visible()
+        dialogue.press("End")
+        assert_skipped(count=1)
+
+        reset_skip()
+        dialogue.focus()
+        for key in ["Control+c", "Control+End", "Shift+End", "Alt+End", "Meta+End"]:
+            page.keyboard.press(key)
+            expect(progress).to_contain_text("1 / 3")
+            expect(choices).to_have_count(0)
+        for event in [{"isComposing": True}, {"repeat": True}]:
+            dialogue.dispatch_event("keydown", {"key": "End", **event})
+            expect(progress).to_contain_text("1 / 3")
+        # Keep the existing single-step and held Ctrl shortcuts.
+        page.keyboard.press("Control")
+        expect(progress).to_contain_text("1 / 3")
+        expect(page.locator(".stage-caret")).to_have_count(0)
+        page.keyboard.press("Control")
+        expect(progress).to_contain_text("2 / 3")
+        dialogue.press("End")
+        assert_skipped()
+
+        reset_skip()
+        dialogue.focus()
+        page.keyboard.down("Control")
+        expect(progress).not_to_contain_text("1 / 3")
+        page.keyboard.up("Control")
+        dialogue.press("End")
+        assert_skipped()
+
+        for waiting, locked in [(True, False), (False, True)]:
+            reset_skip(waiting=waiting, locked=locked)
+            dialogue.press("End")
+            expect(choices).to_have_count(0)
+            expect(composer).not_to_be_visible()
+            if waiting:
+                expect(dialogue).to_contain_text("正在排演下一幕")
+            else:
+                expect(progress).to_contain_text("1 / 3")
+
+        reset_skip()
+        page.get_by_role("button", name="调整立绘", exact=True).click()
+        stage.press("End")
+        expect(progress).to_contain_text("1 / 3")
+        stage.press("Escape")
+        stage.press("End")
+        assert_skipped()
         assert not errors, errors
         browser.close()
-        print("stage choices browser: 3 desktop sizes, fixed dialogue, pure stage, scrolling, keyboard, edit/send, branch IDs, free input, console passed")
+        print("stage choices browser: 3 desktop sizes, fixed dialogue, pure stage, scrolling, keyboard, edit/send, branch IDs, free input, End skip/reset/guards, console passed")
 
 
 if __name__ == "__main__":

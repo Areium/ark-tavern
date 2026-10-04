@@ -187,6 +187,7 @@ assert.match(markup, /class="stage(?:\s[^"]*)?"/, "舞台根节点");
 assert.ok(markup.includes("stage-dialog"), "对话框");
 assert.ok(markup.includes("stage-sprite-card") && markup.includes("临光") && markup.includes("瑕光"), "没有立绘 URL 时退回头像牌");
 assert.ok(!markup.includes("stage-choices"), "脚本未走到末尾时选项不显示");
+assert.ok(markup.includes('aria-keyshortcuts="End"') && markup.includes("End 跳至选项"), "舞台标注一键跳至选项快捷键");
 assert.ok(markup.includes("stage-env") === false, "没有舞台数据时不显示环境角标");
 markup = renderToStaticMarkup(React.createElement(StageView, { ...stageProps, messages: [choices] }));
 assert.ok(markup.includes("stage-choices") && markup.includes("跟上") && markup.includes("留下"), "只有选项时直接显示选项");

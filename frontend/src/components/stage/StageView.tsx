@@ -143,7 +143,7 @@ export default function StageView({
     () => buildStageScript(messages, [...new Set([...sceneCharacters, playerName].filter(Boolean))], playerName),
     [messages, sceneCharacters, playerName],
   );
-  const [cursor, setCursor] = useState({ key: "", step: 0 });
+  const [cursor, setCursor] = useState<{ key: string; step: number; revealed?: boolean }>({ key: "", step: 0 });
   const step = cursor.key === script.key ? cursor.step : 0;
   const current = script.steps[Math.min(step, Math.max(0, script.steps.length - 1))];
   const atEnd = step >= script.steps.length - 1;
@@ -184,9 +184,10 @@ export default function StageView({
   const [typedState, setTypedState] = useState({ key: "", count: 0 });
   const text = current?.text || "";
   const typingKey = `${script.key}:${step}`;
-  const typed = typedState.key === typingKey ? typedState.count : 0;
+  const revealed = cursor.key === script.key && !!cursor.revealed;
+  const typed = revealed ? text.length : typedState.key === typingKey ? typedState.count : 0;
   useEffect(() => {
-    if (presenting) return;
+    if (presenting || revealed) return;
     setTypedState({ key: typingKey, count: 0 });
     const total = text.length;
     if (!total) return;
@@ -199,7 +200,7 @@ export default function StageView({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [text, typingKey, presenting]);
+  }, [text, typingKey, presenting, revealed]);
   const typing = !presenting && typed < text.length;
   const complete = !presenting && !typing && (script.steps.length === 0 || atEnd);
   const showChoices = !!script.choiceMessage && complete;
@@ -309,7 +310,17 @@ export default function StageView({
       }, 450);
       return;
     }
-    if (e.ctrlKey || target.closest("[role=button]")) return;
+    if (e.ctrlKey) return;
+    if (e.key === "End" && !e.shiftKey) {
+      if (e.defaultPrevented || e.repeat || presenting || choicesDisabled || complete) return;
+      e.preventDefault();
+      stopFastForward();
+      // Reveal the final step atomically: its typewriter must not restart and
+      // briefly hide the choices/input again after the cursor changes.
+      setCursor({ key: script.key, step: Math.max(0, script.steps.length - 1), revealed: true });
+      return;
+    }
+    if (target.closest("[role=button]")) return;
     if (e.key === " " || e.key === "Enter" || e.key === "ArrowRight") { e.preventDefault(); advance(); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); back(); }
   };
@@ -374,7 +385,7 @@ export default function StageView({
   };
 
   return (
-    <div ref={rootRef} className={`stage ${stageOnly && actionInput ? "has-action-input" : ""}`} tabIndex={0} onKeyDown={onKey} onBlur={stopFastForward} aria-label="对话舞台"
+    <div ref={rootRef} className={`stage ${stageOnly && actionInput ? "has-action-input" : ""}`} tabIndex={0} onKeyDown={onKey} onBlur={stopFastForward} aria-label="对话舞台" aria-keyshortcuts="End"
       onPointerDown={(event) => { backgroundPress.current = event.button === 0 && isBackground(event.target) && !editingPortraits ? { x: event.clientX, y: event.clientY } : null; }}
       onPointerCancel={() => { backgroundPress.current = null; }} onClick={advanceBackground}>
       <div className="stage-bg" style={bgStyle} aria-hidden="true" />
@@ -574,7 +585,7 @@ export default function StageView({
             </div>
             {!presenting && text && (
               <div className="stage-dialog-foot">
-                <span className="stage-progress">{Math.min(step + 1, script.steps.length)} / {script.steps.length}{!complete && " · Ctrl 快进"}</span>
+                <span className="stage-progress">{Math.min(step + 1, script.steps.length)} / {script.steps.length}{!complete && ` · Ctrl 快进 · End 跳至${script.choiceMessage ? "选项" : "输入"}`}</span>
                 {!atEnd && !typing && <span className="stage-next" aria-hidden="true">▼</span>}
                 {atEnd && !typing && !showChoices && <span className="stage-next is-end">继续输入 ↓</span>}
               </div>
