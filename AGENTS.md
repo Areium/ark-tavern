@@ -42,5 +42,6 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台：
 - **战斗内容**：节点/敌人/地图改动走 skill `combat-designer` + `tools/`（先 `validate_battle_spec.py` 校验、再 `simulate_battle.py` 试跑，达标才入库），规格见 `docs/design/combat/battle-spec.md`。
 - **测试**：统一入口 `bash scripts/run_tests.sh`（pytest + `tests/legacy/`）。本机无可用 bash 时的等价命令、CLI 夹具编码口径、预装书用例的口径见 `docs/notes.md`。
 - **前端依赖恢复**：测试或隔离 worktree 后若 `vite` / `tsc` 不可用，先检查 `frontend/node_modules`、`.bin` 和包文件；仅 `.bin` 缺失时，在实际依赖目录运行 `npm rebuild --ignore-scripts --bin-links` 并验证入口。测试若清理了依赖目录，结束前须按 `docs/notes.md` 完整恢复包文件与 `.bin` 并验证构建；不要默认重复 `npm install`，也不要把 npm 退出码当作依赖完整的证明。
+- 当前前端为PC端设计，无需进行窄屏验证
 
 设计提案：`docs/proposals/combat-value-curve-redesign.md`（P0/P1 已落地，保留 P2 待办；现状以代码为准）。文档地图见 `docs/architecture.md` §5。
