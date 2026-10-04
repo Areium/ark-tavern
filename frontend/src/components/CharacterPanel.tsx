@@ -24,6 +24,7 @@ export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) 
   const [rosterSession, setRosterSession] = useState<string | null>(null);
   const [statsError, setStatsError] = useState("");
   const [error, setError] = useState("");
+  const rosterRequest = useRef(0);
 
   // Hover/pin preview
   const [hoveredChar, setHoveredChar] = useState<string | null>(null);
@@ -102,6 +103,7 @@ export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) 
   };
 
   const loadCharacters = useCallback(async () => {
+    const requestId = ++rosterRequest.current;
     if (!activeSessionId) {
       setCharacters([]);
       return;
@@ -111,6 +113,7 @@ export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) 
     setError("");
     try {
       const data = await api.getSceneCharacters(activeSessionId);
+      if (requestId !== rosterRequest.current || useAppStore.getState().activeSessionId !== activeSessionId) return;
       const rawList: string[] = data.roster || data.characters || data;
       const player = sessions.find((session) => session.id === activeSessionId)?.player_identity || data.roster?.[0] || "";
       const list: CharacterInfo[] = [...new Set(rawList)].map((name) => ({
@@ -124,19 +127,21 @@ export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) 
       setCharacters(list);
       setRosterSession(activeSessionId);
     } catch (err: any) {
-      setError(err.message);
+      if (requestId === rosterRequest.current) setError(err.message);
     } finally {
-      setLoading(false);
+      if (requestId === rosterRequest.current) setLoading(false);
     }
   }, [activeSessionId, api, sessions]);
 
   useEffect(() => {
+    setCharacters([]);
     loadCharacters();
     // Clear preview state on session switch
     setHoveredChar(null);
     setHoverAnchor(null);
     setPinnedChar(null);
     setPinnedAnchor(null);
+    return () => { rosterRequest.current++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId, refreshKey]);
 

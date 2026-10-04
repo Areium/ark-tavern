@@ -124,7 +124,7 @@ export default function SideviewCombatView() {
       setSessions(sessions.map((session) => session.id === sessionId
         ? { ...session, in_combat: false, combat_resumable: false, combat_resume: null }
         : session));
-      setPendingAutoNarrate({ action: response.auto_narrate_action });
+      setPendingAutoNarrate(sessionId, { action: response.auto_narrate_action });
       setCombatContext(null);
       setCurrentView("chat");
     } catch (cause) {
@@ -147,7 +147,7 @@ export default function SideviewCombatView() {
             runId: state?.runId || "",
           } }
       : session));
-    setPendingAutoNarrate({
+    setPendingAutoNarrate(sessionId, {
       action: settlement.victory
         ? "战斗结束，玩家获胜，描述战斗后的场景"
         : "战斗失利，描述战败后的场景与代价（fail-forward，剧情继续推进）",

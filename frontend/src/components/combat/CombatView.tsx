@@ -959,7 +959,7 @@ export default function CombatView() {
     try {
       const resp = await api.combatAbandon(sessionId);
       if (resp.auto_narrate_action) {
-        setPendingAutoNarrate({ action: resp.auto_narrate_action });
+        setPendingAutoNarrate(sessionId, { action: resp.auto_narrate_action });
       }
     } catch {
       alert("放弃战斗失败，请重试");
@@ -1059,7 +1059,7 @@ export default function CombatView() {
         setSessions(sessions.map(s => s.id === sessionId ? { ...s, in_combat: false, combat: null } : s));
         // 传递自动叙述指令和结算数据给 ChatPanel
         if (resp.auto_narrate_action) {
-          setPendingAutoNarrate({
+          setPendingAutoNarrate(sessionId, {
             action: resp.auto_narrate_action,
             settlement: {
               winner: combatState.winner || "unknown",

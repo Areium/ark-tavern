@@ -19,6 +19,11 @@ export interface CombatContext {
   selectedUnitId: string | null;
 }
 
+export interface AutoNarrate {
+  action: string;
+  settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string; engine?: "sideview"; durationMs?: number };
+}
+
 type ViewName = "home" | "chat" | "sessions" | "settings" | "combat" | "worldbook" | "docs" | "characters";
 
 /** 对话页布局：消息流 / 视觉小说舞台 */
@@ -59,6 +64,7 @@ export interface MinimizedDialogEntry {
 interface AppState {
   // 视图
   currentView: ViewName;
+  navigationRevision: number;
   setCurrentView: (view: ViewName) => void;
 
   // 角色页模块页签（跨组件跳转：角色卡编辑 → 卡牌；会话向导 → 玩家身份）
@@ -170,12 +176,12 @@ interface AppState {
   setCombatContext: (partial: Partial<CombatContext> | null) => void;
 
   // 战斗后自动叙述
-  pendingAutoNarrate: { action: string; settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string; engine?: "sideview"; durationMs?: number } } | null;
-  setPendingAutoNarrate: (data: { action: string; settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string; engine?: "sideview"; durationMs?: number } } | null) => void;
+  sessionAutoNarrate: Record<string, AutoNarrate | null>;
+  setPendingAutoNarrate: (sessionId: string, data: AutoNarrate | null) => void;
 
   // 战前简报（SSE combat_briefing 事件）
-  pendingBriefing: CombatBriefingDTO | null;
-  setPendingBriefing: (data: CombatBriefingDTO | null) => void;
+  sessionBriefings: Record<string, CombatBriefingDTO | null>;
+  setPendingBriefing: (sessionId: string, data: CombatBriefingDTO | null) => void;
 
   // 对话框最小化：key = 对话框 id，多个对话框各自独立、互不干扰
   minimizedDialogs: Record<string, MinimizedDialogEntry>;
@@ -199,7 +205,9 @@ interface AppState {
 export const useAppStore = create<AppState>((set, get) => ({
   // 视图（默认进入游戏主页主菜单）
   currentView: "home",
-  setCurrentView: (view) => set({ currentView: view }),
+  navigationRevision: 0,
+  setCurrentView: (view) => set(state => ({ currentView: view,
+    navigationRevision: state.navigationRevision + Number(state.currentView !== view) })),
 
   // 角色页模块页签（默认角色库）
   characterTab: "characters",
@@ -249,7 +257,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   sessions: [],
   activeSessionId: null,
   setSessions: (sessions) => set({ sessions }),
-  setActiveSession: (id) => set({ activeSessionId: id }),
+  setActiveSession: (id) => set(state => ({ activeSessionId: id,
+    navigationRevision: state.navigationRevision + Number(state.activeSessionId !== id) })),
 
   // 环境刷新触发器
   envRefreshKey: 0,
@@ -340,12 +349,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   }),
 
   // 战斗后自动叙述
-  pendingAutoNarrate: null,
-  setPendingAutoNarrate: (action) => set({ pendingAutoNarrate: action }),
+  sessionAutoNarrate: {},
+  setPendingAutoNarrate: (sessionId, action) => set((state) => ({
+    sessionAutoNarrate: { ...state.sessionAutoNarrate, [sessionId]: action },
+  })),
 
   // 战前简报
-  pendingBriefing: null,
-  setPendingBriefing: (data) => set({ pendingBriefing: data }),
+  sessionBriefings: {},
+  setPendingBriefing: (sessionId, data) => set((state) => ({
+    sessionBriefings: { ...state.sessionBriefings, [sessionId]: data },
+  })),
 
   // 对话框最小化
   minimizedDialogs: {},
@@ -384,18 +397,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   })),
   clearSessionStream: (sessionId) => {
     get().sessionAbortFns[sessionId]?.();
-    set(({ sessionMessages, sessionStreaming, sessionSending, sessionNarrationCount, sessionAbortFns }) => {
+    set(({ sessionMessages, sessionStreaming, sessionSending, sessionNarrationCount, sessionAbortFns, sessionBriefings, sessionAutoNarrate }) => {
       const { [sessionId]: _, ...restMessages } = sessionMessages;
       const { [sessionId]: __, ...restStreaming } = sessionStreaming;
       const { [sessionId]: ___, ...restSending } = sessionSending;
       const { [sessionId]: ____, ...restNarration } = sessionNarrationCount;
       const { [sessionId]: _____, ...restAbort } = sessionAbortFns;
+      const { [sessionId]: removedBriefing, ...restBriefings } = sessionBriefings;
+      const { [sessionId]: removedAction, ...restActions } = sessionAutoNarrate;
       return {
         sessionMessages: restMessages,
         sessionStreaming: restStreaming,
         sessionSending: restSending,
         sessionNarrationCount: restNarration,
         sessionAbortFns: restAbort,
+        sessionBriefings: restBriefings,
+        sessionAutoNarrate: restActions,
       };
     });
   },

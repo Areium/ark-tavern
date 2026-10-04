@@ -6,7 +6,7 @@
  * 主页 / 会话大厅 / 对话页顶栏三处入口共用本 hook，避免各自重写
  * 「选中会话 → 设上下文 → 切视图」的顺序（顺序错了会出现空战场）。
  */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "./useApi";
 
@@ -30,20 +30,28 @@ export function useCombatResume(): CombatResumeApi {
   } = useAppStore();
   const api = useApi();
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const requestSequence = useRef(0);
+  useEffect(() => () => { requestSequence.current++; }, []);
 
   const resumeSession = useCallback(
     async (sessionId: string) => {
+      const sequence = ++requestSequence.current;
+      const revision = useAppStore.getState().navigationRevision;
+      const isCurrent = () => sequence === requestSequence.current && revision === useAppStore.getState().navigationRevision;
       setBusyKey(`session:${sessionId}`);
       try {
         const s = sessions.find((x) => x.id === sessionId);
         const sideview = s?.combat_mode === "sideview";
         const resp = sideview ? await api.sideviewState(sessionId) : await api.combatResume(sessionId);
+        if (!isCurrent()) return false;
         if (sideview && resp.state?.status === "suspended") {
           await api.sideviewSave(sessionId, resp.state.runId, resp.state.snapshot, false);
+          if (!isCurrent()) return false;
         }
         setActiveSession(sessionId);
         if (s) setChatMode(s.mode);
         setCombatContext({
+          practiceMode: null,
           sessionId,
           testId: null,
           state: sideview ? null : resp.state ?? null,
@@ -53,7 +61,7 @@ export function useCombatResume(): CombatResumeApi {
         });
         // 恢复后战斗回到内存：立刻把列表徽标切回「战斗中」，不必等 15s 轮询
         setSessions(
-          sessions.map((x) =>
+          useAppStore.getState().sessions.map((x) =>
             x.id === sessionId
               ? { ...x, in_combat: true, combat_resumable: true, combat_resume: null }
               : x,
@@ -62,10 +70,10 @@ export function useCombatResume(): CombatResumeApi {
         setCurrentView("combat");
         return true;
       } catch (e: any) {
-        alert("继续战斗失败：" + (e?.message || "未知错误"));
+        if (isCurrent()) alert("继续战斗失败：" + (e?.message || "未知错误"));
         return false;
       } finally {
-        setBusyKey(null);
+        if (sequence === requestSequence.current) setBusyKey(null);
       }
     },
     [api, sessions, setSessions, setActiveSession, setChatMode, setCombatContext, setCurrentView],
@@ -73,10 +81,15 @@ export function useCombatResume(): CombatResumeApi {
 
   const resumeTest = useCallback(
     async (testId: string) => {
+      const sequence = ++requestSequence.current;
+      const revision = useAppStore.getState().navigationRevision;
+      const isCurrent = () => sequence === requestSequence.current && revision === useAppStore.getState().navigationRevision;
       setBusyKey(`test:${testId}`);
       try {
         const resp = await api.combatTestResume(testId);
+        if (!isCurrent()) return false;
         setCombatContext({
+          practiceMode: "tactical",
           sessionId: null,
           testId,
           state: resp.state ?? null,
@@ -87,10 +100,10 @@ export function useCombatResume(): CombatResumeApi {
         setCurrentView("combat");
         return true;
       } catch (e: any) {
-        alert("继续战斗失败：" + (e?.message || "未知错误"));
+        if (isCurrent()) alert("继续战斗失败：" + (e?.message || "未知错误"));
         return false;
       } finally {
-        setBusyKey(null);
+        if (sequence === requestSequence.current) setBusyKey(null);
       }
     },
     [api, setCombatContext, setCurrentView],

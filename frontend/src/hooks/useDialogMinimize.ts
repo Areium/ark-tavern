@@ -37,6 +37,9 @@ export function useDialogMinimize(
   const containerRef = useRef<HTMLDivElement>(null);
   const wasMinimized = useRef(false);
 
+  // 同一挂载组件切换到另一会话的对话框时，不继承前一个窗口的最小化状态。
+  useEffect(() => { setMinimized(false); }, [id]);
+
   const minimize = useCallback(() => setMinimized(true), []);
   const restore = useCallback(() => setMinimized(false), []);
 

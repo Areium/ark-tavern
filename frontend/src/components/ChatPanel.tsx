@@ -5,7 +5,7 @@ import { useApi, createSSE } from "../hooks/useApi";
 import { useCombatResume } from "../hooks/useCombatResume";
 import { useDialogMinimize } from "../hooks/useDialogMinimize";
 import { parseDialogue, normalizeSegments } from "../utils/dialogueParser";
-import type { ChatMessage, BranchChoice } from "../types";
+import type { ChatMessage, BranchChoice, CombatBriefingDTO, CombatStateDTO } from "../types";
 import DialogueBubble from "./chat/DialogueBubble";
 import NarrationText from "./chat/NarrationText";
 import LoadingIndicator from "./chat/LoadingIndicator";
@@ -17,6 +17,24 @@ import { isChoiceMessage } from "../utils/stageScript";
 import AppIcon from "./AppIcon";
 
 const EMPTY_MSGS: ChatMessage[] = [];
+
+function isVisibleSession(sessionId: string): boolean {
+  const store = useAppStore.getState();
+  return store.activeSessionId === sessionId && store.currentView === "chat";
+}
+
+function enterSessionCombat(sessionId: string, state: CombatStateDTO | null = null, navigationRevision?: number) {
+  const store = useAppStore.getState();
+  store.setSessions(store.sessions.map(session => session.id === sessionId
+    ? { ...session, in_combat: true } : session));
+  // 后台会话仍完成自身请求，但不能抢占正在查看的页面。
+  if (!isVisibleSession(sessionId) || (navigationRevision != null && store.navigationRevision !== navigationRevision)) return;
+  store.setCombatContext(null);
+  store.setCombatContext({ sessionId, state });
+  store.setCurrentView("combat");
+}
+
+type BriefingCheck = { d20: number; modifier: number; total: number; dc: number; success: boolean; attr: string; character: string };
 
 /** 消息气泡的外观类（chat.css）：按角色 / 是否气泡模式 / 是否选项消息 */
 export function bubbleClass(msg: ChatMessage, bubbleMode: boolean): string {
@@ -44,7 +62,9 @@ interface ChatPanelProps {
 }
 
 export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onToggleMusic }: ChatPanelProps) {
-  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, setCurrentView, setCombatContext, pendingAutoNarrate, setPendingAutoNarrate, pendingBriefing, setPendingBriefing, chatFontSize, setChatFontSize, chatLayout } = useAppStore();
+  const { activeSessionId, currentView, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, setCurrentView, setCombatContext, setPendingAutoNarrate, setPendingBriefing, chatFontSize, setChatFontSize, chatLayout } = useAppStore();
+  const pendingBriefing = useAppStore(s => s.sessionBriefings[activeSessionId || ""] ?? null);
+  const pendingAutoNarrate = useAppStore(s => s.sessionAutoNarrate[activeSessionId || ""] ?? null);
   const stageMode = chatLayout === "stage";
   const graphMode = chatLayout === "graph" && chatMode === "story" && sessions.find(s => s.id === activeSessionId)?.mode === "story";
   const visualMode = stageMode || graphMode;
@@ -122,8 +142,15 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   // When the current stage segment is finished, choices and free input are both available.
   const stageInputReady = !stageMode || !!stageDialogueComplete;
   // 战前简报：d20 检定结果 + 谈判失败后暂存的战斗状态
-  const [briefingCheck, setBriefingCheck] = useState<{ d20: number; modifier: number; total: number; dc: number; success: boolean; attr: string; character: string } | null>(null);
-  const [briefingCombatState, setBriefingCombatState] = useState<any | null>(null);
+  const [briefingResults, setBriefingResults] = useState<Record<string, {
+    briefing: CombatBriefingDTO; check: BriefingCheck | null; state: CombatStateDTO | null;
+  }>>({});
+  const result = activeSessionId ? briefingResults[activeSessionId] : null;
+  const briefingCheck = result?.briefing === pendingBriefing ? result?.check : null;
+  const briefingCombatState = result?.briefing === pendingBriefing ? result?.state : null;
+  const briefingRequests = useRef(new Set<string>());
+  const [briefingBusy, setBriefingBusy] = useState<Record<string, boolean>>({});
+  const [briefingErrors, setBriefingErrors] = useState<Record<string, string>>({});
   const [initialLoading, setInitialLoading] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
@@ -133,9 +160,9 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   // 对话框最小化：关闭与最小化是两个独立操作，最小化保留对话框内部状态
   const customPromptDialog = useDialogMinimize("chat-custom-prompt", "自定义提示词", customPromptOpen);
   const briefingDialog = useDialogMinimize(
-    "combat-briefing",
+    `combat-briefing:${activeSessionId || "none"}`,
     pendingBriefing ? `战斗选项 · ${pendingBriefing.name}（必选）` : "战斗选项（必选）",
-    !!pendingBriefing,
+    !!pendingBriefing && currentView === "chat",
   );
 
   // 战斗选项是必选流程节点：未完成选择前禁止输入与推进剧情。
@@ -170,6 +197,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
   useEffect(() => {
     setEditingIdx(null);
+    setInitialLoading(false);
 
     if (!activeSessionId) return;
     const sid: string = activeSessionId;
@@ -393,49 +421,49 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
     [activeSessionId, chatMode, api, triggerEnvRefresh, triggerMemoryRefresh]
   );
 
-  // 战前简报：新简报到来时清空上一轮的检定/暂存状态
-  useEffect(() => {
-    if (pendingBriefing) {
-      setBriefingCheck(null);
-      setBriefingCombatState(null);
-    }
-  }, [pendingBriefing]);
-
   // 战前简报：选择打法
   const handleBriefingApproach = useCallback(async (approachId: string) => {
-    if (!pendingBriefing || !activeSessionId) return;
+    if (!pendingBriefing || !activeSessionId || pendingBriefing.session_id !== activeSessionId) return;
     const b = pendingBriefing;
+    const navigationRevision = useAppStore.getState().navigationRevision;
+    if (briefingRequests.current.has(b.session_id)) return;
+    briefingRequests.current.add(b.session_id);
+    setBriefingBusy(prev => ({ ...prev, [b.session_id]: true }));
+    setBriefingErrors(prev => ({ ...prev, [b.session_id]: "" }));
     try {
       const sideview = sessions.find((session) => session.id === b.session_id)?.combat_mode === "sideview";
       const resp = sideview
         ? await api.sideviewStart(b.session_id, b.encounter_id, approachId)
         : await api.combatStart(b.session_id, b.encounter_id, [], approachId);
+      // 已被清理/替换的简报不能由旧请求复活，也不能清掉新的选择。
+      if (useAppStore.getState().sessionBriefings[b.session_id] !== b) return;
       if (resp?.state) {
         if (resp.check) {
           // 谈判失败：先展示检定，玩家确认后进入战斗
-          setBriefingCheck(resp.check);
-          setBriefingCombatState(resp.state);
+          setBriefingResults(prev => ({ ...prev, [b.session_id]: { briefing: b, check: resp.check, state: resp.state } }));
         } else {
-          setCombatContext({ sessionId: b.session_id, state: sideview ? null : resp.state });
-          setPendingBriefing(null);
-          setCurrentView("combat");
+          setPendingBriefing(b.session_id, null);
+          enterSessionCombat(b.session_id, sideview ? null : resp.state, navigationRevision);
         }
       } else if (resp?.kind === "check") {
-        setBriefingCheck(resp.check ?? null);
+        setBriefingResults(prev => ({ ...prev, [b.session_id]: { briefing: b, check: resp.check ?? null, state: null } }));
       } else if (resp?.kind === "avoid") {
-        setPendingBriefing(null);
-        setPendingAutoNarrate({ action: `战斗已避免（${resp.label}），描述当前场景与去向` });
+        setPendingBriefing(b.session_id, null);
+        setPendingAutoNarrate(b.session_id, { action: `战斗已避免（${resp.label}），描述当前场景与去向` });
       }
     } catch (err: any) {
-      alert("启动战斗失败: " + (err.message || "未知错误"));
+      setBriefingErrors(prev => ({ ...prev, [b.session_id]: "启动战斗失败: " + (err.message || "未知错误") }));
+    } finally {
+      briefingRequests.current.delete(b.session_id);
+      setBriefingBusy(prev => ({ ...prev, [b.session_id]: false }));
     }
   }, [pendingBriefing, activeSessionId, sessions, api, setCombatContext, setPendingBriefing, setCurrentView, setPendingAutoNarrate]);
 
   // Auto-narrate after combat: watch for pendingAutoNarrate being set
   useEffect(() => {
-    if (pendingAutoNarrate && activeSessionId) {
+    if (pendingAutoNarrate && activeSessionId && currentView === "chat" && !pendingBriefing) {
       const { action, settlement } = pendingAutoNarrate;
-      setPendingAutoNarrate(null);
+      setPendingAutoNarrate(activeSessionId, null);
       if (settlement) {
         const winnerText = settlement.winner === "player" ? "玩家获胜" : settlement.winner === "enemy" ? "敌方获胜" : "战斗结束";
         const survivorsText = settlement.survivors.length > 0 ? `\n幸存：${settlement.survivors.join("、")}` : "";
@@ -447,7 +475,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
       }
       performSend(action);
     }
-  }, [pendingAutoNarrate, activeSessionId, performSend, setPendingAutoNarrate]);
+  }, [pendingAutoNarrate, activeSessionId, currentView, pendingBriefing, performSend, setPendingAutoNarrate]);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -765,6 +793,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                     ? "enc_quick_test_1"
                     : prompt("输入世界书中的战斗节点 ID（可在节点图查看）")?.trim();
                   if (!encounterId) return;
+                  const navigationRevision = useAppStore.getState().navigationRevision;
                   try {
                     let response: any;
                     if (activeSession.combat_mode === "sideview") {
@@ -773,15 +802,16 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                       response = await api.combatStart(activeSession.id!, encounterId, []);
                     }
                     if (response.kind === "approaches") {
-                      setPendingBriefing({ session_id: activeSession.id!, encounter_id: encounterId,
+                      setPendingBriefing(activeSession.id!, { session_id: activeSession.id!, encounter_id: encounterId,
                         name: encounterId, approaches: response.approaches });
                       return;
                     }
                     if (!response.state) return;
-                    setCombatContext({ sessionId: activeSession.id! });
-                    setCurrentView("combat");
+                    enterSessionCombat(activeSession.id!, activeSession.combat_mode === "sideview" ? null : response.state, navigationRevision);
                   } catch (err: any) {
-                    alert("启动战斗失败: " + (err.message || "未知错误"));
+                    if (isVisibleSession(activeSession.id!) && useAppStore.getState().navigationRevision === navigationRevision) {
+                      alert("启动战斗失败: " + (err.message || "未知错误"));
+                    }
                   }
                 }}
                 className="chat-head-tool"
@@ -1199,7 +1229,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
       )}
 
       {/* Combat Briefing Modal — 战前打法选择 */}
-      {pendingBriefing && (
+      {pendingBriefing && currentView === "chat" && (
         <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 ${briefingDialog.minimizedClass}`}>
           <div
             ref={briefingDialog.containerRef}
@@ -1218,6 +1248,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
               </button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
+              {briefingErrors[pendingBriefing.session_id] && <p role="alert" className="text-sm text-red-300 mb-3">{briefingErrors[pendingBriefing.session_id]}</p>}
               <p className="text-[12px] text-gray-500 mb-3">
                 战斗选项为必选流程节点，无法关闭；可最小化后继续查看剧情，完成后自动恢复。
               </p>
@@ -1232,9 +1263,8 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                   {briefingCheck.success ? (
                     <button
                       onClick={() => {
-                        setPendingBriefing(null);
-                        setBriefingCheck(null);
-                        setPendingAutoNarrate({ action: "描述交涉成功后的场景与去向" });
+                        setPendingBriefing(pendingBriefing.session_id, null);
+                        setPendingAutoNarrate(pendingBriefing.session_id, { action: "描述交涉成功后的场景与去向" });
                       }}
                       className="btn-primary text-xs px-4 py-1.5"
                     >
@@ -1243,15 +1273,10 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                   ) : briefingCombatState ? (
                     <button
                       onClick={() => {
-                        setCombatContext({
-                          sessionId: pendingBriefing.session_id,
-                          state: sessions.find((session) => session.id === pendingBriefing.session_id)?.combat_mode === "sideview"
-                            ? null : briefingCombatState,
-                        });
-                        setPendingBriefing(null);
-                        setBriefingCheck(null);
-                        setBriefingCombatState(null);
-                        setCurrentView("combat");
+                        setPendingBriefing(pendingBriefing.session_id, null);
+                        enterSessionCombat(pendingBriefing.session_id,
+                          sessions.find(session => session.id === pendingBriefing.session_id)?.combat_mode === "sideview"
+                            ? null : briefingCombatState);
                       }}
                       className="btn-primary text-xs px-4 py-1.5"
                     >
@@ -1266,6 +1291,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                     <button
                       key={ap.id}
                       onClick={() => handleBriefingApproach(ap.id)}
+                      disabled={briefingBusy[pendingBriefing.session_id]}
                       className="text-left px-3 py-2.5 bg-gray-900 border border-gray-700 rounded-lg hover:bg-gray-700 transition-colors"
                     >
                       <span className="text-sm text-gray-200 font-medium">{ap.label}</span>
@@ -1315,7 +1341,10 @@ export function triggerNarrate(
   let accumulated = "";
   let accumulatedReasoning = "";
   let failed = false;
+  let stopped = false;
+  const isCurrentStream = () => !stopped && useAppStore.getState().sessionAbortFns[sessionId] === abort;
   const refreshStoryValues = () => {
+    if (!isVisibleSession(sessionId)) return;
     const current = useAppStore.getState();
     current.triggerStatsRefresh();
     current.triggerEnvRefresh();
@@ -1331,6 +1360,7 @@ export function triggerNarrate(
 
   const sse = createSSE(urlWithBranch, {
       onReasoning: (token: string) => {
+        if (!isCurrentStream()) return;
         accumulatedReasoning += token;
         useAppStore.getState().setSessionMessages(sessionId, (prev) => {
           const last = prev[prev.length - 1];
@@ -1341,6 +1371,7 @@ export function triggerNarrate(
         });
       },
       onText: (token: string) => {
+        if (!isCurrentStream()) return;
         accumulated += token;
         useAppStore.getState().setSessionMessages(sessionId, (prev) => {
           const last = prev[prev.length - 1];
@@ -1350,15 +1381,17 @@ export function triggerNarrate(
           return [...prev, { role: "narrator", content: accumulated, round: newRound, streaming: true }];
         });
       },
-      onSceneEvent: () => useAppStore.getState().triggerEnvRefresh(),
-      onMemoryEvent: () => useAppStore.getState().triggerMemoryRefresh(),
+      onSceneEvent: () => { if (isCurrentStream() && isVisibleSession(sessionId)) useAppStore.getState().triggerEnvRefresh(); },
+      onMemoryEvent: () => { if (isCurrentStream() && isVisibleSession(sessionId)) useAppStore.getState().triggerMemoryRefresh(); },
       onChoice: (options: string[], branches?: BranchChoice[]) => {
+        if (!isCurrentStream()) return;
         useAppStore.getState().setSessionMessages(sessionId, (prev) => [
           ...prev,
           { role: "system", content: "— 请选择 —", choices: options, branches, round: newRound },
         ]);
       },
       onDialogueSegments: (segments) => {
+        if (!isCurrentStream()) return;
         useAppStore.getState().setSessionMessages(sessionId, (prev) =>
           prev.map((m) =>
             m.role === "narrator" && m.round === newRound
@@ -1368,6 +1401,7 @@ export function triggerNarrate(
         );
       },
       onTokenUsage: (usage) => {
+        if (!isCurrentStream()) return;
         useAppStore.getState().setSessionMessages(sessionId, (prev) =>
           prev.map((m) =>
             m.role === "narrator" && m.round === newRound
@@ -1377,27 +1411,29 @@ export function triggerNarrate(
         );
       },
       onCombatTrigger: (data: { encounter_id: string; session_id: string }) => {
+        if (!isCurrentStream() || data.session_id !== sessionId) return;
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);
         useAppStore.getState().setSessionMessages(sessionId, (prev) =>
           prev.map((m) => (m.role === "narrator" && m.round === newRound ? { ...m, streaming: false } : m))
         );
-        useAppStore.getState().setCombatContext({ sessionId: data.session_id });
-        useAppStore.getState().setCurrentView("combat");
+        enterSessionCombat(sessionId);
       },
       onCombatBriefing: (data: { encounter_id: string; session_id: string; name: string; approaches: { id: string; label: string; hint: string; kind: "combat" | "check" | "avoid" }[] }) => {
+        if (!isCurrentStream() || data.session_id !== sessionId) return;
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);
         useAppStore.getState().setSessionMessages(sessionId, (prev) =>
           prev.map((m) => (m.role === "narrator" && m.round === newRound ? { ...m, streaming: false } : m))
         );
-        useAppStore.getState().setPendingBriefing(data);
+        useAppStore.getState().setPendingBriefing(sessionId, data);
       },
       onAttributeRoll: (data: {
         attribute: string; character: string; roll: number;
         modifier: number; total: number; dc: number;
         success: boolean; text: string; source: string; stream_id: string;
       }) => {
+        if (!isCurrentStream()) return;
         useAppStore.getState().setSessionMessages(sessionId, (prev) => [
           ...prev,
           {
@@ -1408,6 +1444,7 @@ export function triggerNarrate(
         ]);
       },
       onError: (msg: string) => {
+        if (!isCurrentStream()) return;
         failed = true;
         // 请求在生成任何叙述前被拒绝（例如 409），不凭空增加一轮。
         if (!accumulated && !accumulatedReasoning) useAppStore.getState().setSessionNarrationCount(sessionId, curCount);
@@ -1418,9 +1455,10 @@ export function triggerNarrate(
           prev.map((m) => (m.role === "narrator" && m.round === newRound ? { ...m, streaming: false } : m))
         );
         useAppStore.getState().setSessionMessages(sessionId, (prev) => [...prev, { role: "system", content: `错误: ${msg}`, requestError: true }]);
+        useAppStore.getState().setSessionAbortFn(sessionId, null);
       },
       onDone: () => {
-        if (failed) return;
+        if (!isCurrentStream() || failed) return;
         refreshStoryValues();
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);
@@ -1442,9 +1480,11 @@ export function triggerNarrate(
             };
           })
         );
+        useAppStore.getState().setSessionAbortFn(sessionId, null);
       },
     }
   );
 
-  useAppStore.getState().setSessionAbortFn(sessionId, () => sse.close());
+  const abort = () => { stopped = true; sse.close(); };
+  useAppStore.getState().setSessionAbortFn(sessionId, abort);
 }

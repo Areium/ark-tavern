@@ -1049,12 +1049,38 @@ function connectSSE(
   let closed = false;
   let finished = false;
   const controller = new AbortController();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let responseBody: ReadableStream<Uint8Array> | null = null;
+
+  const stopped = () => closed || finished;
+
+  function releaseResources() {
+    controller.abort();
+    const activeReader = reader;
+    const activeBody = responseBody;
+    reader = undefined;
+    responseBody = null;
+    // Do not wait for cancellation: a pending read must not keep this connection alive.
+    if (activeReader) {
+      void activeReader.cancel().catch(() => {});
+      activeReader.releaseLock();
+    } else if (activeBody && !activeBody.locked) {
+      void activeBody.cancel().catch(() => {});
+    }
+  }
+
+  function finish(notify: () => void) {
+    if (stopped()) return;
+    finished = true;
+    releaseResources();
+    if (!closed) notify();
+  }
 
   async function connect() {
-    const base = await getBaseUrl();
-    const url = `${base}${path}`;
-
     try {
+      const base = await getBaseUrl();
+      if (stopped()) return;
+      const url = `${base}${path}`;
       const init: RequestInit = {
         method,
         headers: { Accept: "text/event-stream" },
@@ -1066,23 +1092,27 @@ function connectSSE(
       }
 
       const response = await fetch(url, init);
+      responseBody = response.body;
+      if (stopped()) return;
 
       if (!response.ok) {
         const text = await response.text();
+        if (stopped()) return;
         let msg = text;
         try { msg = JSON.parse(text).error || text; } catch {}
-        handlers.onError?.(msg);
+        finish(() => handlers.onError?.(msg));
         return;
       }
 
-      const reader = response.body?.getReader();
+      reader = responseBody?.getReader();
       if (!reader) throw new Error("No reader");
 
       const decoder = new TextDecoder();
       let buffer = "";
 
-      while (!closed) {
+      while (!stopped()) {
         const { done, value } = await reader.read();
+        if (stopped()) return;
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
@@ -1090,12 +1120,12 @@ function connectSSE(
         buffer = lines.pop() || "";
 
         for (const line of lines) {
+          if (stopped()) return;
           if (!line.startsWith("data: ")) continue;
           const jsonStr = line.slice(6);
           if (jsonStr.trim() === "[DONE]") {
-            handlers.onDone?.();
-            finished = true;
-            continue;
+            finish(() => handlers.onDone?.());
+            return;
           }
 
           try {
@@ -1132,25 +1162,22 @@ function connectSSE(
                 handlers.onAttributeRoll?.(event.data);
                 break;
               case "error":
-                handlers.onError?.(event.data.message);
-                break;
+                finish(() => handlers.onError?.(event.data.message));
+                return;
               case "done":
-                handlers.onDone?.();
-                finished = true;
-                break;
+                finish(() => handlers.onDone?.());
+                return;
             }
           } catch {}
         }
       }
 
       // 服务端未发送 done 就关闭连接时，也结束流式状态，避免一直“思考中”
-      if (!closed && !finished) {
-        handlers.onDone?.();
-      }
+      finish(() => handlers.onDone?.());
     } catch (err: any) {
-      if (!closed) {
-        handlers.onError?.(err.message);
-      }
+      finish(() => handlers.onError?.(err.message));
+    } finally {
+      releaseResources();
     }
   }
 
@@ -1159,7 +1186,7 @@ function connectSSE(
   return {
     close: () => {
       closed = true;
-      controller.abort();
+      releaseResources();
     },
   };
 }
