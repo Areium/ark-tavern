@@ -112,7 +112,7 @@ def validate_files(files: dict[str, bytes], expected_id: str | None = None) -> P
     if raw is None or len(raw) > MAX_MANIFEST_BYTES:
         raise ValueError("Missing or oversized manifest.json")
     manifest = _json(raw)
-    allowed = {"id", "name", "version", "abi", "description", "entry", "input", "resources"}
+    allowed = {"id", "name", "version", "abi", "description", "entry", "input", "resources", "practice"}
     if manifest.keys() - allowed:
         raise ValueError("Unknown manifest fields: " + ", ".join(sorted(manifest.keys() - allowed)))
     identifier = mode_id(manifest.get("id"))
@@ -136,13 +136,22 @@ def validate_files(files: dict[str, bytes], expected_id: str | None = None) -> P
     except UnicodeError as exc:
         raise ValueError("entry must be UTF-8 JavaScript") from exc
     contract = manifest.get("input")
-    if (not isinstance(contract, dict) or set(contract) != {"id", "version", "required"}
+    if (not isinstance(contract, dict) or set(contract) - {"id", "version", "required", "resources"}
+            or not {"id", "version", "required"}.issubset(contract)
             or not isinstance(contract["id"], str) or not _ID.fullmatch(contract["id"])
             or type(contract["version"]) is not int or contract["version"] < 1
             or not isinstance(contract["required"], list)
             or any(not isinstance(k, str) or not _ID.fullmatch(k) for k in contract["required"])
             or len(set(contract["required"])) != len(contract["required"])):
         raise ValueError("input must declare id, positive integer version, unique required field names")
+    content_resources = contract.get("resources", [])
+    if (not isinstance(content_resources, list)
+            or any(not isinstance(key, str) for key in content_resources)):
+        raise ValueError("input.resources must be an array of resource names")
+    for name in content_resources:
+        relative_path(name)
+    if len(set(content_resources)) != len(content_resources):
+        raise ValueError("Duplicate required content resource")
     resources = manifest.get("resources", [])
     if not isinstance(resources, list) or any(not isinstance(x, str) for x in resources):
         raise ValueError("resources must be a path array")
@@ -151,6 +160,18 @@ def validate_files(files: dict[str, bytes], expected_id: str | None = None) -> P
     for name in resources:
         if relative_path(name) not in files:
             raise ValueError(f"Missing resource: {name}")
+    if set(content_resources) & set(resources):
+        raise ValueError("Content resources cannot shadow package resources")
+    if "practice" in manifest:
+        practice = relative_path(manifest["practice"])
+        if practice not in files or len(files[practice]) > MAX_MANIFEST_BYTES:
+            raise ValueError("practice must reference a small JSON input file")
+        value = _json(files[practice])
+        missing = set(contract["required"]) - value.keys()
+        if missing:
+            raise ValueError("practice missing input fields: " + ", ".join(sorted(missing)))
+        if content_resources:
+            raise ValueError("practice is unavailable when worldbook resources are required")
     digest = hashlib.sha256()
     for name, raw in sorted(files.items()):
         digest.update(name.encode("utf-8") + b"\0" + hashlib.sha256(raw).digest())

@@ -1,0 +1,11 @@
+{
+  "id": "stance-duel",
+  "name": "架势对决",
+  "version": "1.0.0",
+  "abi": "ark-combat/1",
+  "description": "可独立安装的回合制演示：观察敌方意图，在进攻、防御和蓄力之间选择。",
+  "entry": "main.js",
+  "input": {"id": "stance-encounter", "version": 1, "required": ["player", "enemy"]},
+  "resources": [],
+  "practice": "practice.json"
+}

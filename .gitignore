@@ -9,6 +9,7 @@ data/worldbook_jobs/
 data/worldbook_analysis/
 data/combat_modes/
 data/combat_mode_archive/
+data/combat_mode_runs/
 config/llm_config.json
 venv/
 .venv/

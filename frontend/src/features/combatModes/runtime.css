@@ -1,0 +1,12 @@
+.combat-runtime { display: flex; flex-direction: column; min-width: 0; min-height: 0; width: 100%; color: var(--cm-text, #e5e7eb); background: var(--cm-bg, #10151d); border: 1px solid var(--cm-border, #384454); border-radius: 8px; overflow: hidden; }
+.combat-runtime__header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid #384454; }
+.combat-runtime__header h2 { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: 16px; font-weight: 600; line-height: 1.5; }
+.combat-runtime__header h2:focus-visible, .combat-runtime__frame:focus-visible { outline: 2px solid #7dd3fc; outline-offset: -3px; }
+.combat-runtime__status { flex-shrink: 0; color: #cbd5e1; font-size: 13px; }
+.combat-runtime__status--running, .combat-runtime__status--complete { color: #86efac; }
+.combat-runtime__status--error { color: #fca5a5; }
+.combat-runtime__notice { margin: 0; padding: 16px 18px; color: #cbd5e1; font-size: 14px; overflow-wrap: anywhere; }
+.combat-runtime__notice--error { color: #fecaca; background: #331d25; }
+.combat-runtime__container { flex: 1; min-width: 0; min-height: 0; }
+.combat-runtime__frame { display: block; width: 100%; height: min(72vh, 900px); min-height: 320px; border: 0; background: #10151d; }
+@media (max-width: 480px) { .combat-runtime__header { padding: 12px; } .combat-runtime__frame { min-height: 280px; } }

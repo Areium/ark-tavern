@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request, send_file
 from werkzeug.formparser import parse_form_data
 
 from combat_mode_packages import ABI, MAX_PACKAGE_BYTES
+from combat_mode_runs import CombatModeRuns, MAX_STATE_BYTES, RunConflict
 from shared.helpers import json_error
 
 BUILTINS = [
@@ -18,6 +19,7 @@ BUILTINS = [
 def register(app, managers):
     bp = Blueprint("combat_modes", __name__)
     packages = managers["combat_modes"]
+    runs = CombatModeRuns(packages.root.parent.parent)
 
     def handled(fn):
         @wraps(fn)
@@ -26,6 +28,8 @@ def register(app, managers):
                 return fn(*args, **kwargs)
             except FileNotFoundError:
                 return json_error("战斗模式不存在", 404)
+            except RunConflict as exc:
+                return json_error(str(exc), 409)
             except (ValueError, OSError) as exc:
                 return json_error(str(exc), 400)
         return wrapped
@@ -77,5 +81,60 @@ def register(app, managers):
     @handled
     def uninstall(identifier):
         return jsonify(packages.uninstall(identifier))
+
+    @bp.post("/api/combat-modes/<identifier>/practice")
+    @handled
+    def practice(identifier):
+        return jsonify(runs.create(packages.get(identifier))), 201
+
+    @bp.post("/api/combat-modes/<identifier>/compatibility")
+    @handled
+    def compatibility(identifier):
+        from combat_mode_bindings import prepare_binding
+        from combat_mode_packages import _json
+        raw = request.stream.read(65537)
+        if len(raw) > 65536:
+            return json_error("Compatibility request exceeds size limit", 413)
+        data = _json(raw)
+        book_ids = data.get("worldbook_ids")
+        if (not isinstance(book_ids, list) or len(book_ids) > 64
+                or any(not isinstance(value, str) for value in book_ids)):
+            return json_error("worldbook_ids 必须是世界书 ID 数组（最多 64 本）")
+        package = packages.get(identifier)
+        manager = managers.get("worldbook")
+        try:
+            for book_id in book_ids:
+                book = manager.load(book_id) if manager else None
+                if book is None or not book.enabled or book.is_reference:
+                    raise ValueError(f"Worldbook {book_id} is not an enabled story book")
+            prepared = prepare_binding(package, book_ids, packages.root.parent.parent)
+        except ValueError as exc:
+            return jsonify({"compatible": False, "errors": [str(exc)]})
+        return jsonify({"compatible": True, "errors": [], **prepared.summary()})
+
+    @bp.get("/api/combat-mode-runs")
+    @handled
+    def list_runs():
+        return jsonify(runs.list())
+
+    @bp.get("/api/combat-mode-runs/<run_id>")
+    @handled
+    def get_run(run_id):
+        return jsonify(runs.get(run_id))
+
+    @bp.put("/api/combat-mode-runs/<run_id>")
+    @handled
+    def save_run(run_id):
+        # Read a bounded stream rather than trusting a potentially absent
+        # Content-Length or changing global Flask upload limits.
+        from combat_mode_packages import _json
+        raw = request.stream.read(MAX_STATE_BYTES + 65537)
+        if len(raw) > MAX_STATE_BYTES + 65536:
+            return json_error("Snapshot request exceeds size limit", 413)
+        data = _json(raw)
+        if data.keys() - {"revision", "snapshot", "outcome"}:
+            return json_error("Unknown run update fields")
+        return jsonify(runs.update(run_id, data.get("revision"), data.get("snapshot"),
+                                   data.get("outcome")))
 
     app.register_blueprint(bp)

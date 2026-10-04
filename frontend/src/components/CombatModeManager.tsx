@@ -14,6 +14,7 @@ interface CombatMode {
   digest?: string;
   size?: number;
   file_count?: number;
+  practice?: string;
   input?: { id: string; version: number; required: string[] };
 }
 interface Catalog {
@@ -195,7 +196,7 @@ export default function CombatModeManager({ onPractice }: { onPractice?: (id: st
             <button type="button" disabled={disabled} aria-label={`${mode.enabled ? "停用" : "启用"}${mode.name}`} onClick={() => toggle(mode)}>
               <AppIcon name={mode.enabled ? "pause" : "play"} size={15} />{mode.enabled ? "停用" : "启用"}</button>
             <button type="button" disabled={disabled} aria-label={`导出${mode.name}`} onClick={() => exportMode(mode)}><AppIcon name="download" size={15} />导出</button>
-            {mode.enabled && onPractice && <button className="cm-primary" type="button" disabled={disabled} onClick={() => onPractice(mode.id)}>演练</button>}
+            {mode.enabled && mode.practice && onPractice && <button className="cm-primary" type="button" disabled={disabled} onClick={() => onPractice(mode.id)}>演练</button>}
             <button className="cm-danger" type="button" disabled={disabled} aria-label={`卸载${mode.name}`} onClick={() => setRemoving(mode)}><AppIcon name="trash" size={15} />卸载</button>
           </>}</footer>
         </article>)}</div>

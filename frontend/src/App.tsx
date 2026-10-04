@@ -16,7 +16,7 @@ import DocsView from "./components/DocsView";
 import CharacterManager from "./components/CharacterManager";
 import MinimizedDialogDock from "./components/common/MinimizedDialogDock";
 import GlobalConfirmDialog from "./components/common/GlobalConfirmDialog";
-import CombatModeManager from "./components/CombatModeManager";
+import CombatModesView from "./components/CombatModesView";
 
 /** 沉浸式视图：全屏无顶栏（对话 = 故事沉浸，战斗 = 战场沉浸） */
 const IMMERSIVE_VIEWS = new Set(["chat", "combat"]);
@@ -139,7 +139,7 @@ export default function App() {
       case "worldbook":
         return <WorldBookManager />;
       case "combat-modes":
-        return <CombatModeManager />;
+        return <CombatModesView />;
       case "characters":
         return <CharacterManager />;
       case "docs":
