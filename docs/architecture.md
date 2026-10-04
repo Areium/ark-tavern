@@ -203,14 +203,12 @@ docs/
 ├── notes.md                 工程笔记：踩过的坑、口径约定、环境差异、已知未修项
 ├── system-update-log.md     变更历史（按时间倒序）+ 尚未实现项
 ├── design/                  【现状设计】机制与实现，可作为现状依据
-│   ├── combat/              战斗引擎 / 数值 / UI / 规格 / 背景提示词
+│   ├── combat/              战斗引擎 / 数值 / UI / 规格
 │   ├── worldbook/           按需载入、节点级作用域、资料库与用途分离
 │   ├── narrative/           知识召回、两阶段叙述、提示词约定
 │   └── content-hub-design.md
 ├── proposals/               【目标态提案 / 路线图】未落地或部分落地
 ├── perf/                    性能实测记录
-├── qa/                      验收报告与证据
-├── scenarios/               剧情候选内容（尚未入库）
 ├── archive/                 归档：不再维护，仅供追溯
 └── images/                  教程截图
 ```
@@ -223,7 +221,6 @@ docs/
 | `design/combat/combat-numerical-design.md` | 战斗数值公式与平衡参数 |
 | `design/combat/combat-ui-design.md` | 战斗界面交互与布局设计 |
 | `design/combat/battle-spec.md` | 战斗规格（节点 JSON 全字段/地形效果/威胁与阶段带/校验规则/生成闭环），LLM 与设计者共用 |
-| `design/combat/combat-background-prompts.md` | 战斗背景图生成提示词规范 |
 | `design/worldbook/worldbook-on-demand.md` | 世界书分类与依赖载入、按需候选范围、当前会话快照与 API |
 | `design/worldbook/worldbook-library.md` | 世界书资料库与剧情世界书分离：`book_type` 用途、安全的用途切换、原子摘录与来源追踪、前端资料库体验 |
 | `design/worldbook/node-scoped-worldbook-loading.md` | 节点级世界书动态载入：`lore_bindings` 绑定面、`会话范围 ∩ 节点作用域` 窄化白名单、快照与回档 |
@@ -239,15 +236,12 @@ docs/
 | 文档 | 内容 |
 |---|---|
 | `proposals/combat-value-curve-redesign.md` | 数值成长曲线提案：**P0/P1 已落地**（对照表见文首），保留 P2 未落地项（卡牌 R0–R3 分支、Boss 阶段机制等） |
-| `proposals/game-experience-roadmap.md` | 体验路线图：只保留尚未实现的缺口 |
 
-### 5.3 `perf/`、`qa/`、`scenarios/`
+### 5.3 `perf/` —— 性能记录
 
 | 文档 | 内容 |
 |---|---|
 | `perf/perf-round-latency.md` | 一轮对话耗时实测；§1–§3 为修复前基线，§5 为已落地的优化 |
-| `qa/2026-09-20-story-audit.md` | 剧情与功能验收矩阵、8 项可执行缺陷复现、真实模型未完成记录、战斗平衡观察及修复方案（持久证据见 `qa/evidence/`） |
-| `scenarios/greybridge-echoes/README.md` | 《灰桥回声》完整剧情审阅候选：5 章/12 节拍、任务、选择、3 结局、2 场可避战遭遇；尚未正式入库 |
 
 ### 5.4 归档区（`archive/`）
 
@@ -255,6 +249,9 @@ docs/
 
 | 文件 | 归档原因 |
 |---|---|
+| `combat-background-prompts.md` | 历史战斗背景生成配方；现行资源布局以 `data/README.md` 与生成工具为准 |
+| `character-card-rewrite-progress.md` | 本机已安装明日方舟角色卡改写验收记录；内容与基线不随仓库分发 |
+| `sideview-handoff-2026-09-28.md` | 横版优化的历史交接；所列加载优化与节点图已合入主线，非当前任务队列 |
 | `combat-core-design.md` | 章节战斗化改造方案，已实现；「7×7 网格不改」条款已作废 |
 | `redundancy-scan-2026-09-12.md` | 代码冗余扫描报告；其建议已全部落地（死代码删除、导入清理等），结论见当时提交 |
 | `2026-08-06-fengxue-guojing-plan.md`、`2026-08-06-fengxue-guojing-design.md` | 「风雪过境」剧情的历史设计稿；旧共享内容已移除，文中的 Markdown 遭遇与 7×7 网格也早已被 JSON 节点和自由尺寸取代 |

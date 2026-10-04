@@ -102,10 +102,13 @@
 - **已知边界**：战斗编成（`shared/helpers.build_character_metas`）仍只按**场景角色**组队，
   主控不进战斗队伍；本次改动没动战斗侧。
 
-### 历史剧情验收的证据边界（核对于 2026-09-28）
+### 历史剧情验收的证据边界（核对于 2026-10-04）
 
-- 旧报告中的 `tests/test_greybridge_acceptance.py` 当前已不存在，不能再把其中历史 xfail 当作当前回归覆盖；QA-01/02/03/06/08 的旧结论需按现代码重新复现，不在本轮宣称修复。
-- QA-05 对应的空阵容重载回填路径已在本轮移除；`tests/test_story_rules_http.py::test_restore_scene_without_npcs_keeps_inventory_without_llm_probe` 覆盖空 NPC 不补角色、不探测模型，并保留场景物品。分支回档当前证据见 `tests/test_story_rules_http.py` 与 `tests/test_story_tree_full_flow.py`。
+- 旧灰桥候选、验收报告与结果 JSON 已删除，其测试和验收脚本此前已移除；Git 历史可追溯，但历史 xfail、真实模型轮数和战斗模拟不能作为当前回归覆盖。
+- 历史问题包括开场上下文混入后续章节、任务未随叙述自动完成、末节缺明确终态、非法任务 ID 被接受、叙述变体保存失败、真实模型节拍停滞。当前没有重新验收整条真实模型路径，不把删除报告当作修复。
+- 静态核对仍见两处契约缺口：`blueprints/chat.py` 的 `narrate-update` 读取 `text` 并调用单参数，而前端发送 `round/narrative`、`Session.update_narration` 需要两参数；`blueprints/environment.py` 的任务 PATCH 只检查状态枚举，未检查任务 ID。本次仅保留待办，不修改功能。
+- 空阵容重载回填路径已移除；`tests/test_story_rules_http.py::test_restore_scene_without_npcs_keeps_inventory_without_llm_probe` 覆盖空 NPC 不补角色、不探测模型，并保留场景物品。分支回档当前证据见 `tests/test_story_rules_http.py` 与 `tests/test_story_tree_full_flow.py`。
+- 已删除体验路线图中的遗物/士气/指挥官、位移/陷阱卡、删卡/强化卡是未承诺实施的备选方向；若重启设计，须按当前书内数据结构重新评估，不沿用旧共享目录定位。
 
 ## 对话页
 
@@ -350,6 +353,7 @@ python -m pytest tests/ perf_tests/test_combat_runtime_v1.py `
 - 固定战斗节拍使用 `min_rounds=1`，声明了节点就不再现场生成第二个节点。合流用三轮，结局只用一个尾声节拍，避免互斥结局顺序串播。
 - 模拟器曾忽略内联敌人造成空场假胜；2026-09-29 生产 `CombatSession` 也已统一读取节点 `enemies_def`，优先级为内联定义 → 会话自定义 → 书内敌人文件。战前绕行缺结构化结算，结局事实仍受模型一致性限制。
 - 不要把接口脚本化验收、180 场策略模拟、13 轮真实模型绕行线当成同一种验证。
+- 旧开发记录已删除；关键节拍完成判据、模型编造主控台词、完整人工战斗及取证路线真实模型验收仍无最终证明，需有内容书后重新验证。
 
 ## 网格战斗演练（核对于 2026-09-29）
 

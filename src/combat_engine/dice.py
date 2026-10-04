@@ -62,7 +62,7 @@ def check_hit(attacker: "CombatUnit", defender: "CombatUnit",
     重平衡说明：角色 HIT≈13（战斗技巧+战场机动）远高于敌人 EVA≈5，而敌人 HIT≈6
     低于角色 EVA≈10。若沿用 DC=10+EVA，修正 dodge 后敌人命中率仅 ~37%（过于无力）、
     玩家 ~96%。改用 DC=6+EVA 后：玩家 ~100%、敌人 ~56%，命中/闪避属性真正生效且
-    战斗保持张力（见 docs/proposals/game-experience-roadmap.md P3.9）。
+    战斗保持张力。
     """
     roll = roll_d20()
     natural_1 = (roll == 1)
