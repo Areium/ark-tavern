@@ -592,7 +592,7 @@
 - 数据约定：`data/combat/backgrounds/<bg_id>/index.md`（提示词 + 元信息）+ 图片文件；内置 `default`（含程序化生成的占位图）与 `wasteland_ruins`（待生成）两个条目
 - `session_manager.start_combat()` 传入当前剧情地点；剧情模式战斗背景随场景联动
 - 新增 `tools/generate_combat_backgrounds.py`：`--scaffold` 为被引用但缺失的背景建提示词草稿、`--dry-run` 导出提示词、默认调用 OpenAI 兼容 images 接口批量出图（配置 `config/image_config.json`）
-- 新增 `docs/design/combat/combat-background-prompts.md`：构图规范（轻微俯视 + 中央开阔地面 + 远景地标 + 无人物无文字 + 偏暗重暗角）、基础提示词模板、场景配方与各平台参数
+- 新增战斗背景提示词文档（现归档于 `docs/archive/combat-background-prompts.md`）：构图规范（轻微俯视 + 中央开阔地面 + 远景地标 + 无人物无文字 + 偏暗重暗角）、基础提示词模板、场景配方与各平台参数
 - 地点模板 TEMPLATE.md 补充 `combat_bg` 字段说明；遭遇战「初遇整合运动」指定 `background: wasteland_ruins`
 
 

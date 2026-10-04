@@ -24,6 +24,8 @@ perf_tests/results_*.json
 .pytest_cache/
 # 仓库根目录的临时任务说明文件（本地草稿，不入库）
 /task.md
+# 本地工具设置、验收截图与临时交接；需要保留的记录整理到 docs/archive/
+/.impeccable/
 
 # archify 架构图导出物：外部工具（archify 2.16.0）生成，非本仓库构建步骤，
 # 且 96% 体积是 vendored viewer 运行时。源文件与分析见 docs/architecture.md §5.1。

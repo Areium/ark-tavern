@@ -308,7 +308,7 @@ Windows 上该脚本默认调用 `python3`，可用 `PYTHON=python bash scripts/
 | [`docs/design/combat/combat-ui-design.md`](docs/design/combat/combat-ui-design.md) | 战斗界面设计 |
 | [`docs/design/combat/sideview-combat.md`](docs/design/combat/sideview-combat.md) | 横版动作关卡的运行与会话交接契约 |
 | [`docs/design/content-hub-design.md`](docs/design/content-hub-design.md) | 内容中心整合设计（一级入口已拆解为「角色 + 世界书」两级，见文首「后续变更」） |
-| [`docs/design/combat/combat-background-prompts.md`](docs/design/combat/combat-background-prompts.md) | 战斗背景图生成提示词 |
+| [`docs/archive/combat-background-prompts.md`](docs/archive/combat-background-prompts.md) | 战斗背景图生成提示词参考（归档） |
 
 ---
 
