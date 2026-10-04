@@ -111,3 +111,14 @@ resources 为 `别名 → 书内相对文件路径`，拒绝越界/链接/资源
 - `Session.to_dict/combat_resumable/combat_resume_summary` 和聊天互斥需要包含插件 active/suspended/settling。战术 complete/settlement 目前只排除 sideview，必须防止它们消费插件结果。
 - `SessionOverlay` 整体持久化不代表剧情回档：顶层运行态不会自动加入 `_tree_state_snapshot`。运行态、奖励、收据需要一致的回档策略，测试恢复后重领奖励风险。
 - 定向测试覆盖包管理/API/CLI/冻结演练/世界书预检；脚本引擎单测和协议 stub 测试另跑。最终仍需实际浏览器运行、正式会话/存档/剧情、完整异常重试/并发、全套测试、最终构建和独立审查。
+
+## 正式会话接入进展（2026-10-05，验收中）
+
+以上接入清单是阶段二的检查基线，当前代码已补齐创建、冻结、恢复、导入导出、独立运行态与剧情分支；不能据此视为已通过最终验收。
+
+- 创建请求以插件 ID 作为 `combat_mode`，必须提交 `trust_combat_plugin:true` 与预检返回的 `combat_binding_digest`。创建时重新预检，摘要过期返回 409。会话发布前冻结 `combat_plugin/package.zip` 与 `binding.json`，后续不依赖安装目录或原书资源。
+- 会话 API 使用 `/api/sessions/<id>/combat-plugin`：GET 读取；POST `/start` 接收 `encounter_id`；PUT `/state` 接收 `runId/revision/snapshot/outcome?`；POST `/confirm` 接收 `runId/revision` 和 `accept:true` 或 `retreat:true`，二者互斥。写入与叙述互斥，使用 overlay 锁和 CAS。
+- 运行状态为 `active → settling → completed`，主动撤退可从 active 完成。脚本自报结果仅进入 settling；宿主用户确认才写历史和续写动作。结果始终 `verified:false, accepted_by_user:true, rewards:null`，不接受脚本提供的经验、物品或角色数值。此版本不自动发放宿主经济奖励。
+- `combat_plugin` 运行态、历史和完成收据一起落盘并跟随剧情节点回档；`combat_plugin_binding` 不回档。重复确认返回原收据，回档到战前后旧 runId 被拒绝。坏收据返回可诊断错误，保存失败恢复内存态。
+- 导出在 overlay 锁内校验冻结绑定和运行态；导入检查 manifest/session.json 模式一致性并重验冻结文件。损坏恢复会话保留可见且报告错误，不降级模式。
+- 前端正式运行入口与向导正在验收；真实 PC 浏览器/Electron、双叙述 SSE 路径、独立审核和最终合并仍是未完成门禁。内置引擎当前保留宿主适配器身份，不声称可独立导出安装。

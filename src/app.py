@@ -70,6 +70,7 @@ def create_app():
     from blueprints.combat import register as reg_combat
     from blueprints.sideview import register as reg_sideview
     from blueprints.combat_modes import register as reg_combat_modes
+    from blueprints.combat_plugins import register as reg_combat_plugins
     from blueprints.combat_nodes import register as reg_combat_nodes
     from blueprints.documents import register as reg_documents
     from blueprints.index import register as reg_index
@@ -92,6 +93,7 @@ def create_app():
         reg_combat,
         reg_sideview,
         reg_combat_modes,
+        reg_combat_plugins,
         reg_combat_nodes,
         reg_documents,
         reg_index,

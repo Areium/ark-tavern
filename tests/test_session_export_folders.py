@@ -21,6 +21,9 @@ def _book(root: Path, book_id: str, *, enabled: bool = True) -> Path:
 def _session(root: Path) -> Path:
     session = root / "sessions" / "story" / "sess_export"
     session.mkdir(parents=True)
+    (session / "session.json").write_text(json.dumps({
+        "id": "sess_export", "mode": "story", "combat_mode": "narrative",
+    }), encoding="utf-8")
     (session / "overrides.json").write_text(
         json.dumps({"characters": {"Hero": {}}}), encoding="utf-8")
     background = session / "backgrounds" / "forest.png"

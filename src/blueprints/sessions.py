@@ -131,8 +131,11 @@ def register(app, managers):
             return json_error("mode 必须是 'free' 或 'story'")
 
         combat_mode = data.get("combat_mode", "narrative")
-        if combat_mode not in ("narrative", "tactical", "sideview"):
-            return json_error("combat_mode 必须是 'narrative'、'tactical' 或 'sideview'")
+        from combat_mode_packages import BUILTIN_IDS, mode_id
+        try:
+            mode_id(combat_mode)
+        except ValueError as exc:
+            return json_error(str(exc))
 
         raw_book_ids = data.get("worldbook_ids", [])
         if (not isinstance(raw_book_ids, list) or
@@ -186,6 +189,22 @@ def register(app, managers):
         except (ValueError, TypeError, OSError) as exc:
             return json_error(f"世界书读取失败：{exc}")
 
+        plugin_binding = None
+        if combat_mode not in BUILTIN_IDS:
+            from combat_mode_bindings import prepare_binding
+            package_store = managers.get("combat_modes")
+            if package_store is None:
+                return json_error("战斗插件服务不可用", 503)
+            if data.get("trust_combat_plugin") is not True:
+                return json_error("请先确认信任该战斗插件")
+            try:
+                package = package_store.get(combat_mode)
+                plugin_binding = prepare_binding(package, worldbook_ids, package_store.root.parent.parent)
+                if data.get("combat_binding_digest") != plugin_binding.digest:
+                    return json_error("战斗模式或世界书预检已过期，请重新检查", 409)
+            except (ValueError, OSError) as exc:
+                return json_error(str(exc))
+
         def initialize(session):
             if plot_id and mode == "story":
                 from session_overlay import _resolve_plot_path
@@ -224,6 +243,12 @@ def register(app, managers):
                     raise ValueError("候选范围预览已过期，请重新预览后再创建会话")
                 scope = scoped_book.session_scope_snapshot(roster_ids, manual)
                 session.overlay.set_worldbook_scope(scope, scoped_book.id)
+            if plugin_binding is not None:
+                from combat_mode_bindings import freeze_binding
+                freeze_binding(session.data_dir, plugin_binding)
+                session.overlay._data["combat_plugin_binding"] = plugin_binding.summary()
+                session.overlay._data["combat_plugin"] = {}
+                session.overlay._save()
 
         try:
             session = session_mgr.create_session(
@@ -885,6 +910,7 @@ def register(app, managers):
         """导出会话存档 zip（会话目录 + 依赖快照 + manifest），便于社区传播。"""
         from flask import send_file
         from session_export import export_session_zip
+        from combat_mode_sessions import is_plugin_mode, session_binding, plugin_state
 
         session = session_mgr.get_session(session_id)
         if not session:
@@ -900,7 +926,11 @@ def register(app, managers):
         out_dir = tempfile.mkdtemp(prefix="sess_export_")
         out_path = Path(out_dir) / f"session-{session_id}.zip"
         try:
-            export_session_zip(session_dir, meta, out_path)
+            with session.overlay._lock:
+                if is_plugin_mode(session.combat_mode):
+                    session_binding(session)
+                    plugin_state(session)
+                export_session_zip(session_dir, meta, out_path)
             safe_name = f"session-{session.name}.zip".replace(" ", "_")
             resp = send_file(str(out_path), as_attachment=True, download_name=safe_name)
             resp.call_on_close(

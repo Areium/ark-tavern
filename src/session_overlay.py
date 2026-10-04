@@ -1286,6 +1286,7 @@ class SessionOverlay:
             # 角色数值与插件数据随节点冻结：回档即复原「那一刻」的数值记录
             "character_stats": copy.deepcopy(self._data.get("character_stats", {})),
             "plugin_data": copy.deepcopy(self._data.get("plugin_data", {})),
+            "combat_plugin": copy.deepcopy(self._data.get("combat_plugin", {})),
             **self._story_resources_snapshot(),
             # 节点级世界书作用域：prev 原样带过，由 commit_tree_step 随后
             # 调 lore_resolver 复用/重算并覆盖（见 node-scoped-worldbook-loading.md §4.1）
@@ -1771,6 +1772,7 @@ class SessionOverlay:
             self._data["beat_state"] = copy.deepcopy(st["beat_state"])
         self._data["character_stats"] = copy.deepcopy(st["character_stats"])
         self._data["plugin_data"] = copy.deepcopy(st["plugin_data"])
+        self._data["combat_plugin"] = copy.deepcopy(st.get("combat_plugin", {}))
         self._restore_story_resources(st)
         self._data["narration_round"] = int(st.get("round_end") or 0)
 
@@ -1905,6 +1907,7 @@ class SessionOverlay:
             "quest_states": copy.deepcopy(self._data.get("quest_states", {})),
             "character_stats": copy.deepcopy(self._data.get("character_stats", {})),
             "plugin_data": copy.deepcopy(self._data.get("plugin_data", {})),
+            "combat_plugin": copy.deepcopy(self._data.get("combat_plugin", {})),
             **self._story_resources_snapshot(),
             "completed_beats": list(completed),
             "created_at": __import__("time").time(),
@@ -1977,6 +1980,7 @@ class SessionOverlay:
             self._data["environment"] = copy.deepcopy(snap["environment"])
         self._data["character_stats"] = copy.deepcopy(snap["character_stats"])
         self._data["plugin_data"] = copy.deepcopy(snap["plugin_data"])
+        self._data["combat_plugin"] = copy.deepcopy(snap.get("combat_plugin", {}))
         self._restore_story_resources(snap)
         self._data["narration_round"] = int(snap.get("round_end") or 0)
 

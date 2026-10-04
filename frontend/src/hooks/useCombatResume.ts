@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "./useApi";
+import { isPluginMode, pluginSessionApi } from "../features/combatModes/sessionApi";
 
 export interface CombatResumeApi {
   /** 恢复会话战并进入战场；成功返回 true */
@@ -37,13 +38,21 @@ export function useCombatResume(): CombatResumeApi {
     async (sessionId: string) => {
       const sequence = ++requestSequence.current;
       const revision = useAppStore.getState().navigationRevision;
-      const isCurrent = () => sequence === requestSequence.current && revision === useAppStore.getState().navigationRevision;
+      const epoch = useAppStore.getState().sessionEpochs[sessionId] || 0;
+      const isCurrent = () => sequence === requestSequence.current && revision === useAppStore.getState().navigationRevision
+        && epoch === (useAppStore.getState().sessionEpochs[sessionId] || 0);
       setBusyKey(`session:${sessionId}`);
       try {
-        const s = sessions.find((x) => x.id === sessionId);
-        const sideview = s?.combat_mode === "sideview";
-        const resp = sideview ? await api.sideviewState(sessionId) : await api.combatResume(sessionId);
+        const s = sessions.find((x) => x.id === sessionId) ?? await api.getSession(sessionId);
         if (!isCurrent()) return false;
+        const sideview = s?.combat_mode === "sideview";
+        const plugin = isPluginMode(s?.combat_mode);
+        const resp = plugin ? await pluginSessionApi.get(sessionId)
+          : sideview ? await api.sideviewState(sessionId) : await api.combatResume(sessionId);
+        if (!isCurrent()) return false;
+        if (plugin && (!resp.run || !["active", "settling"].includes(resp.run.status))) {
+          throw new Error("此插件战斗已结束或尚未开始，请从对话页选择遭遇");
+        }
         if (sideview && resp.state?.status === "suspended") {
           await api.sideviewSave(sessionId, resp.state.runId, resp.state.snapshot, false);
           if (!isCurrent()) return false;
@@ -54,14 +63,15 @@ export function useCombatResume(): CombatResumeApi {
           practiceMode: null,
           sessionId,
           testId: null,
-          state: sideview ? null : resp.state ?? null,
+          state: sideview || plugin ? null : resp.state ?? null,
           uiMode: "VIEWING",
           selectedCardIndex: null,
           selectedUnitId: null,
         });
         // 恢复后战斗回到内存：立刻把列表徽标切回「战斗中」，不必等 15s 轮询
+        const latestSessions = useAppStore.getState().sessions;
         setSessions(
-          useAppStore.getState().sessions.map((x) =>
+          (latestSessions.some(x => x.id === sessionId) ? latestSessions : [...latestSessions, s]).map((x) =>
             x.id === sessionId
               ? { ...x, in_combat: true, combat_resumable: true, combat_resume: null }
               : x,

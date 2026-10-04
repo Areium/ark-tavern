@@ -56,7 +56,9 @@ export interface Session {
     total_tokens: number;
   };
   in_combat?: boolean;
-  combat_mode: "narrative" | "tactical" | "sideview";
+  combat_mode: string;
+  combat_plugin_binding?: CombatPluginBindingDTO | null;
+  combat_plugin_error?: string | null;
   sideview_status?: { operatorName: string; hp: number; maxHp: number; outcome: string; runId: string } | null;
   /** 是否存在可继续的战斗（内存中仍在，或磁盘上有挂起存档） */
   combat_resumable?: boolean;
@@ -65,9 +67,18 @@ export interface Session {
   custom_prompt?: string;
 }
 
+/** 会话创建时冻结的插件包与世界书遭遇绑定。 */
+export interface CombatPluginBindingDTO {
+  mode_id: string;
+  version: string;
+  package_digest: string;
+  binding_digest: string;
+  encounters: { id: string; name: string; worldbook_id: string }[];
+}
+
 /** 挂起战斗摘要 —— 「继续战斗」入口展示所需的最小信息 */
 export interface CombatResumeSummaryDTO {
-  engine?: "sideview";
+  engine?: "sideview" | "plugin";
   encounter_id: string;
   suspended_at: number | null;
   round_num: number;
@@ -457,6 +468,8 @@ export interface ApproachDTO {
 
 /** 战前简报（含打法列表，SSE combat_briefing 事件） */
 export interface CombatBriefingDTO {
+  engine?: "sideview" | "plugin";
+  mode_id?: string;
   encounter_id: string;
   session_id: string;
   name: string;

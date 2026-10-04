@@ -32,6 +32,44 @@ import {
 import type { Session } from "../../types";
 import CharacterPicker from "./CharacterPicker";
 import EntityAvatar, { characterAvatarUrl } from "../roles/EntityAvatar";
+import { getBaseUrl } from "../../utils/baseUrl";
+
+interface InstalledCombatMode {
+  id: string;
+  name: string;
+  runtime: "builtin" | "browser";
+  enabled: boolean;
+  description: string;
+  version: string;
+}
+
+interface CombatCompatibility {
+  compatible: boolean;
+  errors: string[];
+  binding_digest: string;
+  package_digest: string;
+  encounters: { id: string; name: string; worldbook_id: string }[];
+}
+
+const BUILTIN_COMBAT_MODES = ["narrative", "tactical", "sideview"];
+
+// Kept local: the shared API hook is being edited independently.
+async function combatRequest(path: string, signal: AbortSignal, worldbookIds?: string[]) {
+  const base = await getBaseUrl();
+  const response = await fetch(`${base}/api/combat-modes${path}`, {
+    signal,
+    ...(worldbookIds ? {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ worldbook_ids: worldbookIds }),
+    } : {}),
+  });
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(Array.isArray(body.errors) && body.errors.length
+      ? body.errors.join("；") : body.error || `请求失败（HTTP ${response.status}）`);
+  }
+  return body;
+}
 
 interface CreateSessionWizardProps {
   open: boolean;
@@ -59,12 +97,32 @@ export default function CreateSessionWizard({ open, onClose, onCreated, catalog:
   // ── 向导状态 ──
   const [step, setStep] = useState(0);
   const [mode, setMode] = useState<"story" | "free">(chatMode);
-  const [combatMode, setCombatMode] = useState<"narrative" | "tactical" | "sideview">("narrative");
+  const [combatMode, setCombatMode] = useState<string>("narrative");
+  const [combatModes, setCombatModes] = useState<InstalledCombatMode[]>([]);
+  const [modesLoading, setModesLoading] = useState(true);
+  const [modesError, setModesError] = useState("");
+  const [modesWarnings, setModesWarnings] = useState<string[]>([]);
+  const [modesRetry, setModesRetry] = useState(0);
+  const [compatRetry, setCompatRetry] = useState(0);
+  const [compatibility, setCompatibility] = useState<{
+    key: string; result?: CombatCompatibility; error?: string;
+  } | null>(null);
+  const [trustedDigest, setTrustedDigest] = useState("");
   /** 主控角色（= 玩家身份）；空串 = 还没选，此时不能创建会话 */
   const [mainControl, setMainControl] = useState("");
   const [plotId, setPlotId] = useState("");
   const [worldbookIds, setWorldbookIds] = useState<string[]>([]);
   const worldbookId = worldbookIds[0] || null;
+  const isPlugin = !BUILTIN_COMBAT_MODES.includes(combatMode);
+  const selectedPlugin = combatModes.find((item) => item.id === combatMode);
+  const compatibilityKey = JSON.stringify([combatMode, selectedPlugin?.version, worldbookIds, compatRetry, modesRetry]);
+  const currentCompatibility = compatibility?.key === compatibilityKey ? compatibility : null;
+  const compatibleResult = currentCompatibility?.result;
+  const trustKey = compatibleResult?.compatible
+    ? JSON.stringify([compatibilityKey, compatibleResult.binding_digest, compatibleResult.package_digest]) : "";
+  const pluginReady = !isPlugin || (!modesLoading && !modesError && !!selectedPlugin
+    && worldbookIds.length > 0 && !!compatibleResult?.compatible
+    && !!compatibleResult.binding_digest && !!trustKey && trustedDigest === trustKey);
   /** 队友（场景 NPC）。主控不在此列：主控由 identity 单独声明，避免重复入队 */
   const [teammates, setTeammates] = useState<string[]>([]);
   const [name, setName] = useState("");
@@ -124,7 +182,65 @@ export default function CreateSessionWizard({ open, onClose, onCreated, catalog:
     setError("");
     setAutoPreset([]);
     setPlotSearch("");
+    setCompatibility(null);
+    setTrustedDigest("");
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    let active = true;
+    const timeout = window.setTimeout(() => controller.abort(), 30000);
+    setModesLoading(true);
+    setModesError("");
+    setModesWarnings([]);
+    void combatRequest("", controller.signal).then((body) => {
+      if (!Array.isArray(body.modes) || !body.modes.every((item: InstalledCombatMode) =>
+        item && typeof item.id === "string" && typeof item.name === "string"
+        && ["builtin", "browser"].includes(item.runtime) && typeof item.enabled === "boolean"
+        && typeof item.description === "string" && (item.runtime === "builtin" || typeof item.version === "string"))) {
+        throw new Error("战斗插件列表格式无效，请重试");
+      }
+      if (!active) return;
+      setCombatModes(body.modes.filter((item: InstalledCombatMode) =>
+        item.runtime === "browser" && item.enabled && !BUILTIN_COMBAT_MODES.includes(item.id)));
+      setModesWarnings(Array.isArray(body.errors) ? body.errors.map((item: unknown) =>
+        typeof item === "string" ? item : JSON.stringify(item)) : []);
+    }).catch((err: unknown) => {
+      if (active) setModesError(controller.signal.aborted ? "读取战斗插件超时，请重试" : err instanceof Error ? err.message : "读取战斗插件失败");
+    }).finally(() => {
+      window.clearTimeout(timeout);
+      if (active) setModesLoading(false);
+    });
+    return () => { active = false; controller.abort(); window.clearTimeout(timeout); };
+  }, [open, modesRetry]);
+
+  useEffect(() => {
+    setCompatibility(null);
+    setTrustedDigest("");
+    if (!open || !isPlugin || !selectedPlugin || modesLoading || modesError || !worldbookIds.length) return;
+    const controller = new AbortController();
+    let active = true;
+    const timeout = window.setTimeout(() => controller.abort(), 30000);
+    void combatRequest(`/${encodeURIComponent(combatMode)}/compatibility`, controller.signal, worldbookIds)
+      .then((body: CombatCompatibility) => {
+        if (typeof body.compatible !== "boolean" || !Array.isArray(body.errors)
+          || !body.errors.every((item) => typeof item === "string")
+          || (body.compatible && (body.errors.length > 0 || !Array.isArray(body.encounters)
+            || typeof body.binding_digest !== "string" || !body.binding_digest
+            || typeof body.package_digest !== "string" || !body.package_digest))) {
+          throw new Error("插件预检返回无效结果，请重试");
+        }
+        // Rejected bindings have errors only; no usable digests exist in that case.
+        if (active) setCompatibility({ key: compatibilityKey, result: body.compatible ? body : {
+          compatible: false, errors: body.errors, binding_digest: "", package_digest: "", encounters: [],
+        } });
+      }).catch((err: unknown) => {
+        if (active) setCompatibility({ key: compatibilityKey,
+          error: controller.signal.aborted ? "插件预检超时，请重试" : err instanceof Error ? err.message : "插件预检失败" });
+      }).finally(() => window.clearTimeout(timeout));
+    return () => { active = false; controller.abort(); window.clearTimeout(timeout); };
+  }, [open, isPlugin, selectedPlugin, modesLoading, modesError, combatMode, worldbookIds, compatibilityKey]);
 
   // 阵容变化后重新解析候选范围：防抖 + 过时响应保护（旧响应不会覆盖新结果）。
   // 预览用**完整阵容**（含主控），与服务端 `SceneManager.get_roster()` 同口径，
@@ -222,6 +338,10 @@ export default function CreateSessionWizard({ open, onClose, onCreated, catalog:
       return;
     }
     if (isLast) {
+      if (!pluginReady) {
+        setError("请完成战斗插件兼容性预检，并确认信任插件脚本后再创建");
+        return;
+      }
       if (controlError) {
         setError(controlError);
         return;
@@ -237,6 +357,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated, catalog:
   };
 
   const handleCreate = async () => {
+    if (!pluginReady) return;
     setCreating(true);
     setError("");
     try {
@@ -249,6 +370,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated, catalog:
         mode, name.trim(), mode === "story" ? plotId : "", combatMode,
         mainControl, worldbookIds, teammates, {},
         Object.fromEntries(worldbookIds.map((id) => [id, scopePreviews[id]?.draft_hash || ""])),
+        ...(isPlugin ? [{ combat_binding_digest: compatibleResult!.binding_digest, trust_combat_plugin: true }] : []),
       );
       onCreated(session);
     } catch (err: any) {
@@ -349,6 +471,10 @@ export default function CreateSessionWizard({ open, onClose, onCreated, catalog:
                   <div
                     className={`pick-card p-3 ${combatMode === "narrative" ? "selected" : ""}`}
                     onClick={() => setCombatMode("narrative")}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={combatMode === "narrative"}
+                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setCombatMode("narrative"); } }}
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-sm">📜</span>
@@ -359,6 +485,10 @@ export default function CreateSessionWizard({ open, onClose, onCreated, catalog:
                   <div
                     className={`pick-card p-3 ${combatMode === "tactical" ? "selected" : ""}`}
                     onClick={() => setCombatMode("tactical")}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={combatMode === "tactical"}
+                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setCombatMode("tactical"); } }}
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-sm">⚔️</span>
@@ -371,6 +501,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated, catalog:
                     onClick={() => setCombatMode("sideview")}
                     role="button"
                     tabIndex={0}
+                    aria-pressed={combatMode === "sideview"}
                     onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setCombatMode("sideview"); } }}
                   >
                     <div className="flex items-center gap-2 mb-1">
@@ -379,7 +510,24 @@ export default function CreateSessionWizard({ open, onClose, onCreated, catalog:
                     </div>
                     <p className="text-[12px] text-gray-500">剧情中进入独立关卡，移动、跳跃、闪避、攻击与释放技能。</p>
                   </div>
+                  {!modesLoading && !modesError && combatModes.map((item) => (
+                    <button key={item.id} type="button"
+                      className={`pick-card p-3 text-left min-w-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 ${combatMode === item.id ? "selected" : ""}`}
+                      aria-pressed={combatMode === item.id}
+                      onClick={() => setCombatMode(item.id)}>
+                      <span className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="text-sm font-medium text-cyan-300 break-words">{item.name}</span>
+                        <span className="text-xs text-gray-300 break-all">v{item.version}</span>
+                      </span>
+                      <span className="block text-xs text-gray-400 leading-relaxed break-words">{item.description || "已安装的浏览器战斗插件"}</span>
+                      <span className="block text-xs text-amber-300 mt-2">插件 · 需世界书预检与脚本信任</span>
+                    </button>
+                  ))}
                 </div>
+                {modesLoading && <p className="mt-3 text-xs text-gray-300" role="status">正在读取已安装战斗插件…内置模式仍可选择。</p>}
+                {!modesLoading && !modesError && combatModes.length === 0 && modesWarnings.length === 0 && (
+                  <p className="mt-3 text-xs text-gray-400">暂无已启用的浏览器战斗插件，可使用以上内置模式。</p>
+                )}
               </div>
             </div>
           )}
@@ -630,8 +778,11 @@ export default function CreateSessionWizard({ open, onClose, onCreated, catalog:
                     🎭 主控（玩家身份）：{mainControl ? itemName(mainControl) : "未选择"}
                   </span>
                   <span className={`badge ${combatMode !== "narrative" ? "badge-tactical" : "badge-narrative"}`}>
-                    {combatMode === "tactical" ? "⚔️ 战术模式" : combatMode === "sideview" ? "✦ 横版动作" : "📜 纯剧情"}
+                    {isPlugin ? `${selectedPlugin?.name || combatMode} · v${selectedPlugin?.version || "未知"}` : combatMode === "tactical" ? "⚔️ 战术模式" : combatMode === "sideview" ? "✦ 横版动作" : "📜 纯剧情"}
                   </span>
+                  {isPlugin && compatibleResult?.compatible && (
+                    <span className="badge badge-wb">兼容遭遇 {compatibleResult.encounters.length} 个</span>
+                  )}
                   {mode === "story" && plotId && (
                     <span className="badge badge-plot">🗺 {plots.find((p) => p.id === plotId)?.name || plotId}</span>
                   )}
@@ -665,6 +816,49 @@ export default function CreateSessionWizard({ open, onClose, onCreated, catalog:
               {error && <p className="text-xs text-red-400">{error}</p>}
             </div>
           )}
+          {(current === "mode" || isPlugin) && (modesError || modesWarnings.length > 0) && (
+            <div className="mt-4 rounded-lg border border-amber-400/30 bg-gray-900/40 p-3 text-xs space-y-2" role="alert">
+              {modesError && <p className="text-red-300">已安装战斗插件读取失败：{modesError}。内置模式仍可使用。</p>}
+              {modesWarnings.length > 0 && <>
+                <p className="text-amber-300">部分战斗插件未能载入：</p>
+                <ul className="list-disc pl-4 text-amber-200 space-y-1 break-words">{modesWarnings.map((message, index) => <li key={index}>{message}</li>)}</ul>
+              </>}
+              <button type="button" className="btn btn-ghost px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300"
+                disabled={modesLoading || creating} onClick={() => { setModesLoading(true); setModesRetry((value) => value + 1); }}>
+                {modesLoading ? "正在重试…" : "重新读取战斗插件"}
+              </button>
+            </div>
+          )}
+          {isPlugin && (
+            <section className="mt-4 detail-section p-4 space-y-3 text-xs" aria-label="战斗插件兼容性与信任">
+              <h3 className="text-sm font-medium text-cyan-300">{selectedPlugin?.name || combatMode} · 世界书兼容性预检</h3>
+              <div aria-live="polite" className="space-y-2">
+                {modesLoading ? <p className="text-gray-300">正在确认插件是否可用…</p>
+                  : modesError ? <p className="text-red-300">插件列表读取失败，请先重试。</p>
+                  : !selectedPlugin ? <p className="text-red-300">此插件已停用或不可用，请返回模式选择。</p>
+                  : !worldbookIds.length ? <p className="text-amber-300">请在「绑定世界书」步骤选择至少一本世界书。可以继续配置，但预检通过前不能创建。</p>
+                  : !currentCompatibility ? <p className="text-gray-300" role="status">正在静态检查所选世界书中的战斗遭遇…</p>
+                  : currentCompatibility.error ? <p className="text-red-300" role="alert">{currentCompatibility.error}</p>
+                  : compatibleResult?.compatible ? <p className="text-emerald-300">预检通过 · 兼容遭遇 {compatibleResult.encounters.length} 个</p>
+                  : <div className="text-red-300" role="alert">
+                    <p>当前世界书与插件不兼容：</p>
+                    <ul className="list-disc pl-4 mt-1 space-y-1 break-words">{(compatibleResult?.errors.length ? compatibleResult.errors : ["预检未通过，请检查世界书的战斗遭遇配置"]).map((message, index) => <li key={index}>{message}</li>)}</ul>
+                  </div>}
+              </div>
+              {!!selectedPlugin && !modesLoading && !modesError && worldbookIds.length > 0 && currentCompatibility && (
+                <button type="button" className="btn btn-ghost px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300"
+                  disabled={creating} onClick={() => { setCompatibility(null); setTrustedDigest(""); setCompatRetry((value) => value + 1); }}>重新预检</button>
+              )}
+              <p className="text-gray-400 leading-relaxed">静态预检不会执行脚本，也不代表脚本安全。进入战斗将运行插件提供的浏览器脚本，请只信任可靠来源；创建时服务端会重新预检并校验摘要。</p>
+              <label className={`flex items-start gap-2 leading-relaxed ${!trustKey || modesLoading || !!modesError ? "text-gray-500" : "text-amber-200"}`}>
+                <input type="checkbox" className="mt-0.5 accent-amber-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300"
+                  checked={!!trustKey && trustedDigest === trustKey}
+                  disabled={!trustKey || modesLoading || !!modesError || creating}
+                  onChange={(event) => setTrustedDigest(event.target.checked ? trustKey : "")} />
+                我信任此战斗插件的脚本，并同意在本会话中运行。
+              </label>
+            </section>
+          )}
         </div>
 
         {/* Footer */}
@@ -689,8 +883,8 @@ export default function CreateSessionWizard({ open, onClose, onCreated, catalog:
             )}
             <button
               onClick={goNext}
-              disabled={creating || (current !== "mode" && catalogBlocked) || (isLast && !!controlError)}
-              title={isLast && controlError ? controlError : undefined}
+              disabled={creating || (current !== "mode" && catalogBlocked) || (isLast && (!!controlError || !pluginReady))}
+              title={isLast ? controlError || (!pluginReady ? "请先完成插件预检并确认信任脚本" : undefined) : undefined}
               className={`btn px-6 py-2 text-sm ${isLast ? "btn-hero" : "bg-blue-600 hover:bg-blue-500 text-white"}`}
             >
               {creating ? "创建中..." : isLast ? "创建并进入" : "下一步"}

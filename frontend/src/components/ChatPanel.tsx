@@ -3,6 +3,7 @@ import { useAppStore } from "../stores/appStore";
 import { confirmAction } from "../stores/confirmStore";
 import { useApi, createSSE } from "../hooks/useApi";
 import { useCombatResume } from "../hooks/useCombatResume";
+import { isPluginMode, pluginSessionApi } from "../features/combatModes/sessionApi";
 import { useDialogMinimize } from "../hooks/useDialogMinimize";
 import { parseDialogue, normalizeSegments } from "../utils/dialogueParser";
 import type { ChatMessage, BranchChoice, CombatBriefingDTO, CombatStateDTO } from "../types";
@@ -429,17 +430,33 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
     if (!pendingBriefing || !activeSessionId || pendingBriefing.session_id !== activeSessionId) return;
     const b = pendingBriefing;
     const navigationRevision = useAppStore.getState().navigationRevision;
+    const epoch = useAppStore.getState().sessionEpochs[b.session_id] || 0;
+    const briefingCurrent = () => {
+      const store = useAppStore.getState();
+      return store.sessionBriefings[b.session_id] === b
+        && (store.sessionEpochs[b.session_id] || 0) === epoch
+        && store.sessions.some(session => session.id === b.session_id);
+    };
     if (briefingRequests.current.has(b.session_id)) return;
     briefingRequests.current.add(b.session_id);
     setBriefingBusy(prev => ({ ...prev, [b.session_id]: true }));
     setBriefingErrors(prev => ({ ...prev, [b.session_id]: { briefing: b, message: "" } }));
     try {
+      const plugin = isPluginMode(sessions.find((session) => session.id === b.session_id)?.combat_mode);
+      if (plugin) {
+        const response = await pluginSessionApi.start(b.session_id, b.encounter_id);
+        if (!briefingCurrent()) return;
+        if (!response.run || !["active", "settling"].includes(response.run.status)) throw new Error("插件未返回可进入的战斗");
+        setPendingBriefing(b.session_id, null);
+        enterSessionCombat(b.session_id, null, navigationRevision);
+        return;
+      }
       const sideview = sessions.find((session) => session.id === b.session_id)?.combat_mode === "sideview";
       const resp = sideview
         ? await api.sideviewStart(b.session_id, b.encounter_id, approachId)
         : await api.combatStart(b.session_id, b.encounter_id, [], approachId);
       // 已被清理/替换的简报不能由旧请求复活，也不能清掉新的选择。
-      if (useAppStore.getState().sessionBriefings[b.session_id] !== b) return;
+      if (!briefingCurrent()) return;
       if (resp?.state) {
         if (resp.check) {
           // 谈判失败：先展示检定，玩家确认后进入战斗
@@ -455,7 +472,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
         setPendingAutoNarrate(b.session_id, { action: `战斗已避免（${resp.label}），描述当前场景与去向` });
       }
     } catch (err: any) {
-      if (useAppStore.getState().sessionBriefings[b.session_id] === b) {
+      if (briefingCurrent()) {
         setBriefingErrors(prev => ({ ...prev, [b.session_id]: { briefing: b, message: "启动战斗失败: " + (err.message || "未知错误") } }));
       }
     } finally {
@@ -784,14 +801,26 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
               </button>
             )}
             {activeSession.combat_mode !== "narrative" && (
-              <span className="text-[11px] text-orange-400/70 font-medium">{activeSession.combat_mode === "sideview" ? "✦ 横版动作" : "⚔ 战术"}</span>
+              <span className="text-[11px] text-orange-400/70 font-medium">{isPluginMode(activeSession.combat_mode) ? `插件 · ${activeSession.combat_mode}` : activeSession.combat_mode === "sideview" ? "✦ 横版动作" : "⚔ 战术"}</span>
             )}
             {activeSession.sideview_status && (
               <span className="text-[11px] text-cyan-200/80 font-medium" title={`上次横版行动：${activeSession.sideview_status.outcome}`}>
                 {activeSession.sideview_status.operatorName} HP {activeSession.sideview_status.hp}/{activeSession.sideview_status.maxHp}
               </span>
             )}
-            {(chatMode === "story" || activeSession.combat_mode === "sideview") && activeSession.combat_mode !== "narrative" && !activeSession.in_combat && (
+            {isPluginMode(activeSession.combat_mode) && (
+              <button type="button" className="chat-head-tool is-on"
+                disabled={sending || streaming || choiceLocked}
+                title={activeSession.combat_plugin_error || "选择本会话冻结的遭遇或恢复插件战斗"}
+                onClick={() => {
+                  setCombatContext(null);
+                  setCombatContext({ sessionId: activeSession.id!, state: null });
+                  setCurrentView("combat");
+                }}>
+                {activeSession.in_combat || activeSession.combat_resumable ? "▶ 返回插件战斗" : "选择插件遭遇"}
+              </button>
+            )}
+            {(chatMode === "story" || activeSession.combat_mode === "sideview") && ["tactical", "sideview"].includes(activeSession.combat_mode) && !activeSession.in_combat && (
               <button
                 onClick={async () => {
                   const encounterId = activeSession.combat_mode === "sideview"
@@ -1426,7 +1455,7 @@ export function triggerNarrate(
         );
         enterSessionCombat(sessionId);
       },
-      onCombatBriefing: (data: { encounter_id: string; session_id: string; name: string; approaches: { id: string; label: string; hint: string; kind: "combat" | "check" | "avoid" }[] }) => {
+      onCombatBriefing: (data: CombatBriefingDTO) => {
         if (!isCurrentStream() || data.session_id !== sessionId) return;
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);

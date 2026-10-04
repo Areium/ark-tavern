@@ -792,6 +792,13 @@ branch 非 null 时格式：
                 f"  band 按处境强度估：T0 教学/杂兵，T1 普通，T2 精锐，T3 精英，T4 首领。没有交手场面时 combat_scene 为 null。"
             )
 
+        if self._combat_mode not in ("narrative", "tactical", "sideview"):
+            tasks.append(
+                "- 明确敌对冲突需要交手时，从以下已冻结插件遭遇中选择 combat_trigger.encounter_id："
+                + self._list_encounters()
+                + "。没有合适遭遇时返回 null，不得编造 ID。插件输入已冻结，params 和 combat_scene 必须为 null。"
+            )
+
         if choices_count > 0:
             grounding = ""
             if branch_context or worldbook_text:
@@ -940,6 +947,9 @@ branch 非 null 时格式：
         Resolve ownership through the same registry used by the worldbook editor.
         Do not cache: node edits and session book changes must take effect immediately.
         """
+        if self._combat_mode not in ("narrative", "tactical", "sideview"):
+            binding = self._overlay._data.get("combat_plugin_binding", {}) if self._overlay else {}
+            return "、".join(f"{row['id']}（{row['name']}）" for row in binding.get("encounters", [])) or "（无可用插件遭遇）"
         from combat_nodes import node_exists, node_overview
 
         book = self._resolve_worldbook()
@@ -1140,9 +1150,10 @@ branch 非 null 时格式：
         context_parts = []
 
         # ── 模式提示（稳定，始终首位）──
-        if self._combat_mode in ("tactical", "sideview"):
+        if self._combat_mode != "narrative":
             context_parts.append(
-                ("当前处于战术模式。" if self._combat_mode == "tactical" else "当前处于横版动作战斗模式。")
+                ("当前处于战术模式。" if self._combat_mode == "tactical" else
+                 "当前处于横版动作战斗模式。" if self._combat_mode == "sideview" else "当前使用可安装战斗插件。")
                 + "如果场景中存在战斗/敌对冲突，"
                 "请详细描述战斗局势。战斗触发将由系统自动处理。"
             )
@@ -1205,7 +1216,7 @@ branch 非 null 时格式：
         # 场景角色 + 遭遇（稳定）
         chars = "\n".join(char_summaries) if char_summaries else "（无）"
         context_parts.append(f"<characters>\n{chars}\n</characters>")
-        if self._combat_mode in ("tactical", "sideview"):
+        if self._combat_mode != "narrative":
             encounter_str = self._list_encounters()
             context_parts.append(
                 f"<encounters>\n可用的战斗遭遇：{encounter_str}\n"

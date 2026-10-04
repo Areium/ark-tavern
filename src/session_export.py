@@ -295,6 +295,14 @@ def import_session_zip(zip_path: Path, session_mgr) -> dict:
         src_dir = extract_dir / "session" / mode / sid
         if not src_dir.is_dir():
             raise ValueError("存档中缺少会话目录")
+        stored_metadata = json.loads((src_dir / "session.json").read_text(encoding="utf-8"))
+        if (not isinstance(stored_metadata, dict)
+                or stored_metadata.get("combat_mode", "narrative") != session_meta.get("combat_mode", "narrative")):
+            raise ValueError("存档清单与会话战斗模式不一致")
+        from combat_mode_sessions import is_plugin_mode
+        if is_plugin_mode(stored_metadata.get("combat_mode", "narrative")):
+            from combat_mode_bindings import read_frozen_binding
+            read_frozen_binding(src_dir, stored_metadata["combat_mode"])
 
         dst_root = _SESSIONS_DIR / mode
         dst_root.mkdir(parents=True, exist_ok=True)

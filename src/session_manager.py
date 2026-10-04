@@ -25,6 +25,7 @@ from combat_resume import read_resume, session_resume_path, summarize as _summar
 from combat_engine.engine import CombatEvent
 from data_paths import MEMORY_ROOT
 from constants import DEFAULT_PLAYER_IDENTITY
+from combat_mode_sessions import is_plugin_mode, session_binding, plugin_state, run_status
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ class Session:
         self.name = name or f"{mode_label}对话"
         self.mode = mode  # "free" | "story"
         self.combat_mode = combat_mode  # "narrative" | "tactical" | "sideview"，创建时选定，不可更改
+        self.combat_plugin_error = ""
         # 玩家身份角色（用户自身）：默认"玩家"，创建时可选择其他角色卡
         self.player_identity = (player_identity or "").strip() or DEFAULT_PLAYER_IDENTITY
         self.created_at = time.time()
@@ -662,7 +664,9 @@ class Session:
             "narration_count": self.narration_count,
             "total_usage": self.total_usage,
             "backgrounds_dir": str(self.data_dir / "backgrounds"),
-            "in_combat": self.combat is not None or self._sideview_run_status() in ("active", "settling"),
+            "in_combat": self.combat is not None or self._sideview_run_status() in ("active", "settling") or self._plugin_run_status() in ("active", "settling"),
+            "combat_plugin_binding": self.overlay._data.get("combat_plugin_binding") if is_plugin_mode(self.combat_mode) else None,
+            "combat_plugin_error": self.combat_plugin_error or None,
             "combat": self.combat.get_state() if self.combat else None,
             "sideview_status": self.overlay._data.get("sideview_status") if self.combat_mode == "sideview" else None,
             # 可恢复的战斗：内存中仍在，或磁盘上有挂起存档（临时返回后继续打）
@@ -677,6 +681,13 @@ class Session:
         run = self.overlay._data.get("sideview_run") or {}
         return run.get("status", "") if self.combat_mode == "sideview" else ""
 
+    def _plugin_run_status(self) -> str:
+        try:
+            return run_status(self)
+        except ValueError as exc:
+            self.combat_plugin_error = str(exc)
+            return "invalid"
+
     @property
     def combat_resumable(self) -> bool:
         """是否存在可恢复的战斗（内存中仍在，或磁盘上有挂起存档）。"""
@@ -684,10 +695,18 @@ class Session:
             return True
         if self._sideview_run_status() in ("active", "suspended", "settling"):
             return True
+        if self._plugin_run_status() in ("active", "settling"):
+            return True
         return session_resume_path(self).is_file()
 
     def combat_resume_summary(self) -> Optional[dict]:
         """挂起存档摘要（轮数/遭遇战/手牌数），无存档返回 None。"""
+        if self._plugin_run_status() in ("active", "settling"):
+            run = self.overlay._data["combat_plugin"]["run"]
+            return {"engine": "plugin", "encounter_id": run["encounter_id"],
+                    "suspended_at": run["updatedAt"], "round_num": 0,
+                    "phase": run["status"], "battle_over": run["status"] == "settling",
+                    "player_alive": 1, "hand_size": 0, "pending_waves": 0}
         if self.combat is not None:
             # 未挂起：战斗仍在内存，无存档可摘要
             return None
@@ -789,6 +808,9 @@ class SessionManager:
                 session.overlay.set_worldbook_ids(worldbook_ids)
             if initializer:
                 initializer(session)
+            if is_plugin_mode(combat_mode):
+                session_binding(session)
+                plugin_state(session)
             self._save_session_meta(session)
         except Exception:
             # 新创建的会话还未公开；失败时只清理本次唯一 ID 对应的半成品。
@@ -840,6 +862,14 @@ class SessionManager:
                                  wiki_manager=self._wiki_manager,
                                  worldbook_manager=self._worldbook_manager)
                 session.created_at = created_at
+                if is_plugin_mode(combat_mode):
+                    try:
+                        session_binding(session)
+                        plugin_state(session)
+                    except (ValueError, OSError) as exc:
+                        # Keep damaged saves visible/deletable; never downgrade
+                        # their mode or execute a replacement installed package.
+                        session.combat_plugin_error = str(exc)
                 self._sessions[sid] = session
 
                 parts = sid.split("_")
@@ -931,6 +961,9 @@ class SessionManager:
             logger.warning("导入会话构造失败 %s/%s: %s", mode, session_id, e)
             return None
         session.created_at = created_at
+        if is_plugin_mode(combat_mode):
+            session_binding(session)
+            plugin_state(session)
         with self._lock:
             self._sessions[_sid] = session
         logger.info("导入会话: %s (mode=%s)", _sid, _mode)

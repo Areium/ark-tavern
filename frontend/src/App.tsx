@@ -10,6 +10,8 @@ import SessionManagerView from "./components/session/SessionManagerView";
 import CombatView from "./components/combat/CombatView";
 import SideviewCombatView from "./components/sideview/SideviewCombatView";
 import SideviewPracticeView from "./components/sideview/SideviewPracticeView";
+import PluginCombatView from "./components/PluginCombatView";
+import { isPluginMode } from "./features/combatModes/sessionApi";
 import SettingsPanel from "./components/SettingsPanel";
 import WorldBookManager from "./components/WorldBookManager";
 import DocsView from "./components/DocsView";
@@ -167,7 +169,9 @@ export default function App() {
         {currentView === "combat" && (combatContext.practiceMode === "sideview"
           ? <SideviewPracticeView />
           : sessions.find((session) => session.id === combatContext.sessionId)?.combat_mode === "sideview"
-            ? <SideviewCombatView /> : <CombatView />)}
+            ? <SideviewCombatView />
+            : isPluginMode(sessions.find((session) => session.id === combatContext.sessionId)?.combat_mode)
+              ? <PluginCombatView /> : <CombatView />)}
         {currentView !== "home" && !immersive && (
           <div className="h-full overflow-auto">{renderManageView()}</div>
         )}

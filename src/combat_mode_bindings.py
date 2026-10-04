@@ -9,13 +9,27 @@ import mimetypes
 from pathlib import Path
 import re
 import stat
+import shutil
+import tempfile
 
 from combat_mode_packages import (MAX_FILE_BYTES, MAX_PACKAGE_BYTES, Package, _json,
-                                  _real, relative_path)
+                                  _real, relative_path, read_archive)
 from combat_mode_runs import MAX_STATE_BYTES, validate_input
 from worldbook_content import resolve_content
 
 MAX_ENCOUNTERS = 128
+MAX_FROZEN_BYTES = 48 * 1024 * 1024
+
+
+def binding_digest(package_digest, encounters):
+    encoded = json.dumps({"package_digest": package_digest, "encounters": encounters},
+                         sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _input_size(entry):
+    return len(json.dumps({key: entry[key] for key in ("name", "worldbook_id", "input")},
+                          ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
 @dataclass(frozen=True)
@@ -67,7 +81,6 @@ def prepare_binding(package: Package, book_ids: list[str], project_root: Path | 
             continue
         try:
             raw = _asset(book_id, adapter_name, project_root, MAX_STATE_BYTES)
-            total += len(raw)
             adapter = _json(raw)
             if set(adapter) != {"mode", "interface", "encounters"} or adapter["mode"] != identifier:
                 raise ValueError("Adapter must declare mode, interface and encounters")
@@ -111,6 +124,7 @@ def prepare_binding(package: Package, book_ids: list[str], project_root: Path | 
                     frozen_resources[name] = f"data:{mime};base64," + base64.b64encode(content).decode("ascii")
                 encounters[encounter_id] = {"name": encounter["name"], "worldbook_id": book_id,
                                             "input": inputs, "resources": frozen_resources}
+                total += _input_size(encounters[encounter_id])
                 if len(encounters) > MAX_ENCOUNTERS:
                     raise ValueError("Too many encounters (maximum 128)")
         except (OSError, ValueError) as exc:
@@ -119,6 +133,81 @@ def prepare_binding(package: Package, book_ids: list[str], project_root: Path | 
         raise ValueError(f"Selected worldbooks contain no {adapter_name} adapter")
     if total > MAX_PACKAGE_BYTES:
         raise ValueError("Combined mode and content exceed 32 MiB")
-    encoded = json.dumps({"package_digest": package.digest, "encounters": encounters},
-                         sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return PreparedBinding(package, encounters, hashlib.sha256(encoded).hexdigest())
+    return PreparedBinding(package, encounters, binding_digest(package.digest, encounters))
+
+
+def freeze_binding(session_dir: Path, binding: PreparedBinding):
+    """Publish one immutable directory inside a not-yet-published session."""
+    session_dir = Path(session_dir)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    target = session_dir / "combat_plugin"
+    if target.exists() or target.is_symlink():
+        raise ValueError("Session combat mode is already frozen")
+    staging = Path(tempfile.mkdtemp(prefix=".combat-plugin-", dir=session_dir))
+    try:
+        (staging / "package.zip").write_bytes(binding.package.archive())
+        metadata = {"mode_id": binding.package.manifest["id"],
+                    "package_digest": binding.package.digest, "binding_digest": binding.digest,
+                    "encounters": binding.encounters}
+        (staging / "binding.json").write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
+        staging.rename(target)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+
+
+def read_frozen_binding(session_dir: Path, expected_mode: str) -> PreparedBinding:
+    """Revalidate imported/saved bytes. A digest is integrity, not author trust."""
+    folder = Path(session_dir) / "combat_plugin"
+    for directory in (Path(session_dir), folder):
+        info = directory.lstat()
+        if not _real(info) or not stat.S_ISDIR(info.st_mode):
+            raise ValueError("Frozen mode must use real directories")
+    def read(name, limit):
+        path = folder / name
+        info = path.lstat()
+        if not _real(info) or not stat.S_ISREG(info.st_mode) or info.st_size > limit:
+            raise ValueError("Invalid frozen mode file")
+        with path.open("rb") as stream:
+            raw = stream.read(limit + 1)
+        if len(raw) > limit:
+            raise ValueError("Frozen mode file exceeds size limit")
+        return raw
+    package = read_archive(read("package.zip", MAX_PACKAGE_BYTES))
+    metadata = _json(read("binding.json", MAX_FROZEN_BYTES))
+    if (package.manifest["id"] != expected_mode or metadata.get("mode_id") != expected_mode
+            or metadata.get("package_digest") != package.digest):
+        raise ValueError("Frozen combat mode identity mismatch")
+    entries = metadata.get("encounters")
+    if not isinstance(entries, dict) or not 1 <= len(entries) <= MAX_ENCOUNTERS:
+        raise ValueError("Invalid frozen encounter collection")
+    total = sum(map(len, package.files.values()))
+    for key, entry in entries.items():
+        if (not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", key) or not isinstance(entry, dict)
+                or set(entry) != {"name", "worldbook_id", "input", "resources"}
+                or not isinstance(entry["name"], str) or not 1 <= len(entry["name"]) <= 100
+                or not isinstance(entry["worldbook_id"], str)):
+            raise ValueError("Invalid frozen encounter")
+        validate_input(package, entry["input"])
+        total += _input_size(entry)
+        if total > MAX_PACKAGE_BYTES:
+            raise ValueError("Frozen input and resources exceed size limit")
+        resources = entry["resources"]
+        if (not isinstance(resources, dict)
+                or set(package.manifest["input"].get("resources", [])) - resources.keys()):
+            raise ValueError("Missing frozen encounter resources")
+        for name, data_url in resources.items():
+            relative_path(name)
+            if name in package.manifest.get("resources", []):
+                raise ValueError("Frozen resource shadows package resource")
+            if (not isinstance(data_url, str) or len(data_url) > MAX_FILE_BYTES * 4 // 3 + 256
+                    or not re.match(r"^data:[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+;base64,", data_url)):
+                raise ValueError("Invalid frozen resource")
+            content = base64.b64decode(data_url.split(",", 1)[1], validate=True)
+            total += len(content)
+            if len(content) > MAX_FILE_BYTES or total > MAX_PACKAGE_BYTES:
+                raise ValueError("Frozen resources exceed size limit")
+    digest = binding_digest(package.digest, entries)
+    if metadata.get("binding_digest") != digest:
+        raise ValueError("Frozen combat binding fingerprint mismatch")
+    return PreparedBinding(package, entries, digest)

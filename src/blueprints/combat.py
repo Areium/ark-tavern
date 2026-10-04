@@ -307,8 +307,8 @@ def register(app, managers):
         if not session:
             return json_error("会话不存在", 404)
 
-        if session.combat_mode == "sideview":
-            return json_error("横版动作会话请使用 sideview/start", 409)
+        if session.combat_mode not in ("narrative", "tactical"):
+            return json_error("该会话请使用对应战斗模式的启动接口", 409)
 
         data = request.json or {}
         encounter_id = data.get("encounter_id")
@@ -561,8 +561,8 @@ def register(app, managers):
         session = _get_session(session_mgr, session_id)
         if not session:
             return json_error("会话不存在", 404)
-        if session.combat_mode == "sideview":
-            return json_error("横版动作会话请使用 sideview/complete", 409)
+        if session.combat_mode not in ("narrative", "tactical"):
+            return json_error("该会话请使用对应战斗模式的结算接口", 409)
 
         req_data = request.json or {}
         combat_data = session.combat.snapshot() if session.combat else None
@@ -650,8 +650,8 @@ def register(app, managers):
         session = _get_session(session_mgr, session_id)
         if not session:
             return json_error("会话不存在", 404)
-        if session.combat_mode == "sideview":
-            return json_error("横版动作会话请使用 sideview/complete", 409)
+        if session.combat_mode not in ("narrative", "tactical"):
+            return json_error("该会话请使用对应战斗模式的结算接口", 409)
 
         pending = session.overlay.get_pending_settlement()
         if pending is None:

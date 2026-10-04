@@ -16,6 +16,7 @@ from shared.helpers import (
 )
 from hooks.base import HookContext
 import node_lore_scope
+from combat_mode_sessions import is_plugin_mode, session_binding
 from story_rules import (StoryRuleError, describe_branch, narration_guard,
                          rule_key, settle_branch)
 
@@ -43,6 +44,13 @@ def _require_usable(session):
 
 def _require_no_combat(session):
     """检查会话是否正在进行战斗，战斗中则返回 423。"""
+    if is_plugin_mode(getattr(session, "combat_mode", "narrative")):
+        try:
+            session_binding(session)
+        except (ValueError, OSError) as exc:
+            return json_error(f"战斗模式存档不可用：{exc}", 409)
+        if getattr(session, "_plugin_run_status", lambda: "")() in ("active", "settling", "invalid"):
+            return json_error("插件战斗尚未结束或确认，请先处理战斗结果。", 423)
     if session.combat is not None or getattr(session, "_sideview_run_status", lambda: "")() in ("active", "suspended", "settling"):
         return json_error("战斗进行中，无法执行对话操作。请先完成或退出战斗。", 423)
     return None
@@ -102,7 +110,7 @@ def _should_extract_markers(session, choices_count: int) -> bool:
         return True
     if choices_count > 0:
         return True
-    if getattr(session.scene_manager, '_combat_mode', 'narrative') in ("tactical", "sideview"):
+    if getattr(session.scene_manager, '_combat_mode', 'narrative') != "narrative":
         return True
     overlay = session.overlay
     if overlay and overlay.get_beat_state():
@@ -126,6 +134,19 @@ def _apply_combat_briefing(session, combat_data: dict | None, stream_id: str,
     docs/archive/combat-core-design.md C1）。战斗目标优先级：节拍 `[COMBAT:enc_id]`
     （代码确定性解析）> LLM `combat_trigger` 提取。返回 briefing dict 或 None。
     """
+    if is_plugin_mode(getattr(session, 'combat_mode', 'narrative')):
+        encounter_id = beat_combat_id or (combat_data or {}).get("encounter_id", "")
+        if not encounter_id:
+            return None
+        binding = session_binding(session)
+        encounter = binding.encounters.get(encounter_id) if isinstance(encounter_id, str) else None
+        if encounter is None:
+            if beat_combat_id:
+                raise ValueError(f"当前节拍的战斗 {encounter_id} 不在冻结的模式内容中")
+            return None
+        return {"encounter_id": encounter_id, "session_id": session.id, "stream_id": stream_id,
+                "name": encounter["name"], "engine": "plugin", "mode_id": session.combat_mode,
+                "approaches": [{"id": "plugin", "label": "进入战斗", "hint": "使用会话冻结的战斗插件", "kind": "combat"}]}
     if getattr(session, 'combat_mode', 'narrative') not in ("tactical", "sideview"):
         return None
     encounter_id = beat_combat_id or (combat_data or {}).get("encounter_id", "")
@@ -153,6 +174,10 @@ def _apply_beat_complete(session, beat_complete: bool):
     """从标记提取结果推进节拍。"""
     if not beat_complete:
         return
+    if is_plugin_mode(getattr(session, "combat_mode", "narrative")):
+        target = _beat_combat_target(session)
+        if target and target not in session_binding(session).encounters:
+            raise ValueError(f"当前节拍的战斗 {target} 没有模式适配，未推进节拍")
     overlay = session.overlay
     if overlay and overlay.get_beat_state():
         overlay.advance_beat()
