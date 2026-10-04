@@ -36,7 +36,9 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 
 | 模块 | 职责 |
 |---|---|
-| `session_manager.py` | 会话 CRUD、回滚、叙述变体；创建时通过 initializer 在发布前完成阵容与世界书范围初始化。**`combat_mode`（`"narrative"` \| `"tactical"`）创建时选定，不可更改**。**主控角色（`player_identity`）与场景角色是两个口径**：主控是玩家自己扮演的角色，属于阵容但**不是**场景 NPC（`SceneManager.get_roster()` = 主控 + 队友；`get_scene_characters()` = 队友），模型不会替玩家说话 |
+| `session_manager.py` | 会话 CRUD、回滚、叙述变体；创建时通过 initializer 在发布前完成阵容与世界书范围初始化。**`combat_mode`（`narrative`、`tactical`、`sideview` 或已安装脚本模式 ID）创建时选定，不可更改**；脚本模式发布前冻结并校验，恢复时不替换为安装目录的新版本。**主控角色（`player_identity`）与场景角色是两个口径**：主控是玩家自己扮演的角色，属于阵容但**不是**场景 NPC（`SceneManager.get_roster()` = 主控 + 队友；`get_scene_characters()` = 队友），模型不会替玩家说话 |
+| `combat_mode_packages.py` / `combat_mode_bindings.py` | `data/combat_modes/<id>` 文件夹与 ZIP 安装管理；世界书 `combat/modes/<id>.json` 输入/资源预检与会话冻结。无任意服务端代码加载。见 [插件契约](proposals/combat-mode-plugins.md) |
+| `combat_mode_runs.py` / `combat_mode_sessions.py` | 独立演练与正式会话脚本运行态、CAS快照和幂等确认；正式运行态/历史/收据随剧情回档，绑定版本不回档。客户端结果须用户确认且不发数值奖励 |
 | `session_overlay.py` | 职责聚合：角色/物品属性覆盖 + 剧情日志（保留最近 15 条）+ 节拍状态 + 任务系统 + 多本世界书绑定（`worldbook_ids`）及各书候选快照（`worldbook_scopes`）+ **角色会话数值 `character_stats` 与插件数据 `plugin_data`**（两者随剧情树节点快照回档）；首本书仅由复数字段按顺序派生，不再单独存储；会话依赖读改写在 overlay 锁内原子保存 |
 | `character_stats.py` | 角色数值三层口径：世界书统一字段（`WorldBook.stat_fields`）→ 角色全局值（frontmatter `stats`）→ 会话值；字段规范化 / 值校验 / 合并 / 提示词 `<character_stats>` 块。见 `docs/design/session-scene-plugins.md` |
 | `session_stats.py` / `story_rules.py` | 面板、提示词与剧情判定的同源数值读取；作者分支的物品/数值条件与效果、服务端重验、原子结算和重试凭据。叙事角色详情不显示战术兜底，场景物品和效果记录随节点回档。见 `docs/design/narrative/story-rules.md` |

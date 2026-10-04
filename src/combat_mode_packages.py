@@ -82,6 +82,7 @@ class Package:
 
     def summary(self):
         return {**self.manifest, "digest": self.digest,
+                "description": self.manifest.get("description", ""),
                 "size": sum(map(len, self.files.values())), "file_count": len(self.files)}
 
     def archive(self) -> bytes:

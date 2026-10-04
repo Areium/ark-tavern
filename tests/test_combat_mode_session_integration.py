@@ -286,3 +286,16 @@ def test_real_narration_routes_emit_plugin_briefing(setup, streaming, monkeypatc
     client.post(base + "/combat-plugin/start", json={"encounter_id": "enc_plugin"})
     assert client.get(base + "/narrate").status_code == 423
     assert client.post(base + "/narrate-continue", json={}).status_code == 423
+
+
+def test_documented_adapter_can_create_and_start_session(setup):
+    app, client, _, adapter_dir = setup
+    example = Path(__file__).resolve().parents[1] / "examples/worldbook-adapters/stance-duel.json"
+    (adapter_dir / "stance-duel.json").write_bytes(example.read_bytes())
+    created = create(client)
+    assert created.status_code == 201, created.json
+    response = client.post(f"/api/sessions/{created.json['id']}/combat-plugin/start",
+                           json={"encounter_id": "enc_stance_training"})
+    assert response.status_code == 200, response.json
+    assert response.json["run"]["name"] == "守卫的架势训练"
+    assert response.json["run"]["input"]["enemy"]["hp"] == 75

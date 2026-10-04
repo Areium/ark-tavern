@@ -51,7 +51,10 @@ const modePath = (id: string) => `/${encodeURIComponent(id)}`;
 const formatSize = (size: number) => size < 1024 ? `${size} B` : size < 1024 * 1024
   ? `${(size / 1024).toFixed(1)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
 
-export default function CombatModeManager({ onPractice }: { onPractice?: (id: string) => void }) {
+export default function CombatModeManager({ onPractice, onBuiltinPractice }: {
+  onPractice?: (id: string) => void;
+  onBuiltinPractice?: (id: "tactical" | "sideview") => void;
+}) {
   const id = useId();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [busy, setBusy] = useState("正在读取模式列表…");
@@ -192,7 +195,12 @@ export default function CombatModeManager({ onPractice }: { onPractice?: (id: st
           {(mode.input || mode.digest) && <details className="cm-details"><summary>技术信息</summary>
             {mode.input && <><p>输入契约：<code>{mode.input.id} / {mode.input.version}</code></p><p>必需字段：{mode.input.required.join("、") || "无"}</p></>}
             {mode.digest && <p>摘要：<code>{mode.digest}</code></p>}</details>}
-          <footer>{mode.runtime === "builtin" ? <p><AppIcon name="lock" size={14} />随应用提供，不可停用或卸载</p> : <>
+          <footer>{mode.runtime === "builtin" ? <>
+            <p><AppIcon name="lock" size={14} />随应用提供，不可停用或卸载</p>
+            {(mode.id === "tactical" || mode.id === "sideview") && onBuiltinPractice && <button
+              className="cm-primary" type="button" disabled={disabled}
+              aria-label={`演练${mode.name}`} onClick={() => onBuiltinPractice(mode.id as "tactical" | "sideview")}>演练</button>}
+          </> : <>
             <button type="button" disabled={disabled} aria-label={`${mode.enabled ? "停用" : "启用"}${mode.name}`} onClick={() => toggle(mode)}>
               <AppIcon name={mode.enabled ? "pause" : "play"} size={15} />{mode.enabled ? "停用" : "启用"}</button>
             <button type="button" disabled={disabled} aria-label={`导出${mode.name}`} onClick={() => exportMode(mode)}><AppIcon name="download" size={15} />导出</button>

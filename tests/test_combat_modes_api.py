@@ -45,3 +45,19 @@ def test_bad_requests_and_builtin_protection(client):
     # Electron's file:// renderer also has an opaque origin. Runtime isolation
     # must use CSP/capabilities, not break the desktop client with an Origin ban.
     assert client.get("/api/combat-modes", headers={"Origin": "null"}).status_code == 200
+
+
+def test_optional_description_is_normalized_without_changing_archive(client):
+    files = package_files()
+    assert b'"description"' not in files["manifest.json"]
+    response = client.post("/api/combat-modes/install", data={
+        "file": (io.BytesIO(archive(files)), "test.zip")})
+    assert response.status_code == 201
+    assert response.json["description"] == ""
+    for enabled in (True, False):
+        assert client.put("/api/combat-modes/test-mode/enabled", json={"enabled": enabled}).status_code == 200
+        rows = client.get("/api/combat-modes").json["modes"]
+        assert all(isinstance(row["description"], str) for row in rows)
+        assert rows[-1]["description"] == ""
+    exported = client.get("/api/combat-modes/test-mode/export")
+    assert read_archive(exported.data).files["manifest.json"] == files["manifest.json"]

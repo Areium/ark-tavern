@@ -1,0 +1,14 @@
+{
+  "mode": "stance-duel",
+  "interface": { "id": "stance-encounter", "version": 1 },
+  "encounters": {
+    "enc_stance_training": {
+      "name": "守卫的架势训练",
+      "input": {
+        "player": { "name": "玩家", "hp": 60 },
+        "enemy": { "name": "训练守卫", "hp": 75 }
+      },
+      "resources": {}
+    }
+  }
+}

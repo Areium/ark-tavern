@@ -3,6 +3,7 @@ import { getBaseUrl } from "../utils/baseUrl";
 import CombatModeManager from "./CombatModeManager";
 import ConfirmDialog from "./common/ConfirmDialog";
 import RuntimeFrame from "../features/combatModes/RuntimeFrame";
+import { useAppStore } from "../stores/appStore";
 
 interface Bundle {
   abi: "ark-combat/1"; id: string; name: string; version: string; digest: string;
@@ -123,7 +124,14 @@ export default function CombatModesView() {
       {runErrors.length > 0 && <details className="mt-3 text-red-300"><summary>演练存档读取异常</summary>
         <ul>{runErrors.map(text => <li key={text}>{text}</li>)}</ul></details>}
     </section>
-    <CombatModeManager onPractice={id => { if (!busy) setConfirm({ kind: "new", id }); }} />
+    <CombatModeManager onPractice={id => { if (!busy) setConfirm({ kind: "new", id }); }}
+      onBuiltinPractice={mode => {
+        if (pending.current) return;
+        const store = useAppStore.getState();
+        store.setCombatContext({ practiceMode: mode, sessionId: null, testId: null, state: null,
+          uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
+        store.setCurrentView("combat");
+      }} />
     {confirm && confirm.kind !== "retreat" && <ConfirmDialog title="运行本地战斗插件？" confirmLabel="信任并运行"
       onCancel={() => setConfirm(null)} onConfirm={() => {
         const chosen = confirm; setConfirm(null);
