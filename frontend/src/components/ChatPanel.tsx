@@ -13,7 +13,6 @@ import TokenUsage from "./chat/TokenUsage";
 import StageView from "./stage/StageView";
 import SessionStoryGraph from "./story/SessionStoryGraph";
 import StoryChoices, { latestStoryBranches, resolveChoiceBranch } from "./story/StoryChoices";
-import { isChoiceMessage } from "../utils/stageScript";
 import AppIcon from "./AppIcon";
 
 const EMPTY_MSGS: ChatMessage[] = [];
@@ -707,9 +706,6 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const lastMessage = messages[messages.length - 1];
   const requestError = lastMessage?.requestError ? lastMessage.content : "";
-  const graphChoice = isChoiceMessage(lastMessage) ? lastMessage : null;
-  const graphChoicesDisabled = sending || streaming || choiceLocked || !!activeSession?.in_combat
-    || (graphChoice?.round != null && graphChoice.round < narrationCount);
   const sessionTokens = activeSession?.total_usage;
   const actionInput = stageInputReady && (!stageMode || (!sending && !streaming && !choiceLocked)) ? (
     <div className={`chat-input-bar ${stageOnly && stageMode ? "stage-action-input" : ""}`}>
@@ -887,16 +883,8 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
         />
       )}
       {graphMode && activeSessionId && (
-        <>
-          <SessionStoryGraph key={activeSessionId} sessionId={activeSessionId}
-            onOpenLog={() => setLogOverlayOpen(true)} onExit={() => useAppStore.getState().setChatLayout("stage")} />
-          {graphChoice && (
-            <div className="session-graph-choices" role="group" aria-label="剧情分支选项" style={{ maxHeight: "min(38vh, 360px)", flexShrink: 0 }}>
-              <span>选择一项，或在下方输入行动</span>
-              <StoryChoices message={graphChoice} knownBranches={knownBranches} disabled={graphChoicesDisabled} onChoice={handleChoiceClick} />
-            </div>
-          )}
-        </>
+        <SessionStoryGraph key={activeSessionId} sessionId={activeSessionId}
+          onOpenLog={() => setLogOverlayOpen(true)} onExit={() => useAppStore.getState().setChatLayout("stage")} />
       )}
       {/* 消息流：舞台模式下变成覆盖在舞台上的「记录」抽屉（同一份 DOM，只换外观） */}
       <div
@@ -1138,7 +1126,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
         <div ref={bottomRef} />
       </div>
 
-      {!(stageOnly && stageMode && activeSessionId) && actionInput}
+      {!graphMode && !(stageOnly && stageMode && activeSessionId) && actionInput}
 
       {/* Custom Prompt Modal */}
       {customPromptOpen && (

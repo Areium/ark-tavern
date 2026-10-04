@@ -48,6 +48,13 @@ def choose(session):
     return _resolve_branch(session, branches[0]["id"], "")
 
 
+def test_story_map_exposes_required_and_optional_continuations(session):
+    beats = session.overlay.build_story_state()["roads"][0]["beats"]
+    assert beats[0]["choice_required"] is True
+    assert beats[0]["authored_branches"][0]["target_beat_id"] == "beat_exit"
+    assert beats[1]["choice_required"] is False
+
+
 def test_atomic_settlement_and_retry_survives_reload(session):
     branch = choose(session)
     _apply_branch_landing(session, branch)

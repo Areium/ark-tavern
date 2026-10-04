@@ -1,101 +1,91 @@
 .session-story-graph {
-  display: flex; flex-direction: column; flex: 1; min-height: 180px; min-width: 0;
-  overflow: hidden; color: var(--chat-body); background: var(--chat-card);
+  display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0;
+  overflow: hidden; color: var(--ng-body); background: var(--chat-card);
 }
 .session-graph-toolbar, .session-graph-navigation {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-  gap: 8px 16px; padding: 10px 16px; border-bottom: 1px solid var(--chat-line);
+  gap: 8px 16px; padding: 12px 20px; border-bottom: 1px solid var(--chat-line);
 }
-.session-graph-heading { display: flex; align-items: center; gap: 8px; color: var(--chat-accent); }
-.session-graph-heading h2 { font: 600 18px var(--chat-serif); color: var(--chat-text); }
-.session-graph-heading > span { color: var(--chat-body); font-size: 12px; }
+.session-graph-heading { display: flex; align-items: center; gap: 12px; min-width: 0; color: var(--chat-accent); }
+.session-graph-heading h2 { font: 600 18px var(--chat-serif); color: var(--ng-title); margin: 0; }
+.session-graph-heading span { color: var(--ng-muted); font-size: 11px; letter-spacing: .04em; }
+.session-graph-navigation { padding: 8px 20px; background: var(--chat-soft); }
 .session-graph-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
-.session-graph-tools button[aria-pressed="true"] { border-color: var(--chat-accent); color: var(--chat-accent); }
-.session-graph-tools button, .session-graph-empty button, .session-story-panel-heading button, .session-graph-status button {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px;
-  padding: 5px 10px; border: 1px solid var(--chat-line-strong); border-radius: 8px;
-  color: var(--chat-text); background: var(--chat-soft); font-size: 12px;
+.session-graph-tools button, .session-graph-empty button, .session-story-panel-heading button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px;
+  padding: 5px 10px; border: 1px solid var(--chat-line-strong); border-radius: 6px;
+  color: var(--ng-body); background: var(--ng-card-bg); font-size: 12px;
 }
-.session-story-graph button:hover:not(:disabled), .session-story-panel-heading button:hover { border-color: var(--chat-accent); background: var(--chat-soft); }
-.session-story-graph button:disabled { opacity: .45; cursor: not-allowed; }
-.session-story-graph :focus-visible, .session-story-panel-heading button:focus-visible, .session-graph-choices button:focus-visible {
+.session-graph-tools button:hover:not(:disabled), .session-graph-empty button:hover, .session-story-panel-heading button:hover {
+  border-color: var(--chat-accent); color: var(--chat-accent);
+}
+.session-graph-tools button[aria-pressed="true"] { border-color: var(--chat-accent); color: var(--chat-accent); }
+.session-story-graph button:disabled { opacity: .4; cursor: not-allowed; }
+.session-story-graph :focus-visible, .session-story-panel-heading button:focus-visible {
   outline: 2px solid var(--chat-accent); outline-offset: 3px;
 }
-.session-story-graph ::selection { color: var(--chat-card); background: var(--chat-accent); }
-.session-graph-navigation p { min-width: 0; flex: 1 1 220px; font-size: 12px; overflow-wrap: anywhere; }
-.session-graph-navigation strong { display: block; font-size: 14px; color: var(--chat-text); }
-.session-graph-tools output { min-width: 44px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
-.session-graph-status { padding: 6px 16px; font-size: 12px; color: var(--chat-body); }
+.session-graph-tools output { min-width: 42px; text-align: center; font-size: 11px; font-variant-numeric: tabular-nums; }
+.session-graph-legend { display: flex; align-items: center; gap: 18px; font-size: 11px; color: var(--ng-muted); }
+.session-graph-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.session-graph-legend i { width: 7px; height: 7px; border-radius: 50%; background: var(--ng-muted); }
+.session-graph-legend .is-current i { background: var(--chat-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--chat-accent) 18%, transparent); }
+.session-graph-legend .is-path i { background: var(--ng-beat); }
+.session-graph-canvas { position: relative; flex: 1; min-height: 0; }
 .session-graph-viewport {
-  flex: 1; min-height: 150px; overflow: auto; overscroll-behavior: contain; cursor: grab;
-  scrollbar-color: var(--chat-line-strong) var(--chat-card);
+  position: absolute; inset: 0; overflow: auto; overscroll-behavior: contain; cursor: grab;
+  scrollbar-color: var(--chat-line-strong) var(--chat-card); user-select: none;
   background-color: var(--chat-soft);
+  background-image: radial-gradient(circle, var(--ng-grid-dot) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 .session-graph-viewport:active { cursor: grabbing; }
-.session-graph-plane { position: relative; transform-origin: top left; }
+.session-graph-plane { position: absolute; transform-origin: top left; }
 .session-graph-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
-.session-graph-edges > path { fill: none; stroke: var(--chat-line-strong); stroke-width: 2; }
-.session-graph-edges > .is-path { stroke: var(--chat-accent); }
-.session-graph-edges > .is-branch { stroke-dasharray: 5 5; }
-.session-graph-node {
-  position: absolute; display: flex; flex-direction: column; gap: 7px; padding: 12px;
-  border: 1px solid var(--chat-line-strong); border-radius: 12px; text-align: left;
-  background: var(--chat-card); color: var(--chat-body); cursor: pointer;
+.session-graph-edges > path { fill: none; stroke: var(--ng-edge-color); stroke-width: 1.8; }
+.session-graph-edges > .is-path { stroke: var(--ng-beat); }
+.session-graph-edges > .is-locked { stroke-dasharray: 5 5; opacity: .5; }
+.session-story-graph .session-graph-node {
+  position: absolute; display: flex; flex-direction: column; text-align: left;
+  cursor: default; transition: border-color .15s, box-shadow .15s;
 }
-.session-graph-node.is-current { border: 2px solid var(--chat-accent); padding: 11px; }
-.session-graph-node.is-path { border-color: var(--chat-accent); }
-.session-graph-node.is-branch { border-style: dashed; }
-.session-graph-node[aria-pressed="true"] { outline: 2px solid var(--chat-line-strong); outline-offset: 4px; }
-.session-graph-node:focus-visible { outline-color: var(--chat-accent); }
-.session-graph-node-top { display: flex; align-items: flex-start; gap: 8px; width: 100%; }
-.session-graph-node-kind { flex: 0 0 auto; padding: 1px 5px; border: 1px solid var(--chat-line-strong); border-radius: 4px; font-size: 11px; line-height: 1.5; }
-.session-graph-node-meta { font-size: 11px; line-height: 1.5; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.session-graph-node.is-current .session-graph-node-meta { color: var(--chat-accent); font-weight: 600; }
-.session-graph-node strong { font: 600 15px var(--chat-serif); color: var(--chat-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
-.session-graph-node-caption { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
-.session-graph-cast { display: flex; align-items: center; gap: 3px; margin-top: auto; }
-.session-graph-cast > span { margin-left: 4px; font-size: 10px; white-space: nowrap; }
-.session-graph-cast > img, .session-graph-cast > div { width: 26px; height: 26px; }
-.session-graph-detail { flex: 0 1 auto; min-height: 0; padding: 14px 16px; border-top: 1px solid var(--chat-line); max-height: min(38vh, 320px); overflow: auto; overscroll-behavior: contain; scrollbar-color: var(--chat-line-strong) var(--chat-card); }
-.session-graph-detail-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; }
-.session-graph-detail h3 { font: 600 15px var(--chat-serif); color: var(--chat-text); overflow-wrap: anywhere; }
-.session-graph-detail-heading > span { font-size: 12px; }
-.session-graph-detail p { margin-top: 6px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; max-width: 75ch; }
-.session-graph-detail .session-graph-detail-meta { font-size: 12px; font-variant-numeric: tabular-nums; }
-.session-graph-detail-content { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 20px 28px; margin-top: 18px; }
-.session-graph-detail-content > section { min-width: 0; }
-.session-graph-detail h4 { font-size: 13px; font-weight: 600; color: var(--chat-text); }
-.session-graph-detail h4 > span { margin-left: 4px; font-weight: 400; font-variant-numeric: tabular-nums; }
-.session-graph-detail dl { display: grid; grid-template-columns: minmax(56px, auto) minmax(0, 1fr); gap: 5px 12px; margin-top: 8px; font-size: 13px; line-height: 1.7; }
-.session-graph-detail dt { max-width: 9em; }
-.session-graph-detail dd { margin: 0; color: var(--chat-text); white-space: pre-wrap; overflow-wrap: anywhere; }
-.session-graph-detail .session-graph-detail-note { font-size: 12px; }
-.session-graph-detail-branches { grid-column: 1 / -1; }
-.session-graph-detail-branches ul { list-style: none; padding: 0; margin: 10px 0 0; }
-.session-graph-detail-branches li { padding: 12px 0; border-top: 1px solid var(--chat-line); }
-.session-graph-branch-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.session-graph-branch-heading strong { font-size: 13px; font-weight: 600; color: var(--chat-text); white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
-.session-graph-branch-heading > span { flex-shrink: 0; font-size: 12px; }
-.session-graph-branch-heading > .is-taken { color: var(--chat-accent); }
-.session-graph-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; overflow: auto; }
-.session-graph-empty h3 { font: 600 18px var(--chat-serif); color: var(--chat-text); }
+.session-graph-node .ng-node-head { flex-shrink: 0; padding: 9px 12px; gap: 6px; }
+.session-graph-node-kind { font-size: 10px; color: var(--ng-muted); }
+.session-graph-node-state { margin-left: auto; font-size: 10px; color: var(--ng-muted); white-space: nowrap; }
+.session-graph-node-title {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; margin: 11px 14px 0; font-size: 14px; font-weight: 600;
+  line-height: 1.5; color: var(--ng-title); overflow-wrap: anywhere;
+}
+.session-graph-node-caption { display: block; padding: 0 14px 12px; margin-top: auto;
+  font-size: 10px; color: var(--ng-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-story-graph .session-graph-node.is-current {
+  border: 2px solid var(--chat-accent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--chat-accent) 10%, transparent), 0 5px 24px rgba(0,0,0,.12);
+}
+.session-graph-node.is-current .session-graph-node-state { color: var(--chat-accent); font-weight: 600; }
+.session-story-graph .session-graph-node.is-locked { border-color: color-mix(in srgb, var(--ng-muted) 35%, transparent);
+  background: color-mix(in srgb, var(--ng-card-bg) 90%, var(--ng-muted)); box-shadow: none; }
+.session-graph-node.is-locked > .ng-node-bar { background: var(--ng-muted); opacity: .5; }
+.session-graph-node.is-locked > .ng-node-head { background: color-mix(in srgb, var(--ng-muted) 8%, transparent); }
+.session-graph-node.is-locked .ng-node-icon, .session-graph-node.is-locked .session-graph-node-title { color: var(--ng-muted); }
+.session-graph-node.is-visited { border-style: dashed; }
+.session-graph-cast {
+  position: absolute; display: flex; align-items: center; gap: 0; top: -30px; right: 10px;
+  padding: 3px; border: 1px solid var(--chat-accent); border-radius: 22px;
+  background: var(--ng-card-bg); box-shadow: 0 3px 12px rgba(0,0,0,.15);
+}
+.session-graph-cast > img, .session-graph-cast > div { width: 34px; height: 34px; border: 2px solid var(--ng-card-bg); }
+.session-graph-cast > img + img, .session-graph-cast > div + div, .session-graph-cast > img + div, .session-graph-cast > div + img { margin-left: -7px; }
+.session-graph-cast > span { padding: 0 5px; font-size: 10px; color: var(--ng-title); }
+.session-graph-canvas-note {
+  position: absolute; left: 20px; bottom: 14px; right: 20px; display: flex; justify-content: space-between; gap: 16px;
+  color: var(--ng-muted); font-size: 11px; pointer-events: none;
+}
+.session-graph-canvas-note > span { opacity: .75; }
+.session-graph-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 24px; text-align: center; overflow: auto; }
+.session-graph-empty h3 { font: 600 18px var(--chat-serif); color: var(--ng-title); }
 .session-graph-empty p { max-width: 48ch; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
-.session-graph-choices { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px; max-height: 150px; overflow-y: auto; border-top: 1px solid var(--chat-line); }
-.session-graph-choices > span { flex-basis: 100%; font-size: 12px; color: var(--chat-body); }
 .session-story-panel-heading { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 8px; }
-@media (max-width: 600px) {
-  .session-graph-toolbar, .session-graph-navigation { padding: 8px 10px; gap: 6px; }
-  .session-graph-heading h2 { font-size: 16px; }
-  .session-graph-tools button { min-height: 44px; min-width: 44px; padding: 5px 8px; }
-  .session-graph-navigation p { flex-basis: 100%; }
-  .session-graph-detail { max-height: min(35dvh, 280px); padding: 12px 10px; }
-  .session-graph-detail-content { grid-template-columns: minmax(0, 1fr); gap: 20px; }
-  .session-graph-detail p, .session-graph-detail dl { font-size: 14px; }
-  .session-graph-detail dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-  .session-graph-detail dd + dt { margin-top: 8px; }
-  .session-graph-status { padding: 4px 10px; font-size: 11px; }
-  .session-graph-choices { max-height: 100px; padding: 8px 10px; }
-  .chat-topbar { flex-wrap: wrap; height: auto; min-height: 42px; padding: 5px; }
-  .chat-topbar .chat-session-heading { min-width: max-content; }
-  .chat-mode-switch { flex-shrink: 0; white-space: nowrap; }
-}
+
+.session-graph-section-title { position: absolute; font-size: 12px; letter-spacing: .1em; color: var(--ng-muted); }

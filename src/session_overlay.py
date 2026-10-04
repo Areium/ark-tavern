@@ -2072,6 +2072,7 @@ class SessionOverlay:
                     "round_end": snap.get("round_end") if snap else None,
                     "has_combat": "[COMBAT:" in (b.get("content") or "") or bool((b.get("combat") or {}).get("required")),
                     "authored_branches": b.get("authored_branches", []),
+                    "choice_required": bool(b.get("choice_required")),
                 })
             roads.append({
                 "chapter_idx": i,

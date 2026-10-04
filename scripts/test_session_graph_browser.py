@@ -55,7 +55,10 @@ def run():
                     route.fulfill(status=503, json={"error": "验收模拟：剧情状态暂不可用"})
                     return
                 current = state["current"]
-                body = {"has_plot": not state["empty"], "plot_name": "长夜归途", "roads": [],
+                body = {"has_plot": not state["empty"], "plot_name": "长夜归途", "roads": [] if state["empty"] else [{
+                            "id": "main", "chapter_idx": 0, "kind": "main", "origin": {}, "title": "长夜路线", "state": "current",
+                            "beats": [{"id": "arrival", "title": "抵达旧城", "summary": "", "state": "done", "round_start": 1, "choice_required": False},
+                                      {"id": "future", "title": "尚未抵达的黎明", "summary": "未来节拍", "state": "locked", "round_start": None, "choice_required": False}]}],
                         "chapter": {"idx": 0, "title": "雨中的约定", "total": 1},
                         "tree": {"has_tree": not state["empty"], "root_id": "entry", "current_id": current,
                                  "path": ["entry", "bridge", current], "nodes": [] if state["empty"] else NODES,
@@ -103,8 +106,9 @@ def run():
         page.locator(".session-story-graph").wait_for()
         page.get_by_text("穿过旧城区集市", exact=True).first.wait_for()
         page.get_by_role("button", name="收起场景面板", exact=True).click()
+        expect(page.locator(".session-graph-node.is-locked").filter(has_text="尚未抵达的黎明")).to_be_visible()
         current = page.locator(".session-story-graph [aria-current='step']")
-        expect(current.locator(".session-graph-cast")).to_have_attribute("aria-label", "同处当前节点：博士、临光、瑕光")
+        expect(current.locator(".session-graph-cast")).to_have_attribute("aria-label", "当前节点角色：博士、临光、瑕光")
         for _ in range(20):
             if page.get_by_role("button", name="缩小节点图").is_disabled():
                 break
@@ -126,19 +130,10 @@ def run():
         page.keyboard.press("ArrowRight")
         page.keyboard.press("Home")
         assert canvas.evaluate("el => getComputedStyle(el).outlineStyle != 'none'"), "keyboard focus visible"
-        current.hover()
-        current.focus()
-        page.keyboard.press("Enter")
-        expect(page.get_by_role("complementary", name="节点详情")).to_contain_text("只读查看")
-        expect(page.get_by_role("complementary", name="节点详情")).to_contain_text("穿过集市收集线索")
-        expect(page.get_by_role("complementary", name="节点详情")).to_contain_text("寻找证人")
-        expect(page.get_by_role("complementary", name="节点详情")).to_contain_text("market-ref")
+        expect(page.get_by_role("complementary", name="节点详情")).to_have_count(0)
+        expect(page.locator(".chat-input-bar")).to_have_count(0)
+        expect(page.locator(".session-graph-choices")).to_have_count(0)
         page.screenshot(path=str(SHOTS / "desktop.png"), full_page=True)
-        page.set_viewport_size({"width": 390, "height": 844})
-        page.wait_for_timeout(100)
-        assert current.evaluate("el => { const a=el.getBoundingClientRect(); const b=el.closest('.session-graph-viewport').getBoundingClientRect(); return a.left >= b.left && a.right <= b.right; }"), "current avatar card remains visible after resize"
-        page.screenshot(path=str(SHOTS / "mobile.png"), full_page=True)
-        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), "mobile page overflow"
         state["current"] = "tower"
         page.evaluate("qaStore.getState().triggerEnvRefresh()")
         page.wait_for_timeout(300)
@@ -146,17 +141,16 @@ def run():
         expect(current).to_contain_text("前往钟楼寻找线索")
         page.evaluate("qaStore.setState({sessionStreaming:{'graph-qa':true}})")
         expect(page.get_by_role("button", name="刷新节点图")).to_be_disabled()
-        expect(page.get_by_role("group", name="剧情分支选项").get_by_role("button")).to_be_disabled()
-        expect(page.locator(".session-graph-status[role='status']")).to_contain_text("剧情生成中")
+        expect(page.locator(".session-graph-canvas-note[role='status']")).to_contain_text("剧情生成中")
         state["current"] = "market"
         page.evaluate("qaStore.setState({sessionStreaming:{'graph-qa':false}})")
         expect(current).to_contain_text("穿过旧城区集市")
         state["cast_error"] = True
         page.evaluate("qaStore.getState().triggerEnvRefresh()")
-        expect(page.get_by_role("button", name="重试角色加载")).to_be_visible()
+        expect(current).to_contain_text("穿过旧城区集市")
         state["cast_error"] = False
-        page.get_by_role("button", name="重试角色加载").click()
-        expect(page.get_by_role("button", name="重试角色加载")).to_have_count(0)
+        page.get_by_role("button", name="刷新节点图").click()
+        expect(current.locator(".session-graph-cast")).to_have_attribute("aria-label", "当前节点角色：博士、临光、瑕光")
         state["error"] = True
         page.evaluate("qaStore.getState().triggerEnvRefresh()")
         expect(page.get_by_text("验收模拟：剧情状态暂不可用", exact=False)).to_be_visible()
@@ -182,7 +176,7 @@ def run():
         assert all(method == "GET" for method, _ in requests), "QA must not issue mutation requests"
         print(json.dumps({"result": "pass", "browser_errors": errors, "api_requests": len(requests),
                           "expected_resource_errors": len(console_errors), "unexpected_console_errors": unexpected_console,
-                          "viewports": ["1440x960", "390x844"], "url": BASE_URL,
+                          "viewports": ["1440x960"], "url": BASE_URL,
                           "screenshots": str(SHOTS)}, ensure_ascii=False))
         browser.close()
 

@@ -142,6 +142,7 @@ export interface BranchChoice {
 /** 剧情节点状态（路线图中的一个节拍） */
 export interface StoryBeatNode {
   id: string;
+  title: string;
   summary: string;
   keep_on_deviate?: boolean;
   state: "done" | "current" | "locked";
@@ -149,11 +150,15 @@ export interface StoryBeatNode {
   round_end: number | null;
   has_combat?: boolean;
   authored_branches?: BranchChoice[];
+  choice_required: boolean;
 }
 
 /** 剧情章节（含节拍列表） */
 export interface StoryRoad {
   chapter_idx: number;
+  id: string;
+  kind: "main" | "branch";
+  origin: { beat_id?: string; chapter_id?: string };
   title: string;
   summary?: string;
   state: "done" | "current" | "locked";
