@@ -707,8 +707,11 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   const lastMessage = messages[messages.length - 1];
   const requestError = lastMessage?.requestError ? lastMessage.content : "";
   const sessionTokens = activeSession?.total_usage;
-  const actionInput = stageInputReady && (!stageMode || (!sending && !streaming && !choiceLocked)) ? (
-    <div className={`chat-input-bar ${stageOnly && stageMode ? "stage-action-input" : ""}`}>
+  const actionInputVisible = stageInputReady && (!stageMode || (!sending && !streaming && !choiceLocked));
+  // Reserve the composer space during playback so finishing a line cannot move the dialogue.
+  const actionInput = (
+    <div className={`chat-input-bar ${stageOnly && stageMode ? "stage-action-input" : ""} ${actionInputVisible ? "" : "is-playback-pending"}`}
+      aria-hidden={!actionInputVisible}>
         {choiceLocked && (
           <p className="chat-lock-note">
             ⚔ 待完成战斗选项：已暂停输入与剧情推进，请点击左下角「战斗选项（必选）」恢复并选择打法。
@@ -734,19 +737,19 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
             value={activeSession?.in_combat ? "（战斗中 — 请先完成战斗）" : input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={!activeSessionId || sending || streaming || !!activeSession?.in_combat || choiceLocked}
+            disabled={!actionInputVisible || !activeSessionId || sending || streaming || !!activeSession?.in_combat || choiceLocked}
           />
           <button
             type="button"
             onClick={handleSend}
-            disabled={!input.trim() || !activeSessionId || sending || streaming || !!activeSession?.in_combat || choiceLocked}
+            disabled={!actionInputVisible || !input.trim() || !activeSessionId || sending || streaming || !!activeSession?.in_combat || choiceLocked}
             className="chat-send shrink-0"
           >
             {choiceLocked ? "待选择" : activeSession?.in_combat ? "战斗中" : sending ? "发送中…" : "发送"}
           </button>
         </div>
       </div>
-  ) : null;
+  );
 
   return (
     <div className="flex flex-col h-full">

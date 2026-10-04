@@ -22,7 +22,7 @@ const ReactDOM = fromFrontend('react-dom');
 const { renderToStaticMarkup: render } = fromFrontend('react-dom/server');
 const { default: Choices, resolveChoiceBranch, latestStoryBranches } = require(src('components/story/StoryChoices.tsx'));
 const branches = [
-  { id: 'blocked', label: '出示通行证', source: 'author', available: false,
+  { id: 'blocked', label: '出示通行证', source: 'author', intent: '情报', available: false,
     blocked_reasons: ['缺少物品：雨夜通行证'],
     condition_summary: ['持有雨夜通行证', '信任 ≥ 3'], effect_summary: ['消耗雨夜通行证', '信任 + 1'] },
   { id: 'open /补给', label: '打开补给盒', available: true, condition_summary: ['补给盒尚未开启'], effect_summary: ['获得绷带'] },
@@ -38,10 +38,13 @@ async function tests() {
   for (const variant of ['chat', 'stage']) {
     const html = render(React.createElement(Choices, { ...props, variant }));
     assert.equal((html.match(/disabled=""/g) || []).length, 1);
-    for (const line of [...branches[0].blocked_reasons, ...branches[0].condition_summary, ...branches[0].effect_summary]) {
+    for (const line of branches[0].blocked_reasons) {
       assert.ok(html.includes(line), `visible text, not just tooltip: ${line}`);
     }
-    assert.ok(!html.includes('title='), 'rules are inline');
+    for (const line of ['作者预设分支', '情报', ...branches[0].condition_summary, ...branches[0].effect_summary]) {
+      assert.ok(!html.includes(line), `choice cards omit metadata: ${line}`);
+    }
+    assert.ok(!html.includes('title='), 'blocked reasons are inline');
     assert.ok(html.includes('type="button"') && html.includes('focus-visible:outline'));
     assert.equal((render(React.createElement(Choices, { ...props, variant, disabled: true })).match(/disabled=""/g) || []).length, 3);
   }
@@ -54,7 +57,9 @@ async function tests() {
   const unspecified = { id: 'x', label: '<script>alert(1)</script>', effect_summary: ['<img src=x>'] };
   const safeHtml = render(React.createElement(Choices, { ...props, message: { branches: [unspecified] } }));
   assert.ok(!safeHtml.includes('disabled=""'), 'absent availability does not imply blocked');
-  assert.ok(safeHtml.includes('&lt;script&gt;') && safeHtml.includes('&lt;img'));
+  assert.ok(safeHtml.includes('&lt;script&gt;') && !safeHtml.includes('<script>'));
+  const blockedHtml = render(React.createElement(Choices, { ...props, message: { branches: [{ ...unspecified, available: false, blocked_reasons: ['<img src=x>'] }] } }));
+  assert.ok(blockedHtml.includes('&lt;img') && !blockedHtml.includes('<img'));
   assert.ok(render(React.createElement(Choices, { ...props, message: { branches: [{ ...unspecified, available: false }] } })).includes('当前条件未满足'));
 
   const { BranchRuleSummary } = require(src('components/story/StoryChoices.tsx'));
