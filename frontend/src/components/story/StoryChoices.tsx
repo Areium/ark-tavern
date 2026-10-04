@@ -36,15 +36,11 @@ export default function StoryChoices({ message, knownBranches = [], disabled, va
   return <>{options.map(({ label, branch }, index) => {
     const blocked = branch?.available === false;
     return <button type="button" key={`${branch?.id ?? label}-${index}`}
-      className={`${variant === "stage" ? "stage-choice" : "chat-choice"} focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300`}
-      style={{ width: "100%", minWidth: 0, flexDirection: "column", alignItems: "stretch", fontSize: 16,
-        overflowWrap: "anywhere", lineHeight: 1.5, opacity: 1, cursor: blocked || disabled ? "not-allowed" : undefined }}
+      className={`${variant === "stage" ? "stage-choice" : "chat-choice"} story-choice focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300`}
       disabled={disabled || blocked} onClick={() => { if (!disabled && !blocked) onChoice(label, branch); }}>
-      <span className="block font-medium">{label}</span>
-      {branch?.source === "author" && <span className="block text-sm font-normal">作者预设分支</span>}
-      {branch?.intent && <span className="block text-sm font-normal">{branch.intent}</span>}
-      {branch && <span style={{ color: variant === "stage" ? "#fff6e0" : "var(--chat-body)" }}>
-        <BranchRuleSummary branch={branch} />
+      <span className="story-choice-label">{label}</span>
+      {blocked && <span className="story-choice-reason">
+        {branch.blocked_reasons?.length ? branch.blocked_reasons.join("；") : "当前条件未满足"}
       </span>}
     </button>;
   })}</>;

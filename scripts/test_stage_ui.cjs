@@ -190,6 +190,8 @@ assert.ok(!markup.includes("stage-choices"), "脚本未走到末尾时选项不�
 assert.ok(markup.includes("stage-env") === false, "没有舞台数据时不显示环境角标");
 markup = renderToStaticMarkup(React.createElement(StageView, { ...stageProps, messages: [choices] }));
 assert.ok(markup.includes("stage-choices") && markup.includes("跟上") && markup.includes("留下"), "只有选项时直接显示选项");
+assert.ok(markup.indexOf('class="stage-choices"') < markup.indexOf('class="stage-dialog-wrap"'), "选项独立于底部对话区域，先于对话区域渲染");
+assert.ok(!markup.includes("选择一项，或自由输入"), "选项区域不再显示操作说明标题");
 markup = renderToStaticMarkup(React.createElement(StageView, { ...stageProps, messages: [] }));
 assert.ok(markup.includes("开始剧情"), "空会话给「开始剧情」");
 markup = renderToStaticMarkup(React.createElement(StageView, { ...stageProps, messages: [], chatMode: "free" }));

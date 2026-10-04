@@ -189,8 +189,10 @@
 }
 .chat-choice:hover:not(:disabled) { background: color-mix(in srgb, var(--chat-accent) 16%, transparent); border-color: color-mix(in srgb, var(--chat-accent) 65%, transparent); transform: translateY(-1px); }
 .chat-choice:disabled { opacity: .5; }
-.chat-choice em { font-style: normal; font-size: 11px; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--chat-accent) 18%, transparent); opacity: .85; }
-.chat-choice-author { font-size: 11px; color: var(--chat-muted); }
+.story-choice { width: 100%; min-width: 0; flex-direction: column; align-items: stretch; font-size: 16px; overflow-wrap: anywhere; line-height: 1.5; }
+.story-choice-label { font-weight: 500; }
+.story-choice-reason { font-size: 12px; font-weight: 400; line-height: 1.5; }
+.story-choice:disabled { cursor: not-allowed; }
 .chat-msg-meta { margin-top: 4px; font-size: 11px; opacity: .45; }
 .chat-msg.is-user .chat-msg-meta { text-align: right; color: #dbeafe; }
 
@@ -204,6 +206,7 @@
 
 /* ── 对话区：输入 ───────────────────────────────────────────────────── */
 .chat-input-bar { padding: 10px 14px 12px; flex-shrink: 0; border-top: 1px solid var(--chat-line); background: var(--chat-card); }
+.chat-input-bar.is-playback-pending { visibility: hidden; pointer-events: none; }
 .chat-input-bar textarea {
   width: 100%; min-height: 44px; padding: 9px 12px; border-radius: 12px; font-size: 14px; line-height: 1.6; resize: none;
   color: var(--chat-text); background: var(--chat-soft); border: 1px solid var(--chat-line); transition: border-color .15s, box-shadow .15s;
@@ -221,7 +224,7 @@
 .chat-lock-note { margin-bottom: 8px; font-size: 12px; color: var(--chat-accent); opacity: .85; }
 
 /* ── 舞台（视觉小说视图） ─────────────────────────────────────────────── */
-.stage { position: relative; flex: 1; min-height: 0; overflow: hidden; outline: none; user-select: none; background: #0b0e14; }
+.stage { position: relative; flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 16px; padding-top: 48px; overflow: hidden; outline: none; user-select: none; background: #0b0e14; }
 .stage-bg { position: absolute; inset: 0; background-size: cover; background-position: center; transition: background-image .4s; }
 .stage-vignette {
   position: absolute; inset: 0; pointer-events: none;
@@ -324,23 +327,23 @@
 .stage-sprite-card .dlg-ava { width: 56px; height: 56px; }
 
 .stage-choices {
-  position: absolute; left: 50%; bottom: 34%; z-index: 8; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; width: min(520px, 86%);
+  position: relative; grid-row: 1; place-self: center; z-index: 8; display: flex; flex-direction: column; gap: 10px;
+  width: min(600px, 86%); min-height: 0; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; padding: 6px;
+  scrollbar-width: thin; scrollbar-color: #a78b56 #12151c;
   animation: stage-rise .3s ease-out;
 }
-.stage-choices-title { text-align: center; font-family: var(--chat-display, "Orbitron", sans-serif); font-size: 12px; letter-spacing: .06em; color: rgba(255, 228, 170, .9); text-shadow: 0 1px 6px rgba(0, 0, 0, .8); }
 .stage-choice {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 18px; border-radius: 12px; text-align: left; font-size: 14px;
+  display: flex; flex: 0 0 auto; justify-content: center; gap: 5px; min-height: 54px; padding: 13px 20px; border-radius: 12px; text-align: left;
   color: #fff6e0; background: rgba(10, 12, 18, .78); border: 1px solid rgba(245, 200, 106, .5); backdrop-filter: blur(8px);
   box-shadow: 0 10px 30px -12px rgba(0, 0, 0, .8); transition: background-color .15s, border-color .15s, transform .15s;
 }
 .stage-choice:hover:not(:disabled) { background: rgba(60, 45, 20, .85); border-color: #f5c86a; transform: translateX(3px); }
 .stage-choice:disabled { opacity: .5; }
-.stage-choice em { font-style: normal; font-size: 11px; padding: 2px 6px; border-radius: 4px; color: #f5c86a; background: rgba(245, 200, 106, .16); white-space: nowrap; }
-@keyframes stage-rise { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+@keyframes stage-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-.stage-dialog-wrap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 9; padding: 0 clamp(12px, 5vw, 64px) 16px; }
+.stage-dialog-wrap { position: relative; grid-row: 2; min-width: 0; z-index: 9; padding: 0 clamp(12px, 5vw, 64px) 16px; }
 .stage-dialog {
-  position: relative; max-width: 980px; margin: 0 auto; min-height: 118px; padding: 14px 22px 12px; border-radius: 16px; cursor: pointer;
+  position: relative; display: flex; flex-direction: column; max-width: 980px; margin: 0 auto; height: clamp(148px, 22vh, 200px); padding: 14px 22px 12px; border-radius: 16px; cursor: pointer;
   color: #f4efe6; background: linear-gradient(180deg, rgba(10, 12, 18, .78), rgba(10, 12, 18, .9)); border: 1px solid rgba(245, 200, 106, .28);
   backdrop-filter: blur(10px); box-shadow: 0 18px 50px -20px rgba(0, 0, 0, .9), inset 0 1px 0 rgba(255, 255, 255, .06);
   transition: border-color .2s;
@@ -357,7 +360,9 @@
 }
 .stage-name-avatar { display: flex; flex: 0 0 36px; width: 36px; height: 36px; border-radius: 8px; overflow: hidden; }
 .stage .stage-name-avatar > * { width: 36px; height: 36px; border-radius: 8px; }
-.stage-dialog-text { line-height: 1.85; letter-spacing: .01em; white-space: pre-wrap; min-height: 3.6em; padding-top: 6px; }
+.stage-dialog-text { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; line-height: 1.85; letter-spacing: .01em; white-space: pre-wrap; padding-top: 6px; }
+.stage-dialog.is-empty .stage-dialog-text { flex: 0 1 auto; }
+.stage-name, .stage-dialog-foot { flex-shrink: 0; }
 .stage-dialog-text.is-narration { font-family: var(--chat-serif, serif); color: #efe6d2; font-style: normal; }
 .stage-caret { display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -.15em; background: #f5c86a; animation: stage-blink 1s steps(2) infinite; }
 @keyframes stage-blink { 50% { opacity: 0; } }
@@ -407,14 +412,12 @@
 /* Pure stage keeps the same composer and send state within the dialogue area. */
 .stage:focus-visible, .stage-dialog:focus-visible { outline: 2px solid #f5c86a; outline-offset: -3px; }
 .stage-dialog[aria-disabled="true"] { cursor: default; }
-.stage-dialog-wrap { max-height: calc(100% - 88px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: #a78b56 #12151c; }
 .stage-action-input.chat-input-bar { max-width: 980px; margin: 8px auto 0; padding: 10px; border-radius: 14px; border: 1px solid rgba(245, 200, 106, .28); background: rgba(10, 12, 18, .94); color: #f4efe6; }
 .stage-action-input textarea { color: #f4efe6; background: #181b23; border-color: #42434a; caret-color: #f5c86a; user-select: text; }
 .stage-action-input textarea::placeholder { color: #b9b3a8; }
 .stage-action-input textarea::selection { background: #66512b; color: #fff6e0; }
 .stage-action-input .chat-send { min-height: 44px; background: #e8b856; box-shadow: none; }
 .stage-action-input .chat-lock-note { color: #f5c86a; opacity: 1; }
-.stage-dialog-wrap .stage-choices { position: relative; left: auto; bottom: auto; transform: none; width: min(520px, 100%); margin: 12px auto 0; animation: stage-fade .3s ease-out; }
 @media (max-width: 640px) {
   .stage-dialog { padding: 12px 14px 10px; }
   .stage-name { max-width: 100%; }

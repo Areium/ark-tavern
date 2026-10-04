@@ -521,6 +521,14 @@ export default function StageView({
         })}
       </div>
 
+      {/* 独立占用画面中央的可用空间，不参与底部对话框的高度计算。 */}
+      {showChoices && script.choiceMessage && (
+        <div className="stage-choices" role="group" aria-label="剧情选项">
+          <StoryChoices message={script.choiceMessage} knownBranches={latestStoryBranches(messages)}
+            disabled={choicesDisabled} variant="stage" onChoice={onChoice} />
+        </div>
+      )}
+
       <div className="stage-dialog-wrap">
       {/* 对话框 */}
         {empty && !waiting ? (
@@ -573,15 +581,6 @@ export default function StageView({
             )}
           </div>
         )}
-      {/* 选项 */}
-      {showChoices && script.choiceMessage && (
-        <div className="stage-choices" role="group" aria-label="选项" style={{ maxHeight: "min(44vh, 440px)", overflowY: "auto" }}>
-          <span className="stage-choices-title">选择一项，或自由输入</span>
-          <StoryChoices message={script.choiceMessage} knownBranches={latestStoryBranches(messages)}
-            disabled={choicesDisabled} variant="stage" onChoice={onChoice} />
-        </div>
-      )}
-
         {actionInput}
       </div>
     </div>
