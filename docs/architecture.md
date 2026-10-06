@@ -209,6 +209,7 @@ docs/
 │   ├── combat/              战斗引擎 / 数值 / UI / 规格
 │   ├── worldbook/           按需载入、节点级作用域、资料库与用途分离
 │   ├── narrative/           知识召回、两阶段叙述、提示词约定
+│   ├── frontend-design-guidelines.md  前端设计与实现规范、PC 验收清单
 │   └── content-hub-design.md
 ├── proposals/               【目标态提案 / 路线图】未落地或部分落地
 ├── perf/                    性能实测记录
@@ -218,8 +219,11 @@ docs/
 
 ### 5.1 `design/` —— 现状设计
 
+前端设计与实现前必读 [前端设计规范](design/frontend-design-guidelines.md)。其中的验收要求用于新增和修改界面，不代表所有现有页面均已达标。
+
 | 文档 | 内容 |
 |---|---|
+| [design/frontend-design-guidelines.md](design/frontend-design-guidelines.md) | 全局视觉原则、主题与皮肤、PC 布局、组件与交互、无障碍及验收要求 |
 | `design/combat/combat-design.md` | 战斗引擎架构与机制设计 |
 | `design/combat/combat-numerical-design.md` | 战斗数值公式与平衡参数 |
 | `design/combat/combat-ui-design.md` | 战斗界面交互与布局设计 |
