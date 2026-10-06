@@ -887,29 +887,50 @@ html.light .app-status-bar .text-green-400 { color: #15803d; }
    应用外壳：全局顶栏标签（GameTopBar）
    ═══════════════════════════════════════ */
 
-/* 激活标签的反向圆角（Chrome 式标签脚）：伪元素用 background-color: inherit
-   继承标签底色（bg-gray-800，各皮肤/浅色主题均有映射），再用径向 mask 在外侧
-   下角裁出四分之一圆，让标签底边与下方栏圆润融合。透明部分露出顶栏分隔线，
-   分隔线正好沿弧线收进标签脚。 */
+.topbar-nav {
+  /* 两端保留完整标签脚，设置作为最后一项时也不会溢出。
+     不设滚动容器，避免反向圆角和键盘焦点被裁切。 */
+  padding-inline: 12px;
+  overflow: visible;
+  isolation: isolate;
+}
+.topbar-tab {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding-inline: clamp(6px, 1vw, 12px);
+  border-radius: 10px 10px 0 0;
+}
+.topbar-tab svg { flex-shrink: 0; }
+.topbar-tab-active { z-index: 1; }
+.topbar-connector { height: 7px; }
+.app-topbar button:focus-visible,
+.app-topbar input:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -4px;
+}
+
+/* 圆心位于外侧上角，底部才会向外舒展成 Chrome 标签脚。
+   标签、标签脚和衔接带共用 bg-gray-800 的皮肤映射。 */
 .topbar-tab-active::before,
 .topbar-tab-active::after {
   content: "";
   position: absolute;
   bottom: 0;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   background-color: inherit;
   pointer-events: none;
 }
 .topbar-tab-active::before {
-  left: -10px;
-  -webkit-mask-image: radial-gradient(circle 10px at left bottom, transparent 9.5px, #000 10px);
-  mask-image: radial-gradient(circle 10px at left bottom, transparent 9.5px, #000 10px);
+  left: -12px;
+  -webkit-mask-image: radial-gradient(circle 12px at left top, transparent 11.5px, #000 12px);
+  mask-image: radial-gradient(circle 12px at left top, transparent 11.5px, #000 12px);
 }
 .topbar-tab-active::after {
-  right: -10px;
-  -webkit-mask-image: radial-gradient(circle 10px at right bottom, transparent 9.5px, #000 10px);
-  mask-image: radial-gradient(circle 10px at right bottom, transparent 9.5px, #000 10px);
+  right: -12px;
+  -webkit-mask-image: radial-gradient(circle 12px at right top, transparent 11.5px, #000 12px);
+  mask-image: radial-gradient(circle 12px at right top, transparent 11.5px, #000 12px);
 }
 
 /* ── 实心彩色按钮上的 text-white 必须保持白字 ──
