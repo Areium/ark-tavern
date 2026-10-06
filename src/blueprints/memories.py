@@ -83,10 +83,13 @@ def register(app, managers):
             return json_error("round 必须是非负整数")
 
         receipts = session.overlay._data.get("story_choice_receipts", {})
-        if any(receipt.get("effects") for receipt in receipts.values()) and (
+        if receipts and (
                 target_round < session.narration_count or session.overlay._data.get("pending_story_choice")):
-            return json_error("当前剧情已结算数值或物品效果，请使用节点图回档以完整恢复状态", 409)
-        result = session.rollback_to_round(target_round)
+            return json_error("当前剧情已结算作者选项，请使用节点图回档以完整恢复状态", 409)
+        try:
+            result = session.rollback_to_round(target_round)
+        except ValueError as exc:
+            return json_error(str(exc), 409)
         return jsonify(result)
 
     app.register_blueprint(bp)

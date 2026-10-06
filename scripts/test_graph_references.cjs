@@ -12,7 +12,7 @@ const plot = { plot_id: 'p', name: '故事', worldbook_id: 'b', source: 'outline
   ]},
   { idx: 2, id: 'c2', title: '终点', label: '终点', kind: 'branch', combat_nodes: [], beats: [{id:'door', title:'门后', combat_nodes: []}] },
 ]};
-const moved = {id:'b', type:'beat', title:'旧标题', ref:{chapter_idx:99, beat_id:'choose'}, x:44, y:55, scene_media:{cg_url:'/api/assets/plots/p/art/cg.png'}};
+const moved = {id:'b', type:'beat', title:'旧标题', ref:{chapter_idx:99, beat_id:'choose'}, x:44, y:55, scene_media:{background:{kind:'image',asset:'plots/p/art/cg.png',role:'cg',fit:'contain',position:[50,50],portraits:'hide'}}};
 assert.equal(resolve(moved, plot).beat.id, 'choose');
 assert.equal(resolve(moved, plot).moved, true);
 const doc = {schema_version:1, plot_id:'p', nodes:[moved], edges:[]};

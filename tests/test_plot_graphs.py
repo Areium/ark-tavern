@@ -119,9 +119,8 @@ def test_save_load_delete_roundtrip(mgr):
     mgr, _ = mgr
     authored = _doc()
     authored["nodes"][1]["scene_media"] = {
-        "background_url": "/api/assets/plots/fengxue_guojing/art/snow.png",
-        "cg_url": "/api/assets/plots/fengxue_guojing/art/arrival.webp",
-        "cg_title": "风雪中的相遇",
+        "background": {"kind": "image", "asset": "plots/fengxue_guojing/art/snow.png",
+                       "role": "background", "fit": "cover", "position": [50, 50], "portraits": "show"},
     }
     doc = save_graph(mgr, BOOK, authored, display_name="风雪过境")
     assert doc["worldbook_id"] == BOOK

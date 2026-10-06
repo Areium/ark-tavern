@@ -98,6 +98,7 @@ def test_create_session_freezes_each_selected_book(tmp_path, monkeypatch):
                                          for bid in self.overlay.get_worldbook_ids()}}
 
     monkeypatch.setattr(session_manager, "Session", StubSession)
+    monkeypatch.setattr("scene_media.initialize_presentation", lambda *_: None)
     manager = object.__new__(session_manager.SessionManager)
     manager._lock = threading.Lock()
     manager._sessions = {}

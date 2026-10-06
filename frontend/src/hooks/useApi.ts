@@ -283,7 +283,9 @@ export function useApi() {
 
     getAssetImages: () => request<import("../types").AssetEntityGroupDTO[]>("/api/assets/images"),
     getDataDir: () => request<{ path: string }>("/api/assets/data-dir"),
-    uploadAssetImage: async (category: string, file: File, subdir?: string, bookId?: string) => {
+    uploadAssetImage: async (category: string, file: File, subdir?: string, bookId?: string): Promise<{
+      message: string; name: string; path: string; asset_path: string; url: string; size: number;
+    }> => {
       const base = await getBaseUrl();
       const formData = new FormData();
       formData.append("file", file);
@@ -754,8 +756,12 @@ export function useApi() {
       request<{ plot_id: string; book_id: string; graph: import("../types").PlotGraphDocDTO | null }>(
         `/api/plot-graphs/${encodeURIComponent(plotId)}?book_id=${encodeURIComponent(bookId)}`),
 
+    getSceneMediaOptions: (plotId: string, bookId: string) =>
+      request<{ choices: Record<string, { rule_key: string; label: string }[]> }>(
+        `/api/plot-graphs/${encodeURIComponent(plotId)}/media-options?book_id=${encodeURIComponent(bookId)}`),
+
     savePlotGraph: (plotId: string, bookId: string, doc: import("../types").PlotGraphDocDTO, displayName = "") =>
-      request<{ ok: boolean; saved_at: number; node_count: number; edge_count: number }>(
+      request<{ ok: boolean; saved_at: number; node_count: number; edge_count: number; _revision: string }>(
         `/api/plot-graphs/${encodeURIComponent(plotId)}`,
         { method: "PUT", body: JSON.stringify({ book_id: bookId, graph: doc, display_name: displayName }) }),
 

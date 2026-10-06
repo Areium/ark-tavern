@@ -1,8 +1,8 @@
 """剧情节点图（Plot Graph）—— 自由画布布局的序列化与世界书存取。
 
-一个剧情一张图。图文档（graph doc）是**布局层**数据：节点坐标、类型、连线
-与分支关系、自由备注内容。剧情/节拍/战斗的"内容真相源"不变
-（data/plots/<plot_id>/index.md 与 data/combat/nodes/<node_id>.json），
+一个剧情一张图。图文档包括编辑布局与节点演出配置：节点坐标、类型、连线、
+自由备注及 scene_media。剧情/节拍/战斗的"内容真相源"不变
+（所属书内 plots/<plot_id>/index.md、大纲与 combat/nodes/<node_id>.json），
 图节点通过 `ref` 引用它们，因此图可随意增删重排而不伤及底层数据。
 
 **保存粒度：一个剧情一条世界书条目**（uid = `plot_graph_<plot_id>`）：
@@ -13,6 +13,7 @@
   酒馆时原样保留 raw，做到无损往返；
 - 条目 trigger_keys 留空且非常驻：布局数据只服务编辑器，**绝不注入叙事上下文**
   （这与战斗节点条目不同——后者有关键词，会随剧情提及而注入）。
+  演出配置按稳定节点引用冻结到会话，画布坐标/结构边不决定触发。
 
 图文档结构（schema_version=1）：
     {
@@ -39,6 +40,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import re
 import time
@@ -71,6 +73,18 @@ class GraphError(ValueError):
             errors = [errors]
         self.errors = list(errors)
         super().__init__("；".join(self.errors))
+
+
+class GraphConflictError(GraphError):
+    pass
+
+
+def graph_revision(doc: dict | None) -> str:
+    if doc is None:
+        return "absent"
+    payload = {k: v for k, v in doc.items() if k != "_revision"}
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                                    separators=(",", ":")).encode()).hexdigest()
 
 
 def entry_uid(plot_id: str) -> str:
@@ -143,6 +157,8 @@ def validate_graph(doc: dict, *, plot_id: str = "") -> list[str]:
         errors.append(f"节点数 {len(nodes)} 超过上限 {MAX_NODES}")
 
     ids: set[str] = set()
+    event_ids: set[str] = set()
+    media_scopes: set[tuple] = set()
     for i, node in enumerate(nodes):
         if not isinstance(node, dict):
             errors.append(f"nodes[{i}] 不是对象")
@@ -157,6 +173,21 @@ def validate_graph(doc: dict, *, plot_id: str = "") -> list[str]:
         if len(nid) > 64:
             errors.append(f"节点 id 过长: {nid[:32]}…")
         errors.extend(validate_node_scene_media(node))
+        media = node.get("scene_media")
+        if isinstance(media, dict):
+            ref = node.get("ref") if isinstance(node.get("ref"), dict) else {}
+            scope = (node.get("type"), ref.get("chapter_idx"), ref.get("beat_id"))
+            if scope in media_scopes:
+                errors.append(f"同一剧情引用重复配置演出: {nid}")
+            media_scopes.add(scope)
+            for event in media.get("events", []) if isinstance(media.get("events", []), list) else []:
+                if not isinstance(event, dict):
+                    continue
+                event_id = event.get("id")
+                if isinstance(event_id, str):
+                    if event_id in event_ids:
+                        errors.append(f"演出事件 ID 重复: {event_id}")
+                    event_ids.add(event_id)
 
     edges = doc.get("edges")
     if not isinstance(edges, list):
@@ -201,7 +232,7 @@ def encode_graph_for_worldbook(doc: dict, *, display_name: str = "") -> dict:
 
     trigger_keys 留空且非常驻：布局数据不进叙事注入（见模块 docstring）。
     """
-    payload = {k: v for k, v in (doc or {}).items() if k != "_hash"}
+    payload = {k: v for k, v in (doc or {}).items() if k not in ("_hash", "_revision")}
     plot_id = str(payload.get("plot_id") or "")
     compact = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     name = display_name or str(payload.get("title") or "") or plot_id
@@ -284,11 +315,13 @@ def load_graph(book_mgr, book_id: str, plot_id: str) -> dict | None:
         return None
     if doc is None:
         return None
-    return normalize_graph(doc, plot_id=plot_id)
+    doc = normalize_graph(doc, plot_id=plot_id)
+    doc["_revision"] = graph_revision(doc)
+    return doc
 
 
 def save_graph(book_mgr, book_id: str, doc: dict, *,
-               display_name: str = "") -> dict:
+               display_name: str = "", expected_revision: str | None = None) -> dict:
     """校验并整图写入世界书条目（同剧情旧条目被替换，保证单条目粒度）。
 
     返回落盘后的图文档（含 updated_at）。
@@ -311,13 +344,22 @@ def save_graph(book_mgr, book_id: str, doc: dict, *,
         if book is None:
             raise GraphError(f"世界书不存在: {book_id}")
         existing = _find_entry(book, plot_id)
+        current = normalize_graph(decode_graph_entry(existing.to_dict()), plot_id=plot_id) if existing else None
+        if expected_revision is not None and expected_revision != graph_revision(current):
+            raise GraphConflictError("保存冲突：节点图已被其他窗口修改；草稿已保留，请重新加载后合并")
+        original_entries = list(book.entries)
         if existing is not None:
             # 条目由本模块独占管理：整条替换（保留原 uid 位置）
             index = book.entries.index(existing)
             book.entries[index] = new_entry
         else:
             book.entries.append(new_entry)
-        book_mgr.save(book)
+        try:
+            book_mgr.save(book)
+        except Exception:
+            book.entries = original_entries
+            raise
+    doc["_revision"] = graph_revision(doc)
     logger.info("剧情节点图已保存: %s → 世界书 %s（%d 节点 / %d 连线）",
                 plot_id, book_id, len(doc["nodes"]), len(doc["edges"]))
     return doc

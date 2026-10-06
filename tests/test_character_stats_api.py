@@ -348,6 +348,7 @@ def test_plugin_data_crud_and_limits(stage_api):
 
 def test_stage_payload(stage_api, monkeypatch):
     client, session, _docs = stage_api
+    session.narration_count = 0
     stage = client.get("/api/sessions/s1/stage").json
     assert stage["location"] == "龙门" and stage["time"] == "夜晚"
     assert [c["name"] for c in stage["characters"]] == ["临光", "瑕光"]
@@ -371,27 +372,26 @@ def test_stage_payload(stage_api, monkeypatch):
     assert client.get("/api/sessions/nope/stage").status_code == 404
 
 
-def test_stage_uses_narration_beat_even_after_session_advances(stage_api, monkeypatch):
+def test_stage_uses_frozen_frame_even_after_session_and_book_change(stage_api, monkeypatch):
     client, session, _docs = stage_api
-    import plot_graphs
-    monkeypatch.setattr(session.overlay, "get_plot_id", lambda: "p")
+    session.narration_count = 1
+    session.overlay._data["presentation"] = {"frames": {"1": {
+        "background": {"url": None, "source": "graph", "bg_id": "",
+                       "role": "cg", "fit": "cover", "position": [50, 50], "portraits": "hide"},
+        "environment": {"location": "历史地点", "weather": "晴", "time": "上午", "atmosphere": []},
+        "scene_media": {"beat_id": "old", "chapter_idx": 1, "round": 1, "event_ids": ["meeting"],
+                        "visual": {"file": "a" * 64 + ".png", "role": "cg", "asset": "plots/p/art/old.png"}},
+        "runtime": {},
+    }}, "runtime": {}}
     monkeypatch.setattr(session.overlay, "get_current_beat_id", lambda: "next")
-    monkeypatch.setattr(session.overlay, "get_beat_state", lambda: {"chapter_idx": 1})
-    monkeypatch.setattr(plot_graphs, "load_graph", lambda *_: {"nodes": [
-        {"id": "old", "type": "beat", "title": "旧节拍", "ref": {"chapter_idx": 1, "beat_id": "old"},
-         "scene_media": {"background_url": "/api/assets/plots/p/art/old.png",
-                         "cg_url": "/api/assets/plots/p/art/cg.png", "cg_title": "旧画面"}},
-        {"id": "next", "type": "beat", "title": "下一节拍", "ref": {"chapter_idx": 2, "beat_id": "next"},
-         "scene_media": {"background_url": "/api/assets/plots/p/art/next.png"}},
-    ]})
-    session._narration_history = [{"round": 1, "beat_id": "old", "chapter_idx": 1}]
+    import plot_graphs
+    monkeypatch.setattr(plot_graphs, "load_graph", lambda *_: pytest.fail("history must not reread the graph"))
     old = client.get("/api/sessions/s1/stage?round=1").json
-    assert old["background"]["url"].endswith("old.png")
-    assert old["scene_media"]["cg"]["title"] == "旧画面"
-    assert old["scene_media"]["cue_key"] == "p:1:old:1"
-    current = client.get("/api/sessions/s1/stage").json
-    assert current["background"]["url"].endswith("next.png")
-    assert current["scene_media"]["cg"] is None
+    assert old["background"]["url"] == "/api/sessions/s1/presentation-assets/" + "a" * 64 + ".png"
+    assert old["background"]["role"] == "cg"
+    assert old["location"] == "历史地点"
+    assert old["scene_media"]["beat_id"] == "old"
+    assert client.get("/api/sessions/s1/stage?round=2").status_code == 409
 
 
 # ── 快照与回档 ────────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ from flask import Blueprint, jsonify, request
 from shared.helpers import json_error
 from plot_graphs import (
     GraphError,
+    GraphConflictError,
     delete_graph,
     list_graphs,
     load_graph,
@@ -30,6 +31,25 @@ logger = logging.getLogger(__name__)
 def register(app, managers):
     book_mgr = managers["worldbook"]
     bp = Blueprint("plot_graphs", __name__)
+
+    @bp.route("/api/plot-graphs/<path:plot_id>/media-options", methods=["GET"])
+    def media_options(plot_id):
+        from story_outline import load_outline, outline_to_beats, heuristic_outline
+        from session_overlay import _read_plot_file
+        from story_rules import rule_key
+        book_id = str(request.args.get("book_id") or "")
+        if not book_id or book_mgr.load(book_id) is None:
+            return json_error("世界书不存在", 404)
+        outline = load_outline(book_mgr, book_id, plot_id)
+        if not outline:
+            source = _read_plot_file(plot_id, [book_id])
+            if not source:
+                return json_error("剧情不存在", 404)
+            outline = heuristic_outline(source[0], source[1], worldbook_id=book_id)
+        choices = {beat["id"]: [{"rule_key": rule_key(branch), "label": branch["label"]}
+                                for branch in beat.get("authored_branches", []) if branch.get("source") == "author"]
+                   for chapter in outline_to_beats(outline) for beat in chapter["beats"]}
+        return jsonify({"choices": choices})
 
     @bp.route("/api/plot-graphs", methods=["GET"])
     def index():
@@ -63,11 +83,15 @@ def register(app, managers):
             return json_error("；".join(errors), 400)
         try:
             saved = save_graph(book_mgr, book_id, doc,
-                               display_name=str(data.get("display_name") or ""))
+                               display_name=str(data.get("display_name") or ""),
+                               expected_revision=doc.get("_revision", "absent"))
+        except GraphConflictError as e:
+            return json_error("；".join(e.errors), 409)
         except GraphError as e:
             return json_error("；".join(e.errors), 400)
         return jsonify({"ok": True, "plot_id": plot_id, "book_id": book_id,
                         "saved_at": saved.get("updated_at", 0),
+                        "_revision": saved["_revision"],
                         "node_count": len(saved.get("nodes") or []),
                         "edge_count": len(saved.get("edges") or [])})
 

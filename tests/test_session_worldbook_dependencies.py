@@ -154,6 +154,7 @@ def session_api(tmp_path, monkeypatch):
     books.save(make_book())
     llm = StubLLM()
     monkeypatch.setattr(manager_module, "Session", FakeSession)
+    monkeypatch.setattr("scene_media.initialize_presentation", lambda *_: None)
     monkeypatch.setattr(manager_module.SessionOverlay, "delete_session_overlays", lambda *_: None)
     manager = object.__new__(manager_module.SessionManager)
     manager._lock, manager._sessions, manager._next_id = threading.Lock(), {}, 0

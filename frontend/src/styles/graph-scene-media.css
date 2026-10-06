@@ -324,3 +324,50 @@ html.light .ng-media-error {
 .ng-media-header,.ng-media-footer {
   flex-shrink:0
 }
+
+.ng-media-header h2 { min-width:0; overflow-wrap:anywhere; }
+.ng-media-event-list { display:flex; flex-wrap:wrap; gap:6px; }
+.ng-media-event-list button { max-width:100%; overflow-wrap:anywhere; }
+.ng-media-event-list button[aria-pressed=true] { border-color:var(--ng-beat); background:var(--ng-beat-soft); }
+.ng-media-event-config { padding-bottom:18px; margin-bottom:20px; border-bottom:1px solid var(--ng-card-border); }
+.ng-media-form-row { display:flex; flex-wrap:wrap; gap:12px; }
+.ng-media-form-row>.ng-media-field { flex:1 1 135px; min-width:0; }
+.ng-media-field select { min-width:0; }
+.ng-media-field input[type=range] { padding:6px 0; accent-color:var(--ng-beat); }
+.ng-media-preview { position:relative; max-height:320px; }
+.ng-media-preview>.ng-media-portrait-preview { position:absolute; left:12%; bottom:19%; width:25%; height:52%; padding:10px; gap:4px; color:var(--ng-title); background:var(--ng-card-bg); border:1px dashed var(--ng-beat); border-radius:40% 40% 4px 4px; opacity:.9; font-size:11px; }
+.ng-media-preview>.ng-media-dialogue-preview { position:absolute; inset:auto 6% 5%; height:17%; border:1px solid var(--ng-card-border); border-radius:4px; color:var(--ng-title); background:var(--ng-card-bg); opacity:.92; font-size:11px; }
+.ng-media-preview-caption>span { min-width:0; overflow-wrap:anywhere; }
+.ng-media-conditions h3 { margin:0 0 8px; color:var(--ng-title); font-weight:600; }
+.ng-media-condition { display:flex; flex-wrap:wrap; align-items:end; gap:8px; padding:8px 10px 12px; margin-bottom:12px; border:1px solid var(--ng-card-border); border-radius:6px; min-width:0; }
+.ng-media-condition legend { padding:0 4px; font-size:12px; }
+.ng-media-condition>.ng-media-field { flex:1 1 120px; min-width:0; margin:0; }
+.ng-media-condition>button { flex:0 0 auto; min-height:38px; }
+.ng-media-conditions .ng-media-targets { flex-wrap:wrap; }
+.ng-media-remove { margin-top:14px; }
+.ng-media-batch { border-top:1px solid var(--ng-card-border); border-bottom:1px solid var(--ng-card-border); padding:12px 0; margin:4px 0 18px; }
+.ng-media-batch summary { color:var(--ng-title); cursor:pointer; }
+.ng-media-batch-list { display:flex; flex-direction:column; gap:8px; max-height:190px; overflow:auto; margin:12px 0; }
+.ng-media-batch-list label { display:flex; align-items:start; gap:8px; overflow-wrap:anywhere; }
+.ng-media-batch-list input { margin-top:4px; accent-color:var(--ng-beat); }
+.ng-media-validation { margin-top:18px; padding:12px; border-left:2px solid var(--ng-beat); background:var(--ng-beat-soft); }
+.ng-media-validation ul { list-style:disc; padding-left:18px; margin-top:6px; }
+
+/* The presentation editor needs the viewport height even when the book hero is tall. */
+.ng-drawer.ng-scene-editor-drawer {
+  position:fixed;
+  top:56px;
+  bottom:28px;
+  right:0;
+  left:auto;
+  height:auto;
+  z-index:80;
+}
+.ng-scene-editor-drawer .ng-media-scroll { flex:1 1 0; overscroll-behavior:contain; }
+.ng-scene-editor-drawer .ng-media-header,
+.ng-scene-editor-drawer .ng-media-editor-footer { flex:0 0 auto; }
+.ng-media-save-message { flex:1 1 160px; min-width:0; max-height:5.5em; overflow:auto; overflow-wrap:anywhere; }
+.ng-media-save-message.is-error { color:#fca5a5; }
+html.light .ng-media-save-message.is-error { color:#b91c1c; }
+.ng-media-footer-actions { display:flex; flex:0 0 auto; flex-wrap:wrap; gap:8px; margin-left:auto; }
+.ng-media-panel .ng-media-save { border-color:var(--ng-beat); background:var(--ng-beat-soft); }

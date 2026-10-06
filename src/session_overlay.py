@@ -1158,8 +1158,12 @@ class SessionOverlay:
                               if b.get("source") == "author"])
 
     def _story_resources_snapshot(self) -> dict:
+        frames = self._data.get("presentation", {}).get("frames", {})
+        latest = frames[max(frames, key=int)] if frames else {}
         return {"scene_items": copy.deepcopy(self.get_scene_state()["items"]),
                 "items": copy.deepcopy(self._data.get("items", {})),
+                "presentation_runtime": copy.deepcopy(self._data.get("presentation", {}).get("runtime", {})),
+                "presentation_frame": copy.deepcopy(latest),
                 "story_choice_receipts": copy.deepcopy(self._data.get("story_choice_receipts", {}))}
 
     def _restore_story_resources(self, snapshot: dict) -> None:
@@ -1167,6 +1171,12 @@ class SessionOverlay:
         for key in ("items", "story_choice_receipts"):
             self._data[key] = copy.deepcopy(snapshot[key])
         self._data.setdefault("scene", {})["items"] = copy.deepcopy(snapshot["scene_items"])
+        if self._data.get("presentation"):
+            self._data["presentation"]["runtime"] = copy.deepcopy(snapshot["presentation_runtime"])
+            round_end = int(snapshot.get("round_end") or 0)
+            self._data["presentation"]["frames"] = {
+                key: value for key, value in self._data["presentation"]["frames"].items()
+                if int(key) <= round_end}
         self._data.pop("pending_story_choice", None)
 
     @staticmethod
@@ -1176,7 +1186,7 @@ class SessionOverlay:
                 not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]
                 for item in snapshot["scene_items"]):
             raise ValueError("该节点缺少完整物品快照，无法安全回档；请选择更新后的完整节点")
-        for key in ("items", "character_stats", "plugin_data", "story_choice_receipts"):
+        for key in ("items", "character_stats", "plugin_data", "story_choice_receipts", "presentation_runtime", "presentation_frame"):
             if not isinstance(snapshot.get(key), dict):
                 raise ValueError(f"该节点缺少完整资源快照（{key}），无法安全回档")
 

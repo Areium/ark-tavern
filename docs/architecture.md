@@ -120,7 +120,7 @@ Ark Tavern 是基于 LLM 提供剧情与游戏交互体验的通用平台。世�
 
 - `components/ChatView.tsx` — 对话页容器：顶栏（左：返回大厅 / 主菜单 / **场景面板开合**；中：会话名 + 剧情/自由；右：**布局切换「记录 / 舞台 / 节点图」**）+ 左侧 `scene/ScenePanel.tsx` + `ChatPanel.tsx`（消息流/流式输出/选项/变体/回滚/对话气泡；舞台模式下挂 `stage/StageView.tsx`，消息流变成覆盖在舞台上的「记录」抽屉）。原右侧独立「会话资源」面板已并入场景面板的「资源」页，顶栏原「会话大厅 🏛 / 会话资源 🗂」两个小按钮撤销
 - `components/scene/ScenePanel.tsx` — 场景面板：竖向图标栏 + 当前页。页签来自**插件注册表** `plugins/scenePanels.tsx`（`registerScenePanel`）：内置八个面板（角色 / 物品 / 环境 / 剧情 / 回忆 / 任务 / **数值** / 资源）在 `plugins/builtin.tsx` 登记，第三方面板放 `plugins/custom/*.tsx` 由 `plugins/index.ts` 的 `import.meta.glob` 自动加载（示例 `custom/sessionNotes.tsx`）。面板拿到 `ScenePanelContext`（`stats` 会话数值读写 / `data` 命名空间插件数据 / `refresh` 刷新键 / `api`），在 `ErrorBoundary` 内渲染；收起时只剩图标栏。`scene/CharacterStatsPanel.tsx` 是「数值」页，也是 `ctx.stats` 的参考实现。开发说明 `plugins/README.md`，设计见 `docs/design/session-scene-plugins.md`
-- `components/stage/StageView.tsx` + `utils/stageScript.ts` — **舞台（视觉小说）视图**：`GET /api/sessions/<id>/stage` 给背景（会话覆盖 > 地点 `combat_bg` > default，都没有时按时段/天气生成渐变）与场景角色立绘；`stageScript` 把最新一条叙述/回复折算成逐句步骤（后端 `dialogueSegments` 优先），点击对话框推进、说话人立绘高亮（写 `appStore.highlightedSpeaker`，场景角色列表与消息流气泡点击共用）、走到末尾亮出选项；流式中实时显示
+- `components/stage/StageView.tsx` + `utils/stageScript.ts` — **舞台（视觉小说）视图**：`GET /api/sessions/<id>/stage` 给冻结演出帧与场景角色立绘。节点背景/事件 CG 持续到下一条明确画面指令，支持裁切与立绘显隐；配置和图片创建会话时冻结，历史/回档使用保存帧。图片就绪后开始首句，失败保留上一背景并可重试。无作者画面时沿用地点/default/渐变兜底，会话背景覆盖仍优先。`stageScript` 将叙述/回复折算成逐句步骤（后端 `dialogueSegments` 优先），走到末尾显示选项。详见 `design/worldbook/node-presentation.md`
 - `components/story/SessionStoryGraph.tsx` + `utils/sessionStoryGraph.ts` — 会话剧情节点图：复用世界书 `GraphCanvas` 和排序布局，优先读取绑定书的已保存节点位置；未抵达置灰、头像定位本轮实际节拍，拖动位置仅本地保存。只显示图，剧情操作通过舞台/记录模式进行。
 - `components/chat/` — 气泡渲染子组件（DialogueBubble（点击台词高亮说话人）、NarrationText、AvatarPlaceholder 等）；对话页样式集中在 `styles/chat.css`（`--ng-*` 令牌，随皮肤 / 明暗）
 - `components/MarkdownRenderer.tsx` — 统一 Markdown 渲染
@@ -230,6 +230,7 @@ docs/
 | `design/combat/battle-spec.md` | 战斗规格（节点 JSON 全字段/地形效果/威胁与阶段带/校验规则/生成闭环），LLM 与设计者共用 |
 | `design/worldbook/worldbook-on-demand.md` | 世界书分类与依赖载入、按需候选范围、当前会话快照与 API |
 | `design/worldbook/worldbook-library.md` | 世界书资料库与剧情世界书分离：`book_type` 用途、安全的用途切换、原子摘录与来源追踪、前端资料库体验 |
+| `design/worldbook/node-presentation.md` | 节点背景、事件 CG、书内图片引用、会话冻结与存档/回档；BGM/视频扩展位置 |
 | `design/worldbook/node-scoped-worldbook-loading.md` | 节点级世界书动态载入：`lore_bindings` 绑定面、`会话范围 ∩ 节点作用域` 窄化白名单、快照与回档 |
 | `design/narrative/rag-retrieval.md` | 知识注入的四条召回通道（依赖预加载 / 关键词世界书 / 预取 Hook / `wiki_query` 按需）、分层注入与记忆系统 |
 | `design/narrative/two-phase-narration.md` | 两阶段叙述：创作与系统层解耦、结构化产物字段、三级 JSON 兜底与按调用类型思考档位 |

@@ -293,6 +293,8 @@ class Session:
                       dialogue_segments: list | None = None, *,
                       beat_id: str = "", chapter_idx: int = 0):
         """记录一轮叙述到持久化历史。"""
+        from scene_media import record_presentation
+        record_presentation(self, chapter_idx=chapter_idx, beat_id=beat_id)
         self.narration_count += 1
         entry = {
             "round": self.narration_count,
@@ -485,13 +487,15 @@ class Session:
         logger.info("会话 %s: 重新生成 %d 条回忆 (interval=%d)", self.id, len(new_memories), interval)
         return new_memories
 
-    def rollback_to_round(self, target_round: int) -> dict:
+    def rollback_to_round(self, target_round: int, *, presentation_frame: dict | None = None) -> dict:
         """回退到指定轮次，删除之后的叙述历史和回忆。
 
         返回被删除的轮次范围和回忆数量，供前端确认。
         """
         if target_round < 0:
             target_round = 0
+        from scene_media import restore_presentation_round
+        restore_presentation_round(self, target_round, frozen_frame=presentation_frame)
 
         old_history_len = len(self._narration_history)
         old_memory_len = len(self._memories)
@@ -554,7 +558,7 @@ class Session:
                 raise ValueError(f"节点尚无状态快照，无法回档: {node_id}")
             self.overlay.validate_resource_snapshot(st)
             target_round = int(st.get("round_end") or 0)
-            base = self.rollback_to_round(target_round)
+            base = self.rollback_to_round(target_round, presentation_frame=st["presentation_frame"])
 
             def _lore_resolver_factory():
                 # 在 overlay 状态恢复【之后】调用：用恢复后的 beat_state 构造
@@ -589,7 +593,7 @@ class Session:
             raise ValueError(f"节点不在当前剧情结构中: {node_id}")
         target_round = int(snap.get("round_end") or 0)
 
-        base = self.rollback_to_round(target_round)
+        base = self.rollback_to_round(target_round, presentation_frame=snap["presentation_frame"])
         restored = self.overlay.restore_from_snapshot(node_id)
         from story_rules import sync_scene_items
         sync_scene_items(self)
@@ -808,6 +812,8 @@ class SessionManager:
                 session.overlay.set_worldbook_ids(worldbook_ids)
             if initializer:
                 initializer(session)
+            from scene_media import initialize_presentation
+            initialize_presentation(session, self._worldbook_manager)
             if is_plugin_mode(combat_mode):
                 session_binding(session)
                 plugin_state(session)

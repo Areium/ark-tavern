@@ -1388,6 +1388,35 @@ export interface CombatNodeGraphDTO {
 
 export type PlotGraphNodeType = "plot" | "chapter" | "beat" | "combat" | "note";
 
+/** Current image actions only; BGM and video require future runtime extensions. */
+export interface SceneVisualDTO {
+  kind: "image";
+  asset: string;
+  role: "background" | "cg";
+  fit: "cover" | "contain";
+  position: [number, number];
+  portraits: "show" | "hide";
+}
+
+export type StoryConditionDTO =
+  | { kind: "stat"; actor: string; key: string; op: "eq" | "ne" | "gt" | "gte" | "lt" | "lte"; value: number | string | boolean }
+  | { kind: "item"; item_id: string; present: boolean };
+
+export interface SceneMediaEventDTO {
+  id: string;
+  title?: string;
+  trigger: { kind: "enter" | "choice" | "condition"; choice_key?: string };
+  conditions?: StoryConditionDTO[];
+  repeat: "session" | "entry";
+  priority: number;
+  actions: Array<{ kind: "set_visual"; visual: SceneVisualDTO }>;
+}
+
+export interface SceneMediaConfigDTO {
+  background?: SceneVisualDTO;
+  events?: SceneMediaEventDTO[];
+}
+
 /** 图节点：引用型节点（beat/combat）通过 ref 指向底层数据，note 承载自由文本 */
 export interface PlotGraphNodeDTO {
   id: string;
@@ -1397,7 +1426,7 @@ export interface PlotGraphNodeDTO {
   x: number;
   y: number;
   ref?: { chapter_idx?: number; beat_id?: string; node_id?: string } | null;
-  scene_media?: { background_url?: string; cg_url?: string; cg_title?: string };
+  scene_media?: SceneMediaConfigDTO;
 }
 
 /** 有向连线（一个节点允许分出多条路线：from 可重复出现） */
@@ -1409,6 +1438,7 @@ export interface PlotGraphEdgeDTO {
 
 /** 图文档（一剧情一张图，整图存入世界书条目） */
 export interface PlotGraphDocDTO {
+  _revision?: string;
   schema_version: number;
   plot_id: string;
   title?: string;
@@ -1428,6 +1458,8 @@ export interface AssetEntityGroupDTO {
   images: {
     name: string;
     path: string;
+    /** Actual book-relative path; API category aliases are not filesystem paths. */
+    asset_path: string;
     url: string;
     size: number;
     subdir: string;
@@ -1544,14 +1576,18 @@ export interface StageDTO {
     url: string | null;
     source: "session" | "graph" | "location" | "default" | "none";
     bg_id: string;
+    fit?: "cover" | "contain";
+    position?: [number, number];
+    role?: "background" | "cg";
+    portraits?: "show" | "hide";
   };
   artwork?: { id: string; act: string; title: string; caption: string; url: string }[];
   scene_media?: {
     beat_id: string;
     chapter_idx: number;
-    cue_key: string;
     round: number | null;
-    cg: { url: string; title: string } | null;
+    event_ids: string[];
+    visual?: SceneVisualDTO & { url: string; book_id: string };
   };
   characters: StageCharacterDTO[];
   player: { name: string; skin_url: string | null; avatar_url: string | null; color: string | null };

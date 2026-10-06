@@ -44,6 +44,7 @@ const TYPE_CPS = 45;
 type StageSceneSnapshot = {
   sessionId: string;
   stage: StageDTO | null;
+  background: StageDTO["background"] | null;
   sprites: StageDTO["characters"];
   focus: string | null;
 };
@@ -106,13 +107,15 @@ export default function StageView({
 }: Props) {
   const api = useApi();
   const { envRefreshKey, characterRefreshKey, resourceVersion, highlightedSpeaker, setHighlightedSpeaker } = useAppStore();
-  const [stage, setStage] = useState<StageDTO | null>(null);
+  const [stageResult, setStageResult] = useState<{ key: string; data: StageDTO } | null>(null);
+  const [stageError, setStageError] = useState<string | null>(null);
+  const [stageRetry, setStageRetry] = useState(0);
+  const [successfulBackground, setSuccessfulBackground] = useState<{ sessionId: string; background: StageDTO["background"] | null } | null>(null);
+  const [backgroundRetry, setBackgroundRetry] = useState(0);
   const [failedBackground, setFailedBackground] = useState<string | null>(null);
   const [failedSprites, setFailedSprites] = useState<string[]>([]);
   const [artworkOpen, setArtworkOpen] = useState(false);
   const [selectedArtwork, setSelectedArtwork] = useState(0);
-  const [cgOpen, setCgOpen] = useState(false);
-  const [failedCg, setFailedCg] = useState<string | null>(null);
   const artworkButtonRef = useRef<HTMLButtonElement>(null);
   const closeArtwork = () => {
     setArtworkOpen(false);
@@ -124,7 +127,7 @@ export default function StageView({
   const [imageBounds, setImageBounds] = useState<Record<string, PortraitBounds>>({});
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const dragRef = useRef<{ name: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
-  useEffect(() => { setStage(null); setArtworkOpen(false); setSelectedArtwork(0); setCgOpen(false); setFailedCg(null); }, [sessionId]);
+  useEffect(() => { setArtworkOpen(false); setSelectedArtwork(0); }, [sessionId]);
   useEffect(() => { setFailedSprites([]); }, [sessionId, resourceVersion]);
   useEffect(() => { setFailedBackground(null); }, [sessionId, resourceVersion]);
   useEffect(() => {
@@ -147,35 +150,60 @@ export default function StageView({
   const step = cursor.key === script.key ? cursor.step : 0;
   const current = script.steps[Math.min(step, Math.max(0, script.steps.length - 1))];
   const atEnd = step >= script.steps.length - 1;
-  const presenting = waiting || script.streaming;
   const scriptMessage = messages[script.messageIndex];
   const stageRound = !script.streaming && scriptMessage?.role === "narrator" ? scriptMessage.round : undefined;
-  useEffect(() => { setCgOpen(false); }, [script.key]);
-
-  // A completed narration carries its authored beat even if the server has
-  // already advanced the session to the next beat. Avoid a request per token.
+  const requestKey = `${sessionId}:${stageRound ?? "live"}:${script.key}`;
+  const stage = stageResult?.key === requestKey ? stageResult.data : null;
+  const cachedScene = sceneSnapshots.get(sessionId);
+  const loadedBackground = successfulBackground?.sessionId === sessionId
+    ? successfulBackground.background : cachedScene?.background ?? null;
+  const desiredBackground = stage?.background;
+  const displayedBackground = desiredBackground?.url && desiredBackground.url === loadedBackground?.url
+    ? desiredBackground : loadedBackground;
   useEffect(() => {
+    if (displayedBackground?.portraits === "hide") setEditingPortraits(false);
+  }, [displayedBackground?.portraits]);
+  const backgroundPending = !!desiredBackground?.url && desiredBackground.url !== loadedBackground?.url
+    && desiredBackground.url !== failedBackground;
+  const stagePending = stageRound !== undefined && !stage && stageError !== requestKey;
+  const presenting = waiting || script.streaming || stagePending || backgroundPending;
+
+  // Resolve the narration's historical scene, never the advanced live scene
+  // during generation. Cleanup rejects results from an obsolete request.
+  useEffect(() => {
+    if (waiting || script.streaming) return;
     let cancelled = false;
+    setStageError(null);
     api.getStage(sessionId, stageRound).then((data) => {
+      if (!cancelled) setStageResult({ key: requestKey, data });
+    }).catch(() => { if (!cancelled) setStageError(requestKey); });
+    return () => { cancelled = true; };
+  }, [api, sessionId, stageRound, requestKey, waiting, script.streaming, envRefreshKey, characterRefreshKey, resourceVersion, stageRetry]);
+
+  // Preload before committing: failed pictures keep the last successful scene.
+  useEffect(() => {
+    if (!desiredBackground) return;
+    if (!desiredBackground.url) {
+      setSuccessfulBackground({ sessionId, background: null });
+      return;
+    }
+    let cancelled = false;
+    const image = new Image();
+    const timeout = setTimeout(() => {
+      if (!cancelled) { cancelled = true; setFailedBackground(desiredBackground.url); }
+    }, 15000);
+    setFailedBackground(null);
+    image.onload = () => {
       if (!cancelled) {
-        setStage(data);
+        clearTimeout(timeout);
+        setSuccessfulBackground({ sessionId, background: desiredBackground });
         setFailedBackground(null);
       }
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [api, sessionId, stageRound, script.key, envRefreshKey, characterRefreshKey, resourceVersion]);
-
-  const cgCue = stage?.scene_media;
-  useEffect(() => {
-    if (presenting || !stageRound || cgCue?.round !== stageRound || !cgCue?.cue_key || !cgCue.cg || artworkOpen) return;
-    const key = `ark_stage_cg:${sessionId}:${cgCue.cue_key}`;
-    try {
-      if (sessionStorage.getItem(key)) return;
-      sessionStorage.setItem(key, "1");
-    } catch { /* A blocked storage area only affects replay suppression. */ }
-    setFailedCg(null);
-    setCgOpen(true);
-  }, [presenting, stageRound, cgCue, artworkOpen, sessionId]);
+    };
+    image.onerror = () => { if (!cancelled) { clearTimeout(timeout); setFailedBackground(desiredBackground.url); } };
+    image.src = desiredBackground.url;
+    return () => { cancelled = true; clearTimeout(timeout); image.onload = null; image.onerror = null; };
+  }, [desiredBackground, sessionId, resourceVersion, backgroundRetry]);
 
   // 新一段开始：回到第一步
   useEffect(() => { setCursor({ key: script.key, step: 0 }); }, [script.key]);
@@ -282,10 +310,6 @@ export default function StageView({
     return () => observer.disconnect();
   }, []);
   const onKey = (e: React.KeyboardEvent) => {
-    if (cgOpen) {
-      if (e.key === "Escape") { e.preventDefault(); setCgOpen(false); rootRef.current?.focus(); }
-      return;
-    }
     if (artworkOpen) {
       if (e.key === "Escape") { e.preventDefault(); closeArtwork(); }
       return;
@@ -342,11 +366,12 @@ export default function StageView({
   const lastScene = useRef<StageSceneSnapshot | null>(null);
   const previousScene = lastScene.current?.sessionId === sessionId
     ? lastScene.current : sceneSnapshots.get(sessionId) ?? null;
-  const visibleStage = presenting ? previousScene?.stage ?? null : stage;
-  const sprites = presenting ? previousScene?.sprites ?? [] : nextSprites;
+  const visibleStage = presenting || !stage ? previousScene?.stage ?? null : stage;
+  const sceneSprites = presenting ? previousScene?.sprites ?? [] : nextSprites;
+  const sprites = displayedBackground?.portraits === "hide" ? [] : sceneSprites;
   const focus = presenting ? previousScene?.focus ?? null : highlightedSpeaker ?? speaker ?? null;
   useLayoutEffect(() => {
-    const snapshot = presenting ? previousScene : { sessionId, stage, sprites: nextSprites, focus };
+    const snapshot = presenting ? previousScene : { sessionId, stage: visibleStage, background: displayedBackground, sprites: nextSprites, focus };
     if (!snapshot) return;
     lastScene.current = snapshot;
     // Refresh recency even when remounting mid-generation; never cache that
@@ -361,12 +386,12 @@ export default function StageView({
   const positions = stagePositions(sprites.length);
   const someoneSpeaking = !!focus && sprites.some((s) => s.name === focus);
 
-  const bgUrl = visibleStage?.background.url && visibleStage.background.url !== failedBackground ? visibleStage.background.url : null;
+  const bgUrl = displayedBackground?.url;
   const artwork = visibleStage?.artwork ?? [];
   const currentArtwork = artwork[Math.min(selectedArtwork, artwork.length - 1)];
-  const activeCg = visibleStage?.scene_media?.cg;
-  const bgStyle = bgUrl
-    ? { backgroundImage: `url("${bgUrl}")` }
+  const bgStyle: React.CSSProperties = bgUrl
+    ? { backgroundImage: `url(${JSON.stringify(bgUrl)})`, backgroundSize: displayedBackground?.fit ?? "cover",
+      backgroundPosition: `${displayedBackground?.position?.[0] ?? 50}% ${displayedBackground?.position?.[1] ?? 50}%` }
     : { backgroundImage: proceduralBackground(visibleStage?.time || "", visibleStage?.weather || "") };
   const nameColor = speaker ? characterColors[speaker] || sprites.find((s) => s.name === speaker)?.color || undefined : undefined;
 
@@ -389,7 +414,14 @@ export default function StageView({
       onPointerDown={(event) => { backgroundPress.current = event.button === 0 && isBackground(event.target) && !editingPortraits ? { x: event.clientX, y: event.clientY } : null; }}
       onPointerCancel={() => { backgroundPress.current = null; }} onClick={advanceBackground}>
       <div className="stage-bg" style={bgStyle} aria-hidden="true" />
-      {bgUrl && <img src={bgUrl} alt="" className="hidden" onError={() => setFailedBackground(bgUrl)} />}
+      {((failedBackground && failedBackground === desiredBackground?.url) || stageError === requestKey) &&
+        <div className="stage-media-error" role="status" onClick={(event) => event.stopPropagation()}>
+          <span>{stageError === requestKey ? "场景加载失败" : "场景图片加载失败"}</span>
+          <button type="button" onClick={() => {
+            if (stageError === requestKey) { setStageError(null); setStageRetry((value) => value + 1); }
+            else { setFailedBackground(null); setBackgroundRetry((value) => value + 1); }
+          }}>重试</button>
+        </div>}
       <div className="stage-vignette" aria-hidden="true" />
 
       {/* 环境角标 */}
@@ -404,7 +436,6 @@ export default function StageView({
       {/* 顶部工具 */}
       <div className="stage-tools">
         {stageOnly && <button type="button" className="stage-exit" onClick={onExitStageOnly} title="退出纯舞台（Esc）" aria-label="退出纯舞台"><AppIcon name="minimize" size={13} /><span>退出舞台</span></button>}
-        {activeCg && <button type="button" onClick={() => setCgOpen(true)} title="查看本节拍 CG" aria-label="查看本节拍 CG"><AppIcon name="image" size={13} /><span>CG</span></button>}
         {artwork.length > 0 && <button ref={artworkButtonRef} type="button" onClick={() => { setSelectedArtwork(0); setArtworkOpen(true); }} title="查看剧情绘图" aria-label="剧情绘图"><AppIcon name="image" size={13} /><span>绘图</span></button>}
         <button type="button" onClick={onToggleMusic} aria-label={musicMuted ? "开启背景音乐" : "静音背景音乐"}
           title={musicMuted ? "开启背景音乐" : "静音背景音乐"} aria-pressed={!musicMuted}>
@@ -412,17 +443,11 @@ export default function StageView({
         </button>
         <button type="button" onClick={back} disabled={step === 0} title="上一句（←）" aria-label="上一句"><AppIcon name="back" size={13} /><span>上一句</span></button>
         <button type="button" onClick={onOpenLog} title="查看完整对话记录" aria-label="查看对话记录"><AppIcon name="docs" size={13} /><span>记录</span></button>
-        <button type="button" aria-pressed={editingPortraits} onClick={() => {
+        <button type="button" disabled={displayedBackground?.portraits === "hide"} aria-pressed={editingPortraits} onClick={() => {
           setEditingPortraits((value) => !value);
           setSelectedPortrait(sprites[0]?.name ?? roster[0]?.name ?? null);
         }} title="调整立绘大小和位置" aria-label={editingPortraits ? "完成立绘调整" : "调整立绘"}><AppIcon name="settings" size={13} /><span>{editingPortraits ? "完成调整" : "调整立绘"}</span></button>
       </div>
-
-      {cgOpen && activeCg && failedCg !== activeCg.url && <div className="stage-cg-overlay" role="dialog" aria-modal="true" aria-label={activeCg.title}
-        onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Tab") event.preventDefault(); }}>
-        <img src={activeCg.url} alt={activeCg.title} onError={() => { setFailedCg(activeCg.url); setCgOpen(false); }} />
-        <div className="stage-cg-caption"><span>{activeCg.title}</span><button type="button" autoFocus onClick={() => { setCgOpen(false); rootRef.current?.focus(); }}>继续剧情</button></div>
-      </div>}
 
       {artworkOpen && currentArtwork && <div className="stage-artwork-overlay" role="dialog" aria-label="剧情绘图" onClick={(event) => event.stopPropagation()}>
         <div className="stage-artwork-head">
@@ -439,7 +464,7 @@ export default function StageView({
         </div>
       </div>}
 
-      {editingPortraits && (
+      {editingPortraits && displayedBackground?.portraits !== "hide" && (
         <div className="stage-edit-panel" role="group" aria-label="立绘调整">
           <label className="stage-edit-select">角色
             <select value={selectedPortrait ?? ""} onChange={(event) => setSelectedPortrait(event.target.value)}>

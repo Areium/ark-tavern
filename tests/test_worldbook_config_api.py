@@ -279,6 +279,7 @@ def session_api(tmp_path, monkeypatch):
                                          for bid in self.overlay.get_worldbook_ids()}}
 
     monkeypatch.setattr(module, "Session", FakeSession)
+    monkeypatch.setattr("scene_media.initialize_presentation", lambda *_: None)
     monkeypatch.setattr(module.SessionOverlay, "delete_session_overlays", lambda *a: None)
     import threading as _threading
     manager = object.__new__(module.SessionManager)

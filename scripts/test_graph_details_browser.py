@@ -19,7 +19,7 @@ PLOT = {"plot_id": "p", "name": "雨夜的抉择", "summary": "一把钥匙，�
     ]},
 ]}
 GRAPH = {"schema_version": 1, "plot_id": "p", "worldbook_id": "one", "nodes": [
-    {"id": "choose", "type": "beat", "title": "旧标题", "content": "过期摘要", "x": 40, "y": 80, "ref": {"chapter_idx": 1, "beat_id": "choose"}, "scene_media": {"cg_url": "/api/assets/plots/p/art/cg.png"}},
+    {"id": "choose", "type": "beat", "title": "旧标题", "content": "过期摘要", "x": 40, "y": 80, "ref": {"chapter_idx": 1, "beat_id": "choose"}, "scene_media": {"background": {"kind": "image", "asset": "plots/p/art/cg.png", "role": "cg", "fit": "contain", "position": [50, 50], "portraits": "hide"}}},
     {"id": "door", "type": "beat", "title": "门后", "x": 420, "y": 80, "ref": {"chapter_idx": 2, "beat_id": "door"}},
     {"id": "missing", "type": "beat", "title": "失效节点", "x": 40, "y": 320, "ref": {"chapter_idx": 8, "beat_id": "deleted"}},
 ], "edges": [{"id": "route", "from": "choose", "to": "door"}]}
@@ -60,7 +60,7 @@ def run():
                 body = {"graph": graph}
             elif path == "/api/plot-graphs/p" and request.method == "PUT":
                 saved.append(request.post_data_json)
-                body = {"ok": True}
+                body = {"ok": True, "_revision": 1}
             elif path == "/api/assets/images":
                 body = []
             elif path.startswith("/api/assets/"):
@@ -106,7 +106,7 @@ def run():
         page.get_by_role("button", name="保存", exact=False).last.click()
         page.wait_for_function("document.body.innerText.includes('已保存到')")
         assert saved[-1]["graph"]["nodes"][0]["ref"]["chapter_idx"] == 2
-        assert saved[-1]["graph"]["nodes"][0]["scene_media"]["cg_url"].endswith("cg.png")
+        assert saved[-1]["graph"]["nodes"][0]["scene_media"]["background"]["asset"].endswith("cg.png")
         # Same plot ID in a different book cannot reuse another book's draft.
         page.evaluate("showBook('two')")
         expect(page.locator('[data-ng-node]')).to_have_count(1)

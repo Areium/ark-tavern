@@ -237,6 +237,10 @@ def settle_branch(session, selected):
         draft["pending_story_choice"] = receipt
         overlay._data = draft
         try:
+            from scene_media import apply_presentation
+            beat_id = overlay.get_current_beat_id() or ""
+            chapter_idx = int(overlay.get_beat_state().get("chapter_idx", 0)) + 1 if beat_id else 0
+            apply_presentation(session, chapter_idx=chapter_idx, beat_id=beat_id, choice=selected)
             overlay._save()
         except Exception:
             overlay._data = before

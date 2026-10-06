@@ -223,14 +223,25 @@ def test_stage_and_image_route_use_copied_book_media(setup, tmp_path):
     Image.new("RGBA", (2, 2), (255, 0, 0, 255)).save(copied_skin)
 
     class Overlay:
+        _data = {}
+
         def get_worldbook_ids(self):
             return [story.id]
+
+        def get_current_beat_id(self):
+            return ""
+
+        def get_beat_state(self):
+            return {}
+
+        def get_plot_id(self):
+            return None
 
     scene_manager = SimpleNamespace(
         active=copied_id, get_scene_characters=lambda: [copied_id])
     session = SimpleNamespace(
-        overlay=Overlay(), data_dir=str(tmp_path / "session"),
-        scene_manager=scene_manager, player_identity="博士",
+        id="s1", overlay=Overlay(), data_dir=str(tmp_path / "session"),
+        scene_manager=scene_manager, player_identity="博士", narration_count=0,
         environment=SimpleNamespace(location="", weather="晴", time_of_day="day", atmosphere=[]))
     session_manager = SimpleNamespace(get_session=lambda _session_id: session)
     app = Flask(__name__)

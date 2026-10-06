@@ -18,6 +18,9 @@ from combat_nodes import (  # noqa: E402
 
 from test_combat_api import client  # noqa: F401  shared temporary book fixture
 
+INLINE_ENEMIES = {"整合运动士兵": {"name": "整合运动士兵",
+    "combat_stats": {"hp": 40, "power": 8, "toughness": 5, "agility": 8}}}
+
 
 @pytest.fixture
 def isolated_node_client(tmp_path, monkeypatch):
@@ -46,6 +49,7 @@ def _small_node(**overrides) -> dict:
             "deploy": {"player": {"rect": [0, 0, 4, 0]}, "enemy": {"rect": [0, 4, 4, 4]}},
         },
         "waves": [{"enemies": [{"enemy": "整合运动士兵", "count": 1, "positions": [[2, 4]]}]}],
+        "enemies_def": INLINE_ENEMIES,
         "conditions": {"max_rounds": 6, "escape_enabled": True},
         "rewards": {"xp": 10, "items": []},
         "difficulty": {"category": "test", "encounter_type": "normal", "band": "T1"},
@@ -122,6 +126,7 @@ def test_create_save_conflict_and_delete(isolated_node_client):
         current_hash = detail["node"]["_hash"]
 
         payload = dict(detail["node"])
+        payload["enemies_def"] = INLINE_ENEMIES
         payload["waves"] = [{"enemies": [{"enemy": "整合运动士兵", "count": 2,
                                           "positions": [[2, 4], [3, 4]]}]}]
         ok = client.put(f"/api/combat/nodes/{node_id}",

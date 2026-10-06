@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 from urllib.parse import quote
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_from_directory
 from worldbook_content import content_candidates
 
 from shared.helpers import json_error
@@ -96,6 +96,34 @@ def register(app, managers):
 
     bp = Blueprint("stage", __name__)
 
+    @bp.route("/api/worldbooks/<book_id>/presentation-image", methods=["GET"])
+    def presentation_preview(book_id):
+        from scene_media import valid_scene_asset
+        asset = request.args.get("asset")
+        if not valid_scene_asset(asset):
+            return json_error("图片资源路径无效", 404)
+        try:
+            sources = content_candidates(asset, book_ids=[book_id], project_root=doc_mgr._root)
+        except ValueError:
+            return json_error("图片资源路径无效", 404)
+        if not sources or not sources[0][1].is_file():
+            return json_error("本书图片不存在", 404)
+        image = sources[0][1]
+        return send_from_directory(image.parent, image.name)
+
+    @bp.route("/api/sessions/<session_id>/presentation-assets/<filename>", methods=["GET"])
+    def presentation_asset(session_id, filename):
+        session = session_mgr.get_session(session_id)
+        if session is None:
+            return json_error("会话不存在", 404)
+        if not re.fullmatch(r"[a-f0-9]{64}\.(png|jpg|jpeg|webp|gif|bmp)", filename):
+            return json_error("演出资源路径无效", 404)
+        folder = Path(session.data_dir) / "presentation-assets"
+        target = folder / filename
+        if folder.is_symlink() or target.is_symlink() or not target.is_file():
+            return json_error("演出资源不存在", 404)
+        return send_from_directory(folder, filename)
+
     # ── 共用：字段解析 ──
 
     def _book_fields(book_id: str | None) -> tuple[list[dict], str]:
@@ -117,61 +145,19 @@ def register(app, managers):
         session = session_mgr.get_session(session_id)
         if not session:
             return json_error("会话不存在", 404)
-        from combat_data_loader import CombatDataLoader
-        from plot_graphs import load_graph
-        from scene_media import resolve_scene_media
+        from scene_media import presentation_frame
         from avatar_color import get_theme_color
 
         book_ids = session.overlay.get_worldbook_ids()
-        loader = CombatDataLoader(book_ids=book_ids)
-        location = session.environment.location or ""
-        bg_id = loader.location_background_id(location) if location else ""
         session_dir = Path(session.data_dir)
-
-        plot_id = getattr(session.overlay, "get_plot_id", lambda: "")() or ""
-        book_id = getattr(session.overlay, "get_worldbook_id", lambda: "")() or ""
-        beat_id = getattr(session.overlay, "get_current_beat_id", lambda: "")() or ""
-        beat_state = getattr(session.overlay, "get_beat_state", lambda: {})()
-        chapter_idx = int(beat_state.get("chapter_idx", 0)) + 1 if beat_id else 0
-        cue_key = ""
-        cue_round = None
         requested_round = request.args.get("round", type=int)
-        if requested_round is not None and requested_round > 0:
-            history = session._narration_history
-            for index, row in enumerate(history):
-                if row.get("round") != requested_round:
-                    continue
-                cue_round = requested_round
-                # The beat may have advanced before this narration was saved.
-                # A legacy row with no beat metadata cannot safely trigger CG.
-                beat_id = str(row.get("beat_id") or "")
-                chapter_idx = int(row.get("chapter_idx") or 0)
-                if beat_id:
-                    first_round = requested_round
-                    for prev in reversed(history[:index]):
-                        if (prev.get("beat_id"), prev.get("chapter_idx")) != (beat_id, chapter_idx):
-                            break
-                        first_round = int(prev["round"])
-                    cue_key = f"{plot_id}:{chapter_idx}:{beat_id}:{first_round}"
-                break
-        graph = load_graph(wb_mgr, book_id, plot_id) if book_id and plot_id else None
-        authored_media = resolve_scene_media(graph, chapter_idx=chapter_idx, beat_id=beat_id)
-
-        background = {"url": None, "source": "none", "bg_id": bg_id or loader._DEFAULT_BG_ID}
-        for cand, level in ((bg_id, "location"), (loader._DEFAULT_BG_ID, "default")):
-            if not cand:
-                continue
-            url = loader._session_background_url(session_dir, session_id, cand)
-            if url:
-                background = {"url": url, "source": "session", "bg_id": cand}
-                break
-            url = loader.background_image_url(cand)
-            if url:
-                background = {"url": url, "source": level, "bg_id": cand}
-                break
-
-        if authored_media["background_url"] and background["source"] != "session":
-            background = {"url": authored_media["background_url"], "source": "graph", "bg_id": ""}
+        try:
+            frame = presentation_frame(session, requested_round)
+        except ValueError as exc:
+            return json_error(str(exc), 409)
+        background = frame["background"]
+        env = frame["environment"]
+        location = env["location"]
 
         def media(name: str, kind: str) -> str:
             return f"/api/characters/{quote(name)}/{kind}?session_id={session_id}"
@@ -204,17 +190,11 @@ def register(app, managers):
         return jsonify({
             "session_id": session_id,
             "location": location,
-            "weather": session.environment.weather,
-            "time": session.environment.time_of_day,
-            "atmosphere": list(session.environment.atmosphere or []),
+            "weather": env["weather"],
+            "time": env["time"],
+            "atmosphere": env["atmosphere"],
             "background": background,
-            "scene_media": {
-                "beat_id": beat_id,
-                "chapter_idx": chapter_idx,
-                "cue_key": cue_key,
-                "round": cue_round,
-                "cg": authored_media["cg"] if cue_key else None,
-            },
+            "scene_media": frame["scene_media"],
             "artwork": _story_artwork(getattr(session.overlay, "get_plot_id", lambda: None)() or "", book_ids),
             "characters": characters,
             "player": {

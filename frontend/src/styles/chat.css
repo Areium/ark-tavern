@@ -225,7 +225,7 @@
 
 /* ── 舞台（视觉小说视图） ─────────────────────────────────────────────── */
 .stage { position: relative; flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 16px; padding-top: 48px; overflow: hidden; outline: none; user-select: none; background: #0b0e14; }
-.stage-bg { position: absolute; inset: 0; background-size: cover; background-position: center; transition: background-image .4s; }
+.stage-bg { position: absolute; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; transition: background-image .4s; }
 .stage-vignette {
   position: absolute; inset: 0; pointer-events: none;
   background:
@@ -269,15 +269,13 @@
   position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column;
   color: #f4efe6; background: rgba(7, 10, 17, .97); backdrop-filter: blur(12px);
 }
-.stage-cg-overlay {
-  position: absolute; inset: 0; z-index: 31; display: grid; grid-template-rows: minmax(0, 1fr) auto;
-  place-items: center; gap: 10px; padding: clamp(12px, 3vw, 28px);
-  color: #f4efe6; background: rgba(6, 8, 14, .97);
+.stage-media-error {
+  position: absolute; top: 48px; left: 12px; z-index: 14; display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; border-radius: 8px; font-size: 12px; color: #f4efe6;
+  background: rgba(10, 12, 18, .92); border: 1px solid rgba(245, 200, 106, .38);
 }
-.stage-cg-overlay > img { display: block; min-height: 0; max-width: 100%; max-height: 100%; object-fit: contain; }
-.stage-cg-caption { width: min(100%, 900px); display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
-.stage-cg-caption button { flex: 0 0 auto; padding: 8px 14px; border: 1px solid rgba(245, 200, 106, .55); border-radius: 8px; color: #fff; background: rgba(90, 56, 13, .65); }
-.stage-cg-caption button:hover, .stage-cg-caption button:focus-visible { background: rgba(134, 84, 20, .86); outline-color: #f5c86a; }
+.stage-media-error button { padding: 3px 8px; border: 1px solid rgba(255, 255, 255, .3); border-radius: 5px; background: rgba(255, 255, 255, .08); }
+.stage-media-error button:hover, .stage-media-error button:focus-visible { background: rgba(255, 255, 255, .18); outline-color: #f5c86a; }
 .stage-artwork-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 18px; border-bottom: 1px solid rgba(255, 255, 255, .12); }
 .stage-artwork-head > div { display: grid; gap: 2px; }
 .stage-artwork-head strong { font-size: 16px; }

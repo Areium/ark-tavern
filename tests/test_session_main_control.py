@@ -128,6 +128,7 @@ def session_api(tmp_path, monkeypatch):
     cleaned, persisted = [], []
 
     monkeypatch.setattr(module, "Session", FakeSession)
+    monkeypatch.setattr("scene_media.initialize_presentation", lambda *_: None)
     monkeypatch.setattr(module.SessionOverlay, "delete_session_overlays",
                         lambda sid, mode: cleaned.append(sid))
     manager = object.__new__(module.SessionManager)

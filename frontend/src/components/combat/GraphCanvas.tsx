@@ -32,6 +32,7 @@ import {
   clampZoom, rewireEdge, dragGrabOffset, dragWorldPos, screenToWorld, type NodeRect, type ViewState,
 } from "./graphModel";
 import { createNodes } from "./nodeFactory";
+import { sceneMediaBadge } from "../../utils/sceneMedia";
 
 export interface GraphNodeDisplay {
   title: string;
@@ -251,7 +252,7 @@ export default function GraphCanvas(props: Props) {
   // ── 空格 = 抓手模式 ──
   useEffect(() => {
     const isTyping = (t: EventTarget | null) =>
-      t instanceof HTMLElement && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+      t instanceof HTMLElement && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.tagName === "BUTTON" || t.isContentEditable || !!t.closest(".ng-media-panel"));
     const down = (e: KeyboardEvent) => {
       if (e.code !== "Space" || isTyping(e.target)) return;
       e.preventDefault();
@@ -893,7 +894,7 @@ const GraphCard = memo(function GraphCard({
           <div className="ng-node-head">
             <span className="ng-node-icon">{meta.icon}</span>
             <span className="ng-node-title" title={display.title}>{display.title || node.title || meta.label}</span>
-            {(node.scene_media?.background_url || node.scene_media?.cg_url) && <span className="ng-media-badge" title={[node.scene_media.background_url && "已配置背景", node.scene_media.cg_url && "已配置 CG"].filter(Boolean).join(" · ")}>{node.scene_media.cg_url ? "CG" : "背景"}</span>}
+            {sceneMediaBadge(node.scene_media) && <span className="ng-media-badge" title={sceneMediaBadge(node.scene_media)}>{sceneMediaBadge(node.scene_media)}</span>}
           </div>
           {(display.subtitle || display.missing) && (
             <div className="ng-node-sub" title={display.subtitle}>

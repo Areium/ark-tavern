@@ -169,6 +169,7 @@ def register(app, managers):
             "path": path_key,
             "url": f"/api/assets/{quote(path_key, safe='/')}"
                    + (f"?worldbook_id={quote(selected_book)}" if selected_book else ""),
+            "asset_path": f"{_book_category_key(cat, project_root=doc_mgr._root)}/{subdir + '/' if subdir else ''}{file.filename}",
             "size": file_stat.st_size,
         }), 201
 
@@ -407,6 +408,7 @@ def _list_entity_images(doc_mgr, *, book_id=None):
                         url = f"/api/assets/{quote(path_key, safe='/')}"
                         url += f"?worldbook_id={quote(owner, safe='')}"
                         images.append({
+                            "asset_path": f"{category_key}/{filepath.relative_to(cat_dir).as_posix()}",
                             "name": name,
                             "path": path_key,
                             "url": url,
