@@ -499,7 +499,7 @@ export default function SessionManagerView() {
                   <button
                     onClick={handleBatchDelete}
                     disabled={selectedIds.size === 0 || batchDeleting}
-                    className="app-danger-button text-[12px] px-2 py-0.5 rounded bg-red-700/80 hover:bg-red-600 text-white disabled:opacity-50"
+                    className="app-danger-button session-delete-button text-[12px] px-2 py-0.5 rounded disabled:opacity-50"
                   >
                     {batchDeleting ? "删除中..." : "删除"}
                   </button>
@@ -889,7 +889,7 @@ export default function SessionManagerView() {
                   <button
                     onClick={() => void handleDelete(selected.id)}
                     disabled={busyAction === "delete"}
-                    className="app-danger-button inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-700/30 text-red-300 border border-red-700/40 hover:bg-red-700/50 transition-colors"
+                    className="app-danger-button session-delete-button inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors"
                   >
                     <AppIcon name="trash" size={13} />
                     {busyAction === "delete" ? "删除中..." : "删除会话"}

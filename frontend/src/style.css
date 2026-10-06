@@ -1165,6 +1165,31 @@ html.light .session-practice-panel {
   --practice-sideview: #0e7490;
 }
 
+/* 会话删除入口：浅色下用轻底红字；只影响大厅，不改变确认提交与战斗按钮。
+   重复类提升优先级，覆盖公共危险按钮和皮肤工具类；深色/PRTS 仍沿用公共色板。 */
+html.light .session-delete-button.session-delete-button {
+  color: #a83d4c;
+  background: #fff1f2;
+  border-color: #e9bec5;
+}
+html.light .session-delete-button.session-delete-button:hover:not(:disabled) {
+  color: #963442;
+  background: #fbe3e6;
+}
+html.skin-tavern .session-delete-button.session-delete-button {
+  color: #984438;
+  background: #f8e8df;
+  border-color: #ddbaab;
+}
+html.skin-tavern .session-delete-button.session-delete-button:hover:not(:disabled) {
+  color: #87392f;
+  background: #f2dbce;
+}
+html.light .session-delete-button:focus-visible,
+html.skin-tavern .session-delete-button:focus-visible {
+  outline-color: currentColor;
+}
+
 /* 大厅主按钮（金色） */
 .btn-hero {
   background: linear-gradient(135deg, #f59e0b 0%, #d97706 60%, #b45309 100%);
