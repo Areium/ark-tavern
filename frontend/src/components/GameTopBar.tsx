@@ -37,10 +37,10 @@ export default function GameTopBar() {
 
   return (
     <header className="h-11 shrink-0 flex items-center gap-2 px-3 border-b border-gray-700/70 bg-gray-900/95 backdrop-blur-sm z-30">
-      {/* 返回主菜单 */}
+      {/* 返回主菜单：与页签同一底线（self-end + -mb-px + pb-2），文字与页签同一水平线 */}
       <button
         onClick={() => setCurrentView("home")}
-        className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap text-gray-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors"
+        className="flex shrink-0 self-end -mb-px items-center gap-1.5 px-2.5 pt-1.5 pb-2 rounded-lg text-xs whitespace-nowrap text-gray-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors"
         title="返回主菜单"
       >
         <AppIcon name="back" size={15} />
@@ -59,7 +59,7 @@ export default function GameTopBar() {
             className={
               "flex shrink-0 items-center gap-1.5 px-3 pt-1.5 pb-2 rounded-t-lg border-x border-t text-xs whitespace-nowrap transition-colors " +
               (currentView === item.id
-                ? "bg-gray-800 text-amber-300 font-medium border-gray-700/70"
+                ? "relative topbar-tab-active bg-gray-800 text-amber-300 font-medium border-gray-700/70"
                 : "border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-700/40")
             }
           >

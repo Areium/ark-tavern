@@ -883,6 +883,35 @@ html.light .app-status-bar { background-color: rgb(249 250 251); }
 html.light .app-status-bar .text-gray-500 { color: #5b6472; }
 html.light .app-status-bar .text-green-400 { color: #15803d; }
 
+/* ═══════════════════════════════════════
+   应用外壳：全局顶栏标签（GameTopBar）
+   ═══════════════════════════════════════ */
+
+/* 激活标签的反向圆角（Chrome 式标签脚）：伪元素用 background-color: inherit
+   继承标签底色（bg-gray-800，各皮肤/浅色主题均有映射），再用径向 mask 在外侧
+   下角裁出四分之一圆，让标签底边与下方栏圆润融合。透明部分露出顶栏分隔线，
+   分隔线正好沿弧线收进标签脚。 */
+.topbar-tab-active::before,
+.topbar-tab-active::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  background-color: inherit;
+  pointer-events: none;
+}
+.topbar-tab-active::before {
+  left: -10px;
+  -webkit-mask-image: radial-gradient(circle 10px at left bottom, transparent 9.5px, #000 10px);
+  mask-image: radial-gradient(circle 10px at left bottom, transparent 9.5px, #000 10px);
+}
+.topbar-tab-active::after {
+  right: -10px;
+  -webkit-mask-image: radial-gradient(circle 10px at right bottom, transparent 9.5px, #000 10px);
+  mask-image: radial-gradient(circle 10px at right bottom, transparent 9.5px, #000 10px);
+}
+
 /* ── 实心彩色按钮上的 text-white 必须保持白字 ──
    html.light .text-white 会把它们压成 #1f2937，在饱和底色上变成「深底深字」
    （例：bg-red-800 的「移除」按钮只有 1.4:1）。这些底色在浅色主题下不做反转，
