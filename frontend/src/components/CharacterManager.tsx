@@ -695,7 +695,8 @@ export default function CharacterManager() {
   return (
     <div className="roles-shell flex flex-col h-full">
       {/* ── 模块页签：角色库（角色内容）/ 玩家身份 / 资产 / 卡牌 ── */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-700/70 bg-gray-900/60 shrink-0">
+      {/* 底色与顶栏激活标签（bg-gray-800）一致，视觉上作为激活标签连通下来的工具条 */}
+      <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-700/70 bg-gray-800 shrink-0">
         <nav className="flex items-center gap-1 overflow-x-auto" aria-label="角色页模块">
           {MODULE_TABS.map((item) => (
             <button
@@ -707,8 +708,8 @@ export default function CharacterManager() {
               className={
                 "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap transition-colors " +
                 (tab === item.id
-                  ? "bg-amber-600/20 text-amber-300 font-medium border border-amber-500/30"
-                  : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 border border-transparent")
+                  ? "bg-amber-600/20 text-amber-300 font-medium"
+                  : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/40")
               }
             >
               <AppIcon name={item.icon} size={15} />

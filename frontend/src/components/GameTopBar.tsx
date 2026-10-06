@@ -49,17 +49,18 @@ export default function GameTopBar() {
 
       <div className="w-px h-5 shrink-0 bg-gray-700/70 mx-1" />
 
-      {/* 管理页导航 */}
-      <nav className="flex min-w-0 items-center gap-1 overflow-x-auto">
+      {/* 管理页导航：Chrome 标签页式 —— 激活标签与下方内容连通，非激活标签退后 */}
+      <nav className="flex min-w-0 items-end gap-1 self-stretch -mb-px overflow-x-auto">
         {NAV_ITEMS.map((item) => (
           <button
             key={item.id}
             onClick={() => setCurrentView(item.id)}
+            aria-current={currentView === item.id ? "page" : undefined}
             className={
-              "flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap transition-colors " +
+              "flex shrink-0 items-center gap-1.5 px-3 pt-1.5 pb-2 rounded-t-lg border-x border-t text-xs whitespace-nowrap transition-colors " +
               (currentView === item.id
-                ? "bg-amber-600/20 text-amber-300 font-medium border border-amber-500/30"
-                : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 border border-transparent")
+                ? "bg-gray-800 text-amber-300 font-medium border-gray-700/70"
+                : "border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-700/40")
             }
           >
             <AppIcon name={item.icon} size={15} />
