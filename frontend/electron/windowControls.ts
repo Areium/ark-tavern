@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain, screen, type IpcMainInvokeEvent } from "electron";
 import type { EventEmitter } from "node:events";
-import { WINDOW_PRESETS, type WindowState } from "../src/shared/windowSettings";
+import { WINDOW_PRESETS, type WindowPresetId, type WindowState } from "../src/shared/windowSettings";
 
 export function registerWindowControls(win: BrowserWindow) {
   const emitter: EventEmitter = win;
@@ -8,17 +8,17 @@ export function registerWindowControls(win: BrowserWindow) {
   const [contentWidth, contentHeight] = win.getContentSize();
   const frameWidth = outerWidth - contentWidth;
   const frameHeight = outerHeight - contentHeight;
+  const [minimumWidth, minimumHeight] = win.getMinimumSize();
   let queue: Promise<unknown> = Promise.resolve();
+  let appliedPreset: { id: WindowPresetId; width: number; height: number } | null = null;
 
   const getState = (): WindowState => {
     const [width, height] = win.getContentSize();
-    const area = screen.getDisplayMatching(win.getBounds()).workAreaSize;
+    const mode = win.isFullScreen() ? "fullscreen" : win.isMaximized() ? "maximized" : "windowed";
     return {
-      width, height,
-      mode: win.isFullScreen() ? "fullscreen" : win.isMaximized() ? "maximized" : "windowed",
-      availablePresets: WINDOW_PRESETS.filter(p =>
-        p.width + frameWidth <= area.width && p.height + frameHeight <= area.height
-      ).map(p => p.id),
+      width, height, mode,
+      presetId: mode !== "windowed" ? null : appliedPreset?.width === width && appliedPreset.height === height
+        ? appliedPreset.id : WINDOW_PRESETS.find(p => p.width === width && p.height === height)?.id ?? null,
     };
   };
 
@@ -57,14 +57,22 @@ export function registerWindowControls(win: BrowserWindow) {
     const preset = WINDOW_PRESETS.find(p => p.id === id);
     if (!preset) throw new Error("不支持的窗口尺寸");
     return enqueue(async () => {
-      if (!getState().availablePresets.includes(preset.id)) throw new Error("该尺寸超出当前屏幕可用空间");
       await restore();
-      // 恢复可能回到另一显示器，重新检查最终目标的工作区。
-      if (!getState().availablePresets.includes(preset.id)) throw new Error("该尺寸超出当前屏幕可用空间");
+      // 显示缩放和窗口装饰会减少逻辑工作区；预设始终可选，较大尺寸适配屏幕。
+      // 恢复可能回到另一显示器，使用恢复后的目标工作区。
       const area = screen.getDisplayMatching(win.getBounds()).workArea;
+      const ratio = Math.min(1, (area.width - frameWidth - 2) / preset.width, (area.height - frameHeight - 2) / preset.height);
+      const width = Math.floor(preset.width * ratio);
+      const height = Math.floor(preset.height * ratio);
+      appliedPreset = { id: preset.id, width, height };
+      // 高 DPI 小工作区可能小于常规最小窗口；避免最小尺寸将适配结果重新撑大。
+      win.setMinimumSize(Math.min(minimumWidth, width + frameWidth), Math.min(minimumHeight, height + frameHeight));
       // 先定位再调整内容区，避免 Windows 缩放下 setPosition 再次舍入尺寸。
-      win.setPosition(Math.round(area.x + (area.width - preset.width - frameWidth) / 2), Math.round(area.y + (area.height - preset.height - frameHeight) / 2));
-      win.setContentSize(preset.width, preset.height);
+      win.setPosition(Math.round(area.x + (area.width - width - frameWidth) / 2), Math.round(area.y + (area.height - height - frameHeight) / 2));
+      win.setContentSize(width, height);
+      // 部分缩放比例会将适配尺寸舍入到相邻逻辑像素，记录系统实际采用的尺寸。
+      const [actualWidth, actualHeight] = win.getContentSize();
+      appliedPreset = { id: preset.id, width: actualWidth, height: actualHeight };
       return getState();
     });
   });

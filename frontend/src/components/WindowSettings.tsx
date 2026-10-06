@@ -21,7 +21,7 @@ export default function WindowSettings() {
     const update = (next: WindowState) => {
       if (!active) return;
       setState(next);
-      setSelected(WINDOW_PRESETS.find(p => p.width === next.width && p.height === next.height)?.id ?? "");
+      setSelected(next.presetId ?? "");
     };
     const unsubscribe = bridge.onWindowStateChange(update);
     void bridge.getWindowState().then(update).catch(() => {
@@ -33,7 +33,11 @@ export default function WindowSettings() {
   const apply = async (action: () => Promise<WindowState>) => {
     setPending(true);
     setError("");
-    try { setState(await action()); }
+    try {
+      const next = await action();
+      setState(next);
+      setSelected(next.presetId ?? "");
+    }
     catch (err) { setError(err instanceof Error ? err.message : "窗口调整失败，请重试。"); }
     finally { setPending(false); }
   };
@@ -57,23 +61,22 @@ export default function WindowSettings() {
       <div className="flex items-center gap-3">
         <label htmlFor="window-size" className="text-sm font-medium shrink-0">窗口尺寸</label>
         <select id="window-size" value={selected} disabled={!supported || !state || pending}
-          onChange={event => setSelected(event.target.value as WindowPresetId)}
+          onChange={event => {
+            const id = event.target.value as WindowPresetId;
+            setSelected(id);
+            if (bridge) void apply(() => bridge.setWindowPreset(id));
+          }}
           className="flex-1 min-w-0 px-3 py-2 rounded-md border border-gray-700 bg-gray-900 text-sm text-gray-200 disabled:opacity-50 focus:border-amber-500/50">
           <option value="" disabled>自定义</option>
-          {WINDOW_PRESETS.map(preset => {
-            const fits = !state || state.availablePresets.includes(preset.id);
-            return <option key={preset.id} value={preset.id} disabled={!fits}>
-              {preset.width} × {preset.height}{preset.id === DEFAULT_WINDOW_PRESET.id ? "（默认）" : preset.id === "2560x1440" ? "（2K）" : ""}{fits ? "" : " · 屏幕空间不足"}
-            </option>;
-          })}
+          {WINDOW_PRESETS.map(preset => <option key={preset.id} value={preset.id}>
+            {preset.width} × {preset.height}{preset.id === DEFAULT_WINDOW_PRESET.id ? "（默认）" : preset.id === "2560x1440" ? "（2K）" : ""}
+          </option>)}
         </select>
-        <button type="button" className="btn btn-primary text-sm" disabled={!supported || !state || !selected || pending}
-          onClick={() => { if (bridge && selected) void apply(() => bridge.setWindowPreset(selected)); }}>应用</button>
       </div>
       <p className="text-xs text-gray-500 mt-3" aria-live="polite">
         {supported ? state ? `当前 ${state.width} × ${state.height} · ${MODES.find(mode => mode.id === state.mode)?.label}` : "正在读取窗口尺寸…" : "窗口设置需在桌面客户端中使用。"}
       </p>
-      {supported && <p className="text-xs text-gray-500 mt-1">应用尺寸会切换为窗口模式，仍可自由拖动窗口边缘。</p>}
+      {supported && <p className="text-xs text-gray-500 mt-1">选择后立即切换为窗口模式；尺寸超出可用空间时自动适配，仍可自由拖动窗口。</p>}
       {error && <p role="alert" className="text-xs text-red-400 mt-2">{error}</p>}
     </section>
   );

@@ -15,5 +15,5 @@ export interface WindowState {
   width: number;
   height: number;
   mode: WindowMode;
-  availablePresets: WindowPresetId[];
+  presetId: WindowPresetId | null;
 }

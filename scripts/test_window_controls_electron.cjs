@@ -31,13 +31,14 @@ if (!process.versions.electron) {
     const reportingPreload = path.join(scratch, 'reporting-preload.cjs');
     fs.writeFileSync(reportingPreload, fs.readFileSync(path.join(scratch,'preload.cjs'),'utf8') +
       ";require('electron').contextBridge.exposeInMainWorld('testReport',r=>require('electron').ipcRenderer.invoke('native-test-report',r));require('electron').contextBridge.exposeInMainWorld('testReady',()=>require('electron').ipcRenderer.invoke('native-test-ready'));require('electron').contextBridge.exposeInMainWorld('testCustomSize',()=>require('electron').ipcRenderer.invoke('native-test-custom-size'));");
-    const win = new BrowserWindow({width:1400,height:900,useContentSize:true,show:false,
+    const win = new BrowserWindow({width:1400,height:900,useContentSize:true,minWidth:1000,minHeight:600,show:false,
       webPreferences:{preload:reportingPreload,contextIsolation:true,nodeIntegration:false}});
     require(path.join(scratch, 'controls.cjs')).registerWindowControls(win);
     ipcMain.handle('native-test-ready', () => win.isVisible() ? true : new Promise(resolve => win.once('show', () => resolve(true))));
     ipcMain.handle('native-test-custom-size', () => {
       assert.equal(win.isResizable(), true);
       win.setContentSize(1300, 700);
+      return win.getContentSize();
     });
     ipcMain.handle('native-test-report', (event, report) => {
       assert.equal(event.sender, win.webContents);
@@ -46,28 +47,23 @@ if (!process.versions.electron) {
     });
     const html = `<script>
       (async()=>{
-        const report={presets:[],modes:[],unavailable:[]};
+        const report={presets:[],modes:[],adapted:[]};
         const assert=(ok,message)=>{if(!ok)throw new Error(message)};
         try{
           await window.testReady();
           const api=window.electronAPI;
           let updates=0;const unsubscribe=api.onWindowStateChange(()=>updates++);
-          const initial=await api.getWindowState();
           for(const id of ['1280x720','1400x900','1600x900','1920x1080','2560x1440']){
-            if(initial.availablePresets.includes(id)){
               const state=await api.setWindowPreset(id);
               await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-              assert(state.width+'x'+state.height===id,'Incorrect native size '+JSON.stringify(state));
+              assert(state.presetId===id,'Selected preset was lost after fitting '+JSON.stringify(state));
               assert(innerWidth===state.width&&innerHeight===state.height,'Viewport '+innerWidth+'x'+innerHeight+' differs from content '+state.width+'x'+state.height);
               report.presets.push(id);
-            }else{
-              let rejected=false;try{await api.setWindowPreset(id)}catch{rejected=true}
-              assert(rejected,'Oversized preset accepted');report.unavailable.push(id);
-            }
+              if(state.width+'x'+state.height!==id)report.adapted.push({id,actual:[state.width,state.height]});
           }
-          await window.testCustomSize();
+          const actualCustom=await window.testCustomSize();
           const custom=await api.getWindowState();
-          assert(custom.width===1300&&custom.height===700,'Custom size snapped to preset');
+          assert(custom.width===actualCustom[0]&&custom.height===actualCustom[1]&&custom.presetId===null,'Custom size snapped to preset');
           report.customSize=[custom.width,custom.height];
           for(const mode of ['maximized','fullscreen','windowed']){
             const state=await api.setWindowMode(mode);assert(state.mode===mode,'Incorrect native mode');report.modes.push(mode);
