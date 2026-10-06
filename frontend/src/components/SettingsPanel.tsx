@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { audioManager } from "../audio/audioManager";
 import { useAppStore, type SkinId } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
+import WindowSettings from "./WindowSettings";
 
 /** 皮肤清单：id 与后端 config.skin 白名单一致；swatch 用真实色值（行内样式），
     保证在任意皮肤下都能看到各皮肤本来的配色。 */
@@ -305,6 +306,9 @@ export default function SettingsPanel() {
           </button>
         </div>
       </section>
+
+      {/* 窗口尺寸与显示模式 */}
+      <WindowSettings />
 
       {/* 音频 */}
       <section className="card">

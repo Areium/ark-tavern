@@ -10,6 +10,8 @@
 import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import { PythonProcessManager } from "./processManager";
 import path from "path";
+import { DEFAULT_WINDOW_PRESET } from "../src/shared/windowSettings";
+import { registerWindowControls } from "./windowControls";
 
 let mainWindow: BrowserWindow | null = null;
 let processManager: PythonProcessManager | null = null;
@@ -25,8 +27,9 @@ const LOGO_PATH = path.join(
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: DEFAULT_WINDOW_PRESET.width,
+    height: DEFAULT_WINDOW_PRESET.height,
+    useContentSize: true,
     minWidth: 1000,
     minHeight: 600,
     title: "Ark Tavern",
@@ -41,6 +44,7 @@ function createWindow() {
     },
     show: false,
   });
+  registerWindowControls(mainWindow);
 
   // 彻底移除应用菜单：Electron 未显式设置菜单时会挂上默认菜单，
   // 在窗口左上角渲染出 File / Edit / View / Window / Help，属于遗留项。
@@ -49,6 +53,8 @@ function createWindow() {
 
   // 窗口准备好后再显示（避免白屏闪烁）
   mainWindow.once("ready-to-show", () => {
+    // Windows 显示缩放可能舍入首次创建的内容区，在显示前归一到设计基准。
+    mainWindow?.setContentSize(DEFAULT_WINDOW_PRESET.width, DEFAULT_WINDOW_PRESET.height);
     mainWindow?.show();
   });
 
