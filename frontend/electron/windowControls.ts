@@ -10,16 +10,21 @@ export function registerWindowControls(win: BrowserWindow) {
   const frameHeight = outerHeight - contentHeight;
   const [minimumWidth, minimumHeight] = win.getMinimumSize();
   let queue: Promise<unknown> = Promise.resolve();
-  let appliedPreset: { id: WindowPresetId; width: number; height: number } | null = null;
+  // 记录最近一次应用的预设：width/height 为系统实际采用的内容区尺寸，
+  // presetWidth/presetHeight 为预设目标值，两者不一致即发生了屏幕适配。
+  let appliedPreset: { id: WindowPresetId; width: number; height: number; presetWidth: number; presetHeight: number } | null = null;
 
   const getState = (): WindowState => {
     const [width, height] = win.getContentSize();
     const mode = win.isFullScreen() ? "fullscreen" : win.isMaximized() ? "maximized" : "windowed";
-    return {
-      width, height, mode,
-      presetId: mode !== "windowed" ? null : appliedPreset?.width === width && appliedPreset.height === height
-        ? appliedPreset.id : WINDOW_PRESETS.find(p => p.width === width && p.height === height)?.id ?? null,
-    };
+    // presetId 只在实际尺寸与记录/预设完全一致时成立，保证「当前」显示与真实窗口一致。
+    const presetId = mode !== "windowed" ? null
+      : appliedPreset?.width === width && appliedPreset.height === height
+        ? appliedPreset.id
+        : WINDOW_PRESETS.find(p => p.width === width && p.height === height)?.id ?? null;
+    const fitted = presetId !== null && appliedPreset?.id === presetId
+      && (appliedPreset.presetWidth !== width || appliedPreset.presetHeight !== height);
+    return { width, height, mode, presetId, fitted };
   };
 
   const authorize = (event: IpcMainInvokeEvent) => {
@@ -64,7 +69,7 @@ export function registerWindowControls(win: BrowserWindow) {
       const ratio = Math.min(1, (area.width - frameWidth - 2) / preset.width, (area.height - frameHeight - 2) / preset.height);
       const width = Math.floor(preset.width * ratio);
       const height = Math.floor(preset.height * ratio);
-      appliedPreset = { id: preset.id, width, height };
+      appliedPreset = { id: preset.id, width, height, presetWidth: preset.width, presetHeight: preset.height };
       // 高 DPI 小工作区可能小于常规最小窗口；避免最小尺寸将适配结果重新撑大。
       win.setMinimumSize(Math.min(minimumWidth, width + frameWidth), Math.min(minimumHeight, height + frameHeight));
       // 先定位再调整内容区，避免 Windows 缩放下 setPosition 再次舍入尺寸。
@@ -72,7 +77,7 @@ export function registerWindowControls(win: BrowserWindow) {
       win.setContentSize(width, height);
       // 部分缩放比例会将适配尺寸舍入到相邻逻辑像素，记录系统实际采用的尺寸。
       const [actualWidth, actualHeight] = win.getContentSize();
-      appliedPreset = { id: preset.id, width: actualWidth, height: actualHeight };
+      appliedPreset = { id: preset.id, width: actualWidth, height: actualHeight, presetWidth: preset.width, presetHeight: preset.height };
       return getState();
     });
   });

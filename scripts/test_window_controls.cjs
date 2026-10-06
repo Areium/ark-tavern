@@ -57,10 +57,12 @@ class TestWindow extends EventEmitter {
   const call = (name, arg, event = sender) => Promise.resolve().then(() => handlers.get(name)(event, arg));
   const get = () => call('get-window-state');
   assert.equal((await get()).presetId, '1400x900');
+  assert.equal((await get()).fitted, false);
   for (const id of ['1280x720', '1400x900', '1600x900', '1920x1080', '2560x1440']) {
     const result = await call('set-window-preset', id);
     assert.equal(`${result.width}x${result.height}`, id);
     assert.equal(result.presetId, id);
+    assert.equal(result.fitted, false);
     assert.equal(result.mode, 'windowed');
   }
   for (const mode of ['maximized', 'fullscreen', 'windowed']) {
@@ -78,10 +80,12 @@ class TestWindow extends EventEmitter {
   display.emit('display-metrics-changed');
   const fitted = await call('set-window-preset', '2560x1440');
   assert.equal(fitted.presetId, '2560x1440');
+  assert.equal(fitted.fitted, true);
   assert.ok(fitted.width + 16 <= display.area.width && fitted.height + 39 <= display.area.height);
   win.setContentSize(1300, 700); // User resize stays custom, no preset snap.
   assert.equal((await get()).width, 1300);
   assert.equal((await get()).presetId, null);
+  assert.equal((await get()).fitted, false);
   assert.equal(win.messages.at(-1).state.width, 1300);
   display.area = { width: 3840, height: 2160 };
   await call('set-window-mode', 'maximized');
@@ -89,13 +93,15 @@ class TestWindow extends EventEmitter {
   win.unmaximize = () => { originalRestore(); display.area = { width: 1366, height: 768 }; };
   const restoredFit = await call('set-window-preset', '2560x1440');
   assert.equal(restoredFit.presetId, '2560x1440');
+  assert.equal(restoredFit.fitted, true);
   assert.ok(restoredFit.width + 16 <= 1366 && restoredFit.height + 39 <= 768);
   display.area = { width: 1024, height: 536 };
   const tinyFit = await call('set-window-preset', '2560x1440');
   assert.equal(tinyFit.presetId, '2560x1440');
+  assert.equal(tinyFit.fitted, true);
   assert.ok(tinyFit.width + 16 <= 1024 && tinyFit.height + 39 <= 536);
   win.destroyed = true; win.emit('closed');
   assert.equal(handlers.size, 0);
   assert.equal(display.listenerCount('display-metrics-changed'), 0);
-  console.log('Window controls: 5 presets, 3 modes, queued transitions, IPC validation, screen fitting, resize and cleanup passed.');
+  console.log('Window controls: 5 presets, 3 modes, queued transitions, IPC validation, screen fitting (fitted flag), resize and cleanup passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

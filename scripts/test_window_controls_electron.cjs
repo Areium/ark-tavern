@@ -58,12 +58,14 @@ if (!process.versions.electron) {
               await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
               assert(state.presetId===id,'Selected preset was lost after fitting '+JSON.stringify(state));
               assert(innerWidth===state.width&&innerHeight===state.height,'Viewport '+innerWidth+'x'+innerHeight+' differs from content '+state.width+'x'+state.height);
+              const adapted=state.width+'x'+state.height!==id;
+              assert(state.fitted===adapted,'fitted flag disagrees with actual size '+JSON.stringify(state));
               report.presets.push(id);
-              if(state.width+'x'+state.height!==id)report.adapted.push({id,actual:[state.width,state.height]});
+              if(adapted)report.adapted.push({id,actual:[state.width,state.height]});
           }
           const actualCustom=await window.testCustomSize();
           const custom=await api.getWindowState();
-          assert(custom.width===actualCustom[0]&&custom.height===actualCustom[1]&&custom.presetId===null,'Custom size snapped to preset');
+          assert(custom.width===actualCustom[0]&&custom.height===actualCustom[1]&&custom.presetId===null&&custom.fitted===false,'Custom size snapped to preset');
           report.customSize=[custom.width,custom.height];
           for(const mode of ['maximized','fullscreen','windowed']){
             const state=await api.setWindowMode(mode);assert(state.mode===mode,'Incorrect native mode');report.modes.push(mode);

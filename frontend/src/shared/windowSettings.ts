@@ -15,5 +15,8 @@ export interface WindowState {
   width: number;
   height: number;
   mode: WindowMode;
+  /** 当前选中的尺寸预设；自定义尺寸或未选择预设时为 null。 */
   presetId: WindowPresetId | null;
+  /** 所选预设超出屏幕可用空间、已按比例适配为当前实际尺寸时为 true。 */
+  fitted: boolean;
 }
