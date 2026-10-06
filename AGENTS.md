@@ -3,6 +3,7 @@
 本文件为 AI 编码代理在本仓库中工作时提供指导。**系统架构细节见 `docs/architecture.md`**（模块职责、数据位置、组件清单、文档地图）。
 
 ## 工作流（MUST）
+- **前端设计与实现**：新增或修改页面、组件、样式、布局及交互前，必须先阅读并遵循 [前端设计规范](docs/design/frontend-design-guidelines.md)；涉及战斗界面时同时查阅 `docs/design/combat/combat-ui-design.md`。实现后按规范中的验收清单检查；当前仅面向 PC，不要求手机窄屏验证。
 - **分支**：从 `main` 建 feature 分支（`feat/…`、`fix/…`）→ 完成全部修改 → 充分测试 → 合并回 `main` → 删除分支。禁止大型功能变更直提 `main`。
 - **并发防护**：本仓库可能被多进程（其他 DSH 会话、IDE、脚本）同时操作。写操作前 MUST 加载 `.agents/skills/workspace-concurrency-guard`：入场两次 git 快照对比判定并发，有并发则改用 git worktree / clone 隔离开发；只按精确路径 `git add`（禁 `-A`）；禁 `git clean` / `checkout -f` / `reset --hard` / `stash drop`；合并前确认对方已停；文件被回滚或删除按该技能的 reflog / fsck / stash 流程找回，不盲目重写。
 - **换行符**：`core.autocrlf=true` —— 工作区 CRLF、blob LF，勿提交混合换行文件。
