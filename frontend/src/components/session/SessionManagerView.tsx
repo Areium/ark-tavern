@@ -36,6 +36,7 @@ function formatDate(ts: number): string {
 /** 「继续战斗」按钮提示：把挂起存档摘要摊开，避免点进去才发现不是想续的那一场 */
 function resumeHint(r?: CombatResumeSummaryDTO | null): string {
   if (!r) return "继续这场已挂起的战斗";
+  if (r.engine === "plugin") return `继续插件战斗：${r.encounter_id || "未知遭遇"}（状态已保存）`;
   if (r.engine === "sideview") return `继续横版关卡：${r.encounter_id || "未知节点"}（状态已保存）`;
   const when = r.suspended_at ? new Date(r.suspended_at * 1000) : null;
   const stamp = when
@@ -176,8 +177,10 @@ export default function SessionManagerView() {
   const handleCreated = useCallback((session: Session) => {
     setSessions([...sessions, session]);
     setSelectedId(session.id);
-    enterSession(session.id);
-  }, [sessions, setSessions, enterSession]);
+    setActiveSession(session.id);
+    setChatMode(session.mode);
+    setCurrentView("chat");
+  }, [sessions, setSessions, setActiveSession, setChatMode, setCurrentView]);
 
   const handleRename = async () => {
     if (!selected || !renameDraft.trim()) { setRenaming(false); return; }
@@ -596,7 +599,7 @@ export default function SessionManagerView() {
                     {s.mode === "story" ? "📖 剧情" : "🕊️ 自由"}
                   </span>
                   <span className={`badge ${s.combat_mode !== "narrative" ? "badge-tactical" : "badge-narrative"}`}>
-                    {s.combat_mode === "tactical" ? "⚔ 战术" : s.combat_mode === "sideview" ? "✦ 横版动作" : "📜 纯剧情"}
+                    {s.combat_mode === "tactical" ? "⚔ 战术" : s.combat_mode === "sideview" ? "✦ 横版动作" : s.combat_mode === "narrative" ? "📜 纯剧情" : `插件 · ${s.combat_mode}`}
                   </span>
                   {s.plot_id && <span className="badge badge-plot">🗺 {plotName(s.plot_id)}</span>}
                   {s.worldbook_ids.length > 0 && <span className="badge badge-wb">📖 世界书</span>}
@@ -676,7 +679,7 @@ export default function SessionManagerView() {
                       {selected.mode === "story" ? "📖 剧情模式" : "🕊️ 自由模式"}
                     </span>
                     <span className={`badge ${selected.combat_mode !== "narrative" ? "badge-tactical" : "badge-narrative"}`}>
-                      {selected.combat_mode === "tactical" ? "⚔️ 战术模式" : selected.combat_mode === "sideview" ? "✦ 横版动作" : "📜 纯剧情"}
+                      {selected.combat_mode === "tactical" ? "⚔️ 战术模式" : selected.combat_mode === "sideview" ? "✦ 横版动作" : selected.combat_mode === "narrative" ? "📜 纯剧情" : `插件 · ${selected.combat_mode}`}
                     </span>
                     {selected.plot_id && <span className="badge badge-plot">🗺 {plotName(selected.plot_id)}</span>}
                     {selected.in_combat && <span className="badge badge-tactical animate-pulse">⚔ 战斗中</span>}

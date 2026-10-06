@@ -24,9 +24,14 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const timer = window.setTimeout(() => controller.abort(), 30000);
   try {
     const response = await fetch(`${base}/api/${path}`, { ...options, signal: controller.signal });
-    const data = await response.json();
+    let data;
+    try { data = JSON.parse(await response.text()); }
+    catch { throw new Error(`演练服务返回无效响应（HTTP ${response.status}），请检查连接后重试`); }
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     return data;
+  } catch (reason) {
+    if (controller.signal.aborted) throw new Error("演练请求超时，请检查连接并重新读取保存点");
+    throw reason;
   } finally { window.clearTimeout(timer); }
 }
 const message = (reason: unknown) => reason instanceof Error ? reason.message : "操作失败，请重试";
@@ -87,7 +92,7 @@ export default function CombatModesView() {
   const complete = useCallback((outcome: Outcome, snapshot: Snapshot) => update(snapshot, outcome), [update]);
   const runtimeError = useCallback((text: string) => setError(text), []);
 
-  if (active) return <section className="h-full flex flex-col bg-gray-950 text-gray-100 p-4 gap-3">
+  if (active) return <section className="bg-combat-bg h-full flex flex-col bg-gray-950 text-gray-100 p-4 gap-3">
     <header className="flex items-center gap-3 flex-wrap">
       <div className="flex-1"><h1 className="text-lg font-semibold">{active.name} · 演练</h1>
         <p className="text-xs text-gray-400">v{active.version} · 保存版本 {active.revision} · 不影响剧情会话或奖励</p></div>

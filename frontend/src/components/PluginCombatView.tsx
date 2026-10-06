@@ -157,7 +157,7 @@ function SessionCombat({ sessionId, epoch, navigation }: { sessionId: string; ep
     setConfirmation(choice);
   };
 
-  return <div className="h-full overflow-auto bg-gray-950 text-gray-200 p-6 space-y-5">
+  return <div className="bg-combat-bg h-full overflow-auto bg-gray-950 text-gray-200 p-6 space-y-5">
     <header className="flex items-start justify-between gap-4">
       <div>
         <h1 className="text-xl font-semibold text-amber-300">会话战斗 · {data?.bundle?.name || data?.binding.mode_id || '插件'}</h1>
