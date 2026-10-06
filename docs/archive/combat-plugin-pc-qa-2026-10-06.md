@@ -54,7 +54,7 @@
 
 ## 截图与未覆盖项
 
-截图保存在本地 `.impeccable/`：`qa-practice-restored.jpg`、`qa-formal-active.jpg`、`qa-imported-pending.jpg`、`qa-confirmed.jpg`、`qa-new-free-session.jpg`、`qa-iframe-isolation.jpg`、`qa-stale-save.jpg`、`qa-network-failure.jpg`，以及四主题 `qa-manager-*-1366.jpg`、`qa-manager-dark-1920.jpg` 和 `qa-practice-1366.jpg`。截图不进入版本库；本地报告保留完整隔离路径。
+收尾后截图与夹具证据归档到主仓库 `.impeccable/combat-plugin-qa-20261006/evidence/`：`qa-practice-restored.jpg`、`qa-formal-active.jpg`、`qa-imported-pending.jpg`、`qa-confirmed.jpg`、`qa-new-free-session.jpg`、`qa-iframe-isolation.jpg`、`qa-stale-save.jpg`、`qa-network-failure.jpg`，以及四主题 `qa-manager-*-1366.jpg`、`qa-manager-dark-1920.jpg` 和 `qa-practice-1366.jpg`。截图不进入版本库；同级归档目录保留已完成的 `task.md` 和经验证的 `feature.bundle`（恢复时需要主线基点 `6dea35f`）。70 个证据文件复制后逐一校验哈希，原临时工作区和本地功能分支已清理。
 
 - 原生应用控制在本会话未开放，未运行 Electron 宿主；Electron 构建通过不代表其运行、`file://` 来源或 preload 行为通过。
 - 应用内浏览器点击模式/存档导出按钮后，实际 HTTP 导出成功，模式页显示已发起下载；浏览器下载事件没有回传，不能验证最终下载目录。可用 ZIP 本身已从真实接口读取并用于浏览器导入。
