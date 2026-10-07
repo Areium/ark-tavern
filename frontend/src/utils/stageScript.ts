@@ -138,7 +138,7 @@ export function buildStageScript(
     : stepsForMessage(msg, sceneCharacters, playerName);
   return {
     messageIndex: index,
-    key: `${msg.generationId ? `${msg.generationId}:${msg.variantIndex ?? 0}` : `${index}:${msg.round ?? ""}:${msg.variantIndex ?? 0}:${streaming ? "s" : "d"}`}:${msg.playbackRevision ?? 0}`,
+    key: `${msg.generationId ? `${msg.generationId}:${msg.role}:${msg.variantIndex ?? 0}` : `${index}:${msg.round ?? ""}:${msg.variantIndex ?? 0}:${streaming ? "s" : "d"}`}:${msg.playbackRevision ?? 0}`,
     steps,
     choiceMessage: choiceIndex >= 0 ? messages[choiceIndex] : null,
     choiceIndex,

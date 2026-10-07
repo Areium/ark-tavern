@@ -58,6 +58,7 @@ app.whenReady().then(()=>{
     async function inspect(label,state) {
       await page.waitForFunction(async()=>{const s=await electronAPI.getWindowState(); return Math.abs(innerWidth-s.width)<=1 && Math.abs(innerHeight-s.height)<=1;},undefined,{timeout:10000});
       state=await page.evaluate(()=>electronAPI.getWindowState());
+      await page.waitForFunction(()=>{const r=document.querySelector('.stage-dialog').getBoundingClientRect();return r.y>=0 && r.bottom<=innerHeight+1;},undefined,{timeout:3000});
       const box=await dialog.boundingBox();
       assert.ok(box.y>=0 && box.y+box.height<=state.height+1,`${label}: dialogue cropped`);
       assert.equal(await page.locator('.stage-dialog-text').innerText(),anchorText,`${label}: reading reset`);

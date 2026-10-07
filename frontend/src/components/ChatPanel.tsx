@@ -17,6 +17,8 @@ import StoryChoices, { latestStoryBranches, resolveChoiceBranch } from "./story/
 import AppIcon from "./AppIcon";
 
 const EMPTY_MSGS: ChatMessage[] = [];
+// Shared across panel remounts so an old edit cannot release a newer edit's lock.
+const editRequests = new Map<string, object>();
 
 function isVisibleSession(sessionId: string): boolean {
   const store = useAppStore.getState();
@@ -134,15 +136,14 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   const [choiceError, setChoiceError] = useState("");
   const knownBranches = latestStoryBranches(messages);
   useEffect(() => { setDraftBranch(undefined); setChoiceError(""); }, [activeSessionId]);
-  const [stagePlayback, setStagePlayback] = useState<{ sessionId: string; messages: ChatMessage[]; complete: boolean } | null>(null);
-  const onPlaybackChange = useCallback((sessionId: string, source: ChatMessage[], complete: boolean) => {
-    setStagePlayback({ sessionId, messages: source, complete });
+  const [stagePlayback, setStagePlayback] = useState<{ sessionId: string; messages: ChatMessage[]; complete: boolean; recoverable: boolean } | null>(null);
+  const onPlaybackChange = useCallback((sessionId: string, source: ChatMessage[], complete: boolean, recoverable: boolean) => {
+    setStagePlayback({ sessionId, messages: source, complete, recoverable });
   }, []);
   const stageDialogueComplete = stagePlayback?.sessionId === activeSessionId
     && stagePlayback?.messages === messages && stagePlayback.complete;
   // When the current stage segment is finished, choices and free input are both available.
-  const latestGeneration = [...messages].reverse().find(m => m.role === "narrator");
-  const generationFailed = latestGeneration?.generationPhase === "error" || latestGeneration?.generationPhase === "cancelled";
+  const generationFailed = stagePlayback?.sessionId === activeSessionId && stagePlayback.messages === messages && stagePlayback.recoverable;
   const stageInputReady = !stageMode || !!stageDialogueComplete || (generationFailed && !sending && !streaming);
   // 战前简报：d20 检定结果 + 谈判失败后暂存的战斗状态
   const [briefingResults, setBriefingResults] = useState<Record<string, {
@@ -376,6 +377,9 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
     if (editingIdx == null || !activeSessionId || choiceLocked) return;
     const targetMsg = messages[editingIdx];
     const targetRound = targetMsg?.round;
+    if (targetRound == null) return;
+    const current = useAppStore.getState();
+    if (current.sessionSending[activeSessionId] || current.sessionStreaming[activeSessionId]) return;
     const edited = editText.trim();
     if (!edited) {
       cancelEdit();
@@ -383,9 +387,17 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
     }
 
     const rollbackTo = targetRound ? targetRound - 1 : 0;
+    useAppStore.getState().sessionAbortFns[activeSessionId]?.();
+    useAppStore.getState().setSessionSending(activeSessionId, true);
+    const editRequest = {};
+    editRequests.set(activeSessionId, editRequest);
+    const source = useAppStore.getState().sessionMessages[activeSessionId];
+    const ownsEdit = () => editRequests.get(activeSessionId) === editRequest && useAppStore.getState().sessionMessages[activeSessionId] === source
+      && !useAppStore.getState().sessionAbortFns[activeSessionId];
     try {
       if (rollbackTo >= 0) {
         await api.rollbackSession(activeSessionId, rollbackTo);
+        if (!ownsEdit()) return;
         useAppStore.getState().setSessionNarrationCount(activeSessionId, rollbackTo);
         triggerMemoryRefresh();
       }
@@ -395,13 +407,22 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
         return [...keep, { role: "user", content: edited, round: rollbackTo + 1 }];
       });
 
-      setEditingIdx(null);
-      setEditText("");
+      if (useAppStore.getState().activeSessionId === activeSessionId) {
+        setEditingIdx(null);
+        setEditText("");
+      }
 
       triggerNarrate(activeSessionId, edited);
     } catch (err: any) {
-      alert("编辑失败: " + (err.message || "未知错误"));
+      if (!ownsEdit()) return;
+      if (useAppStore.getState().activeSessionId === activeSessionId) alert("编辑失败: " + (err.message || "未知错误"));
       useAppStore.getState().setSessionStreaming(activeSessionId, false);
+    } finally {
+      const state = useAppStore.getState();
+      if (editRequests.get(activeSessionId) === editRequest) {
+        editRequests.delete(activeSessionId);
+        if (!state.sessionAbortFns[activeSessionId] && !state.sessionStreaming[activeSessionId]) state.setSessionSending(activeSessionId, false);
+      }
     }
   }, [editingIdx, editText, activeSessionId, messages, api, triggerMemoryRefresh, cancelEdit, choiceLocked]);
 
@@ -534,7 +555,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
     setDraftBranch(undefined);
     setChoiceError("");
     useAppStore.getState().setSessionSending(sid, true);
-    useAppStore.getState().setSessionMessages(sid, (prev) => [...prev, { role: "user", content: text, round: curRound }]);
+    useAppStore.getState().setSessionMessages(sid, (prev) => [...prev, { role: "user", content: text, round: chatMode === "story" ? curRound + 1 : curRound }]);
     performSend(text, branch?.id);
   }, [input, sending, streaming, activeSessionId, performSend, choiceLocked, stageInputReady, draftBranch, knownBranches]);
 
@@ -558,10 +579,10 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
       const curRound = useAppStore.getState().sessionNarrationCount[sid] || 0;
       setInput("");
       setDraftBranch(undefined);
-      useAppStore.getState().setSessionMessages(sid, (prev) => [...prev, { role: "user", content: choice, round: curRound }]);
+      useAppStore.getState().setSessionMessages(sid, (prev) => [...prev, { role: "user", content: choice, round: chatMode === "story" ? curRound + 1 : curRound }]);
       performSend(choice, selectedBranch?.id);
     },
-    [activeSessionId, performSend, editBeforeSend, choiceLocked, sending, streaming, stageMode, stageDialogueComplete, knownBranches]
+    [activeSessionId, performSend, editBeforeSend, choiceLocked, sending, streaming, stageMode, stageDialogueComplete, knownBranches, chatMode]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1036,8 +1057,8 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                         autoFocus
                       />
                       <div className="flex gap-2">
-                        <button onClick={commitEdit} disabled={choiceLocked} className="btn-primary text-xs px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed">保存并继续</button>
-                        <button onClick={cancelEdit} className="btn-ghost text-xs px-2 py-1">取消</button>
+                        <button onClick={commitEdit} disabled={choiceLocked || sending || streaming} className="btn-primary text-xs px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed">保存并继续</button>
+                        <button onClick={cancelEdit} disabled={sending || streaming} className="btn-ghost text-xs px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed">取消</button>
                       </div>
                     </div>
                   ) : (
@@ -1147,7 +1168,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                       )}
 
                       {/* Edit button on user messages (story mode only) */}
-                      {msg.role === "user" && chatMode === "story" && !streaming && (
+                      {msg.role === "user" && chatMode === "story" && !streaming && msg.round != null && (
                         <button
                           onClick={() => startEdit(i, msg.content)}
                           disabled={choiceLocked}
@@ -1390,6 +1411,7 @@ export function triggerNarrate(
   action?: string,
   branchId?: string,
 ) {
+  editRequests.delete(sessionId);
   // Abort previous SSE for the SAME session only
   const prevAbort = useAppStore.getState().sessionAbortFns[sessionId];
   prevAbort?.();
@@ -1420,12 +1442,20 @@ export function triggerNarrate(
   let pendingCombat: { encounter_id: string; session_id: string } | undefined;
   let failed = false;
   let stopped = false;
-  store.setSessionMessages(sessionId, prev => [...prev, {
+  store.setSessionMessages(sessionId, prev => {
+    const last = prev[prev.length - 1];
+    const ownsInput = last?.role === "user" && !last.generationId && last.round === newRound && last.content === action;
+    const preceding = ownsInput ? [...prev.slice(0, -1), { ...last, generationId, generationPhase: "receiving" as const }] : prev;
+    return [...preceding, {
     role: "narrator", content: "", round: newRound, streaming: true,
     generationId, generationPhase: "receiving", previewContent: "",
-  }]);
+    }];
+  });
   const updateNarration = (changes: Partial<ChatMessage>) => useAppStore.getState().setSessionMessages(sessionId, prev =>
     prev.map(m => m.generationId === generationId && m.role === "narrator" ? { ...m, ...changes } : m));
+  const updateRequestPhase = (phase: ChatMessage["generationPhase"], discardRound = false) =>
+    useAppStore.getState().setSessionMessages(sessionId, prev => prev.map(m => m.generationId !== generationId ? m
+      : { ...m, generationPhase: phase, ...(discardRound ? { round: undefined, streaming: false } : {}) }));
   const isCurrentStream = () => !stopped && useAppStore.getState().sessionAbortFns[sessionId] === abort;
   const refreshStoryValues = () => {
     if (!isVisibleSession(sessionId)) return;
@@ -1450,6 +1480,7 @@ export function triggerNarrate(
         if (!isCurrentStream() || textComplete || typeof data.narrative !== "string" || (streamId && streamId !== data.stream_id)) return;
         streamId = data.stream_id;
         textComplete = true;
+        updateRequestPhase("processing");
         updateNarration({ content: data.narrative, previewContent: accumulated, generationPhase: "processing" });
       },
       onReasoning: (token: string) => {
@@ -1511,7 +1542,7 @@ export function triggerNarrate(
         refreshStoryValues();
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);
-        updateNarration({ streaming: false, generationPhase: "error", round: undefined });
+        updateRequestPhase("error", true);
         useAppStore.getState().setSessionMessages(sessionId, (prev) => [...prev, { role: "system", content: `错误: ${msg}`, requestError: true, generationId }]);
         useAppStore.getState().setSessionAbortFn(sessionId, null);
       },
@@ -1520,7 +1551,7 @@ export function triggerNarrate(
         if (!textComplete || !data?.stream_id || data.stream_id !== streamId || !Number.isInteger(data.round)
           || data.round! < 0 || !["completed", "skipped", "degraded"].includes(data.phase2_status || "")) {
           failed = true;
-          updateNarration({ streaming: false, generationPhase: "error", round: undefined });
+          updateRequestPhase("error", true);
           useAppStore.getState().setSessionMessages(sessionId, prev => [...prev, { role: "system", content: "错误: 未收到完整的生成结果", requestError: true, generationId }]);
           useAppStore.getState().setSessionStreaming(sessionId, false);
           useAppStore.getState().setSessionSending(sessionId, false);
@@ -1534,7 +1565,7 @@ export function triggerNarrate(
         useAppStore.getState().setSessionMessages(sessionId, (prev) =>
           prev.map((m) => {
             if (m.generationId !== generationId) return m;
-            if (m.role !== "narrator") return { ...m, round: data.round };
+            if (m.role !== "narrator") return { ...m, round: data.round, generationPhase: "complete", streaming: false };
             const content = m.content || accumulated || "";
             // 优先使用后端结构化片段；否则用完整文本在流式结束后统一解析为气泡
             const segments = m.dialogueSegments?.length
@@ -1565,7 +1596,7 @@ export function triggerNarrate(
     if (!isCurrentStream()) return;
     stopped = true;
     sse.close();
-    updateNarration({ streaming: false, generationPhase: "cancelled", round: undefined });
+    updateRequestPhase("cancelled", true);
     useAppStore.getState().setSessionStreaming(sessionId, false);
     useAppStore.getState().setSessionSending(sessionId, false);
     useAppStore.getState().setSessionNarrationCount(sessionId, curCount);

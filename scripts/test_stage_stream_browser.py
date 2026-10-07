@@ -37,6 +37,22 @@ class Fixture(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        if not urlparse(self.path).path.endswith("/rollback"):
+            self.send_error(404)
+            return
+        self.server.rollback_started.set()
+        if not self.server.rollback_gate.wait(10):
+            self.send_error(500)
+            return
+        body = json.dumps({"narration_count":0}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         if urlparse(self.path).path.endswith("/narrate"):
             plan = self.server.plan
@@ -81,6 +97,9 @@ def run():
             def api(route):
                 path = urlparse(route.request.url).path
                 if path.endswith("/narrate"):
+                    route.continue_()
+                    return
+                if path.endswith("/rollback"):
                     route.continue_()
                     return
                 if path.endswith("/avatar"):
@@ -178,6 +197,7 @@ def run():
             page.wait_for_function("qaStore.getState().sessionMessages['stream-qa'].find(m=>m.role==='narrator' && m.generationId)?.generationPhase==='complete'")
             page.evaluate("qaStore.setState({activeSessionId:'stream-qa'})")
             expect(progress).not_to_contain_text("整理中")
+            page.wait_for_function("qaStore.getState().sessionMessages['stream-qa'].find(m=>m.role==='user')?.round===2")
             expect(page.locator(".stage-name")).to_contain_text("妮可")
             # Page 3 starts at raw offset 280; its formal utterance page covers
             # raw [145,285) because the five-character speaker prefix is removed.
@@ -208,6 +228,7 @@ def run():
             expect(text).to_have_text("这段文字在断线后仍可阅读。")
             expect(composer).to_be_visible()
             checks.append("natural EOF preserves readable text and exposes recovery input")
+            assert page.evaluate("qaStore.getState().sessionMessages['stream-qa'].filter(m=>m.role==='user').at(-1).round===undefined")
             plan = begin()
             plan.send("text", {"token":"取消后保留正文。"})
             expect(text).to_have_text("取消后保留正文。")
@@ -244,6 +265,47 @@ def run():
             expect(text).to_have_text(RAW[285:425], timeout=200)
             expect(page.locator(".stage-caret")).to_have_count(0, timeout=200)
             checks.append("mounted handoff retains all grown preview coverage; subsequent shown text is not retyped")
+            page.evaluate("""qaStore.setState(state => ({chatMode:'free',sessionStreaming:{},sessionSending:{},sessionMessages:{
+              'stream-qa':[{role:'narrator',content:'旧的失败稿',generationId:'old-failure',generationPhase:'error'},
+                {role:'character',character:'妮可',content:'妮可说：「'+'新的一次完整发言。'.repeat(45)+'」'}]}}))""")
+            expect(composer).not_to_be_visible(timeout=200)
+            dialog.press("End")
+            expect(composer).to_be_visible()
+            checks.append("an older failed narration cannot unlock input during a newer character playback")
+            page.evaluate("""qaStore.setState({chatMode:'story',chatLayout:'log',sessionNarrationCount:{'stream-qa':1},
+              sessionMessages:{'stream-qa':[{role:'user',content:'原始输入',round:1},
+                {role:'narrator',content:'原始正文',round:1}]}})""")
+            server.rollback_started = threading.Event()
+            server.rollback_gate = threading.Event()
+            page.get_by_title("编辑此消息", exact=True).click()
+            page.locator(".chat-msg textarea").fill("编辑后的输入")
+            page.get_by_role("button", name="保存并继续", exact=True).click()
+            assert server.rollback_started.wait(5)
+            expect(composer).to_be_disabled()
+            # A background narration can replace an edit even while UI sending
+            # is locked; the old rollback result must not truncate or cancel it.
+            server.plan = Plan()
+            page.evaluate("""async () => {const {triggerNarrate}=await import('/src/components/ChatPanel.tsx');
+              triggerNarrate('stream-qa','新的请求');} """)
+            for _ in range(100):
+                if server.plan.started.is_set():
+                    break
+                page.wait_for_timeout(50)
+            assert server.plan.started.is_set()
+            server.plan.send("meta", {"stream_id":"fixture"})
+            server.plan.send("text", {"token":"新的回复内容"})
+            page.wait_for_function("qaStore.getState().sessionMessages['stream-qa'].at(-1).content==='新的回复内容'")
+            new_generation = page.evaluate("qaStore.getState().sessionMessages['stream-qa'].at(-1).generationId")
+            with page.expect_response(lambda response: urlparse(response.url).path.endswith('/rollback')) as response:
+                server.rollback_gate.set()
+            response.value.body()
+            page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+            assert page.evaluate("qaStore.getState().sessionMessages['stream-qa'].at(-1).generationId") == new_generation
+            assert page.evaluate("!!qaStore.getState().sessionAbortFns['stream-qa']")
+            server.plan.send("error", {"message":"fixture cleanup"})
+            page.wait_for_function("!qaStore.getState().sessionStreaming['stream-qa']")
+            page.wait_for_timeout(100)
+            checks.append("pending edit locks sending and late rollback cannot cancel a replacement narration")
             assert not errors, errors
             report = {"checks": checks, "page_errors": errors, "screenshots": 20, "boundary": "fixture model/API responses with real HTTP SSE and production React transport/rendering"}
             (OUT / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -25,7 +25,7 @@ interface Props {
   characterColors: Record<string, string>;
   fontSize: number;
   waiting: boolean;
-  onPlaybackChange: (sessionId: string, messages: ChatMessage[], complete: boolean) => void;
+  onPlaybackChange: (sessionId: string, messages: ChatMessage[], complete: boolean, recoverable: boolean) => void;
   elapsedSeconds: number;
   choicesDisabled: boolean;
   onChoice: (choice: string, branch?: BranchChoice) => void;
@@ -243,7 +243,7 @@ export default function StageView({
   useLayoutEffect(() => { rememberReading({ ...reading.cursor, revealed: revealed || !typing }); });
   const complete = !waiting && !generationBusy && !generationFailed && !typing && (steps.length === 0 || atEnd);
   const showChoices = !!script.choiceMessage && complete;
-  useLayoutEffect(() => { onPlaybackChange(sessionId, messages, complete); }, [sessionId, messages, complete, onPlaybackChange]);
+  useLayoutEffect(() => { onPlaybackChange(sessionId, messages, complete, generationFailed); }, [sessionId, messages, complete, generationFailed, onPlaybackChange]);
 
   // ── 说话人高亮：步进时同步到全局（场景角色列表也会亮） ──
   const sourceMessage = messages[script.messageIndex];
