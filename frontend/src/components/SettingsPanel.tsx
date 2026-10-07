@@ -6,9 +6,8 @@ import WindowSettings from "./WindowSettings";
 import {
   LICENSE_FILE_URL,
   LICENSE_ID,
-  LICENSE_NAME,
+  LICENSE_SHORT,
   PROJECT_VERSION,
-  REPOSITORY_URL,
 } from "../shared/projectInfo";
 
 /** 皮肤清单：id 与后端 config.skin 白名单一致；swatch 用真实色值（行内样式），
@@ -819,25 +818,13 @@ export default function SettingsPanel() {
             {llmStatus?.available ? "已连接" : "未连接"}
           </p>
         </div>
-        <div className="mt-3 pt-3 border-t border-gray-700/60 text-xs text-gray-400 space-y-1">
+        <div className="mt-3 pt-3 border-t border-gray-700/60 text-xs text-gray-400">
           <p>
             许可：{" "}
             <a className="app-link" href={LICENSE_FILE_URL} target="_blank" rel="noopener noreferrer">
-              {LICENSE_ID}
+              {LICENSE_SHORT}
             </a>
-            <span className="text-gray-500">（{LICENSE_NAME}）</span>
-          </p>
-          <p>
-            源码与许可全文：{" "}
-            <a className="app-link" href={REPOSITORY_URL} target="_blank" rel="noopener noreferrer">
-              {REPOSITORY_URL}
-            </a>
-          </p>
-          <p className="text-gray-500">
-            本程序不提供任何担保；可自由使用、修改与分发，分发衍生版本或对外提供网络服务时须以同一许可提供源码。
-          </p>
-          <p className="text-gray-500">
-            随仓库分发的第三方素材（《明日方舟》二创素材等）不在本许可范围内，各自适用其原始许可。
+            <span className="text-gray-500">（{LICENSE_ID}，无担保）</span>
           </p>
         </div>
       </section>

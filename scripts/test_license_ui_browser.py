@@ -49,26 +49,23 @@ def run():
         about = page.locator("section.card", has=page.get_by_role("heading", name="关于"))
         expect(about).to_be_visible()
         expect(about).to_contain_text("Ark Tavern v0.1.0")
-        expect(about).to_contain_text("AGPL-3.0-or-later")
-        expect(about).to_contain_text("GNU Affero General Public License v3.0 or later")
-        expect(about).to_contain_text("不提供任何担保")
-        expect(about).to_contain_text("不在本许可范围内")
+        expect(about).to_contain_text("许可：")
+        expect(about).to_contain_text("AGPL-3.0")
+        expect(about).to_contain_text("无担保")
 
-        license_link = about.get_by_role("link", name="AGPL-3.0-or-later")
+        license_link = about.get_by_role("link", name="AGPL-3.0", exact=True)
         expect(license_link).to_have_attribute("href", LICENSE_URL)
         expect(license_link).to_have_attribute("target", "_blank")
-        source_link = about.get_by_role("link", name=REPO)
-        expect(source_link).to_have_attribute("href", REPO)
-        expect(source_link).to_have_attribute("target", "_blank")
         # 链接相对正文要能看出可点：有下划线装饰且颜色不同于普通正文
         underline = license_link.evaluate("el => getComputedStyle(el).textDecorationLine")
         assert "underline" in underline, underline
+        # 许可说明保持一行，不做成长段落
+        assert about.locator("p", has_text="许可：").count() == 1
 
         for width, height in SIZES:
             page.set_viewport_size({"width": width, "height": height})
             page.wait_for_timeout(120)
             assert license_link.is_visible(), f"license link hidden at {width}x{height}"
-            assert source_link.is_visible(), f"source link hidden at {width}x{height}"
             assert about.evaluate("el => el.scrollWidth <= el.clientWidth + 1"), f"about block overflows at {width}x{height}"
             page.screenshot(path=str(SHOTS / f"about-{width}x{height}.png"), full_page=True)
 
@@ -80,8 +77,8 @@ def run():
         }""")
         footer_link = page.locator("footer.home-menu-footer a.home-license-link")
         expect(footer_link).to_be_visible()
-        expect(footer_link).to_have_text("AGPL-3.0-or-later")
-        expect(footer_link).to_have_attribute("href", REPO)
+        expect(footer_link).to_have_text("AGPL-3.0")
+        expect(footer_link).to_have_attribute("href", LICENSE_URL)
         expect(footer_link).to_have_attribute("target", "_blank")
         expect(page.locator("footer.home-menu-footer .home-menu-version")).to_have_text("v0.1.0")
         page.screenshot(path=str(SHOTS / "home-footer-1400x900.png"), full_page=True)

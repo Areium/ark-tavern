@@ -16,7 +16,7 @@ import { audioManager } from "../audio/audioManager";
 import type { CombatResumesDTO } from "../types";
 import TavernMark from "./TavernMark";
 import AppIcon, { type AppIconName } from "./AppIcon";
-import { LICENSE_ID, LICENSE_NAME, PROJECT_VERSION, REPOSITORY_URL } from "../shared/projectInfo";
+import { LICENSE_FILE_URL, LICENSE_NAME, LICENSE_SHORT, PROJECT_VERSION } from "../shared/projectInfo";
 
 const asset = (p: string) => import.meta.env.BASE_URL + p;
 
@@ -229,12 +229,12 @@ export default function HomeMenu() {
         <span className="home-license">
           <a
             className="home-license-link"
-            href={REPOSITORY_URL}
+            href={LICENSE_FILE_URL}
             target="_blank"
             rel="noopener noreferrer"
-            title={`${LICENSE_NAME} · 打开源码仓库`}
+            title={LICENSE_NAME}
           >
-            {LICENSE_ID}
+            {LICENSE_SHORT}
           </a>
         </span>
         <div className="home-audio-group">

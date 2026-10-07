@@ -62,9 +62,9 @@
 - **授权范围**：README 新增「授权范围」小节——覆盖本仓库内本项目原创的代码与内容（后端 / 前端源码、
   插件接口与内置面板、`examples/` 示例战斗模式包与示例世界书适配器、`data/` 示例内容、脚本与文档）；
   第三方素材以及他人制作或二创的插件包、世界书、角色内容不在覆盖范围，各自适用其作者的许可。
-- **应用内许可入口（AGPL §5(d)）**：`components/SettingsPanel.tsx` 的「关于」新增许可标识、许可全文
-  与源码链接、无担保说明和范围提示；主页页脚加同源许可标识（`components/HomeMenu.tsx`）；元信息集中在
-  `shared/projectInfo.ts`，版本号不再两处各写一份。
+- **应用内许可入口（AGPL §5(d)）**：`components/SettingsPanel.tsx` 的「关于」用一行说明许可
+  （`AGPL-3.0`，链到许可全文，括注 `AGPL-3.0-or-later` 与无担保）；主页页脚加同源许可标识
+  （`components/HomeMenu.tsx`）；元信息集中在 `shared/projectInfo.ts`，版本号不再两处各写一份。
 - **外链处理**：`electron/main.ts` 新增 `setWindowOpenHandler` + `open-external` IPC——http(s) 交给
   系统浏览器，其他协议拒绝；此前 `<a target="_blank">`（教程、许可全文）会开出新的 Electron 窗口。
 - **验证**：`scripts/test_external_links_electron.cjs`（真实 Electron 42，10 项断言）与
