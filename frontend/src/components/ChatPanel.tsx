@@ -141,7 +141,9 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   const stageDialogueComplete = stagePlayback?.sessionId === activeSessionId
     && stagePlayback?.messages === messages && stagePlayback.complete;
   // When the current stage segment is finished, choices and free input are both available.
-  const stageInputReady = !stageMode || !!stageDialogueComplete;
+  const latestGeneration = [...messages].reverse().find(m => m.role === "narrator");
+  const generationFailed = latestGeneration?.generationPhase === "error" || latestGeneration?.generationPhase === "cancelled";
+  const stageInputReady = !stageMode || !!stageDialogueComplete || (generationFailed && !sending && !streaming);
   // 战前简报：d20 检定结果 + 谈判失败后暂存的战斗状态
   const [briefingResults, setBriefingResults] = useState<Record<string, {
     briefing: CombatBriefingDTO; check: BriefingCheck | null; state: CombatStateDTO | null;
@@ -222,13 +224,22 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
             if (!cancelled) {
-              useAppStore.getState().setSessionMessages(sid, parsed);
+              const restored = restoreCachedMessages(parsed);
+              useAppStore.getState().setSessionMessages(sid, restored);
               setInitialLoading(false);
               // Restore narrationCount from max round
-              const maxRound = Math.max(0, ...parsed
-                .filter((m: ChatMessage) => m.round != null)
+              const maxRound = Math.max(0, ...restored
+                .filter((m: ChatMessage) => m.round != null && m.generationPhase !== "error" && m.generationPhase !== "cancelled")
                 .map((m: ChatMessage) => m.round!));
               useAppStore.getState().setSessionNarrationCount(sid, maxRound);
+              if (restored !== parsed) {
+                const restoredMessages = restored;
+                api.getSession(sid).then(session => {
+                  if (!cancelled && useAppStore.getState().sessionMessages[sid] === restoredMessages) {
+                    useAppStore.getState().setSessionNarrationCount(sid, session.narration_count || 0);
+                  }
+                }).catch(() => {});
+              }
             }
             return;
           }
@@ -302,16 +313,22 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
   useEffect(() => {
     if (!activeSessionId || chatRefreshKey === 0) return;
+    const sid = activeSessionId;
+    let cancelled = false;
+    useAppStore.getState().sessionAbortFns[sid]?.();
+    const source = useAppStore.getState().sessionMessages[sid];
     (async () => {
       try {
-        const session = await api.getSession(activeSessionId);
+        const session = await api.getSession(sid);
+        if (cancelled || useAppStore.getState().sessionMessages[sid] !== source || useAppStore.getState().sessionAbortFns[sid]) return;
         const targetRound = session.narration_count || 0;
-        useAppStore.getState().setSessionNarrationCount(activeSessionId, targetRound);
-        useAppStore.getState().setSessionMessages(activeSessionId, (prev) =>
-          prev.filter((m) => !m.round || m.round <= targetRound)
+        useAppStore.getState().setSessionNarrationCount(sid, targetRound);
+        useAppStore.getState().setSessionMessages(sid, (prev) =>
+          messagesAfterRollback(prev, targetRound)
         );
       } catch { /* ignore */ }
     })();
+    return () => { cancelled = true; };
   }, [chatRefreshKey]);
 
   // ── Scene switch narration (story mode) ──
@@ -328,9 +345,12 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
     if (!await confirmAction(`回退到第 ${targetRound} 轮？\n之后的对话记录和回忆将被删除。`, { title: "回退进度", confirmLabel: "回退到此轮" })) return;
 
     try {
+      useAppStore.getState().sessionAbortFns[activeSessionId]?.();
+      const source = useAppStore.getState().sessionMessages[activeSessionId];
       await api.rollbackSession(activeSessionId, targetRound);
+      if (useAppStore.getState().sessionMessages[activeSessionId] !== source || useAppStore.getState().sessionAbortFns[activeSessionId]) return;
       useAppStore.getState().setSessionMessages(activeSessionId, (prev) =>
-        prev.filter((m) => !m.round || m.round <= targetRound)
+        messagesAfterRollback(prev, targetRound)
       );
       useAppStore.getState().setSessionNarrationCount(activeSessionId, targetRound);
       triggerMemoryRefresh();
@@ -566,7 +586,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
       if (!msg.variants || (msg.variantIndex ?? 0) <= 0) return prev;
       const newIdx = (msg.variantIndex ?? 0) - 1;
       const narrative = msg.variants[newIdx];
-      const updated = { ...msg, content: narrative, variantIndex: newIdx, dialogueSegments: undefined };
+      const updated = { ...msg, content: narrative, variantIndex: newIdx, dialogueSegments: undefined, generationPhase: undefined, previewContent: undefined };
       syncVariantToBackend(msg.round, narrative);
       return [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)];
     });
@@ -582,7 +602,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
       if (curIdx < msg.variants.length - 1) {
         const newIdx = curIdx + 1;
         const narrative = msg.variants[newIdx];
-        const updated = { ...msg, content: narrative, variantIndex: newIdx, dialogueSegments: undefined };
+        const updated = { ...msg, content: narrative, variantIndex: newIdx, dialogueSegments: undefined, generationPhase: undefined, previewContent: undefined };
         syncVariantToBackend(msg.round, narrative);
         return [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)];
       }
@@ -624,7 +644,9 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
           content: newNarrative,
           variants: [...variants, newNarrative],
           variantIndex: newIdx,
-          dialogueSegments: data.dialogue_segments || msg.dialogueSegments,
+          generationPhase: undefined,
+          previewContent: undefined,
+          dialogueSegments: data.dialogue_segments,
           usage: data.usage || msg.usage,
         };
         api.narrateUpdate(sid, round, newNarrative).catch(() => {});
@@ -1347,16 +1369,31 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
 // ── SSE narrate helper ──
 
+export function messagesAfterRollback(messages: ChatMessage[], round: number): ChatMessage[] {
+  const drafts = new Set(messages.filter(m => m.role === "narrator" && m.generationPhase && m.generationPhase !== "complete").map(m => m.generationId));
+  return messages.filter(m => !(m.generationId && drafts.has(m.generationId)) && (m.round == null || m.round <= round))
+    .map(m => m.role === "narrator" ? { ...m, playbackRevision: (m.playbackRevision || 0) + 1 } : m);
+}
+
+/** A saved in-flight message has no live transport after reload. */
+export function restoreCachedMessages(messages: ChatMessage[]): ChatMessage[] {
+  const interrupted = messages.filter(m => m.streaming || m.generationPhase === "receiving" || m.generationPhase === "processing");
+  if (!interrupted.length) return messages;
+  const ids = new Set(interrupted.map(m => m.generationId).filter(Boolean));
+  const restored = messages.filter(m => !(m.role === "system" && m.choices && ids.has(m.generationId)))
+    .map(m => interrupted.includes(m) ? { ...m, streaming: false, generationPhase: "error" as const, round: undefined } : m);
+  return [...restored, { role: "system", content: "连接已结束，已保留接收到的内容。", requestError: true, generationId: interrupted[interrupted.length - 1]?.generationId }];
+}
+
 export function triggerNarrate(
   sessionId: string,
   action?: string,
   branchId?: string,
 ) {
-  const store = useAppStore.getState();
-
   // Abort previous SSE for the SAME session only
-  const prevAbort = store.sessionAbortFns[sessionId];
+  const prevAbort = useAppStore.getState().sessionAbortFns[sessionId];
   prevAbort?.();
+  const store = useAppStore.getState();
 
   store.setSessionStreaming(sessionId, true);
 
@@ -1376,8 +1413,19 @@ export function triggerNarrate(
 
   let accumulated = "";
   let accumulatedReasoning = "";
+  const generationId = `${sessionId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  let streamId: string | undefined;
+  let textComplete = false;
+  let pendingBriefing: CombatBriefingDTO | undefined;
+  let pendingCombat: { encounter_id: string; session_id: string } | undefined;
   let failed = false;
   let stopped = false;
+  store.setSessionMessages(sessionId, prev => [...prev, {
+    role: "narrator", content: "", round: newRound, streaming: true,
+    generationId, generationPhase: "receiving", previewContent: "",
+  }]);
+  const updateNarration = (changes: Partial<ChatMessage>) => useAppStore.getState().setSessionMessages(sessionId, prev =>
+    prev.map(m => m.generationId === generationId && m.role === "narrator" ? { ...m, ...changes } : m));
   const isCurrentStream = () => !stopped && useAppStore.getState().sessionAbortFns[sessionId] === abort;
   const refreshStoryValues = () => {
     if (!isVisibleSession(sessionId)) return;
@@ -1395,27 +1443,24 @@ export function triggerNarrate(
     : url;
 
   const sse = createSSE(urlWithBranch, {
+      onMeta: (data) => {
+        if (isCurrentStream()) streamId = data.stream_id;
+      },
+      onTextComplete: (data) => {
+        if (!isCurrentStream() || textComplete || typeof data.narrative !== "string" || (streamId && streamId !== data.stream_id)) return;
+        streamId = data.stream_id;
+        textComplete = true;
+        updateNarration({ content: data.narrative, previewContent: accumulated, generationPhase: "processing" });
+      },
       onReasoning: (token: string) => {
-        if (!isCurrentStream()) return;
+        if (!isCurrentStream() || textComplete) return;
         accumulatedReasoning += token;
-        useAppStore.getState().setSessionMessages(sessionId, (prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === "narrator" && last.round === newRound) {
-            return [...prev.slice(0, -1), { ...last, streaming: true, reasoning: accumulatedReasoning }];
-          }
-          return [...prev, { role: "narrator", content: "", reasoning: accumulatedReasoning, round: newRound, streaming: true }];
-        });
+        updateNarration({ reasoning: accumulatedReasoning });
       },
       onText: (token: string) => {
-        if (!isCurrentStream()) return;
+        if (!isCurrentStream() || textComplete) return;
         accumulated += token;
-        useAppStore.getState().setSessionMessages(sessionId, (prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === "narrator" && last.round === newRound) {
-            return [...prev.slice(0, -1), { role: "narrator", content: accumulated, round: newRound, streaming: true }];
-          }
-          return [...prev, { role: "narrator", content: accumulated, round: newRound, streaming: true }];
-        });
+        updateNarration({ content: accumulated, previewContent: accumulated });
       },
       onSceneEvent: () => { if (isCurrentStream() && isVisibleSession(sessionId)) useAppStore.getState().triggerEnvRefresh(); },
       onMemoryEvent: () => { if (isCurrentStream() && isVisibleSession(sessionId)) useAppStore.getState().triggerMemoryRefresh(); },
@@ -1423,46 +1468,24 @@ export function triggerNarrate(
         if (!isCurrentStream()) return;
         useAppStore.getState().setSessionMessages(sessionId, (prev) => [
           ...prev,
-          { role: "system", content: "— 请选择 —", choices: options, branches, round: newRound },
+          { role: "system", content: "— 请选择 —", choices: options, branches, round: newRound, generationId },
         ]);
       },
       onDialogueSegments: (segments) => {
         if (!isCurrentStream()) return;
-        useAppStore.getState().setSessionMessages(sessionId, (prev) =>
-          prev.map((m) =>
-            m.role === "narrator" && m.round === newRound
-              ? { ...m, streaming: true, dialogueSegments: segments }
-              : m
-          )
-        );
+        updateNarration({ dialogueSegments: segments });
       },
       onTokenUsage: (usage) => {
         if (!isCurrentStream()) return;
-        useAppStore.getState().setSessionMessages(sessionId, (prev) =>
-          prev.map((m) =>
-            m.role === "narrator" && m.round === newRound
-              ? { ...m, streaming: true, usage }
-              : m
-          )
-        );
+        updateNarration({ usage });
       },
       onCombatTrigger: (data: { encounter_id: string; session_id: string }) => {
         if (!isCurrentStream() || data.session_id !== sessionId) return;
-        useAppStore.getState().setSessionStreaming(sessionId, false);
-        useAppStore.getState().setSessionSending(sessionId, false);
-        useAppStore.getState().setSessionMessages(sessionId, (prev) =>
-          prev.map((m) => (m.role === "narrator" && m.round === newRound ? { ...m, streaming: false } : m))
-        );
-        enterSessionCombat(sessionId);
+        pendingCombat = data;
       },
       onCombatBriefing: (data: CombatBriefingDTO) => {
         if (!isCurrentStream() || data.session_id !== sessionId) return;
-        useAppStore.getState().setSessionStreaming(sessionId, false);
-        useAppStore.getState().setSessionSending(sessionId, false);
-        useAppStore.getState().setSessionMessages(sessionId, (prev) =>
-          prev.map((m) => (m.role === "narrator" && m.round === newRound ? { ...m, streaming: false } : m))
-        );
-        useAppStore.getState().setPendingBriefing(sessionId, data);
+        pendingBriefing = data;
       },
       onAttributeRoll: (data: {
         attribute: string; character: string; roll: number;
@@ -1476,31 +1499,42 @@ export function triggerNarrate(
             role: "system",
             content: data.text,
             rollData: data,
+            generationId,
           },
         ]);
       },
       onError: (msg: string) => {
         if (!isCurrentStream()) return;
         failed = true;
-        // 请求在生成任何叙述前被拒绝（例如 409），不凭空增加一轮。
-        if (!accumulated && !accumulatedReasoning) useAppStore.getState().setSessionNarrationCount(sessionId, curCount);
+        // Only a successful final event can acknowledge a new round locally.
+        useAppStore.getState().setSessionNarrationCount(sessionId, curCount);
         refreshStoryValues();
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);
-        useAppStore.getState().setSessionMessages(sessionId, (prev) =>
-          prev.map((m) => (m.role === "narrator" && m.round === newRound ? { ...m, streaming: false } : m))
-        );
-        useAppStore.getState().setSessionMessages(sessionId, (prev) => [...prev, { role: "system", content: `错误: ${msg}`, requestError: true }]);
+        updateNarration({ streaming: false, generationPhase: "error", round: undefined });
+        useAppStore.getState().setSessionMessages(sessionId, (prev) => [...prev, { role: "system", content: `错误: ${msg}`, requestError: true, generationId }]);
         useAppStore.getState().setSessionAbortFn(sessionId, null);
       },
-      onDone: () => {
+      onDone: (data) => {
         if (!isCurrentStream() || failed) return;
+        if (!textComplete || !data?.stream_id || data.stream_id !== streamId || !Number.isInteger(data.round)
+          || data.round! < 0 || !["completed", "skipped", "degraded"].includes(data.phase2_status || "")) {
+          failed = true;
+          updateNarration({ streaming: false, generationPhase: "error", round: undefined });
+          useAppStore.getState().setSessionMessages(sessionId, prev => [...prev, { role: "system", content: "错误: 未收到完整的生成结果", requestError: true, generationId }]);
+          useAppStore.getState().setSessionStreaming(sessionId, false);
+          useAppStore.getState().setSessionSending(sessionId, false);
+          useAppStore.getState().setSessionNarrationCount(sessionId, curCount);
+          useAppStore.getState().setSessionAbortFn(sessionId, null);
+          return;
+        }
         refreshStoryValues();
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);
         useAppStore.getState().setSessionMessages(sessionId, (prev) =>
           prev.map((m) => {
-            if (m.role !== "narrator" || m.round !== newRound) return m;
+            if (m.generationId !== generationId) return m;
+            if (m.role !== "narrator") return { ...m, round: data.round };
             const content = m.content || accumulated || "";
             // 优先使用后端结构化片段；否则用完整文本在流式结束后统一解析为气泡
             const segments = m.dialogueSegments?.length
@@ -1509,6 +1543,9 @@ export function triggerNarrate(
             return {
               ...m,
               streaming: false,
+              generationPhase: "complete",
+              phase2Status: data.phase2_status,
+              round: data.round,
               content,
               variants: [content],
               variantIndex: 0,
@@ -1516,11 +1553,23 @@ export function triggerNarrate(
             };
           })
         );
+        useAppStore.getState().setSessionNarrationCount(sessionId, data.round!);
+        if (pendingBriefing) useAppStore.getState().setPendingBriefing(sessionId, pendingBriefing);
+        if (pendingCombat) enterSessionCombat(sessionId);
         useAppStore.getState().setSessionAbortFn(sessionId, null);
       },
     }
   );
 
-  const abort = () => { stopped = true; sse.close(); };
+  const abort = () => {
+    if (!isCurrentStream()) return;
+    stopped = true;
+    sse.close();
+    updateNarration({ streaming: false, generationPhase: "cancelled", round: undefined });
+    useAppStore.getState().setSessionStreaming(sessionId, false);
+    useAppStore.getState().setSessionSending(sessionId, false);
+    useAppStore.getState().setSessionNarrationCount(sessionId, curCount);
+    useAppStore.getState().setSessionAbortFn(sessionId, null);
+  };
   useAppStore.getState().setSessionAbortFn(sessionId, abort);
 }

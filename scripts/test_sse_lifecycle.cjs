@@ -78,7 +78,7 @@ function harness(t, options = {}) {
     return fetched.promise;
   };
   const handlers = {};
-  for (const name of ["Text", "Reasoning", "SceneEvent", "MemoryEvent", "Choice",
+  for (const name of ["Meta", "TextComplete", "Text", "Reasoning", "SceneEvent", "MemoryEvent", "Choice",
     "DialogueSegments", "TokenUsage", "CombatTrigger", "CombatBriefing", "AttributeRoll", "Error", "Done"]) {
     handlers[`on${name}`] = (...args) => {
       events.push([name, ...args]);
@@ -198,7 +198,7 @@ for (const terminal of [event("done"), "data: [DONE]\n\n", event("error", { mess
       + event("text", { token: "late" }) + event("choice", { options: ["late"] })
       + event("combat_briefing", { name: "late" }) + event("done") + "data: [DONE]\n\n"));
     await tick();
-    assert.deepEqual(h.events, [["Text", "first"], terminal.includes('"error"') ? ["Error", "failed"] : ["Done"]]);
+    assert.deepEqual(h.events, [["Text", "first"], terminal.includes('"error"') ? ["Error", "failed"] : terminal.includes('[DONE]') ? ["Done"] : ["Done", {}]]);
     assert.equal(h.reads.length, 1, "terminal event must not request another chunk");
     h.connection.close();
     h.assertReleased();
@@ -206,7 +206,7 @@ for (const terminal of [event("done"), "data: [DONE]\n\n", event("error", { mess
 }
 
 for (const hasText of [false, true]) {
-  test(`natural EOF finishes once, ${hasText ? "after text" : "empty stream"}`, async (t) => {
+  test(`natural EOF is an interruption, ${hasText ? "after text" : "empty stream"}`, async (t) => {
     const h = harness(t);
     await h.startReader();
     if (hasText) {
@@ -219,7 +219,7 @@ for (const hasText of [false, true]) {
     await tick();
     h.connection.close();
     await tick();
-    assert.deepEqual(h.events, [...(hasText ? [["Text", "first"]] : []), ["Done"]]);
+    assert.deepEqual(h.events, [...(hasText ? [["Text", "first"]] : []), ["Error", "连接中断，内容尚未完成"]]);
     h.assertReleased();
   });
 }
@@ -253,7 +253,23 @@ test("normal fragmented UTF-8 stream preserves event payloads and ordering", asy
   ]);
   h.reads.at(-1).resolve(chunk(event("done")));
   await tick();
-  assert.deepEqual(h.events.at(-1), ["Done"]);
+  assert.deepEqual(h.events.at(-1), ["Done", {}]);
+  h.assertReleased();
+});
+
+test("正文完成事件保留权威文本，最终事件携带实际回合", async (t) => {
+  const h = harness(t);
+  await h.startReader();
+  const meta = { stream_id: "narr-1" };
+  const complete = { stream_id: "narr-1", narrative: "检定成功。\n妮可说：「它在等。」" };
+  const done = { stream_id: "narr-1", round: 7, phase2_status: "degraded" };
+  h.reads[0].resolve(chunk(event("meta", meta) + event("text", {token:"它在等。"}) + event("text_complete", complete)));
+  await tick();
+  assert.deepEqual(h.events, [["Meta", meta], ["Text", "它在等。"], ["TextComplete", complete]]);
+  assert.equal(h.counts.cancel, 0, "text_complete does not close phase two");
+  h.reads.at(-1).resolve(chunk(event("done", done)));
+  await tick();
+  assert.deepEqual(h.events.at(-1), ["Done", done]);
   h.assertReleased();
 });
 
@@ -283,7 +299,7 @@ test("reader cancellation rejection does not leak an unhandled rejection or repe
   await h.startReader();
   h.reads[0].resolve(chunk(event("done") + event("done")));
   await tick();
-  assert.deepEqual(h.events, [["Done"]]);
+  assert.deepEqual(h.events, [["Done", {}]]);
   h.assertReleased();
 });
 

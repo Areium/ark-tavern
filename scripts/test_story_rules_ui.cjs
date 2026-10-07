@@ -10,6 +10,11 @@ const frontend = path.join(root, 'frontend');
 const fromFrontend = createRequire(path.join(frontend, 'package.json'));
 const ts = fromFrontend('typescript');
 const src = file => path.join(frontend, 'src', file);
+const narrationEvents = text => [
+  {type:'text',data:{token:text}},
+  {type:'text_complete',data:{stream_id:'rules-fixture',narrative:text}},
+  {type:'done',data:{stream_id:'rules-fixture',round:2,phase2_status:'completed'}},
+].map(event => `data: ${JSON.stringify(event)}\n\n`).join('');
 require.extensions['.css'] = () => {};
 for (const extension of ['.ts', '.tsx']) require.extensions[extension] = (module, filename) => {
   const { outputText } = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
@@ -126,7 +131,7 @@ async function tests() {
       global.fetch = async url => {
         requestUrl = url;
         return reject ? new Response(JSON.stringify({ error: '缺少物品：雨夜通行证，状态已变化' }), { status: 409 })
-          : new Response('data: {"type":"text","data":{"token":"模拟叙述成功"}}\n\ndata: {"type":"done"}\n\n');
+          : new Response(narrationEvents('模拟叙述成功'));
       };
       triggerNarrate('fixture', '打开补给盒', 'open /补给');
       for (let i = 0; i < 100 && actualStore.getState().sessionStreaming.fixture; i++) await new Promise(setImmediate);
@@ -302,7 +307,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`;
           console.log('mock narrate', url.searchParams.get('branch_id'));
           if (url.searchParams.get('branch_id') === 'stale') { res.statusCode = 409; res.end(JSON.stringify({ error: '状态已变化：雨夜通行证已被消耗，请重新确认条件' })); return; }
           res.setHeader('Content-Type', 'text/event-stream');
-          setTimeout(() => res.end('data: {"type":"text","data":{"token":"模拟结果：获得绷带。"}}\n\ndata: {"type":"done"}\n\n'), 1200); return;
+          setTimeout(() => res.end(narrationEvents('模拟结果：获得绷带。')), 1200); return;
         }
         let data = {};
         if (url.pathname.endsWith('/avatar')) { res.setHeader('Content-Type','image/svg+xml'); res.end('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#627c90"/><circle cx="32" cy="24" r="12" fill="#e5ded0"/><ellipse cx="32" cy="62" rx="25" ry="25" fill="#e5ded0"/></svg>'); return; }

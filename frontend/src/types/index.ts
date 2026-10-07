@@ -133,6 +133,14 @@ export interface ChatMessage {
   dialogueSegments?: { type: string; text: string; speaker?: string }[];
   /** 是否为正在流式生成的叙述消息（气泡模式下流式期间先显示纯文本） */
   streaming?: boolean;
+  /** Local request identity survives the preview-to-stage transition. */
+  generationId?: string;
+  generationPhase?: "receiving" | "processing" | "complete" | "error" | "cancelled";
+  /** Unmodified tokens used to retain the preview's reading coordinates. */
+  previewContent?: string;
+  phase2Status?: "completed" | "skipped" | "degraded";
+  /** Explicit rollback starts historical stage playback from a fresh cursor. */
+  playbackRevision?: number;
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   reasoning?: string;
   rollData?: AttributeRollData;

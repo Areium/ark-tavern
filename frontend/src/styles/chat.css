@@ -358,15 +358,15 @@
 }
 .stage-name-avatar { display: flex; flex: 0 0 36px; width: 36px; height: 36px; border-radius: 8px; overflow: hidden; }
 .stage .stage-name-avatar > * { width: 36px; height: 36px; border-radius: 8px; }
-.stage-dialog-text { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; line-height: 1.85; letter-spacing: .01em; white-space: pre-wrap; padding-top: 6px; }
+.stage-dialog-text { flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; scrollbar-width: thin; line-height: 1.85; letter-spacing: .01em; white-space: pre-wrap; padding-top: 6px; }
 .stage-dialog.is-empty .stage-dialog-text { flex: 0 1 auto; }
 .stage-name, .stage-dialog-foot { flex-shrink: 0; }
 .stage-dialog-text.is-narration { font-family: var(--chat-serif, serif); color: #efe6d2; font-style: normal; }
 .stage-caret { display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -.15em; background: #f5c86a; animation: stage-blink 1s steps(2) infinite; }
 @keyframes stage-blink { 50% { opacity: 0; } }
-.stage-dialog-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; font-size: 11px; color: rgba(255, 255, 255, .45); }
+.stage-dialog-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; font-size: 11px; color: rgba(255, 255, 255, .72); }
 .stage-progress { font-family: var(--chat-display, sans-serif); letter-spacing: .12em; font-variant-numeric: tabular-nums; }
-.stage-next { color: #f5c86a; animation: stage-bob 1.1s ease-in-out infinite; }
+.stage-next { display: inline-flex; flex-shrink: 0; color: #f5c86a; animation: stage-bob 1.1s ease-in-out infinite; }
 .stage-next.is-end { animation: none; opacity: .8; }
 @keyframes stage-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
 .stage-waiting { display: inline-flex; align-items: center; gap: 8px; color: #d7d0c2; }
@@ -375,7 +375,7 @@
 @keyframes stage-dot { 0%, 100% { opacity: .3; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
 .stage-start {
   padding: 8px 22px; border-radius: 999px; font-size: 14px; font-weight: 600; color: #1a1305;
-  background: linear-gradient(135deg, #f5c86a, #dfa945); box-shadow: 0 8px 22px -8px rgba(245, 200, 106, .7);
+  background: #f5c86a; box-shadow: 0 8px 22px -8px rgba(245, 200, 106, .4);
 }
 .stage-start:hover { filter: brightness(1.06); }
 

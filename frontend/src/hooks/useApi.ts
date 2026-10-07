@@ -904,6 +904,8 @@ export function useApi() {
 export function createSSE(
   path: string,
   handlers: {
+    onMeta?: (data: { stream_id: string }) => void;
+    onTextComplete?: (data: { stream_id: string; narrative: string }) => void;
     onText?: (token: string) => void;
     onReasoning?: (token: string) => void;
     onSceneEvent?: (event: any) => void;
@@ -919,7 +921,7 @@ export function createSSE(
       success: boolean; text: string; source: string; stream_id: string;
     }) => void;
     onError?: (message: string) => void;
-    onDone?: () => void;
+    onDone?: (data?: { stream_id?: string; round?: number; phase2_status?: "completed" | "skipped" | "degraded" }) => void;
   }
 ): { close: () => void } {
   return connectSSE(path, "GET", undefined, handlers);
@@ -1036,6 +1038,8 @@ function connectSSE(
   method: "GET" | "POST",
   body: Record<string, any> | undefined,
   handlers: {
+    onMeta?: (data: { stream_id: string }) => void;
+    onTextComplete?: (data: { stream_id: string; narrative: string }) => void;
     onText?: (token: string) => void;
     onReasoning?: (token: string) => void;
     onSceneEvent?: (event: any) => void;
@@ -1051,7 +1055,7 @@ function connectSSE(
       success: boolean; text: string; source: string; stream_id: string;
     }) => void;
     onError?: (message: string) => void;
-    onDone?: () => void;
+    onDone?: (data?: { stream_id?: string; round?: number; phase2_status?: "completed" | "skipped" | "degraded" }) => void;
   }
 ): { close: () => void } {
   let closed = false;
@@ -1139,6 +1143,12 @@ function connectSSE(
           try {
             const event = JSON.parse(jsonStr);
             switch (event.type) {
+              case "meta":
+                handlers.onMeta?.(event.data);
+                break;
+              case "text_complete":
+                handlers.onTextComplete?.(event.data);
+                break;
               case "text":
                 handlers.onText?.(event.data.token);
                 break;
@@ -1173,15 +1183,15 @@ function connectSSE(
                 finish(() => handlers.onError?.(event.data.message));
                 return;
               case "done":
-                finish(() => handlers.onDone?.());
+                finish(() => handlers.onDone?.(event.data));
                 return;
             }
           } catch {}
         }
       }
 
-      // 服务端未发送 done 就关闭连接时，也结束流式状态，避免一直“思考中”
-      finish(() => handlers.onDone?.());
+      // EOF is a transport boundary, not evidence of a completed generation.
+      finish(() => handlers.onError?.("连接中断，内容尚未完成"));
     } catch (err: any) {
       finish(() => handlers.onError?.(err.message));
     } finally {

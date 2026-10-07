@@ -49,8 +49,11 @@ def run():
             path = url.path
             if path.endswith("/narrate"):
                 requests.append(parse_qs(url.query))
-                token = json.dumps({"type": "text", "data": {"token": "她回过头，向你伸出了手。"}}, ensure_ascii=False)
-                route.fulfill(content_type="text/event-stream", body=f'data: {token}\n\ndata: {{"type":"done"}}\n\n')
+                narrative = "她回过头，向你伸出了手。"
+                events = [{"type":"text","data":{"token":narrative}},
+                          {"type":"text_complete","data":{"stream_id":"choices-test","narrative":narrative}},
+                          {"type":"done","data":{"stream_id":"choices-test","round":2,"phase2_status":"completed"}}]
+                route.fulfill(content_type="text/event-stream", body="".join(f'data: {json.dumps(event,ensure_ascii=False)}\n\n' for event in events))
                 return
             if path.endswith("/avatar"):
                 route.fulfill(content_type="image/svg+xml", body='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#6d665d"/></svg>')
@@ -164,7 +167,7 @@ def run():
         reset(7)
         before = dialogue.bounding_box()
         page.evaluate("qaStore.setState({sessionStreaming:{'choices-qa':true}})")
-        expect(dialogue).to_contain_text("正在排演下一幕")
+        expect(dialogue).not_to_contain_text("正在排演下一幕")
         expect(choices).to_have_count(0)
         expect(composer).not_to_be_visible()
         assert dialogue.bounding_box() == before
@@ -297,10 +300,7 @@ def run():
             dialogue.press("End")
             expect(choices).to_have_count(0)
             expect(composer).not_to_be_visible()
-            if waiting:
-                expect(dialogue).to_contain_text("正在排演下一幕")
-            else:
-                expect(progress).to_contain_text("1 / 3")
+            expect(progress).to_contain_text("1 / 3")
 
         reset_skip()
         page.get_by_role("button", name="调整立绘", exact=True).click()

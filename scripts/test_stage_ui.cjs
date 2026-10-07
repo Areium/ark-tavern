@@ -72,7 +72,7 @@ assert.equal(playerScript.steps[0].speaker, "博士");
 const streaming = buildStageScript([narrator, { role: "narrator", content: "正在生成", round: 4, streaming: true }], scene, "博士");
 assert.equal(streaming.streaming, true);
 assert.equal(streaming.steps.length, 1, "流式中只有一步：实时文本");
-assert.ok(streaming.key.endsWith(":s"));
+assert.ok(streaming.key.endsWith(":s:0"));
 const onlyChoice = buildStageScript([choices], scene, "博士");
 assert.equal(onlyChoice.messageIndex, -1);
 assert.equal(onlyChoice.choiceMessage, choices, "只有选项时脚本为空但选项照常");
@@ -185,7 +185,7 @@ const stageProps = {
 markup = renderToStaticMarkup(React.createElement(StageView, stageProps));
 assert.match(markup, /class="stage(?:\s[^"]*)?"/, "舞台根节点");
 assert.ok(markup.includes("stage-dialog"), "对话框");
-assert.ok(markup.includes("stage-waiting") && !markup.includes("stage-sprite-card"), "旁白先等待历史舞台快照，避免首句使用错误场景");
+assert.ok(!markup.includes("stage-waiting") && !markup.includes("stage-sprite-card"), "场景加载不再阻塞正式正文，旧画面仍独立保留");
 const fallbackMarkup = renderToStaticMarkup(React.createElement(StageView, {
   ...stageProps, messages: [{ role: "character", character: "临光", content: "临光：「走吧。」瑕光：「好。」" }, choices],
 }));
@@ -201,6 +201,16 @@ markup = renderToStaticMarkup(React.createElement(StageView, { ...stageProps, me
 assert.ok(markup.includes("开始剧情"), "空会话给「开始剧情」");
 markup = renderToStaticMarkup(React.createElement(StageView, { ...stageProps, messages: [], chatMode: "free" }));
 assert.ok(markup.includes("与场景中的角色对话"), "自由模式空状态");
+
+markup = renderToStaticMarkup(React.createElement(StageView, { ...stageProps, waiting: true, choicesDisabled: true,
+  messages: [{ role: "narrator", content: "", previewContent: "收到即可阅读", generationId: "stream-ssr", generationPhase: "receiving", streaming: true }],
+}));
+assert.ok(markup.includes("收到即可阅读") && markup.includes("接收中"), "发送锁期间展示完整预览正文与接收状态");
+assert.ok(!markup.includes("stage-waiting") && !markup.includes("stage-choices"), "有预览时不显示等待动画或选项");
+markup = renderToStaticMarkup(React.createElement(StageView, { ...stageProps, waiting: true,
+  messages: [{ role: "narrator", content: "", generationId: "empty-ssr", generationPhase: "receiving", streaming: true }],
+}));
+assert.ok(markup.includes("正在生成"), "未收到正文时显示生成状态");
 
 const { bubbleClass } = require(src("components/ChatPanel.tsx"));
 assert.equal(bubbleClass({ role: "user", content: "" }, false), "is-user");

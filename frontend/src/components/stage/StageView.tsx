@@ -15,6 +15,7 @@ import {
 } from "../../utils/stageScript";
 import AppIcon from "../AppIcon";
 import AvatarPlaceholder from "../chat/AvatarPlaceholder";
+import { cachedReading, readingKey, rememberReading, resolveReading, type ReadingCursor } from "../../utils/stageReading";
 
 interface Props {
   sessionId: string;
@@ -146,12 +147,22 @@ export default function StageView({
     () => buildStageScript(messages, [...new Set([...sceneCharacters, playerName].filter(Boolean))], playerName),
     [messages, sceneCharacters, playerName],
   );
-  const [cursor, setCursor] = useState<{ key: string; step: number; revealed?: boolean }>({ key: "", step: 0 });
-  const step = cursor.key === script.key ? cursor.step : 0;
-  const current = script.steps[Math.min(step, Math.max(0, script.steps.length - 1))];
-  const atEnd = step >= script.steps.length - 1;
+  const cursorKey = readingKey(sessionId, script.key);
+  const [cursor, setCursor] = useState<ReadingCursor>();
+  const reading = resolveReading(script, cursorKey, cachedReading(cursorKey) ?? (cursor?.key === cursorKey ? cursor : undefined));
+  const { steps } = reading;
+  const step = reading.cursor.step;
+  const current = steps[step];
+  const atEnd = step >= steps.length - 1;
+  const moveCursor = useCallback((nextStep: number, reveal = false) => {
+    const next = { ...reading.cursor, step: nextStep, sourceStart: steps[nextStep]?.sourceStart ?? 0, revealed: reveal };
+    rememberReading(next);
+    setCursor(next);
+  }, [reading.cursor, steps]);
   const scriptMessage = messages[script.messageIndex];
-  const stageRound = !script.streaming && scriptMessage?.role === "narrator" ? scriptMessage.round : undefined;
+  const generationBusy = script.streaming || script.phase === "receiving" || script.phase === "processing";
+  const generationFailed = script.phase === "error" || script.phase === "cancelled";
+  const stageRound = !generationBusy && !generationFailed && scriptMessage?.role === "narrator" ? scriptMessage.round : undefined;
   const requestKey = `${sessionId}:${stageRound ?? "live"}:${script.key}`;
   const stage = stageResult?.key === requestKey ? stageResult.data : null;
   const cachedScene = sceneSnapshots.get(sessionId);
@@ -166,19 +177,21 @@ export default function StageView({
   const backgroundPending = !!desiredBackground?.url && desiredBackground.url !== loadedBackground?.url
     && desiredBackground.url !== failedBackground;
   const stagePending = stageRound !== undefined && !stage && stageError !== requestKey;
-  const presenting = waiting || script.streaming || stagePending || backgroundPending;
+  const presenting = waiting || generationBusy || generationFailed || stagePending || backgroundPending
+    || stageError === requestKey || (!!failedBackground && failedBackground === desiredBackground?.url);
+  const readingBlocked = !steps.length || editingPortraits || (choicesDisabled && !script.preview);
 
   // Resolve the narration's historical scene, never the advanced live scene
   // during generation. Cleanup rejects results from an obsolete request.
   useEffect(() => {
-    if (waiting || script.streaming) return;
+    if (waiting || generationBusy || generationFailed) return;
     let cancelled = false;
     setStageError(null);
     api.getStage(sessionId, stageRound).then((data) => {
       if (!cancelled) setStageResult({ key: requestKey, data });
     }).catch(() => { if (!cancelled) setStageError(requestKey); });
     return () => { cancelled = true; };
-  }, [api, sessionId, stageRound, requestKey, waiting, script.streaming, envRefreshKey, characterRefreshKey, resourceVersion, stageRetry]);
+  }, [api, sessionId, stageRound, requestKey, waiting, generationBusy, generationFailed, envRefreshKey, characterRefreshKey, resourceVersion, stageRetry]);
 
   // Preload before committing: failed pictures keep the last successful scene.
   useEffect(() => {
@@ -205,17 +218,14 @@ export default function StageView({
     return () => { cancelled = true; clearTimeout(timeout); image.onload = null; image.onerror = null; };
   }, [desiredBackground, sessionId, resourceVersion, backgroundRetry]);
 
-  // 新一段开始：回到第一步
-  useEffect(() => { setCursor({ key: script.key, step: 0 }); }, [script.key]);
-
   // ── 打字机 ──
   const [typedState, setTypedState] = useState({ key: "", count: 0 });
   const text = current?.text || "";
-  const typingKey = `${script.key}:${step}`;
-  const revealed = cursor.key === script.key && !!cursor.revealed;
+  const typingKey = `${cursorKey}:${reading.cursor.mode}:${step}`;
+  const revealed = script.preview || reading.cursor.mode === "plain" || !!reading.cursor.revealed;
   const typed = revealed ? text.length : typedState.key === typingKey ? typedState.count : 0;
   useEffect(() => {
-    if (presenting || revealed) return;
+    if (revealed) return;
     setTypedState({ key: typingKey, count: 0 });
     const total = text.length;
     if (!total) return;
@@ -228,29 +238,30 @@ export default function StageView({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [text, typingKey, presenting, revealed]);
-  const typing = !presenting && typed < text.length;
-  const complete = !presenting && !typing && (script.steps.length === 0 || atEnd);
+  }, [text, typingKey, revealed]);
+  const typing = !revealed && typed < text.length;
+  useLayoutEffect(() => { rememberReading({ ...reading.cursor, revealed: revealed || !typing }); });
+  const complete = !waiting && !generationBusy && !generationFailed && !typing && (steps.length === 0 || atEnd);
   const showChoices = !!script.choiceMessage && complete;
   useLayoutEffect(() => { onPlaybackChange(sessionId, messages, complete); }, [sessionId, messages, complete, onPlaybackChange]);
 
   // ── 说话人高亮：步进时同步到全局（场景角色列表也会亮） ──
   const sourceMessage = messages[script.messageIndex];
   const fallbackSpeaker = sourceMessage?.role === "character" && sourceMessage.content?.trim() && !script.steps.some((entry) => entry.kind === "dialogue") ? sourceMessage.character : undefined;
-  const speaker = presenting ? undefined : speakerOfStep(current) || fallbackSpeaker;
+  const speaker = script.preview ? undefined : speakerOfStep(current) || fallbackSpeaker;
   const [pulse, setPulse] = useState(0);
   useEffect(() => { setHighlightedSpeaker(speaker ?? null); }, [speaker, setHighlightedSpeaker]);
   useEffect(() => () => setHighlightedSpeaker(null), [setHighlightedSpeaker]);
 
   const advance = useCallback(() => {
-    if (presenting || choicesDisabled || editingPortraits) return;
+    if (readingBlocked) return;
     if (typing) { setTypedState({ key: typingKey, count: text.length }); return; }
     setPulse((p) => p + 1);
-    if (step < script.steps.length - 1) setCursor({ key: script.key, step: step + 1 });
-  }, [presenting, choicesDisabled, editingPortraits, typing, typingKey, text.length, step, script.key, script.steps.length]);
+    if (step < steps.length - 1) moveCursor(step + 1);
+  }, [readingBlocked, typing, typingKey, text.length, step, steps.length, moveCursor]);
   const back = useCallback(() => {
-    if (step > 0) setCursor({ key: script.key, step: step - 1 });
-  }, [step, script.key]);
+    if (!editingPortraits && step > 0) moveCursor(step - 1, true);
+  }, [step, moveCursor, editingPortraits]);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const fastForwardTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -286,7 +297,7 @@ export default function StageView({
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [stopFastForward]);
-  useEffect(() => { stopFastForward(); }, [script.key, presenting, choicesDisabled, editingPortraits, complete, stopFastForward]);
+  useEffect(() => { stopFastForward(); }, [cursorKey, editingPortraits, complete, stopFastForward]);
   const backgroundPress = useRef<{ x: number; y: number } | null>(null);
   const isBackground = (target: EventTarget | null) => target instanceof HTMLElement
     && (target === rootRef.current || target.classList.contains("stage-bg") || target.classList.contains("stage-dialog-wrap"));
@@ -323,7 +334,7 @@ export default function StageView({
     const target = e.target as HTMLElement;
     if (target.closest("button, input, textarea, select, a, [contenteditable]")) return;
     if (e.key === "Control") {
-      if (e.repeat || e.shiftKey || presenting || choicesDisabled || complete || controlPress.current) return;
+      if (e.repeat || e.shiftKey || readingBlocked || complete || controlPress.current) return;
       controlPress.current = { holding: false };
       fastForwardDelay.current = setTimeout(() => {
         fastForwardDelay.current = null;
@@ -336,15 +347,15 @@ export default function StageView({
     }
     if (e.ctrlKey) return;
     if (e.key === "End" && !e.shiftKey) {
-      if (e.defaultPrevented || e.repeat || presenting || choicesDisabled || complete) return;
+      if (e.defaultPrevented || e.repeat || readingBlocked || complete) return;
       e.preventDefault();
       stopFastForward();
       // Reveal the final step atomically: its typewriter must not restart and
       // briefly hide the choices/input again after the cursor changes.
-      setCursor({ key: script.key, step: Math.max(0, script.steps.length - 1), revealed: true });
+      moveCursor(Math.max(0, steps.length - 1), true);
       return;
     }
-    if (target.closest("[role=button]")) return;
+    if (target.closest("[role=button]") && !target.closest(".stage-dialog")) return;
     if (e.key === " " || e.key === "Enter" || e.key === "ArrowRight") { e.preventDefault(); advance(); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); back(); }
   };
@@ -580,12 +591,12 @@ export default function StageView({
           </div>
         ) : (
           <div
-            className={`stage-dialog ${presenting ? "is-waiting" : ""} ${current?.kind === "player" ? "is-player" : ""} ${current?.kind === "system" ? "is-system" : ""}`}
+            className={`stage-dialog ${generationBusy && !text ? "is-waiting" : ""} ${current?.kind === "player" ? "is-player" : ""} ${current?.kind === "system" ? "is-system" : ""}`}
             onClick={(event) => { event.stopPropagation(); if (!window.getSelection()?.toString()) advance(); }}
             onKeyDown={(event) => { if (!event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); event.stopPropagation(); advance(); } }}
             role="button"
             aria-label="推进当前对话"
-            aria-disabled={presenting || choicesDisabled || editingPortraits}
+            aria-disabled={readingBlocked || (atEnd && !typing)}
             tabIndex={0}
             style={{ fontSize: `${fontSize}px` }}
           >
@@ -596,10 +607,10 @@ export default function StageView({
               </div>
             )}
             <div className={`stage-dialog-text ${current?.kind === "narration" ? "is-narration" : ""}`}>
-              {presenting ? (
+              {generationBusy && !text ? (
                 <span className="stage-waiting">
                   <i /><i /><i />
-                  <span>正在排演下一幕{elapsedSeconds > 0 ? `（${elapsedSeconds}s）` : ""}…</span>
+                  <span>正在生成{elapsedSeconds > 0 ? `（${elapsedSeconds}s）` : ""}…</span>
                 </span>
               ) : (
                 <>
@@ -608,11 +619,14 @@ export default function StageView({
                 </>
               )}
             </div>
-            {!presenting && text && (
+            {(text || generationFailed) && (
               <div className="stage-dialog-foot">
-                <span className="stage-progress">{Math.min(step + 1, script.steps.length)} / {script.steps.length}{!complete && ` · Ctrl 快进 · End 跳至${script.choiceMessage ? "选项" : "输入"}`}</span>
-                {!atEnd && !typing && <span className="stage-next" aria-hidden="true">▼</span>}
-                {atEnd && !typing && !showChoices && <span className="stage-next is-end">继续输入 ↓</span>}
+                <span className="stage-progress">{Math.min(step + 1, steps.length)} / {steps.length}
+                  {generationBusy ? ` · ${script.phase === "processing" ? "整理中" : "接收中"}` : generationFailed ? ` · ${script.phase === "cancelled" ? "已取消" : "生成中断"}` : ""}
+                  {!complete && !!text && ` · Ctrl 快进 · End ${generationBusy || generationFailed ? "已收到末页" : `跳至${script.choiceMessage ? "选项" : "输入"}`}`}
+                </span>
+                {!atEnd && !typing && <span className="stage-next" aria-hidden="true"><AppIcon name="expand" size={13} /></span>}
+                {complete && !showChoices && <span className="stage-next is-end">继续输入</span>}
               </div>
             )}
           </div>

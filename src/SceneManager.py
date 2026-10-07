@@ -32,7 +32,7 @@ def _parse_extraction_json(text: str, valid_beat_ids=None) -> dict:
     """从 LLM 响应中解析标记提取 JSON。
 
     处理 markdown 代码块包裹、JSON 对象定位和解析异常。
-    失败时返回 _empty_extraction_result()。
+    解析失败时保留空标记字段，并通过 error 明确标记失败。
     valid_beat_ids 用于校验 branches 的 target_beat_id。
     """
     text = text.strip()
@@ -58,9 +58,9 @@ def _parse_extraction_json(text: str, valid_beat_ids=None) -> dict:
             try:
                 data = json.loads(text[start:end + 1])
             except json.JSONDecodeError:
-                return _empty_extraction_result()
+                return {**_empty_extraction_result(), "error": "标记提取响应不是有效 JSON 对象"}
         else:
-            return _empty_extraction_result()
+            return {**_empty_extraction_result(), "error": "标记提取响应不是有效 JSON 对象"}
 
     return {
         "beat_complete": bool(data.get("beat_complete", False)),
@@ -609,11 +609,28 @@ class SceneManager:
 
 <core_rules>
 - MUST：用第三人称叙述场景进展，描写环境、角色的动作和表情
-- MUST：角色对话用「」标注，自然地融入叙述中
+- MUST：角色对话用「」括住完整发言，以明确角色名及说话动作引出；描写与台词共同推进剧情
 - MUST：叙述生动但克制，不代替玩家做决定，不替玩家说话
 - MUST：每次叙述约 {word_limit} 字，在自然段落处收尾
 - MUST：保持对话的连贯性，不重复已发生的事件
-</core_rules>"""
+</core_rules>
+
+<stage_readability>
+- MUST：每次发言采用角色名说：「完整台词。」的格式，可将“说”替换为“问”“回答”等明确发言动词；角色名和引导动词必须紧邻「」之前，不可省略角色名或以他/她代替
+- MUST：同一角色连续表达同一意思、没有插话或重要动作时，所有句子只放在一组「」内；禁止用「短句。」她说，「另一短句。」的方式拆开一次发言
+- MUST：只有说话归属或简单语气的信息放在台词前的引导中；禁止在台词后追加“他说”“她问”“某人补充”等独立短旁白
+- MUST：连续旁白按场景、动作或情绪变化组织成自然段，不把每句描写切成独立片段
+- MUST：保留有意义的短回应、停顿与角色语气；禁止为了合并或凑字数改变人设，不替玩家说话或做决定
+- MUST：只写故事正文，不输出分页标记或舞台指令；正文总字数仍遵守本轮上限
+</stage_readability>
+
+<output_format>
+输出纯文本故事正文，由完整的旁白段和发言段交替构成。
+每个发言段从明确角色名开始，格式为：角色名说：「这一轮完整发言。」
+“说”可换成“问”“回答”等说话动词；角色名、说话动词、冒号、完整引号块连续书写，中间不插入动作描写。
+动作描写放在相邻旁白段；同一发言段内可有多个句子，只有换人、他人插话或重要动作才开始下一次发言。
+保留必要的短回应，不为满足格式添加台词。只输出正文，不输出段落标签或这些格式说明。
+</output_format>"""
 
     @staticmethod
     def _build_system_prompt(word_limit: int, structured: bool = False,
@@ -642,6 +659,14 @@ class SceneManager:
 - MUST：保持对话的连贯性，不重复已发生的事件
 </core_rules>
 
+<stage_readability>
+- MUST：同一角色的一次完整、连续发言放在一个 dialogue 段内，不按句号拆成多段短台词
+- MUST：用 speaker 字段明确角色名；text 只写台词，不添加「」、角色名说/问/答等归属文字，不把「他说」「她问」拆成独立短 narration 段
+- MUST：连续旁白按场景、动作或情绪变化组织成自然段，不把每句描写切成独立片段
+- MUST：保留有意义的短回应、停顿与角色语气；禁止为了合并或凑字数改变人设，不替玩家说话或做决定
+- MUST：不输出分页标记或舞台指令；正文总字数仍遵守本轮上限
+</stage_readability>
+
 <output_format>
 严格输出 JSON 数组，禁止其他文字：
 [
@@ -650,7 +675,7 @@ class SceneManager:
 ]
 type 枚举：narration / dialogue，角色说的话一律用 dialogue
 speaker 必须从场景角色列表选择，无法判断时用 null
-相邻同类型元素合并
+相邻 narration 元素可合并；相邻 dialogue 只有 speaker 相同且没有插话或重要动作时才可合并，禁止跨说话人合并
 </output_format>"""
 
     _MARKER_EXTRACTOR_SYSTEM = """\
@@ -896,12 +921,13 @@ branch 非 null 时格式：
             parsed["usage"] = usage
             parsed.setdefault("error", None)
             parsed["finish_reason"] = finish_reason
-            # 显式降级标记：最终仍为空响应（预算截断/服务异常）与"模型判定无标记"区分开，
+            # 显式降级标记：空响应或 JSON 解析失败与"模型判定无标记"区分开，
             # 避免静默默认值被误读为成功抽取。
-            parsed["degraded"] = not (text or "").strip()
+            parsed["degraded"] = bool(parsed.get("error")) or not (text or "").strip()
             parsed["retried"] = retried
             if parsed["degraded"]:
-                logger.warning("Marker extraction: empty content (finish_reason=%s)", finish_reason)
+                logger.warning("Marker extraction degraded: %s (finish_reason=%s)",
+                               parsed.get("error") or "empty content", finish_reason)
             return parsed
         except Exception as e:
             logger.warning("Marker extraction failed: %s", e)
@@ -1271,6 +1297,10 @@ branch 非 null 时格式：
         custom_prompt = self._overlay.get_custom_prompt() if self._overlay else None
         if structured:
             context_parts.append("MUST：只输出 JSON 数组，不要其他内容。")
+            context_parts.append(
+                "MUST：完整连续发言用一个 dialogue 段，speaker 明确角色名，text 只写台词；"
+                "连续旁白按场景组织，不插入独立短归属旁白。"
+            )
             system_prompt = self._build_system_prompt(word_limit, structured=True,
                                                       custom_prompt=custom_prompt)
         else:
@@ -1280,6 +1310,14 @@ branch 非 null 时格式：
             )
             system_prompt = self._build_system_prompt(word_limit, structured=False,
                                                       custom_prompt=custom_prompt)
+            context_parts.append(
+                "MUST：完整连续发言用一组「」；每个发言段以明确角色名说：「完整台词。」开头，"
+                "角色名与引号之间只能有说/问/回答等发言动词和冒号，不用他/她，不插入动作。"
+                "连续旁白按场景组织，不插入独立短归属旁白。"
+            )
+        context_parts.append(
+            "MUST：保留有意义短回应与停顿，不改变人设、不替玩家说话或做决定，不输出分页标记或舞台指令。"
+        )
         # 末尾重申硬长度约束（对抗长上下文下的 Lost-in-the-Middle）
         context_parts.append(
             f"MUST：本轮所有正文内容（叙述 + 角色台词合计）控制在 {word_limit} 字以内，"

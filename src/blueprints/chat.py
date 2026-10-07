@@ -558,9 +558,10 @@ def register(app, managers):
 
         返回结构化 SSE 事件：
           data: {"type": "text", "data": {"token": "..."}}
+          data: {"type": "text_complete", "data": {"stream_id": "...", "narrative": "..."}}
           data: {"type": "scene_event", "data": {"event": "...", ...}}
           data: {"type": "choice", "data": {"options": [...]}}
-          data: {"type": "done", "data": {"stream_id": "..."}}
+          data: {"type": "done", "data": {"stream_id": "...", "round": 1, "phase2_status": "completed"}}
         """
         session = _get_session(session_mgr, session_id)
         if not session:
@@ -667,6 +668,8 @@ def register(app, managers):
                 marker_env = None
                 lore_combat_hint = ""
                 combat_node_for_tree = ("", "")
+                text_completed = False
+                phase2_status = "skipped"
                 for event_type, data in session.scene_manager.narrate_stream(
                     player_info, context_with_memory,
                     user_action=user_action, structured=False,
@@ -683,8 +686,11 @@ def register(app, managers):
                         yield f"data: {json.dumps({'type': 'reasoning', 'data': {'token': data, 'stream_id': stream_id}})}\n\n"
                     elif event_type == "done":
                         narrative, env_updates, usage = data
+                        text_completed = True
                         break
 
+                if not text_completed:
+                    raise RuntimeError("叙述正文流未正常完成")
                 session.accumulate_usage(usage)
 
                 # 检测结构化 JSON（LLM 即使非 structured 模式也可能输出 JSON）
@@ -699,7 +705,13 @@ def register(app, managers):
                 for evt in intra_events:
                     yield f"data: {json.dumps(evt)}\n\n"
                 if intra_narrative:
+                    if dialogue_segments:
+                        # Hook 注入也属于权威正文，保留在气泡事件与演出快照中。
+                        injection = intra_narrative[:-len(narrative)].rstrip() if narrative else intra_narrative
+                        dialogue_segments = [{"type": "narration", "text": injection}] + dialogue_segments
                     narrative = intra_narrative
+
+                yield f"data: {json.dumps({'type': 'text_complete', 'data': {'stream_id': stream_id, 'narrative': narrative}}, ensure_ascii=False)}\n\n"
 
                 # 两阶段提取：从叙事文本中提取标记（Call 2）
                 # 文本已流式显示完毕，此阶段不阻塞用户阅读
@@ -712,6 +724,7 @@ def register(app, managers):
                         branch_context=session.scene_manager._branch_context() if choices_count > 0 else "",
                         worldbook_text=session.scene_manager._recent_worldbook_text() if choices_count > 0 else "",
                     )
+                    phase2_status = "degraded" if markers.get("error") or markers.get("degraded") else "completed"
                     if markers.get("usage"):
                         session.accumulate_usage(markers["usage"])
                     # 节拍确定性战斗目标：推进节拍前读取当前节拍的 [COMBAT:enc_id]
@@ -810,11 +823,11 @@ def register(app, managers):
                 if usage:
                     yield f"data: {json.dumps({'type': 'token_usage', 'data': {'usage': usage, 'stream_id': stream_id}})}\n\n"
 
+                yield f"data: {json.dumps({'type': 'done', 'data': {'stream_id': stream_id, 'round': session.narration_count, 'phase2_status': phase2_status}})}\n\n"
+
             except Exception as e:
                 logger.error("叙述出错: %s", e)
                 yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e), 'stream_id': stream_id}})}\n\n"
-
-            yield f"data: {json.dumps({'type': 'done', 'data': {'stream_id': stream_id}})}\n\n"
 
         return make_sse_response(generate)
 

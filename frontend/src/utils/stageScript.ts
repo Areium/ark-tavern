@@ -3,10 +3,11 @@
  *
  * 对话页的舞台模式只关心「当前这一段」：把最新一条叙述 / 角色回复拆成若干步（叙述、
  * 台词），玩家点击对话框逐步推进；走到末尾若紧跟着一条选项消息，就把选项亮出来。
- * 流式生成中的叙述作为单独一步实时显示。
+ * 流式生成中的叙述按稳定的纯文本页实时显示。
  */
 import type { ChatMessage } from "../types";
 import { parseDialogue, normalizeSegments, type DialogueSegment } from "./dialogueParser";
+import { graphemes, isJsonPreview, paginatePreview } from "./stageReading";
 
 export type StageStepKind = "narration" | "dialogue" | "player" | "system";
 
@@ -15,53 +16,38 @@ export interface StageStep {
   text: string;
   /** 说话人（dialogue / player 时有） */
   speaker?: string;
+  /** UTF-16 offsets in the authoritative message body. */
+  sourceStart?: number;
+  sourceEnd?: number;
 }
 
 export interface StageScript {
   /** 脚本来源消息在消息数组中的下标（-1 = 没有可演的消息） */
   messageIndex: number;
-  /** 一个稳定的键：消息下标 + 轮次 + 变体 —— 变了就从第一步重新开始 */
+  /** 生成轮次使用 generationId；历史消息使用下标、轮次、变体。 */
   key: string;
   steps: StageStep[];
   /** 脚本末尾紧跟的选项消息（可选） */
   choiceMessage: ChatMessage | null;
   choiceIndex: number;
-  /** 正在流式生成：文本随时变化，不做逐步推进 */
+  /** 网络仍在接收或处理；阅读翻页独立于这一状态。 */
   streaming: boolean;
+  preview: boolean;
+  previewText: string;
+  content: string;
+  phase?: ChatMessage["generationPhase"];
 }
 
 const EMPTY: StageScript = {
   messageIndex: -1, key: "empty", steps: [], choiceMessage: null, choiceIndex: -1, streaming: false,
+  preview: false, previewText: "", content: "",
 };
 
 /** 一句台词太长时按句号 / 换行拆成多步，避免对话框塞不下 */
 export const STEP_MAX_CHARS = 140;
 
 export function splitLongText(text: string, limit = STEP_MAX_CHARS): string[] {
-  const trimmed = text.trim();
-  if (trimmed.length <= limit) return trimmed ? [trimmed] : [];
-  const out: string[] = [];
-  let current = "";
-  // 先按换行切，再按句末标点切；每一片都尽量不超过 limit
-  const pieces = trimmed.split(/\n+/).flatMap((line) => line.split(/(?<=[。！？!?；;…])/));
-  for (const raw of pieces) {
-    const piece = raw.trim();
-    if (!piece) continue;
-    if (current && current.length + piece.length > limit) {
-      out.push(current);
-      current = piece;
-    } else {
-      current = current ? current + piece : piece;
-    }
-  }
-  if (current) out.push(current);
-  // 单片仍超长（没有标点的长段）：硬切
-  return out.flatMap((chunk) => {
-    if (chunk.length <= limit * 1.5) return [chunk];
-    const hard: string[] = [];
-    for (let i = 0; i < chunk.length; i += limit) hard.push(chunk.slice(i, i + limit));
-    return hard;
-  });
+  return paginatePreview(text.trim(), limit).map(page => page.text);
 }
 
 function segmentsOf(msg: ChatMessage, sceneCharacters: string[]): DialogueSegment[] {
@@ -72,22 +58,33 @@ function segmentsOf(msg: ChatMessage, sceneCharacters: string[]): DialogueSegmen
 
 /** 把一条消息展开成舞台步骤 */
 export function stepsForMessage(msg: ChatMessage, sceneCharacters: string[], playerName: string): StageStep[] {
-  if (msg.role === "user") {
-    return splitLongText(msg.content).map((text) => ({ kind: "player" as const, text, speaker: playerName }));
-  }
-  if (msg.role === "system") {
-    return splitLongText(msg.content).map((text) => ({ kind: "system" as const, text }));
-  }
+  const source = msg.content || "";
+  if (msg.role === "user" || msg.role === "system") return paginatePreview(source).map(page => ({
+    ...page, kind: msg.role === "user" ? "player" : "system", speaker: msg.role === "user" ? playerName : undefined,
+  }));
   const steps: StageStep[] = [];
+  let searchFrom = 0;
   for (const seg of segmentsOf(msg, sceneCharacters)) {
-    if (seg.type === "dialogue") {
-      for (const text of splitLongText(seg.text)) steps.push({ kind: "dialogue", text, speaker: seg.speaker });
-    } else {
-      for (const text of splitLongText(seg.text)) steps.push({ kind: "narration", text });
+    // Sequential exact lookup distinguishes repeated sentences. A transformed
+    // segment gets no anchor, so the reading handoff can conservatively refuse it.
+    const start = source.indexOf(seg.text, searchFrom);
+    if (start >= 0) searchFrom = start + seg.text.length;
+    for (const page of paginatePreview(seg.text)) {
+      const next: StageStep = {
+        kind: seg.type, text: page.text, speaker: seg.type === "dialogue" ? seg.speaker : undefined,
+        sourceStart: start < 0 ? undefined : start + page.sourceStart,
+        sourceEnd: start < 0 ? undefined : start + page.sourceEnd,
+      };
+      const previous = steps[steps.length - 1];
+      if (previous?.kind === "dialogue" && next.kind === "dialogue" && next.speaker && previous.speaker === next.speaker
+        && graphemes(previous.text + "\n" + next.text).length <= STEP_MAX_CHARS) {
+        previous.text += "\n" + next.text;
+        previous.sourceEnd = previous.sourceEnd === undefined || next.sourceEnd === undefined ? undefined : next.sourceEnd;
+      } else steps.push(next);
     }
   }
   if (!steps.length && msg.content?.trim()) {
-    steps.push({ kind: msg.role === "character" ? "dialogue" : "narration", text: msg.content.trim(), speaker: msg.character });
+    steps.push(...paginatePreview(source).map(page => ({ ...page, kind: (msg.role === "character" ? "dialogue" : "narration") as StageStepKind, speaker: msg.character })));
   }
   return steps;
 }
@@ -115,21 +112,41 @@ export function buildStageScript(
     choiceIndex = index;
     index -= 1;
   }
+  // Request status / attribute-roll events belong to their generation, not its
+  // narrative body. Do not cross a later user message or unrelated system event.
+  const trailing = messages[index];
+  if (trailing?.role === "system" && trailing.generationId) {
+    let source = index;
+    while (source >= 0 && messages[source].role === "system" && messages[source].generationId === trailing.generationId) source -= 1;
+    if (source >= 0 && messages[source].generationId === trailing.generationId
+      && (messages[source].role === "narrator" || messages[source].role === "character")) index = source;
+  } else {
+    while (index >= 0 && messages[index].requestError) index -= 1;
+  }
   if (index < 0) {
     return { ...EMPTY, choiceMessage: messages[choiceIndex] ?? null, choiceIndex, key: `choice-${choiceIndex}` };
   }
   const msg = messages[index];
   const streaming = !!msg.streaming;
-  const steps = streaming
-    ? [{ kind: (msg.role === "character" ? "dialogue" : "narration") as StageStepKind, text: msg.content || "", speaker: msg.character }]
+  const phase = msg.generationPhase;
+  const preview = streaming || phase === "receiving" || phase === "processing" || phase === "error" || phase === "cancelled";
+  const raw = msg.previewContent ?? msg.content ?? "";
+  const previewText = !raw && phase !== "receiving" ? msg.content || ""
+    : isJsonPreview(raw) ? (phase !== "receiving" && msg.content !== raw ? msg.content || "" : "") : raw;
+  const steps = preview
+    ? paginatePreview(previewText).map(page => ({ ...page, kind: "narration" as StageStepKind }))
     : stepsForMessage(msg, sceneCharacters, playerName);
   return {
     messageIndex: index,
-    key: `${index}:${msg.round ?? ""}:${msg.variantIndex ?? 0}:${streaming ? "s" : "d"}`,
+    key: `${msg.generationId ? `${msg.generationId}:${msg.variantIndex ?? 0}` : `${index}:${msg.round ?? ""}:${msg.variantIndex ?? 0}:${streaming ? "s" : "d"}`}:${msg.playbackRevision ?? 0}`,
     steps,
     choiceMessage: choiceIndex >= 0 ? messages[choiceIndex] : null,
     choiceIndex,
     streaming,
+    preview,
+    previewText,
+    content: msg.content || "",
+    phase,
   };
 }
 

@@ -110,8 +110,12 @@ def run(baseline=False):
           const storeUrl = appSource.match(/from ["']([^"']*stores\/appStore\.ts[^"']*)["']/)[1];
           const {useAppStore} = await import(storeUrl);
           window.qaStore = useAppStore;
-          const {default: React} = await import('/node_modules/.vite-shot/deps/react.js');
-          const {default: ReactDOM} = await import('/node_modules/.vite-shot/deps/react-dom_client.js');
+          const mainSource = await (await fetch('/src/main.tsx')).text();
+          const reactUrl = appSource.match(/from ["']([^"']*\/deps\/react\.js[^"']*)["']/)[1];
+          const rendererUrl = mainSource.match(/from ["']([^"']*\/deps\/react-dom_client\.js[^"']*)["']/)[1];
+          const {default: React} = await import(reactUrl);
+          const {default: ReactDOM} = await import(rendererUrl);
+          window.qaReact=React; window.qaReactDOM=ReactDOM;
           const {default: Avatar} = await import('/src/components/chat/AvatarPlaceholder.tsx');
           const host = document.createElement('div'); host.id='qa-portrait';
           host.style='position:fixed;top:0;left:0;z-index:9999'; document.body.append(host);
@@ -159,7 +163,9 @@ def run(baseline=False):
             raise
         page.evaluate("""qaStreams['combat-a'].emit('combat_briefing', {
           session_id:'combat-a',encounter_id:'gate',name:'旧会话战斗',
-          approaches:[{id:'fight',label:'正面迎战',hint:'测试选项',kind:'combat'}]});""")
+          approaches:[{id:'fight',label:'正面迎战',hint:'测试选项',kind:'combat'}]});
+          qaStreams['combat-a'].emit('text_complete',{stream_id:'isolation-fixture',narrative:'妮可在窗边等待。'});
+          qaStreams['combat-a'].emit('done',{stream_id:'isolation-fixture',round:1,phase2_status:'completed'});""")
         page.wait_for_timeout(250)
         report["late_briefing_does_not_leak"] = page.get_by_text("⚔ 旧会话战斗", exact=True).count() == 0
         report["new_session_not_locked"] = page.locator(".chat-lock-note").count() == 0
@@ -234,8 +240,7 @@ def run(baseline=False):
 
             # Delayed resume uses the same navigation generation, not a stale sessions closure.
             page.evaluate(r"""async () => {
-              const {default: React} = await import('/node_modules/.vite-shot/deps/react.js');
-              const {default: ReactDOM} = await import('/node_modules/.vite-shot/deps/react-dom_client.js');
+              const React=qaReact, ReactDOM=qaReactDOM;
               const source = await (await fetch('/src/components/ChatPanel.tsx')).text();
               const url = source.match(/from ["']([^"']*hooks\/useCombatResume\.ts[^"']*)["']/)[1];
               const {useCombatResume} = await import(url);
