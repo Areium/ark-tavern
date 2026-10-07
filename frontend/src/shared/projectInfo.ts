@@ -11,8 +11,8 @@ export const PROJECT_VERSION = "0.1.0";
 /** 上游仓库（也是 AGPL 第 13 条所指的对应源码位置） */
 export const REPOSITORY_URL = "https://github.com/Areium/ark-tavern";
 
-/** 界面上的许可标识（许可正文声明「或更新版本」，SPDX 写作 AGPL-3.0-or-later） */
-export const LICENSE_SHORT = "AGPL-3.0";
+/** 界面上展示的许可标识（许可正文声明「或更新版本」，SPDX 写作 AGPL-3.0-or-later） */
+export const LICENSE_SHORT = "AGPL-3.0 license";
 /** 许可全称，用作悬停提示 */
 export const LICENSE_NAME = "GNU Affero General Public License v3.0 or later";
 /** 许可全文位置 */

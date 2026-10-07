@@ -50,9 +50,9 @@ def run():
         expect(about).to_be_visible()
         expect(about).to_contain_text("Ark Tavern v0.1.0")
         expect(about).to_contain_text("许可：")
-        expect(about).to_contain_text("AGPL-3.0")
+        expect(about).to_contain_text("AGPL-3.0 license")
 
-        license_link = about.get_by_role("link", name="AGPL-3.0", exact=True)
+        license_link = about.get_by_role("link", name="AGPL-3.0 license", exact=True)
         expect(license_link).to_have_attribute("href", LICENSE_URL)
         expect(license_link).to_have_attribute("target", "_blank")
         # 链接相对正文要能看出可点：有下划线装饰且颜色不同于普通正文
@@ -61,7 +61,7 @@ def run():
         # 许可只保留一行标识，不带额外说明文字
         license_paragraphs = about.locator("p", has_text="许可：")
         assert license_paragraphs.count() == 1
-        assert license_paragraphs.first.inner_text().strip() == "许可： AGPL-3.0", license_paragraphs.first.inner_text()
+        assert license_paragraphs.first.inner_text().strip() == "许可： AGPL-3.0 license", license_paragraphs.first.inner_text()
 
         for width, height in SIZES:
             page.set_viewport_size({"width": width, "height": height})
@@ -78,7 +78,7 @@ def run():
         }""")
         footer_link = page.locator("footer.home-menu-footer a.home-license-link")
         expect(footer_link).to_be_visible()
-        expect(footer_link).to_have_text("AGPL-3.0")
+        expect(footer_link).to_have_text("AGPL-3.0 license")
         expect(footer_link).to_have_attribute("href", LICENSE_URL)
         expect(footer_link).to_have_attribute("target", "_blank")
         expect(page.locator("footer.home-menu-footer .home-menu-version")).to_have_text("v0.1.0")
