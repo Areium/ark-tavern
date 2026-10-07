@@ -1,8 +1,8 @@
 """In-app license entry (AGPL) browser QA. Requires Vite web on :5183; API calls are synthetic.
 
-Checks the AGPL §5(d) surface: settings "关于" shows the license identifier plus links to the
-license text and the source repository, the home footer carries the same license link, and both
-stay visible without horizontal overflow across the five fixed desktop acceptance sizes.
+Checks settings "关于" keeps only the license identifier linked to the full text, and the
+home footer omits license content while retaining status, version and audio controls.
+Both views are checked across the five fixed desktop acceptance sizes.
 """
 from pathlib import Path
 
@@ -40,6 +40,8 @@ def run():
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.route("**/api/**", route_api)
         page.goto(BASE)
+        page.get_by_role("button", name="进入 Ark Tavern", exact=True).click()
+        expect(page.locator(".home-splash")).to_have_count(0)
 
         # ── 设置页「关于」 ───────────────────────────────────────────────
         page.evaluate("""async () => {
@@ -70,19 +72,26 @@ def run():
             assert about.evaluate("el => el.scrollWidth <= el.clientWidth + 1"), f"about block overflows at {width}x{height}"
             page.screenshot(path=str(SHOTS / f"about-{width}x{height}.png"), full_page=True)
 
-        # ── 主页页脚许可标识 ─────────────────────────────────────────────
+        # ── 主页页脚不显示许可 ─────────────────────────────────────────────
         page.set_viewport_size({"width": 1400, "height": 900})
         page.evaluate("""async () => {
           const {useAppStore} = await import('/src/stores/appStore.ts');
           useAppStore.setState({currentView:'home'});
         }""")
-        footer_link = page.locator("footer.home-menu-footer a.home-license-link")
-        expect(footer_link).to_be_visible()
-        expect(footer_link).to_have_text("AGPL-3.0 license")
-        expect(footer_link).to_have_attribute("href", LICENSE_URL)
-        expect(footer_link).to_have_attribute("target", "_blank")
-        expect(page.locator("footer.home-menu-footer .home-menu-version")).to_have_text("v0.1.0")
-        page.screenshot(path=str(SHOTS / "home-footer-1400x900.png"), full_page=True)
+        footer = page.locator("footer.home-menu-footer")
+        expect(footer).to_be_visible()
+        expect(footer.locator("a")).to_have_count(0)
+        expect(footer).not_to_contain_text("AGPL")
+        expect(footer).not_to_contain_text("许可")
+        expect(footer.locator(".home-menu-version")).to_have_text("v0.1.0")
+        expect(footer.locator(".home-status")).to_have_count(2)
+        expect(footer.locator("button.home-audio-btn")).to_be_visible()
+        expect(footer.get_by_role("slider")).to_be_visible()
+        for width, height in SIZES:
+            page.set_viewport_size({"width": width, "height": height})
+            page.wait_for_timeout(120)
+            assert footer.evaluate("el => el.scrollWidth <= el.clientWidth + 1"), f"footer overflows at {width}x{height}"
+            page.screenshot(path=str(SHOTS / f"home-footer-{width}x{height}.png"), full_page=True)
 
         assert not errors, errors
         browser.close()
