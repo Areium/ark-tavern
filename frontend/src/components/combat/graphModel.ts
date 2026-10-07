@@ -464,14 +464,16 @@ export function clampEditorWidth(w: number, containerW: number): number {
 }
 
 /** fit view：把所有节点纳入视口（含边距），返回新视图 */
-export function fitView(nodes: PlotGraphNodeDTO[], sizes: Map<string, NodeRect>, vw: number, vh: number): ViewState {
+export function fitView(nodes: PlotGraphNodeDTO[], sizes: Map<string, NodeRect>, vw: number, vh: number,
+  visualBounds?: (node: PlotGraphNodeDTO, rect: NodeRect) => NodeRect): ViewState {
   if (nodes.length === 0) return { x: 0, y: 0, zoom: 1 };
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const n of nodes) {
     const w = sizes.get(n.id)?.w ?? NODE_W;
     const h = sizes.get(n.id)?.h ?? estimateNodeH(n);
-    minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
-    maxX = Math.max(maxX, n.x + w); maxY = Math.max(maxY, n.y + h);
+    const rect = visualBounds?.(n, { x: n.x, y: n.y, w, h }) ?? { x: n.x, y: n.y, w, h };
+    minX = Math.min(minX, rect.x); minY = Math.min(minY, rect.y);
+    maxX = Math.max(maxX, rect.x + rect.w); maxY = Math.max(maxY, rect.y + rect.h);
   }
   const pad = 80;
   const zoom = clampZoom(Math.min((vw - pad * 2) / Math.max(1, maxX - minX), (vh - pad * 2) / Math.max(1, maxY - minY), 1.5));

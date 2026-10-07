@@ -34,3 +34,25 @@ assert.equal(describe(layout, plot, from.id, to.id), '用钥匙开门 · 保留�
 assert.equal(describe(layout, plot, to.id, from.id), '');
 assert.equal(new Set(layout.edges.map(e => e.id)).size, layout.edges.length);
 console.log('Graph references, undo, preserved CG and authored edges: passed.');
+
+const { sceneCGPreviews, sceneAssetUrl } = require('../frontend/src/utils/sceneMedia.ts');
+const { cgNodeBounds } = require('../frontend/src/components/combat/graphCG.ts');
+const { fitView } = require('../frontend/src/components/combat/graphModel.ts');
+const cg = moved.scene_media.background;
+const media = {background: cg, events: [{id:'event', title:'Event', trigger:{kind:'enter'}, actions:[
+  {kind:'set_visual',visual:cg},
+  {kind:'set_visual',visual:{...cg,asset:'plots/p/art/second.png'}},
+  {kind:'set_visual',visual:{...cg,role:'background',asset:'plots/p/art/bg.png'}},
+  {kind:'set_visual',visual:{...cg,asset:'plots/../secret.png'}},
+]}]};
+assert.deepEqual(sceneCGPreviews(media).map(image => image.asset), [cg.asset, 'plots/p/art/second.png']);
+assert.equal(sceneAssetUrl('plots/../secret.png', 'b'), '');
+assert.ok(sceneAssetUrl(cg.asset, 'other book').startsWith('/api/worldbooks/other%20book/'));
+const card = {x:100,y:200,w:192,h:80};
+assert.deepEqual(cgNodeBounds(card,0),card);
+const bounds = cgNodeBounds(card,2);
+assert.ok(bounds.x < card.x && bounds.y < card.y && bounds.x + bounds.w > card.x + card.w);
+const view = fitView([{...moved,x:card.x,y:card.y}],new Map([['b',card]]),800,600,(node,rect)=>cgNodeBounds(rect,2));
+assert.ok(bounds.x*view.zoom+view.x >= 0 && bounds.y*view.zoom+view.y >= 0);
+assert.ok((bounds.x+bounds.w)*view.zoom+view.x <= 800 && (bounds.y+bounds.h)*view.zoom+view.y <= 600);
+console.log('CG asset deduplication, unsafe paths, book scoping and full preview fit bounds: passed.');

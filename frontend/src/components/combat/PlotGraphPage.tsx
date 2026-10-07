@@ -22,7 +22,7 @@
  *     编辑器内「✕ 关闭」；切剧情、换设定集、底层节点被删时直接卸载不播动画。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image } from "lucide-react";
+import { BookOpen, Maximize2, Minimize2 } from "lucide-react";
 import SceneMediaEditor from "./SceneMediaEditor";
 import { graphSceneMediaError } from "../../utils/sceneMedia";
 import "../../styles/graph-scene-media.css";
@@ -48,6 +48,8 @@ import { createNodes } from "./nodeFactory";
 
 interface Props {
   sessionId?: string | null;
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
   /**
    * 受控的世界书（设定集）。世界书工作台把「节点图」挂成页签时传入当前选中的书：
    * 此时以 prop 为唯一真相、顶栏不再给下拉（切书走左侧书架），切书语义与下拉一致
@@ -62,7 +64,6 @@ const errText = (e: unknown, fallback: string) =>
 
 type Drawer =
   | { kind: "detail"; nodeId: string }
-  | { kind: "media"; nodeId: string }
   | { kind: "battle"; nodeId: string }
   | { kind: "story"; plotId: string; beatId: string | null }
   | null;
@@ -81,7 +82,7 @@ interface PlotCache {
   saving?: boolean;
 }
 
-export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: Props) {
+export default function PlotGraphPage({ sessionId, bookId: controlledBookId, expanded = false, onToggleExpanded }: Props) {
   const api = useApi();
   const { combatNodeJumpId, setCombatNodeJumpId } = useAppStore();
   /** 受控模式：世界书工作台页签内使用（切书由外部书架驱动） */
@@ -394,7 +395,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
       if (typing) return;
       if (mod && !e.shiftKey && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
       else if (mod && (e.shiftKey && e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) { e.preventDefault(); redo(); }
-      else if (!mod && !t?.closest(".ng-media-panel") && (e.key === "Delete" || e.key === "Backspace")) {
+      else if (!mod && !t?.closest(".ng-drawer") && (e.key === "Delete" || e.key === "Backspace")) {
         if (selected?.kind === "node") { e.preventDefault(); setConfirmDelete(selected.id); }
         else if (selected?.kind === "edge" && doc) {
           e.preventDefault();
@@ -682,7 +683,6 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
     (node.type === "chapter" && currentPlot?.chapters.some((c) => c.idx === node.ref?.chapter_idx)) ||
     (node.type === "beat" && currentPlot?.chapters.some((c) => c.idx === node.ref?.chapter_idx && c.beats.some((b) => b.id === node.ref?.beat_id)))
   );
-  const mediaNode = drawer?.kind === "media" ? doc?.nodes.find((n) => n.id === drawer.nodeId) : undefined;
   const detailNode = drawer?.kind === "detail" ? doc?.nodes.find(n => n.id === drawer.nodeId) : undefined;
   const movedRefs = doc?.nodes.filter(n => resolveGraphReference(n, currentPlot).moved).length ?? 0;
 
@@ -690,7 +690,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
     <div className="relative flex flex-col h-full min-h-0 bg-gray-950 text-gray-200">
       {/* ── 顶栏：设定集（世界书）+ 编辑工具 + 保存 ── */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-800 shrink-0 flex-wrap">
-        <span className="text-sm shrink-0" title="设定集：节点图数据归属的世界书">📖</span>
+        <BookOpen size={16} className="shrink-0" aria-hidden="true" />
         {controlled ? (
           <span className="text-xs text-gray-300 shrink-0 max-w-[18rem] truncate"
             title="当前世界书（在世界书书架里切换）">{bookName(bookId) || "（未选世界书）"}</span>
@@ -712,21 +712,16 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
             {doc.nodes.length} 节点 · {doc.edges.length} 连线
           </span>
         )}
-        <select aria-label="选择演出节点" className="ng-media-node-select" value={canConfigureMedia(selectedNode) ? selectedNode!.id : ""}
-          onChange={(e) => setSelected(e.target.value ? { kind: "node", id: e.target.value } : null)}>
-          <option value="">选择演出节点</option>
-          {doc?.nodes.filter(canConfigureMedia).map((n) => <option key={n.id} value={n.id}>{displays.get(n.id)?.title || n.title}</option>)}
-        </select>
-        <button className="ng-media-entry" disabled={!canConfigureMedia(selectedNode)}
-          title={canConfigureMedia(selectedNode) ? "配置所选节点的舞台背景与 CG" : "选择已关联的剧情、章节或节拍节点后配置演出"}
-          onClick={() => selectedNode && openDrawer({ kind: "media", nodeId: selectedNode.id })}>
-          <Image size={15} aria-hidden="true" /> 演出配置
-        </button>
         {selectedNode && <button className="ng-media-entry" onClick={() => openNode(selectedNode)}>节点详情</button>}
         {movedRefs > 0 && <button className="ng-media-entry" onClick={() => {
           if (doc && currentPlot) { const result = repairGraphReferences(doc, currentPlot); commit(result.doc); showNotice("ok", `已更新 ${result.repaired} 个引用，请保存节点图`); }
         }}>更新 {movedRefs} 个移动引用</button>}
         <div className="flex-1" />
+        {onToggleExpanded && <button className="ng-media-entry" aria-pressed={expanded}
+          onClick={onToggleExpanded} title={expanded ? "恢复世界书简介" : "收起世界书简介，扩大节点图"}>
+          {expanded ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}
+          {expanded ? "还原查看" : "扩大查看"}
+        </button>}
         {notice && (
           <span className={"text-[12px] shrink-0 " + (notice.kind === "err" ? "text-red-300" : "text-emerald-300")}>
             {notice.text}
@@ -864,6 +859,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
             onDocChange={commit}
             displays={displays}
             edgeDescriptions={new Map(doc.edges.map(e => [e.id, graphEdgeDescription(doc, currentPlot, e.from, e.to)]))}
+            previewBookId={bookId}
             onOpenNode={openNode}
             onRequestDeleteNode={setConfirmDelete}
             onCreateCombat={(wx, wy) => setCombatModal({ wx, wy, id: "", name: "", error: "" })}
@@ -889,10 +885,10 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
               aria-hidden="true"
             />
             <div
-              className={"ng-drawer" + (["media", "detail"].includes(drawer.kind) ? " ng-media-drawer" : "") + (drawer.kind === "media" ? " ng-scene-editor-drawer" : "") + (drawerOpen ? " ng-drawer-open" : "") + (resizing ? " ng-drawer-resizing" : "")}
+              className={"ng-drawer" + (drawer.kind === "detail" ? " ng-media-drawer ng-scene-editor-drawer" : "") + (drawerOpen ? " ng-drawer-open" : "") + (resizing ? " ng-drawer-resizing" : "")}
               style={drawerW != null ? { width: drawerW } : undefined}
               role="complementary"
-              aria-label={drawer.kind === "media" ? "演出配置" : drawer.kind === "detail" ? "节点详情" : "节点编辑器"}
+              aria-label={drawer.kind === "detail" ? "节点详情" : "节点编辑器"}
             >
               {/* 左边缘拖拽把手：调整宽度（双击恢复默认半屏） */}
               <div
@@ -903,13 +899,11 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
                 <i className="ng-drawer-grip-bar" />
               </div>
 
-              {drawer.kind === "detail" ? (detailNode ? <GraphNodeDetails key={detailNode.id} node={detailNode} plot={currentPlot} overview={overview}
-                onClose={closeDrawer} onEdit={() => editNode(detailNode)} onMedia={() => openDrawer({ kind: "media", nodeId: detailNode.id })}
-                onRelink={ref => { if (doc) commit({ ...doc, nodes: doc.nodes.map(n => n.id === detailNode.id ? { ...n, ref } : n) }); }} />
-                : <div className="ng-media-panel"><p>节点已从图中移除。</p><button onClick={closeDrawer}>关闭</button></div>)
-              : drawer.kind === "media" ? (mediaNode && canConfigureMedia(mediaNode) ? (
-                <SceneMediaEditor key={`${bookId}:${plotId}:${mediaNode.id}`} node={mediaNode}
-                  title={displays.get(mediaNode.id)?.title || mediaNode.title} bookId={bookId} plotId={plotId}
+              {drawer.kind === "detail" ? (detailNode ? <GraphNodeDetails key={`${bookId}:${plotId}:${detailNode.id}`} node={detailNode} plot={currentPlot} overview={overview}
+                onClose={closeDrawer} onEdit={() => editNode(detailNode)}
+                onRelink={ref => { if (doc) commit({ ...doc, nodes: doc.nodes.map(n => n.id === detailNode.id ? { ...n, ref } : n) }); }}
+                mediaEditor={canConfigureMedia(detailNode) ? <SceneMediaEditor key={`${bookId}:${plotId}:${detailNode.id}`} node={detailNode}
+                  title={displays.get(detailNode.id)?.title || detailNode.title} bookId={bookId} plotId={plotId}
                   onSave={() => { void save(); }} saving={saveState.status === "saving"}
                   saveError={saveState.status === "error"}
                   saveMessage={saveState.status === "saving" ? "保存中…" : saveState.status === "error" ? saveState.text : dirty ? "有未保存的修改" : saveState.text || "已同步"}
@@ -918,10 +912,10 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId }: P
                     if (doc) commit({ ...doc, nodes: doc.nodes.map(n => ids.includes(n.id) && canConfigureMedia(n)
                       ? { ...n, scene_media: { ...n.scene_media, background: structuredClone(visual) } } : n) });
                   }}
-                  onClose={closeDrawer} onChange={(media) => {
-                    if (doc) commit({ ...doc, nodes: doc.nodes.map((n) => n.id === mediaNode.id ? { ...n, scene_media: media } : n) });
-                  }} />
-              ) : <div className="ng-media-panel"><p>节点已移除或引用已失效。</p><button onClick={closeDrawer}>关闭</button></div>) : drawer.kind === "battle" ? (
+                  onClose={closeDrawer} onChange={media => {
+                    if (doc) commit({ ...doc, nodes: doc.nodes.map(n => n.id === detailNode.id ? { ...n, scene_media: media } : n) });
+                  }} /> : undefined} />
+                : <div className="ng-media-panel"><p>节点已从图中移除。</p><button onClick={closeDrawer}>关闭</button></div>) : drawer.kind === "battle" ? (
                 <BattleNodeForm
                   key={`battle-${drawer.nodeId}`}
                   nodeId={drawer.nodeId}

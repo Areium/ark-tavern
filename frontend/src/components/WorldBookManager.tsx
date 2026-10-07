@@ -276,6 +276,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   const [statFieldsSaving, setStatFieldsSaving] = useState(false);
   const [createError, setCreateError] = useState("");
   const [editingMeta, setEditingMeta] = useState(false);
+  const [graphExpanded, setGraphExpanded] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newCover, setNewCover] = useState("");
@@ -545,6 +546,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
   }, [detail, setWorldbookEntryJump, worldbookEntryJump]);
 
   const effectiveTab = normalizeWorldbookTab(worldbookTab, detail);
+  useEffect(() => { setGraphExpanded(false); }, [selectedId, effectiveTab]);
   const visibleTabs = visibleWorldbookTabs(detail);
   const { draft: configDraft, dirty: configDirty, saving: configSaving,
     save: saveConfig, undo: undoConfig, error: configError } = useWorldbookDraft(detail);
@@ -1527,7 +1529,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
       </div>
     </aside>
 
-    <section className={"wber-main" + (effectiveTab === "graph" ? " is-graph" : "")}>
+    <section className={"wber-main" + (effectiveTab === "graph" ? " is-graph" : "") + (graphExpanded && effectiveTab === "graph" ? " is-graph-expanded" : "")}>
       {deleteTarget && detail?.id === deleteTarget.bookId && <DeleteConfirmDialog
         kind={deleteTarget.kind}
         name={deleteTarget.kind === "book" ? deleteTarget.name : deleteTarget.entry.name || deleteTarget.entry.uid}
@@ -1578,7 +1580,7 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         onSave={saveStatFields} onClose={() => setStatFieldsOpen(false)} />}
       {!detail && <div className="wber-blank">{loading ? "正在读取…" : "从左侧书架选一本世界书"}</div>}
       {detail && <>
-        <section className="wber-hero">
+        <section className="wber-hero" hidden={graphExpanded && effectiveTab === "graph"}>
           <div className="wber-hero-cover">
             {safeCover(bookCover) ? <img src={safeCover(bookCover)} alt={`${bookName} 封面`} /> : <span>{bookName.slice(0, 1) || "书"}</span>}
             {/* 封面直接可换：点封面上这颗按钮就是从本地选图，压缩后随书保存与导出。 */}
@@ -1868,7 +1870,8 @@ export default function WorldBookManager({ __api }: { __api?: ApiLike } = {}) {
         {/* 节点图（迁自「内容中心 → 节点图」）：按当前选中的世界书编辑，整页画布。
             不常驻挂载：画布自带全局 Ctrl+S / Ctrl+Z 快捷键，常驻会在其它页签抢键。 */}
         {effectiveTab === "graph" && <div className="wber-graph">
-          <PlotGraphPage sessionId={activeSessionId} bookId={detail.id} />
+          <PlotGraphPage sessionId={activeSessionId} bookId={detail.id}
+            expanded={graphExpanded} onToggleExpanded={() => setGraphExpanded(value => !value)} />
         </div>}
         {effectiveTab === "index" && <div className="wber-index">
           <Suspense fallback={<p>正在加载会话条目…</p>}><IndexManager key={detail.id} book={detail}

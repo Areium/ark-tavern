@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { CombatNodeGraphDTO, PlotFlowDTO, PlotGraphNodeDTO } from "../../types";
 import { resolveGraphReference } from "./graphReferences";
 
@@ -9,11 +9,12 @@ interface Props {
   onRelink: (ref: PlotGraphNodeDTO["ref"]) => void;
   onClose: () => void;
   onEdit: () => void;
-  onMedia: () => void;
+  mediaEditor?: ReactNode;
 }
 
-export default function GraphNodeDetails({ node, plot, overview, onRelink, onClose, onEdit, onMedia }: Props) {
+export default function GraphNodeDetails({ node, plot, overview, onRelink, onClose, onEdit, mediaEditor }: Props) {
   const [replacement, setReplacement] = useState("");
+  const [tab, setTab] = useState<"content" | "media">("content");
   const { chapter, beat, missing, moved } = resolveGraphReference(node, plot);
   const battle = overview?.nodes.find(n => n.node_id === node.ref?.node_id);
   const unavailable = node.type === "combat" ? !battle || battle.missing : missing;
@@ -30,7 +31,21 @@ export default function GraphNodeDetails({ node, plot, overview, onRelink, onClo
     key: n.node_id, title: n.name, ref: { node_id: n.node_id },
   })) : [];
   const section = (heading: string, content?: string) => content ? <section className="ng-detail-section"><h3>{heading}</h3><p>{content}</p></section> : null;
-  return <section className="ng-media-panel" aria-label="节点内容详情">
+  return <div className="ng-node-inspector">
+    {mediaEditor && <div className="ng-inspector-tabs" role="tablist" aria-label="节点配置">
+      {(["content", "media"] as const).map(value => <button key={value} id={`ng-inspector-tab-${value}`}
+        role="tab" aria-selected={tab === value} aria-controls="ng-inspector-panel" tabIndex={tab === value ? 0 : -1}
+        onClick={() => setTab(value)} onKeyDown={event => {
+          if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+            event.preventDefault();
+            const next = event.key === "Home" ? "content" : event.key === "End" ? "media" : tab === "content" ? "media" : "content";
+            setTab(next); document.getElementById(`ng-inspector-tab-${next}`)?.focus();
+          }
+        }}>{value === "content" ? "内容" : "演出"}</button>)}
+    </div>}
+    <div className="ng-inspector-panel" id="ng-inspector-panel" role={mediaEditor ? "tabpanel" : undefined}
+      aria-labelledby={mediaEditor ? `ng-inspector-tab-${tab === "media" ? "media" : "content"}` : undefined}>
+    {tab === "media" && mediaEditor ? mediaEditor : <section className="ng-media-panel" aria-label="节点内容详情">
     <header className="ng-media-header"><div><h2>{title}</h2><p>节点详情 · {node.type === "beat" ? beat?.id || node.ref?.beat_id : node.type === "chapter" ? chapter?.id : node.type === "combat" ? node.ref?.node_id : plot?.plot_id}</p></div>
       <button onClick={onClose} aria-label="关闭节点详情">关闭</button></header>
     <div className="ng-media-scroll">
@@ -54,8 +69,8 @@ export default function GraphNodeDetails({ node, plot, overview, onRelink, onClo
       </details>}
     </div>
     <footer className="ng-media-footer"><span>查看详情不会推进剧情</span><div className="ng-media-targets">
-      {!unavailable && node.type !== "combat" && node.type !== "note" && <button disabled={moved} onClick={onMedia}>演出配置</button>}
       {!unavailable && node.type !== "note" && <button onClick={onEdit}>{node.type === "combat" ? "编辑战斗内容" : "打开剧情原文"}</button>}
     </div></footer>
-  </section>;
+  </section>}
+  </div></div>;
 }

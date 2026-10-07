@@ -173,6 +173,9 @@ html.light .wber-shell {
 /* ── 节点图页签（迁自「内容中心 → 节点图」）：整页画布，主区不再滚动，画布左右满幅 ── */
 .wber-main.is-graph { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
 .wber-graph { flex: 1; min-height: 0; margin: 0 calc(-1 * clamp(16px, 3vw, 36px)); border-top: 1px solid var(--wber-border); }
+.wber-main.is-graph-expanded { padding-top: 0; }
+.wber-main.is-graph-expanded .wber-hero { display: none; }
+.wber-main.is-graph-expanded .wber-tabs { flex-shrink: 0; margin-top: 8px; margin-bottom: 8px; }
 
 /* 封面信息横幅 */
 .wber-hero {

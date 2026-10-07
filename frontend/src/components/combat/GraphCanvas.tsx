@@ -32,7 +32,9 @@ import {
   clampZoom, rewireEdge, dragGrabOffset, dragWorldPos, screenToWorld, type NodeRect, type ViewState,
 } from "./graphModel";
 import { createNodes } from "./nodeFactory";
-import { sceneMediaBadge } from "../../utils/sceneMedia";
+import { sceneAssetUrl, sceneCGPreviews, sceneMediaBadge } from "../../utils/sceneMedia";
+import { CG_W, CG_H, CG_GAP, CG_CONNECTOR, cgStripWidth, cgNodeBounds } from "./graphCG";
+import { ImageOff } from "lucide-react";
 
 export interface GraphNodeDisplay {
   title: string;
@@ -55,6 +57,8 @@ export interface AvailableCombat { nodeId: string; label: string }
 
 interface Props {
   mode?: "editor" | "session";
+  /** Book-owned authoring previews; session graphs use their frozen presentation. */
+  previewBookId?: string;
   renderNodeOverlay?: (node: PlotGraphNodeDTO) => ReactNode;
   doc: PlotGraphDocDTO;
   view: ViewState;
@@ -122,6 +126,16 @@ export default function GraphCanvas(props: Props) {
   const sessionMode = props.mode === "session";
   const sessionModeRef = useRef(sessionMode); sessionModeRef.current = sessionMode;
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const observer = new ResizeObserver(() => {
+      setViewportSize({ w: viewport.clientWidth, h: viewport.clientHeight });
+    });
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
   const viewRef = useRef(view); viewRef.current = view;
   const docRef = useRef(doc); docRef.current = doc;
   const interaction = useRef<Interaction>(null);
@@ -193,8 +207,9 @@ export default function GraphCanvas(props: Props) {
 
   const fit = useCallback(() => {
     const rect = viewportRef.current!.getBoundingClientRect();
-    onViewChange(fitView(docRef.current.nodes, sizes.current, rect.width, rect.height));
-  }, [onViewChange]);
+    onViewChange(fitView(docRef.current.nodes, sizes.current, rect.width, rect.height,
+      props.previewBookId ? (node, bounds) => cgNodeBounds(bounds, sceneCGPreviews(node.scene_media).length) : undefined));
+  }, [onViewChange, props.previewBookId]);
 
   const focusNode = useCallback((id: string, zoom?: number) => {
     const node = docRef.current.nodes.find((n) => n.id === id);
@@ -554,15 +569,16 @@ export default function GraphCanvas(props: Props) {
     const el = viewportRef.current;
     const vw = el?.clientWidth ?? 1200, vh = el?.clientHeight ?? 800;
     return { x: -view.x / view.zoom - 160, y: -view.y / view.zoom - 160, w: vw / view.zoom + 320, h: vh / view.zoom + 320 };
-  }, [view]);
+  }, [view, viewportSize]);
 
   const visibleNodes = useMemo(
     () => doc.nodes.filter((n) => {
-      const r = rects.get(n.id)!;
+      const cardRect = rects.get(n.id)!;
+      const r = props.previewBookId ? cgNodeBounds(cardRect, sceneCGPreviews(n.scene_media).length) : cardRect;
       return r.x + r.w > viewRect.x && r.x < viewRect.x + viewRect.w &&
              r.y + r.h > viewRect.y && r.y < viewRect.y + viewRect.h;
     }),
-    [doc.nodes, rects, viewRect],
+    [doc.nodes, rects, viewRect, props.previewBookId],
   );
 
   const tempLink = useMemo(() => {
@@ -652,6 +668,7 @@ export default function GraphCanvas(props: Props) {
             display={displays.get(n.id) ?? { title: n.title }}
             selected={selected?.kind === "node" && selected.id === n.id}
             sessionMode={sessionMode}
+            previewBookId={props.previewBookId}
             overlay={props.renderNodeOverlay?.(n)}
             onSelect={() => onSelect({ kind: "node", id: n.id })}
             editing={!sessionMode && editingId === n.id}
@@ -812,6 +829,7 @@ export default function GraphCanvas(props: Props) {
 // ── 节点卡片 ──
 
 interface CardProps {
+  previewBookId?: string;
   node: PlotGraphNodeDTO;
   rect: NodeRect;
   display: GraphNodeDisplay;
@@ -829,12 +847,14 @@ interface CardProps {
 }
 
 const GraphCard = memo(function GraphCard({
-  node, rect, display, selected, editing, linkSource, sessionMode, overlay, onSelect,
+  node, rect, display, selected, editing, linkSource, sessionMode, previewBookId, overlay, onSelect,
   onPointerDown, onAnchorDown, onDoubleClick, onEditCommit, onEditCancel,
 }: CardProps) {
   const meta = NODE_META[node.type as PlotGraphNodeType] ?? NODE_META.note;
   const [title, setTitle] = useState(node.title);
   const [content, setContent] = useState(node.content ?? "");
+  const previews = previewBookId ? sceneCGPreviews(node.scene_media) : [];
+  const previewWidth = cgStripWidth(previews.length);
 
   // 进入编辑时同步草稿
   useEffect(() => {
@@ -873,6 +893,15 @@ const GraphCard = memo(function GraphCard({
         if (editing && e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT") submit();
       }}
     >
+      {!!previews.length && <div className="ng-node-cgs" data-ng-cg-node={node.id}
+        style={{ width: previewWidth, left: (NODE_W - previewWidth) / 2, top: -CG_H - CG_CONNECTOR }}>
+        <svg className="ng-cg-connectors" width={previewWidth} height={CG_H + CG_CONNECTOR} aria-hidden="true">
+          {previews.map((image, index) => <line key={image.asset} x1={index * (CG_W + CG_GAP) + CG_W / 2}
+            y1={CG_H} x2={previewWidth / 2} y2={CG_H + CG_CONNECTOR} />)}
+        </svg>
+        {previews.map(image => <CGThumbnail key={`${previewBookId}:${image.asset}`}
+          src={sceneAssetUrl(image.asset, previewBookId!)} title={image.title} nodeTitle={display.title} />)}
+      </div>}
       <i className="ng-node-bar" />
       {editing ? (
         <div className="ng-node-edit">
@@ -922,3 +951,12 @@ const GraphCard = memo(function GraphCard({
     </div>
   );
 });
+
+function CGThumbnail({ src, title, nodeTitle }: { src: string; title: string; nodeTitle: string }) {
+  const [failed, setFailed] = useState(false);
+  return <div className="ng-cg-thumbnail" title={title}>
+    {failed ? <span className="ng-cg-unavailable" role="img" aria-label={`${nodeTitle}：CG 无法加载`}>
+      <ImageOff size={20} aria-hidden="true" /><span>CG 无法加载</span>
+    </span> : <img src={src} alt={`${nodeTitle}：${title}`} draggable={false} onError={() => setFailed(true)} />}
+  </div>;
+}

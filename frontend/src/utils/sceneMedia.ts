@@ -62,3 +62,18 @@ export function sceneMediaBadge(media?: SceneMediaConfigDTO): string {
   if (media.events?.length) labels.push(`${media.events.length} 演出`);
   return labels.join(" · ");
 }
+
+/** One thumbnail per book asset, including CGs from every event action. */
+export function sceneCGPreviews(media?: SceneMediaConfigDTO): { asset: string; title: string }[] {
+  const images = new Map<string, { asset: string; title: string }>();
+  const add = (visual: SceneVisualDTO | undefined, title: string) => {
+    if (visual?.role === "cg" && validSceneAsset(visual.asset) && !images.has(visual.asset)) {
+      images.set(visual.asset, { asset: visual.asset, title });
+    }
+  };
+  add(media?.background, "进入节点 CG");
+  for (const event of media?.events || []) {
+    for (const action of event.actions) add(action.visual, event.title?.trim() || "事件 CG");
+  }
+  return [...images.values()];
+}

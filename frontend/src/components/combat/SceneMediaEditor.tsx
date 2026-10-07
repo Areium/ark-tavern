@@ -37,11 +37,10 @@ export default function SceneMediaEditor({ node, title, bookId, plotId, targets,
   const [batch, setBatch] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
   const [imageFailed, setImageFailed] = useState(false);
-  const closeRef = useRef<HTMLButtonElement>(null);
   const active = useRef(true);
   const current = useRef({ media: node.scene_media, onChange });
   current.current = { media: node.scene_media, onChange };
-  useEffect(() => { closeRef.current?.focus(); active.current = true; return () => { active.current = false; }; }, []);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setLoadError("");
@@ -104,7 +103,7 @@ export default function SceneMediaEditor({ node, title, bookId, plotId, targets,
   const eventChoices = choices[node.ref?.beat_id || ""] || [];
   const errors = sceneMediaErrors(media);
   return <section className="ng-media-panel" aria-labelledby="scene-media-heading">
-    <header className="ng-media-header"><h2 id="scene-media-heading">演出配置 · {title}</h2><button ref={closeRef} onClick={onClose} aria-label="关闭演出配置"><AppIcon name="close" size={18} /></button></header>
+    <header className="ng-media-header"><h2 id="scene-media-heading">演出配置 · {title}</h2><button onClick={onClose} aria-label="关闭演出配置"><AppIcon name="close" size={18} /></button></header>
     <div className="ng-media-scroll">
       <div className="ng-media-event-list" role="group" aria-label="演出项目">
         <button aria-pressed={target === "background"} onClick={() => setTarget("background")}>进入节点画面</button>
