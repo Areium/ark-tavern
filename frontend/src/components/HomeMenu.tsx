@@ -16,6 +16,7 @@ import { audioManager } from "../audio/audioManager";
 import type { CombatResumesDTO } from "../types";
 import TavernMark from "./TavernMark";
 import AppIcon, { type AppIconName } from "./AppIcon";
+import { LICENSE_ID, LICENSE_NAME, PROJECT_VERSION, REPOSITORY_URL } from "../shared/projectInfo";
 
 const asset = (p: string) => import.meta.env.BASE_URL + p;
 
@@ -224,7 +225,18 @@ export default function HomeMenu() {
           <i className={"dot " + (llmStatus?.available ? "ok" : "bad")} />
           {llmStatus?.primary?.name ?? "LLM 未配置"}
         </span>
-        <span className="home-menu-version">v0.1.0</span>
+        <span className="home-menu-version">v{PROJECT_VERSION}</span>
+        <span className="home-license">
+          <a
+            className="home-license-link"
+            href={REPOSITORY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`${LICENSE_NAME} · 打开源码仓库`}
+          >
+            {LICENSE_ID}
+          </a>
+        </span>
         <div className="home-audio-group">
           <button className="home-audio-btn" onClick={toggleMute} title={muted ? "取消静音（继续播放）" : "静音（暂停，再次点击继续）"}>
             <AppIcon name={muted ? "volumeOff" : "volume"} size={17} />

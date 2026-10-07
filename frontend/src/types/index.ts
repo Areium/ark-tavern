@@ -113,6 +113,8 @@ export interface CombatResumesDTO {
 export interface ElectronAPI {
   getBackendUrl: () => Promise<string>;
   openDirectory: (dirPath: string) => Promise<{ success: boolean; error: string }>;
+  /** 交给系统浏览器打开 http(s) 链接；其他协议返回 false */
+  openExternal: (url: string) => Promise<boolean>;
   getWindowState: () => Promise<import("../shared/windowSettings").WindowState>;
   setWindowPreset: (id: import("../shared/windowSettings").WindowPresetId) => Promise<import("../shared/windowSettings").WindowState>;
   setWindowMode: (mode: import("../shared/windowSettings").WindowMode) => Promise<import("../shared/windowSettings").WindowState>;

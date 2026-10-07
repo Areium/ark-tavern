@@ -51,6 +51,26 @@
   不必考虑窄屏；原「五组固定窗口尺寸验收基准」并入附录，其余通用设计规范不再重复。`AGENTS.md` 与
   `docs/architecture.md` 的指引与文档地图同步改名与口径。
 
+### 2026-10-07 — 许可改为 AGPL-3.0-or-later，应用内补许可入口
+
+> 项目由 MIT 改为 AGPL-3.0-or-later，并界定授权范围：仓库内本项目原创的代码与内容（含示例包与
+> 示例世界书）都在许可内，第三方素材与他人二创的插件包 / 世界书不在；应用内提供许可与源码入口。
+
+- **换证**：`LICENSE` 替换为 GNU AGPL-3.0 官方全文（含第 13 条网络条款），`README.md` 许可节与
+  `frontend/package.json` 的 `license` 字段同步为 `AGPL-3.0-or-later`；顶层依赖全部相容
+  （pixi.js / React / react-dom / zustand / react-markdown 为 MIT，lucide-react 为 ISC）。
+- **授权范围**：README 新增「授权范围」小节——覆盖本仓库内本项目原创的代码与内容（后端 / 前端源码、
+  插件接口与内置面板、`examples/` 示例战斗模式包与示例世界书适配器、`data/` 示例内容、脚本与文档）；
+  第三方素材以及他人制作或二创的插件包、世界书、角色内容不在覆盖范围，各自适用其作者的许可。
+- **应用内许可入口（AGPL §5(d)）**：`components/SettingsPanel.tsx` 的「关于」新增许可标识、许可全文
+  与源码链接、无担保说明和范围提示；主页页脚加同源许可标识（`components/HomeMenu.tsx`）；元信息集中在
+  `shared/projectInfo.ts`，版本号不再两处各写一份。
+- **外链处理**：`electron/main.ts` 新增 `setWindowOpenHandler` + `open-external` IPC——http(s) 交给
+  系统浏览器，其他协议拒绝；此前 `<a target="_blank">`（教程、许可全文）会开出新的 Electron 窗口。
+- **验证**：`scripts/test_external_links_electron.cjs`（真实 Electron 42，10 项断言）与
+  `scripts/test_license_ui_browser.py`（设置页「关于」与主页页脚，五组桌面尺寸）通过；
+  `npm run build`（tsc + vite）通过。
+
 ### 2026-10-07 — 进行中（未合并 main）：战斗系统统一插件化
 
 - **战斗系统统一插件化**：方案已写入本地 `task.md`（安装入口：应用内 ZIP 安装 / `data/plugins/inbox`

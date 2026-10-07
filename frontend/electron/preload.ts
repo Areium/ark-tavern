@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("get-backend-url"),
   openDirectory: (dirPath: string): Promise<{ success: boolean; error: string }> =>
     ipcRenderer.invoke("open-directory", dirPath),
+  openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("open-external", url),
   getWindowState: (): Promise<WindowState> => ipcRenderer.invoke("get-window-state"),
   setWindowPreset: (id: WindowPresetId): Promise<WindowState> => ipcRenderer.invoke("set-window-preset", id),
   setWindowMode: (mode: WindowMode): Promise<WindowState> => ipcRenderer.invoke("set-window-mode", mode),

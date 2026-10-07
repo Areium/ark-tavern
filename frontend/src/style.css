@@ -66,6 +66,11 @@
   .panel-title {
     @apply text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2;
   }
+
+  /* 正文里的安静外链（许可全文 / 源码地址）：下划虚线标识可点，悬停提亮 */
+  .app-link {
+    @apply text-amber-400/85 underline decoration-dotted underline-offset-2 hover:text-amber-300;
+  }
 }
 
 /* ═══════════════════════════════════════
@@ -1698,6 +1703,22 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
 .home-status .dot.bad { background: #f87171; box-shadow: 0 0 8px rgba(248, 113, 113, 0.7); }
 /* 版本号压在底图暗部上：原来 rgba(107,114,128,.8) 偏暗，提亮一档 */
 .home-menu-version { color: rgba(148, 163, 184, 0.85); letter-spacing: 0.08em; }
+/* 页脚许可标识：与版本号同组的安静链接，悬停提亮并显示下划线 */
+.home-license { display: inline-flex; align-items: center; gap: 6px; }
+.home-license::before {
+  content: "";
+  width: 1px;
+  height: 10px;
+  background: rgba(148, 163, 184, 0.3);
+}
+.home-license-link {
+  color: rgba(148, 163, 184, 0.85);
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+.home-license-link:hover { color: rgba(226, 232, 240, 0.95); text-decoration: underline; }
+.home-license-link:focus-visible { outline: 2px solid rgba(148, 163, 184, 0.6); outline-offset: 2px; border-radius: 3px; }
 .home-audio-btn {
   padding: 3px 8px;
   border-radius: 8px;
