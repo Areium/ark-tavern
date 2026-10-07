@@ -9,12 +9,205 @@
 
 ## 目录
 
-1. [更新记录](#更新记录)
-2. [当前状态与后续计划](#当前状态与后续计划)
-
----
+[更新记录](#更新记录)
 
 ## 更新记录
+### 2026-10-07 — 世界书演出配置：节点背景与事件 CG 持久化、图谱交互改造
+
+> 在世界书节点图上直接为每个节点配置会话背景与事件 CG（CG 同时作为背景），
+> 配置随书持久化并已在「彼岸双生」原书落地验收；节点图本身也做了一轮交互改造。
+
+- **演出配置持久化**（设计 `docs/design/worldbook/node-presentation.md`，提交 `c916817`）：节点可声明
+  背景与事件 CG，持续时间口径为「持续到下一个背景触发」，数据结构预留插入 BGM 与视频的扩展位；
+  新增 `SceneMediaEditor.tsx`（节点演出编辑）、`utils/sceneMedia.ts`、`styles/graph-scene-media.css`，
+  舞台视图 `StageView.tsx` 按节点配置切换背景 / CG。
+- **应用到「彼岸双生」**：`scripts/prepare_beyond_twin_presentation.py` 共配置 28 个节点、9 个 CG 事件，
+  15 张使用中的图片全部通过校验；原书文件完整备份，仅替换节点图条目，其他条目与已有会话不动
+  （旧会话不迁移，新建彼岸双生会话才使用新演出配置）。
+- **节点图交互改造**（`07204e4`、`7ac6689`）：新增「扩大查看」——收起世界书简介让节点图占整页；
+  演出配置改为双击节点在详情面板（`GraphNodeDetails.tsx`）进行，取消独立配置按钮；配好的 CG 以
+  缩略图挂在对应节点上方、短直线连接（`graphCG.ts`）；移除选中两节点连线时的描述方框，保留连线
+  高亮、重连与删除。
+- **验证**：`scripts/test_graph_details_browser.py`、`scripts/test_graph_references.cjs`、
+  `scripts/test_stage_ui.cjs` 更新通过；重启后端后背景与 CG 图片接口均 200；构建与五组桌面尺寸
+  浏览器检查通过。
+
+### 2026-10-07 — 舞台流式接收：分页读文与锚定交接
+
+> 流式生成期间先给可读的纯文本分页，整轮完成后再二阶段渲染头像，并把阅读位置锚定回用户
+> 正在读的那一页；输入与恢复都绑定到各自发起的请求。
+
+- **流式读文与锚定交接**（`423c675`、`f5ae3ca`、`37a1d6d`）：流式期间先展示纯文本（固定字数分页，
+  内容增加时页数自然增加）；整轮完成后二阶段渲染头像，并定位回用户正在阅读页的起始处；后端区分
+  「正文已完成」与「整轮生成完成」两阶段状态。舞台输入与中断恢复改为绑定其发起的请求，避免切换
+  会话或重发时把上一轮输入接到新的流上；挂载态的舞台预览交接补测试覆盖。
+- **验证**：真实 HTTP 流式连接浏览器验收通过——阅读位置保持、新增内容不抢页、断线 / 取消后正文
+  仍可读；前端构建与相关舞台用例通过。
+
+### 2026-10-07 — 前端设计指南重写为「避坑清单」
+
+- **重写 `docs/design/frontend-design-guidelines.md`**：由整体风格指南收敛为硬性禁令清单——标题下
+  不加副标题与描述性文字（最高优先级）、禁 Emoji 与符号冒充图标（功能图标统一 SVG）、桌面端验收
+  不必考虑窄屏；原「五组固定窗口尺寸验收基准」并入附录，其余通用设计规范不再重复。`AGENTS.md` 与
+  `docs/architecture.md` 的指引与文档地图同步改名与口径。
+
+### 2026-10-07 — 进行中（未合并 main）：战斗系统统一插件化
+
+- **战斗系统统一插件化**：方案已写入本地 `task.md`（安装入口：应用内 ZIP 安装 / `data/plugins/inbox`
+  扫描导入 / 官方插件首次启动默认安装；宿主与插件职责划分；前端扩展协议；结构化结果提交契约）。
+  实现工作在隔离仓库 `D:\Code\arknights-tavern-unified-plugins`（分支 `feat/unified-combat-plugins`）
+  进行：插件宿主（`packages.py` / `store.py` / SDK harness / `blueprints/plugins.py` / 生命周期管理）、
+  草稿隔离与叙事提交协调器、第四个示例模式包；联合回归后端 693 项通过、叙事协调器 31 项通过，
+  已用真实后端 + 真实浏览器跑通「开始—保存—重载—结束—确认—回剧情」闭环，工作分支上另有窗口预设
+  与冻结场景演出的整合提交。外部 LLM、完整 App 导航与 Electron 原生验收待做，完成合并后再转为
+  正式条目。
+
+### 2026-10-06 — 窗口尺寸预设与显示模式
+
+> 设置页可以一键把窗口切到五组固定内容区尺寸或窗口全屏 / 全屏；这组尺寸同时成为前端开发与
+> 验收的基准（自由拖动的尺寸不作基准）。
+
+- **固定尺寸预设与显示模式**（`ce8004c`）：新增 `frontend/electron/windowControls.ts`、
+  `shared/windowSettings.ts`、`WindowSettings.tsx`——五组预设（1280×720 / 1400×900 / 1600×900 /
+  1920×1080 / 2560×1440）+ 窗口全屏 + 全屏，点击即切换、无「应用」按钮；AGENTS.md 与前端设计指南
+  同步确立「按五组固定尺寸验收」口径。
+- **超出屏幕自动适配并如实显示**（`a6df678`、`32d2bfe`）：2K 物理屏 + 125% 系统缩放下逻辑工作区仅
+  2048×1104，选 1080p / 2K 预设会被等比压缩，但下拉框此前仍显示所选预设、选中值与实际尺寸静默
+  分叉。`WindowState` 新增 `fitted` 标记：适配时显示系统实际内容区尺寸并注明「超出屏幕可用空间，
+  已按比例适配」，`presetId` 只在完全一致时成立；窗口全屏 / 全屏并入同一下拉（撤掉独立按钮行），
+  实时反映原生最大化 / 全屏广播。
+- **验证**：`scripts/test_window_controls.cjs` 与 `test_window_controls_electron.cjs`（真实 Electron
+  窗口）补 `fitted` 断言通过；`npm run build`（tsc + vite）通过。
+
+### 2026-10-06 — 管理页顶栏改 Chrome 标签式导航
+
+- **标签页式导航**（`526946b`）：`GameTopBar` 激活页签改圆角顶边标签，底色上浮一层（gray-800）、
+  下沿覆盖顶栏分隔线与下方内容视觉连通；非激活页签无边框退后，hover 仅轻底色；补 `aria-current`。
+  角色页模块页签条底色与激活标签同色，作为连通下来的工具条。
+- **标签脚圆角融合**（`a3ff616`）：激活标签底边两角加 Chrome 式标签脚——`style.css` 的
+  `.topbar-tab-active` 伪元素 `background-color: inherit` 继承标签底色（三皮肤自动适配，无需改皮肤
+  脚本），径向 mask 裁出四分之一圆，顶栏分隔线沿弧线收进标签脚；「主菜单」返回按钮与页签文字同一
+  水平线对齐（`self-end` + `-mb-px`）。
+- **溢出修复**（`78cb901`）：设置页标签不再横向扩展出滚动条。
+- **验证**：默认 / 酒馆 / PRTS 三皮肤无头截图通过，`tsc --noEmit` 与 `vite build` 通过。
+
+### 2026-10-06 — 前端设计规范文档落地
+
+- **新增 `docs/design/frontend-design-guidelines.md`**（`ff674f3`，后聚焦视觉风格 `0d6bbfc`）：
+  主标题下不生成描述性副文案、界面禁用 Emoji（功能图标统一 SVG）、按钮不用渐变色、浅色界面避免
+  过深色块；`AGENTS.md` 指明前端实现前必读。此前 09-29 / 09-30 曾用生成概念图探索主页与会话大厅的
+  布局方向（暖白墨绿、深色暖金两版主页 + 深色酒馆大厅，未改代码），本规范是这轮探索沉淀的约束。
+- **顺手修正**（`362bf5c`）：浅色主题下单个 / 批量删除会话按钮由浓红改为淡红底红字。
+- 另：本文件尾部「当前状态与后续计划」节于当日移除（未提交的工作区修改，本次更新予以保留）；
+  设计指南 10-07 又被重写为「避坑清单」版，见上方 2026-10-07 条目。
+
+### 2026-10-06 — 战斗模式包：可携带战斗模式落地并通过 PC 验收
+
+> 战斗模式从内置代码变成可安装、可运行的「模式包」：包管理基础 → 冻结演练存档运行 →
+> 会话生命周期集成 → 作者工作流，附示例包 stance-duel；`feat/combat-mode-plugins` 合并 main 并推送远程。
+
+- **包管理基础**（`28287ce`）：`src/combat_mode_packages.py` + `blueprints/combat_modes.py` +
+  `tools/combat_mode.py` CLI + 前端 `CombatModeManager.tsx`（管理页入口进主菜单与顶栏）；
+  方案文档 `docs/proposals/combat-mode-plugins.md`。
+- **冻结演练存档运行**（`bd7f278`）：模式包自带冻结存档直接开练；示例包
+  `examples/combat-modes/stance-duel/`（manifest / main.js / practice.json + 包内测试）；前端
+  `features/combatModes/`（`RuntimeFrame.tsx`、`runtimeDocument.ts`）与 `CombatModesView.tsx`。
+- **会话生命周期集成**（`53c6ad8`）：`combat_mode_sessions.py`、`combat_mode_bindings.py`、
+  `blueprints/combat_plugins.py`；创建向导可选模式，`PluginCombatView.tsx` 承载插件战斗，
+  `ChatPanel` 入口与 `useCombatResume` 恢复接入。
+- **作者工作流与目录契约**（`2b8d866`）：世界书适配器示例
+  `examples/worldbook-adapters/stance-duel.json`、README 与集成测试补齐。
+- **PC 验收**（`4aafd3a`、`c75ae13`）：修复模式标识、创建模式、断线提示与主题问题；910 项测试
+  通过 / 4 项跳过；验收报告归档 `docs/archive/combat-plugin-pc-qa-2026-10-06.md`（Electron 运行与
+  下载落盘未覆盖，已如实记录）。
+
+### 2026-10-04 — 剧情会话体验：选项居中、End 快进、完整剧情地图
+
+- **选项居中、对话框不动**（`1d1a125`）：对话框固定在底部不再被选项顶起；选项在画面中央独立显示、
+  过多时单独滚动；选项去掉「情报」「作者预设分支」等标签，只留剧情正文与必要的禁选原因
+  （`StoryChoices.tsx`、`StageView.tsx`、`chat.css`）。
+- **End 快进**（`290a365`）：焦点在舞台 / 对话框时按 End 直接跳过本轮对白显示选项（无选项则显示
+  输入框），不自动选择或发送；原 Ctrl 快进保留。
+- **完整剧情地图**（`5413cf3`、`8a2c6f1`）：会话剧情图谱展示完整故事地图并标记当前阵容；
+  复用世界书图谱的布局与可拖拽画布（`SessionStoryGraph.tsx` 重写、`utils/sessionStoryGraph.ts`）。
+- **会话隔离修复**（`bc91a99`、`14238c3`）：异步战斗事件按会话隔离、scoped 头像恢复；手动战斗响应
+  守卫与返回视图刷新；新增 `scripts/test_session_isolation.cjs` / `test_session_isolation_browser.py` /
+  `test_sse_lifecycle.cjs`。
+- **吉祥物 logo 定稿**（`6cf7de6`）。
+- **验证**：构建与三种桌面尺寸浏览器验收通过；提交均合并 main。
+
+### 2026-09-30 — 战斗网格演练恢复与角色身份口径
+
+- **网格演练恢复**（`d55462b`）：补回 `data/tactical_practice/`（近卫 / 狙击 / 医疗 / 重装四职业卡牌、
+  训练节点 `enc_builtin_training.json`、`party.json`）；战斗视图角色形象口径修正
+  （`CharacterIllustration`、`CombatView`、`PixiCombatScene`、`fallbackToken`，PixiJS 场景随 Spine
+  覆盖层逻辑大幅调整）。
+
+### 2026-09-29 — 世界书书架加载性能
+
+- **书架提速**（`bf0387f`）：书架加载路径优化、wiki 刷新延后（`wiki_manager.py`、
+  `worldbook_folder_store.py`、`hooks/wiki_prefetch.py`、`blueprints/wiki.py`）；新增基准脚本
+  `scripts/bench_worldbook_loading.py`。
+- **书架自动加载**（`0816149`）：进入世界书页自动加载书架，文件夹操作简化。
+
+### 2026-09-28 — 世界书自包含文件夹存储与旧格式退役
+
+> 安装后的世界书改为「一书一文件夹、资源自包含」，项目内部旧 schema / 旧运行时读取全部退役；
+> 同日定下内部版本政策：不为自身旧格式保留兼容分支（外部 SillyTavern 格式例外）。
+
+- **自包含文件夹**（`8249743`、`3e64753`、`d273cf3`）：安装的书存为独立文件夹，内容收进书文件夹；
+  资产与身份按书隔离（`17d2460`），编辑器资源限定在书文件夹内（`2af0b44`），本地卡牌保持可见、
+  combat goldens 按作用域隔离（`37c776b`）；导入的会话快照还原为文件夹书（`1d245d8` +
+  `6ada52d` 测试钉住）。涉及 `blueprints/assets.py`（重写 323 行）、`cards.py`、`world_book.py`、
+  `scripts/migrate_worldbook_layout.py` 等。
+- **便携打包**（`37ce3d3`）：世界书连同自有资源整体打包迁移。
+- **旧格式清理**（`b716e23`、`77d2df0`）：删除旧 schema 兼容分支与旧运行时读取路径；
+  `89cdad0` 把「内部版本策略 + 外部格式例外」写成文档口径（即现 AGENTS.md 的关键约束节）。
+- **管理界面简化**（`28ccfbb`）。
+
+### 2026-09-28 — 会话实时剧情图谱与叙述规则绑定世界书
+
+- **实时剧情图谱**（`ceb0745`）：对话页新增 live 会话故事图，带角色位置标记
+  （`components/story/SessionStoryGraph.tsx` + `utils/sessionStoryGraph.ts` +
+  `styles/session-story-graph.css`）；台词归属优先显式说话人证据、证据不足保留未知归属（`5610286`）；
+  图谱节点详情查看与剧情引用修复（`0c17e25`，`GraphNodeDetails.tsx`、`graphReferences.ts`）。
+- **叙述数值与物品选择绑定世界书**（`70b506a`）：设计文档 `docs/design/narrative/story-rules.md`；
+  剧情选项组件 `StoryChoices.tsx`；`SceneManager` 与 `blueprints/chat.py` / `scene.py` 配套；
+  `scripts/prepare_beyond_twin_story_rules.py` 为彼岸双生配置剧情规则；`scripts/test_story_rules_ui.cjs`
+  钉住交互。
+- **验证**：`scripts/test_session_graph_browser.py`、`test_session_graph_ui.cjs`、
+  `test_graph_details_browser.py` 等新增 / 更新通过。
+
+### 2026-09-28 — 界面细节一批与工作区清理
+
+- **统一危险操作确认**（`9df9e10`）：新增主题化确认对话框 `components/common/ConfirmDialog.tsx`，
+  替换 12 个组件里各自的删除确认（世界书 / 角色 / 资产 / 记忆 / 剧情状态 / 战斗节点等）。
+- **会话界面**：「主控与阵容」选择界面精简（`32f84c5`）；人物简介改浮动提示（`779ced8`）；
+  大厅目录复用、新建向导即时可交互（`670648c`）；sideview 输入生命周期与响应式加固（`9d72dbc`）；
+  世界书分组可读性改进（`e3e6083`）。
+- **工作区清理**（无提交）：确认 main 与 origin/main 无差异后，清理 9 个已完成 worktree 与 2 个
+  临时副本（先断开 `frontend/node_modules` junction 防连带删主仓依赖），删除已合并分支
+  `feat/story-rules`、`feat/task-graph-continuation`；保留含未合入提交的 `script-lab-20260927` 克隆。
+
+### 2026-09-27 — 补遗：形象候选上传、资源页布局、浅色大厅横幅、彼岸双生剧情美术
+
+> 当日两条正式条目（剧情自动选中、项目更名）之外的一批落地改动，补记于此。
+
+- **角色形象候选上传**（`2535a13`）：上传不再直接覆盖，先进候选列表
+  （`resources/characters/<name>/candidates/<media_type>/`），点击候选才应用；应用时旧覆盖归档回
+  候选（内容去重），换形象不丢图；候选不计入已覆盖判定，随存档导出携带；sessions 蓝图新增候选
+  上传 / 服务 / 应用 / 删除四端点；`tests/test_session_character_candidates.py` 覆盖上传不覆盖、
+  应用 / 切换 / 去重、删除保留生效图、路径穿越与非法类型。
+- **资源页彩色区块 + 侧栏拖拽调宽**（`3cae162`）：角色形象改按名字哈希稳定着色的色块，只显示本会话
+  生效图（会话覆盖 → 书内快照 → 全局默认）；新增 `useResizableWidth` + `ResizeHandle`（拖拽调宽、
+  localStorage 持久化、键盘微调、双击复位），接入对话页场景面板（220–560px）、大厅会话列表与
+  教程目录。
+- **浅色主题大厅横幅**（`361c669`）：`html.light` 覆盖 `session-hero` 与战斗演练面板为浅底深字，
+  用 `background-image` 长手避免重置基类 `background-size: cover` 与渐变字。
+- **彼岸双生剧情美术**（`722508d`、`d002aac`、`310d22e`、`f27090e`）：剧情立绘 / CG 补全
+  （Nicole 走廊坠落 CG、程旭显示器朝向修正、雨景 CG 替换）；节点图配置舞台背景与 CG 线索
+  （`f417425`）；世界书动态预览条目显示触发词（`c1ea2c2`）。
+
 ### 2026-09-27 — 新建会话：选中剧情即自动选中世界书与该书全部角色
 
 > 点一下剧情，绑定的世界书、默认主控与该书的角色都自动选中；「主控与阵容」这一步从此只选角色。
@@ -810,23 +1003,5 @@
 - 选中/活跃单位视觉区分（分别使用不同边框样式）
 - 卡牌攻击范围高亮
 
----
 
-## 当前状态与后续计划
 
-> 本节只登记**尚未实现**的项与真实限制，不再重复维护「已实现功能清单」——
-> 模块与职责见 `docs/architecture.md`，战斗机制见 `docs/design/combat/combat-design.md`，
-> 数值口径见 `docs/design/combat/combat-numerical-design.md`，节点字段见 `docs/design/combat/battle-spec.md`。
-> 各项实现历史见上方「更新记录」。
-
-### 已知限制
-
-- **精英牌消耗后不回收**：`tier=elite` 的卡牌打出后进 `exhaust`，重洗牌只从弃牌堆重建牌堆（`src/combat_engine/card.py`）。
-- **敌方无支援/治疗行为**：`ai_behavior` 只有 `aggressive` / `defensive` 两档（`src/combat_engine/entity.py`）。
-
-### 待实现
-
-- **遗物系统** —— 战斗中的被动遗物层（物品的主动使用已实现：`data/items/*.md` 的 `combat_effect` + `use_item`）。
-- **角色专属牌消耗个人 AP** —— 当前出牌一律扣共享 AP；移动已经消耗个人 AP。
-- **战斗回放** —— 记录并回放全部行动序列。
-- **PvP 框架** —— 双方轮流操作的异步对战、匹配与排行。

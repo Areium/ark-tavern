@@ -209,7 +209,7 @@ docs/
 │   ├── combat/              战斗引擎 / 数值 / UI / 规格
 │   ├── worldbook/           按需载入、节点级作用域、资料库与用途分离
 │   ├── narrative/           知识召回、两阶段叙述、提示词约定
-│   ├── frontend-design-guidelines.md  前端风格、视觉质感与文案原则
+│   ├── frontend-design-guidelines.md  前端设计避坑清单（硬性禁令 + 桌面验收尺寸）
 │   └── content-hub-design.md
 ├── proposals/               【目标态提案 / 路线图】未落地或部分落地
 ├── perf/                    性能实测记录
@@ -219,11 +219,11 @@ docs/
 
 ### 5.1 `design/` —— 现状设计
 
-前端设计与实现前必读 [前端设计风格指南](design/frontend-design-guidelines.md)，用于统一视觉风格、提升质感并减少无效文案与装饰。
+前端设计与实现前必读 [前端设计避坑清单](design/frontend-design-guidelines.md)，其中列出必须避免的问题与五组桌面验收尺寸。
 
 | 文档 | 内容 |
 |---|---|
-| [design/frontend-design-guidelines.md](design/frontend-design-guidelines.md) | 视觉风格、文案减法、排版留白、配色材质与 SVG 图标原则 |
+| [design/frontend-design-guidelines.md](design/frontend-design-guidelines.md) | 前端设计禁令清单（标题不加副文案、禁 Emoji 冒充图标、不验收窄屏）与桌面端固定验收尺寸 |
 | `design/combat/combat-design.md` | 战斗引擎架构与机制设计 |
 | `design/combat/combat-numerical-design.md` | 战斗数值公式与平衡参数 |
 | `design/combat/combat-ui-design.md` | 战斗界面交互与布局设计 |
