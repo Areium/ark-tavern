@@ -51,7 +51,6 @@ def run():
         expect(about).to_contain_text("Ark Tavern v0.1.0")
         expect(about).to_contain_text("许可：")
         expect(about).to_contain_text("AGPL-3.0")
-        expect(about).to_contain_text("无担保")
 
         license_link = about.get_by_role("link", name="AGPL-3.0", exact=True)
         expect(license_link).to_have_attribute("href", LICENSE_URL)
@@ -59,8 +58,10 @@ def run():
         # 链接相对正文要能看出可点：有下划线装饰且颜色不同于普通正文
         underline = license_link.evaluate("el => getComputedStyle(el).textDecorationLine")
         assert "underline" in underline, underline
-        # 许可说明保持一行，不做成长段落
-        assert about.locator("p", has_text="许可：").count() == 1
+        # 许可只保留一行标识，不带额外说明文字
+        license_paragraphs = about.locator("p", has_text="许可：")
+        assert license_paragraphs.count() == 1
+        assert license_paragraphs.first.inner_text().strip() == "许可： AGPL-3.0", license_paragraphs.first.inner_text()
 
         for width, height in SIZES:
             page.set_viewport_size({"width": width, "height": height})

@@ -5,7 +5,6 @@ import { useApi } from "../hooks/useApi";
 import WindowSettings from "./WindowSettings";
 import {
   LICENSE_FILE_URL,
-  LICENSE_ID,
   LICENSE_SHORT,
   PROJECT_VERSION,
 } from "../shared/projectInfo";
@@ -824,7 +823,6 @@ export default function SettingsPanel() {
             <a className="app-link" href={LICENSE_FILE_URL} target="_blank" rel="noopener noreferrer">
               {LICENSE_SHORT}
             </a>
-            <span className="text-gray-500">（{LICENSE_ID}，无担保）</span>
           </p>
         </div>
       </section>
