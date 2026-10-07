@@ -319,7 +319,6 @@ html.light .ng-media-error {
 .ng-media-field select { width: 100%; padding: 9px; color: var(--ng-title); background: var(--ng-card-bg); border: 1px solid var(--ng-card-border); border-radius: 6px; }
 .ng-media-panel :is(select,summary):focus-visible { outline: 2px solid var(--ng-beat); outline-offset: 3px; }
 .ng-edge-label { fill: var(--ng-title); stroke: var(--ng-drawer-bg); stroke-width: 5px; paint-order: stroke; font-size: 11px; cursor: pointer; }
-.ng-edge-description { position: absolute; bottom: 56px; left: 12px; right: 12px; padding: 10px 12px; background: var(--ng-card-bg); color: var(--ng-title); border: 1px solid var(--ng-card-border); border-radius: 6px; font-size: 13px; overflow-wrap: anywhere; pointer-events: none; }
 .ng-edge:focus-visible { outline: none; }
 .ng-edge:focus-visible .ng-edge-line { stroke: var(--ng-edge-color-hl); stroke-width: 4px; }
 .ng-media-scroll {

@@ -704,7 +704,6 @@ export default function GraphCanvas(props: Props) {
         })()}
       </div>
 
-      {selected?.kind === "edge" && <div className="ng-edge-description" role="status">{props.edgeDescriptions?.get(selected.id) || "结构连线：大纲未为此连线声明固定选项或判定。"}</div>}
       {/* 缩放工具栏 */}
       <div className="ng-toolbar">
         <button className="ng-tool-btn" title="缩小（Ctrl+滚轮亦可）" onClick={() => zoomCenter(1 / ZOOM_STEP)}>−</button>
