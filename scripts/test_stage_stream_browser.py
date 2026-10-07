@@ -226,6 +226,24 @@ def run():
             plan.send("done", {"stream_id":"fixture","round":3,"phase2_status":"degraded"})
             expect(text).to_have_text("等等。")
             checks.append("JSON stream suppression, canonical preview, degraded completion remains readable")
+            dialog.press("End")
+            expect(composer).to_be_visible()
+            plan = begin()
+            plan.send("text", {"token":RAW[:300]})
+            expect(progress).to_contain_text("1 / 3")
+            dialog.press("End")
+            plan.send("text", {"token":RAW[300:]})
+            expect(text).to_have_text(RAW[280:420])
+            # Stay mounted: coverage of a growing current page must not be lost
+            # to the local cursor snapshot created by the earlier End press.
+            plan.send("text_complete", {"stream_id":"fixture","narrative":RAW})
+            expect(progress).to_contain_text("整理中")
+            plan.send("done", {"stream_id":"fixture","round":4,"phase2_status":"completed"})
+            expect(text).to_have_text(RAW[145:285])
+            dialog.press("ArrowRight")
+            expect(text).to_have_text(RAW[285:425], timeout=200)
+            expect(page.locator(".stage-caret")).to_have_count(0, timeout=200)
+            checks.append("mounted handoff retains all grown preview coverage; subsequent shown text is not retyped")
             assert not errors, errors
             report = {"checks": checks, "page_errors": errors, "screenshots": 20, "boundary": "fixture model/API responses with real HTTP SSE and production React transport/rendering"}
             (OUT / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
