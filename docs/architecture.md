@@ -244,6 +244,7 @@ docs/
 | 文档 | 内容 |
 |---|---|
 | `proposals/combat-value-curve-redesign.md` | 数值成长曲线提案：**P0/P1 已落地**（对照表见文首），保留 P2 未落地项（卡牌 R0–R3 分支、Boss 阶段机制等） |
+| `proposals/local-plugin-minimal-plan.md` | 2026-10-08 本地单机插件精简目标：安装、运行、公共结算、剧情回档与卸载；设计待实现，替代此前统一插件任务队列 |
 
 ### 5.3 `perf/` —— 性能记录
 
