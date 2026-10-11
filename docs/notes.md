@@ -26,6 +26,7 @@
 |---|---|
 | 玩家身份“个人资料”保存位置不可用 | 前端提供空世界书选项，后端保存身份要求非空且启用的所属书。使用路径是先建剧情书、身份存入该书、创建时绑定该书。见 [CharacterManager](../frontend/src/components/CharacterManager.tsx)、[身份 API](../src/blueprints/sessions.py)和[隔离用例](../tests/test_worldbook_folder_identity.py)。 |
 | 大厅与向导的角色候选规则未完全统一 | 向导合并绑定书角色、花名册与剧情阵容；大厅添加角色仍按来源书筛选，拆分剧情书可能缺候选。见 [SessionManagerView](../frontend/src/components/session/SessionManagerView.tsx) 与 [characterCatalog](../frontend/src/utils/characterCatalog.ts)。 |
+| 叙述变体更新接口不一致 | 前端提交 `round/narrative`，`narrate-update` 路由仍读取 `text` 并以单参数调用；`Session.update_narration` 需要轮次与正文。见 [useApi](../frontend/src/hooks/useApi.ts)、[chat 路由](../src/blueprints/chat.py)与[会话方法](../src/session_manager.py)。 |
 | 任务更新缺少任务 ID 校验 | 任务 PATCH 检查状态枚举，未验证目标任务 ID 是否有效。见 [environment 路由](../src/blueprints/environment.py)。 |
 | 全局依赖配置编辑入口未接入工作台 | `LoadTab` 及其子组件仍有源码引用，但未挂载到当前页签；配置草稿保存条不可达。大厅的会话依赖微调仍可用。见 [WorldBookManager](../frontend/src/components/WorldBookManager.tsx)、[LoadTab](../frontend/src/components/worldbook/tabs/LoadTab.tsx)。 |
 | 资产实体行上传不能直接设为默认图片 | 该入口上传到实体目录根部；默认头像、立绘和卡面分别从 `avatar/`、`skin/`、`card_face/` 选择。使用角色资源入口或对应子目录。见 [AssetManager](../frontend/src/components/AssetManager.tsx)。 |
@@ -127,7 +128,7 @@
 
 “只读详情”限制的是作者内容编辑，节点回档仍会修改会话进度。历史卡片使用 `scene:<runtime_id>`，按真实 `parent_id` 连线，不能用推进后保存的参考节拍推断历史归属；当前节点可按本轮舞台定位与作者卡共用。回档提交真实运行时节点 ID，要求已有快照；请求期间按会话锁定续写、轮次回退、删消息与变体操作。返回结果校验所有权、消息版本、epoch 和轮次，迟到结果不写入新会话。资源刷新不触发会中止 SSE 的 `chatRefresh`。
 
-剧情面板只保留当前位置、作者骨架和角色状态。独立回忆摘要的生成、重生成、提示词注入、设置间隔和 SSE 刷新链已退休；`memories.json` 仍保存叙述历史、轮次与累计用量，历史摘要字段保留但不再读取或注入。剧情树节点摘要、剧情日志和角色向量记忆继续使用。`7344cea` 同时修正 `narrate-update` 的轮次与正文参数，旧接口不一致不再列为当前缺口。
+剧情面板只保留当前位置、作者骨架和角色状态。独立回忆摘要的生成、重生成、提示词注入、设置间隔和 SSE 刷新链已退休；`memories.json` 仍保存叙述历史、轮次与累计用量，历史摘要字段保留但不再读取或注入。剧情树节点摘要、剧情日志和角色向量记忆继续使用。叙述变体方法的直接用例不证明 HTTP 路由已修正，第一节的参数缺口仍存在。
 
 新增依据：[节点详情](../frontend/src/components/story/SessionNodeDetails.tsx)、[回档协调](../frontend/src/utils/sessionNodeRollback.ts)。验证入口：[回档锁脚本](../scripts/test_session_node_rollback.cjs)、[无独立摘要的确定性流程](../tests/test_story_tree_full_flow.py)；原提交中的浏览器与完整套件结果保留为当时记录，不等于本轮复跑。
 
