@@ -1,12 +1,37 @@
-# 战斗模式统一插件化实施计划
+# 战斗模式统一插件化实施计划（历史档案）
 
-更新日期：2026-10-08（Asia/Shanghai）
+原记录更新至 2026-10-08，包含 2026-10-07 的连续实施检查点及 2026-10-08 的版本策略与静态导出实验。最近整理：2026-10-11（原文、专题归属、结构与链接静态核对；未重跑历史测试）。
 
-当前决策：2026-10-08 用户确认采用“版本独立安装、使用新版本必须新建会话、先删除依赖会话再卸载”，详见 §35；本轮已开始代码实施，最新范围与验收见 §36。§1–§15 为现行目标，§16–§34 保留历史实施证据，其旧版本保留/升级/卸载要求不再作为续做依据。
+这份方案已被[本地单机插件架构精简方案](../proposals/local-plugin-minimal-plan.md)替代。这里保留设计理由、独有契约、阶段提交、失败与通过记录，供追溯原实验；P0–P7、未勾选任务及“当前/最新/下一步”只表示各节记录时的状态，不生成当前实施义务。主线现状见[架构总览](../architecture.md)，当前脚本模式见[脚本模式说明](../proposals/combat-mode-plugins.md)。
 
-最近代码状态：以 c58c8db 的完整检查点发布为基线，在 D:/Code/arknights-tavern-version-installs（feat/plugin-version-installs）完成版本独立安装阶段提交 1e46306，见 §36。§34 为此前验收证据；原 WIP 保留，未 merge/push，完整 P0–P7 仍未完成。
+## 历史方案与证据如何读取
 
+- §1–§15 是原目标和约束，不是当前能力清单；广泛前端扩展、高信任 UI、分发/隔离与多依赖生态等旧目标不能直接继承为当前承诺。可信 Python 子进程从未等于恶意原生代码的 OS 沙箱；未记录的运行器也不能据此当成已实现。
+- §16–§34 是逐时点实施证据。§35 取消旧默认版本、会话携可执行副本和卸载后继续运行；§36–§37 是这一旧方案内部的后续实验，之后仍被本地单机方案整体收敛。
+- 最后记录为 `feat/plugin-version-installs` 的静态导出提交 `696298e`，此前版本安装为 `1e46306`、检查点发布为 `c58c8db`。这些都是当时隔离 feature 里程碑；原文未 merge/push 的说明保留，不能解释成今天必须合并的分支。
+- 测试组互有交叉，不能相加成不重复总数；途中失败、测试启动早于最后修改、受控模型、合成导航壳及未验 Electron 均保留在各节。历史命令和绝对工作树路径只用于定位证据，不是当前复跑入口。
 
+## 阶段检索表
+
+| 原章节 | 阶段与检索入口 | 判断证据时的限制 |
+|---|---|---|
+| §1–15 | [原目标、包/运行契约、P0–P7 与验收矩阵](#1-目标与完成定义) | 批准目标不等于完成；整组已被后续单机设计替代 |
+| §16–18 | [严格双阶段草稿、五文件日志、准入与协调器](#16-最新工作检查点2026-10-07-0929) | 保留 59 项专项、失败全量与后续修复；不是完整浏览器/Electron验收 |
+| §19–24 | [持久简报、确认、history、第四模式整链](#19-持久简报与确认接线2026-10-07-1157实施中) | 真实 API/worker/浏览器配脚本模型；完整 App、真 LLM、Electron 未验 |
+| §25–27 | [并行主线整合、舞台阅读、丢帧恢复](#25-吸收并行主线与演出草稿组合2026-10-07-1439合并待提交) | feature 吸收 main 不等于 feature 合回 main；保留不同 fixture 边界 |
+| §28–31 | [模型请求账本、三槽、角色投影、随机收据](#28-受控行动模型请求与持久账本2026-10-07-1724) | 受控 transport/账本不证明真实供应商调用；观察摘要不等于规则验证 |
+| §32–33 | [独立效果校验、确认与可恢复公共提交](#32-独立规则校验与完整效果镜像证明2026-10-07-2112) | 只校验条件/history 等有限效果；未升级整体胜负可信等级 |
+| §34 | [检查点发布前置与隔离验收](#34-检查点发布前置与隔离验收2026-10-08) | c58c8db；发布检查点不等于新 epoch 回档 coordinator 完成 |
+| §35–36 | [独立版本决策及实施](#35-版本独立安装与卸载前删档2026-10-08用户确认实施进度见-36) | 1e46306；取消旧副本/跨版本策略，真实桌面与导入未完成 |
+| §37 | [完整引用式存档静态导出](#37-完整引用式存档静态导出2026-10-08阶段已提交总体未完成) | 696298e；归档自洽不证明来源、目标机授权或可导入 |
+
+### 最后实验留下的未完成边界
+
+静态存档导出与结构校验完成，不代表引用式导入、统一新 epoch 回档、官方三种玩法实质拆包、完整奖励成长、全部扩展面或 PC/Electron 总验收完成。以下正文完整保留这些原阶段缺口及当时提出的续做顺序，仅用于解释实验停在哪里；是否继续某项，应按当前设计与任务授权重新判断。
+
+## 原阶段记录（保留章节编号）
+
+以下原文的状态词均以其章节日期为准。旧 API、旧目录、容量和身份规则保持历史写法，不能用新路径替换后冒充同一实验；历史已失效专题路径保留为代码形式，不作为当前导航。
 
 ## 1. 目标与完成定义
 
@@ -27,7 +52,7 @@
 
 ## 2. 当前基线与问题定位
 
-以下为最初编写时的历史基线，当前代码状态见 §34，后续目标以 §35 与已修订正文为准。
+以下为最初编写时的基线；§16–§37 按时间保留实施与策略变化，最后实验状态见 §37。本节不描述当前主线。
 
 编写时核对主工作区为 `D:\Code\arknights-tavern`，`main` / `362bf5c`。原 `task.md` 为 14 字节空行，受 `.gitignore` 忽略。`docs/design/frontend-design-guidelines.md` 与 `docs/system-update-log.md` 已有其他修改，本轮不触碰。
 
@@ -556,9 +581,9 @@ LLM 输出与插件输出都视为待验证数据，不能直接触发宿主命�
 - [ ] 会话草稿隔离、统一读写排斥、恢复门禁和两种叙事 HTTP 入口接线。
 - [ ] P0–P7 全部实现与验收完成。
 
-### 历史证据与现行目标的关系
+### 早期证据与当时版本策略的关系
 
-以下早期进度及 §16–§34 是当时真实实施记录，保留原文与测试数字，不追溯改写为新策略已完成。涉及旧默认版本、冻结代码、卸载后运行、内嵌包导入的要求已被 §35 替代；无关的功能与可靠性目标继续有效。
+以下早期进度及 §16–§34 是当时真实实施记录，保留原文与测试数字，不追溯改写为新策略已完成。涉及旧默认版本、冻结代码、卸载后运行、内嵌包导入的要求在当时被 §35 替代；其余功能与可靠性目标在那次策略调整内保留。整份方案后来被本地单机设计替代，不能把这里的“保留”解释为当前任务授权。
 
 ### 后续里程碑记录模板
 
@@ -595,7 +620,7 @@ LLM 输出与插件输出都视为待验证数据，不能直接触发宿主命�
 
 此前 browser 测试壳已有真实 IAB/iframe/HTTP/SQLite 运行证据，详见隔离计划与 `docs/design/plugins/browser-runtime.md`；不等于完整 App/Electron 或叙事入口验收。
 
-### 16.3 当前未提交改动（8 个文件）
+### 16.3 当时未提交改动（8 个文件）
 
 以下路径均相对于实现目录，目前无暂存、无新提交：
 
@@ -657,7 +682,7 @@ node_history.json
 
 该模块要求调用者持有数据根写锁并排斥所有会话读写/内存访问。它不提供应用层排斥；Windows 目录同步为 no-op，不承诺断电持久性。下一步须核对中断准备、逐文件安装、收据/清理失败及真实进程崩溃恢复，不能仅因文件已存在认定完成。
 
-### 16.6 续做顺序
+### 16.6 当时续做顺序与接线前提
 
 1. 重验工作区与差异；两名子代理已关闭，可由主代理接管 `session_updates.py` 与其测试。
 2. 审查并运行 `python -m pytest -q -o addopts= -rs tests/test_session_updates.py`，修复后做独立审查；原审查未完成，不能记作通过。
@@ -670,7 +695,7 @@ node_history.json
 
 已发现的旧流程排斥缺口：environment 的环境/任务、sessions 自定义提示/世界书依赖（部分 GET 会保存 scope）、scene 角色覆盖、stage plugin-data、memories 回忆重生成、worldbook 会话绑定。已有 narration_guard 不覆盖全部这些路径，不能只靠 narration_count/current-node CAS 保证完整一轮。
 
-### 16.7 子代理与当前执行状态
+### 16.7 当时子代理与执行状态
 
 - 更新日志实现：McClintock，`01a113d6-07c6-7112-be80-94a430a9c736`，独占上述两个更新日志文件，代码/测试已部分交付到磁盘，但无最终结论。
 - 叙事草稿独立审查：Carson，`01a113e0-cb6a-7a91-be47-3ecc59dfcc67`，只读范围为本轮叙事/Schema/SceneManager 改动，未返回审查结果。
@@ -782,125 +807,206 @@ P5 的通用完成基础，不等于 P5 整体完成。本文 §16/§17 是历�
 
 ## 19. 持久简报与确认接线（2026-10-07 11:57，实施中）
 
+这一阶段接入持久简报、稳定创建和确认 UI，但结算审查尚有 P1，正式 selected HTTP 仍关闭。
+
+### 19.1 阶段实现与修复
+
 - [x] 严格 pendingEncounter / consumedCombat / 确认预览与意图 Schema；生成 SDK 投影。
-- [x] pending 从已发布 overrides 读取；固定创建请求与 create receipt/head/epoch/binding 校验，
-  始终区分上一 run 与本次新 run。限定测试 **24 passed / 1 skipped**；跳过为 Windows 符号链接权限。
+
 - [x] 创建请求 pendingId 必填；手动创建显式 null，不保留缺字段兼容。上下文阶段投影已接线。
-- [ ] 跨存储结算基础。首版33项通过，但独立审查实证发现两项 P1：最终 SQL 收据预算检查过晚，
-  显式 abort 的日志损坏异常未建立 fence。Astra high 正修复及补边界回归，不能标为验收通过。
-- [ ] 真实 HostAuthority / Manager启动补偿 / HTTP 完成收据接线；新增真实集成测试由独立代理负责。
-- [x] 正式删除入口检查未完成更新，terminal settlement companion 随 SQL 删除清理；
-  原绑定删除限定 **9 passed**。合法结算后删除/重启专项仍待验证，不能放宽损坏日志恢复。
-- [x] 前端持久简报/稳定创建/结果接受或撤退/确认未知状态刷新流程落盘。
-  组件与客户端限定 **89 tests passed**，tsc通过；尚未提交。
+
 - 前轮 pending 界面已用真实组件、mock管理边界完成五档PC尺寸/键盘检查；本轮新增确认UI
   浏览器工具不可用，无新增视觉证据，不沿用旧截图计作通过。确认fixture保留供主代理检查。
-- [ ] selected HTTP仍关闭。开放前须先鉴权再Session文件/provider I/O，使用携带宿主凭据的
-  fetch SSE，严格Origin/CORS；不把token放URL或插件上下文。
-- [ ] 完成结果下一轮消费/新pending生成已写入内部协调器草稿，尚未开启 ready 标志或端到端验收。
+
 - 记忆摘要/deviation Call3、公共奖励/可信校验/回档、P4实质拆包、其他slots/scopes、演练、
   统一导入导出、PC/Electron总门禁仍未完成。P3/P5和完整P0–P7不勾选。
 
-主目录仍 main/c916817 与原两份文档WIP。没有merge/push、用户服务重启或真存档写入。
+### 19.2 验证证据与复现条件
 
+- [x] pending 从已发布 overrides 读取；固定创建请求与 create receipt/head/epoch/binding 校验，
+  始终区分上一 run 与本次新 run。限定测试 **24 passed / 1 skipped**；跳过为 Windows 符号链接权限。
+
+- [x] 正式删除入口检查未完成更新，terminal settlement companion 随 SQL 删除清理；
+  原绑定删除限定 **9 passed**。合法结算后删除/重启专项仍待验证，不能放宽损坏日志恢复。
+
+- [x] 前端持久简报/稳定创建/结果接受或撤退/确认未知状态刷新流程落盘。
+  组件与客户端限定 **89 tests passed**，tsc通过；尚未提交。
+
+### 19.3 当时环境与未完成边界
+
+- [ ] 跨存储结算基础。首版33项通过，但独立审查实证发现两项 P1：最终 SQL 收据预算检查过晚，
+  显式 abort 的日志损坏异常未建立 fence。Astra high 正修复及补边界回归，不能标为验收通过。
+
+- [ ] 真实 HostAuthority / Manager启动补偿 / HTTP 完成收据接线；新增真实集成测试由独立代理负责。
+
+- [ ] selected HTTP仍关闭。开放前须先鉴权再Session文件/provider I/O，使用携带宿主凭据的
+  fetch SSE，严格Origin/CORS；不把token放URL或插件上下文。
+
+- [ ] 完成结果下一轮消费/新pending生成已写入内部协调器草稿，尚未开启 ready 标志或端到端验收。
+
+主目录仍 main/c916817 与原两份文档WIP。没有merge/push、用户服务重启或真存档写入。
 
 ## 20. 结算审查与真实确认恢复（2026-10-07 12:11）
 
-- [x] 首版结算两项P1修复并独立复核关闭：文件准备前/确认消费前预演真实终态SQL配额；
-  abort统一异常分类/fence。Astra high完整 **43 passed**，reviewer新增限定 **10 passed**。
-- [x] 真实HostAuthority/HTTP/Manager补偿集成首轮 **24 passed**。run是宿主测试helper生成，
-  不等同真实引擎/provider/LLM执行验收。
+结算 P1 与删除恢复风险关闭，确认 UI 补有五档尺寸观察；正式 SSE、历史恢复和后处理仍在接线。
+
+### 20.1 阶段实现与修复
+
 - [x] 独立复核发现的删除风险已修：完整封闭metadata+正式file decision+对应SQL终态/receipt；
   历史aborted仅验证自身未confirm，允许后来真实成功的request推进同run，不比较旧expectedRun。
   reviewer真实临时HTTP/SQLite/五文件+Host/Manager重启三分支全部验证：两类损坏保留并fence，
   合法A失败/abort→B成功可删除/重启无残留。正在把关键反例落为永久回归。
-- [x] context中head/run/pending改为一短事务读取；reviewer真实线程交错验证一致，pending专项7项通过。
+
 - [x] 主代理已用最终确认组件fixture补验五档PC尺寸，无横向溢出；Tab焦点/ESC取消/撤退成功/
   confirm响应丢失后显式刷新仍禁重复确认；console warn/error为空。管理接口mock，未验Electron。
   共享neutral按钮hover规则已修，但完整主题及原生模式仍待总门禁。
-- [ ] selected narrate/narrate-continue入口已写auth-before-lease/文件/provider、exactOrigin及专用CORS，
-  共用协调器commit之后才发送controls/pending/done；ready标志仍未正式开启，专项HTTP/闭环测试在跑。
-- [ ] 第一方私有凭据fetch SSE、严格流帧/EOF未知状态、ChatPanel全部推进路径pending门禁正在开发。
-- [ ] 新受保护叙事历史API恢复真实提交文本：story/free历史保存完整文本与唯一stream_id；
-  frontend按streamId识别丢done是否已提交，不从轮数猜成功，尚在集成验收。
-- 组合回归过程中曾观察 **47 passed / 1 failed / 1 skipped**；失败是旧fixture仍断言发现未知损坏日志后
-  可get_session，与新增globalfence契约不符，已同步为明确恢复错误并待复跑。该历史不改写为全通过。
+
 - P3/P5/完整P0–P7仍未完成；记忆摘要/deviation Call3、奖励/回档、P4官方拆包、其他扩展点/
   演练/统一导入导出与最终PC/Electron门禁继续保留。
 
+### 20.2 验证证据与复现条件
+
+- [x] 首版结算两项P1修复并独立复核关闭：文件准备前/确认消费前预演真实终态SQL配额；
+  abort统一异常分类/fence。Astra high完整 **43 passed**，reviewer新增限定 **10 passed**。
+
+- [x] 真实HostAuthority/HTTP/Manager补偿集成首轮 **24 passed**。run是宿主测试helper生成，
+  不等同真实引擎/provider/LLM执行验收。
+
+- [x] context中head/run/pending改为一短事务读取；reviewer真实线程交错验证一致，pending专项7项通过。
+
+- 组合回归过程中曾观察 **47 passed / 1 failed / 1 skipped**；失败是旧fixture仍断言发现未知损坏日志后
+  可get_session，与新增globalfence契约不符，已同步为明确恢复错误并待复跑。该历史不改写为全通过。
+
+### 20.3 当时环境与未完成边界
+
+- [ ] selected narrate/narrate-continue入口已写auth-before-lease/文件/provider、exactOrigin及专用CORS，
+  共用协调器commit之后才发送controls/pending/done；ready标志仍未正式开启，专项HTTP/闭环测试在跑。
+
+- [ ] 第一方私有凭据fetch SSE、严格流帧/EOF未知状态、ChatPanel全部推进路径pending门禁正在开发。
+
+- [ ] 新受保护叙事历史API恢复真实提交文本：story/free历史保存完整文本与唯一stream_id；
+  frontend按streamId识别丢done是否已提交，不从轮数猜成功，尚在集成验收。
 
 ## 21. 叙事闭环与后处理验证（2026-10-07 12:34，未提交）
+
+叙事闭环与后处理已有专项证据，但历史容量、旧损坏前置拒绝与剩余超时仍是当时审查缺口。
+
+### 21.1 阶段实现与修复
+
+- selected正式ready仍未开启；自由群聊、统一回档/编辑/变体、完整奖励、P4实质拆包及其他P0–P7待办保留。
+
+### 21.2 验证证据与复现条件
 
 - [x] selected真实HTTP专项 **24 passed**：真实冻结provider+脚本模型、跨reload稳定创建、
   用户确认、失败保留pending/未消费、下一成功消费一次、新pending不能被旧completed解锁。
   run推进用realStore，尚非真实combatengine/外部LLM/Electron。
+
 - [x] App真实factory CORS与作者来源明确消歧 **13 passed**；selected旧回忆regenerate在模型前拒绝。
+
 - [x] 记忆/偏离纯草稿后处理最终 **33 passed**，严格Schema/config/取消/真实worker槽回收。
   首轮Windows faulthandler/native access violation记为历史异常，不冒充通过；调整测试重复初始化后整组重跑通过。
+
 - [x] 本轮叙事/草稿/HTTP已有联合 **111 passed in 678.85s**；它运行期间后续后处理/完整history
   接线仍演进，所以不是最终HEAD门禁。
+
 - [x] 前端与客户端六组联合 **143 passed**；四Schema投影与tsc通过。
+
+### 21.3 当时环境与未完成边界
+
 - [ ] 独立后端审查新发现三项边界正在修：合法>1MiB完整history误被RPC预算拒绝；旧损坏history
   未在author/model前拒绝；criticalprovider未收到整轮剩余timeout。新增专用historyvalidator，
   不放宽全RPC预算；准备/发布前验证全history，provider传播剩余预算，专项回归和复审待完。
+
 - [ ] 前端独立复现正常done后的权威刷新丢检定文本与每条usage。正在把宿主真实检定/本轮usage
   纳入持久history并恢复展示；未确认草稿不保留，reasoning继续临时展示。
+
 - [ ] ChatPanel新版mock边界fixture已实测pending禁所有推进、进入统一战斗、完成返回后重读解锁；
   五尺寸/其他错误状态检查仍补验，不能把mock组件等同完整真实产品。
-- selected正式ready仍未开启；自由群聊、统一回档/编辑/变体、完整奖励、P4实质拆包及其他P0–P7待办保留。
 
 主目录仍main/c916817与原两份文档WIP；无merge/push/真存档/用户服务修改。临时UI服务由主代理持有
 供本轮验收，结束时收回。完整阶段仍未完成，后续继续按验收结果更新。
 
-
 ## 22. 正式叙事桥与第四模式真实运行（2026-10-07 13:10）
+
+正式叙事桥开放，第四模式包与真实夹具启动；保存、重载、结果确认和回剧情尚未连成最终验收链。
+
+### 22.1 阶段实现与修复
+
+- [x] SessionManager拥有完整settlement时正式ready；selected narrate/narrate-continue可经
+  Host Bearer与exactOrigin执行持久草稿/简报，null模式基础路径保留。无桥服务仍failclosed。
+
+- 新包不静态编入宿主，不改宿主具体模式ID分支，不执行pip，不发公共奖励。临时数据及精确
+  loopback origin与用户服务隔离；不是外部LLM或完整App/Electron总验收。
+
+- 原变化组件中观察到的Emoji/Unicode按钮图标已换统一SVG，开始剧情busy时禁用；真实当前
+  夹具先前加载旧资产，最终样式仍要补构建/视觉复核。
+
+### 22.2 验证证据与复现条件
 
 - [x] 新history全文件最终 **25 passed / 0 skipped / 80.50s**；>1MiB合法完整读取，8MiB与
   per-row RPC边界、500000nodes、closed序列/唯一stream/typedroll/usage及旧损坏前置拒绝全部覆盖。
+
 - [x] 后端独立复核3项关闭：合法约1.1MiB五row完整200；旧缺stream423且author/model/provider0；
   真实provider收到整轮剩余timeout，400ms场景超时拒绝并回收，50ms过期不新启动。
   清理尾部使实测总耗时约735ms，不把400ms期限说成所有进程清理已在400ms内。
+
 - [x] 前端独立P2关闭，定向11pass；最终相关联合 **149 passed**，修复检定/usage权威重读，
   其它RPC全局预算未放宽。后续纯文案/SVG清理已限测88pass。
+
 - [x] 四Schema投影、tsc、生产构建及Electron main/preload构建通过；仅既有CJS/chunk提示。
   构建仍不等于Electron原生验收。
-- [x] SessionManager拥有完整settlement时正式ready；selected narrate/narrate-continue可经
-  Host Bearer与exactOrigin执行持久草稿/简报，null模式基础路径保留。无桥服务仍failclosed。
-- [ ] 当前HEAD后端十二组联合正在运行，不提前填通过数字；原历史111pass仍保留为有限版本证据。
+
 - [x] 独立第四模式route-challenge完整包落盘：browser七方法引擎、五纯native hooks、独立schemas、
   默认内容和沙箱UI；包内3引擎+7UI **10 passed**，schema/原生纯投影静态检查通过。
+
+### 22.3 当时环境与未完成边界
+
+- [ ] 当前HEAD后端十二组联合正在运行，不提前填通过数字；原历史111pass仍保留为有限版本证据。
+
 - [ ] 新端到端夹具已实际启动：真实app factory/API/SQLite/provider/browser引擎及产品ChatPanel/
   SessionCombatView/确认弹窗，仅导航壳和模型为fixture。已实际生成持久简报、固定创建新run、
   加载并启动真实沙箱UI，局部前进1步且宿主revision仍1；保存/重载/完成/回剧情正在继续。
-- 新包不静态编入宿主，不改宿主具体模式ID分支，不执行pip，不发公共奖励。临时数据及精确
-  loopback origin与用户服务隔离；不是外部LLM或完整App/Electron总验收。
-- 原变化组件中观察到的Emoji/Unicode按钮图标已换统一SVG，开始剧情busy时禁用；真实当前
-  夹具先前加载旧资产，最终样式仍要补构建/视觉复核。
 
 仍未完成：P3其它边界/演练/统一导入导出，自由群聊与统一回档/变体；P4三官方实质拆包；
 P5完整奖励/可信校验/成长；其它slots/scopes及P6/P7全部门禁。没有merge/push或真存档写入。
 
-
 ## 23. 当前联合与真实第四模式验收（2026-10-07 13:46）
 
-- [x] 当前核心后端十二文件联合 **304 passed, 1 skipped in 1584.06s**；Windows符号链接skip不计通过。
-- [x] 完整history **25 passed / 80.50s**；前端合并149pass，纯文案/SVG调整后限定88pass；
-  生产/SDK/Electron main-preload构建与Schema投影通过。
-- [ ] 新完整后端tests/ + 两perf文件正在跑，已出现2项失败尚未到最终trace，不能标全量通过。
-  此完整run启动在静态Schema缓存优化之前，最后缓存修复另有限定证据。
-- [x] 真实第一次fixture已保存/暂停/页面reload恢复；20分钟fixture到期后入口关闭，不能说已完成整链。
+第四模式完成保存、暂停、重载与五尺寸检查；当时提案/确认仍未验完，性能缓存修复有单独证据。
+
+### 23.1 阶段实现与修复
+
 - [x] 第二fixture第一次startup失败在loadPackage时限附近发生：无complete，实际frame销毁并close，
   run faulted；此故障保留为真实记录，不自动重试原操作。
+
+### 23.2 验证证据与复现条件
+
+- [x] 当前核心后端十二文件联合 **304 passed, 1 skipped in 1584.06s**；Windows符号链接skip不计通过。
+
+- [x] 完整history **25 passed / 80.50s**；前端合并149pass，纯文案/SVG调整后限定88pass；
+  生产/SDK/Electron main-preload构建与Schema投影通过。
+
+- [x] 真实第一次fixture已保存/暂停/页面reload恢复；20分钟fixture到期后入口关闭，不能说已完成整链。
+
 - [x] 只读性能分析确认每UI.file路径5次binding校验，每次重做整包14份Schema；修复为精确
   bounded JSON静态合法性成功缓存，LRU256/最多16MiB；每次文件/摘要/授权/owner仍复验，
   RPC/heartbeat/dispose期限不扩大。独立安全review通过，3cache+contracts/packages **275pass/1skip**。
   单独新进程read_folder冷0.1504s，重复完整读取0.0437/0.0428s（22files），仅本机受限计时。
+
 - [x] 优化后全新第三fixture真实startup成功；已实测本地前进1段hostrev仍1、保存rev2、
   保存返回暂停rev3、页面reload后同pending/run恢复rev4，UI保留1/3旧进度；随后绕行1次、
   前进到3/3终点，按钮正确禁用。5PC尺寸host与frame无横向溢出，键盘Tab焦点solid可见。
+
+### 23.3 当时环境与未完成边界
+
+- [ ] 新完整后端tests/ + 两perf文件正在跑，已出现2项失败尚未到最终trace，不能标全量通过。
+  此完整run启动在静态Schema缓存优化之前，最后缓存修复另有限定证据。
+
 - [ ] 提案/用户确认/receipt/下一剧情消费仍在当前真实fixture继续验收；不与前两fixture混称同一完成链。
+
 - [ ] P4只读映射发现发布catalog当前为空，没有真实官方产物，原shell仅测试构造；官方narrative
   当前是普通叙述+属性检定，显式combat.py则共用战术棋盘，不得整份搬作叙事包。
+
 - [ ] 保留原聊天体验的P4前置：action/message/sidebar消费器、受控LLM能力与固定动态角色投影。
   llm.request目前仅枚举、未接服务；新设计明确禁止把get_llm健康completion/底层自动retry当单次收费。
   Astra已给只读契约/账本/purpose/authority/预算方案，未实施或标P4完成。
@@ -909,16 +1015,26 @@ P5完整奖励/可信校验/成长；其它slots/scopes及P6/P7全部门禁。�
 
 ## 24. 真实确认闭环与全量失败处理（2026-10-07 14:24）
 
+第三个隔离 fixture 完成确认后回剧情，可信级为 user_accepted、无公共效果；全量后端仍有失败，后续用限定回归修复。
+
+### 24.1 阶段实现与修复
+
 - [x] 第三隔离fixture完成同一实际run整链：真实七方法browser引擎、checkpoint/暂停/reload恢复、
   proposal rev5、真实HostAuthority用户确认完成rev6，assurance=user_accepted，effectRequests为空。
   返回产品ChatPanel后真实selected SSE推进到第二轮；只读API确认pending=null、run=completed、
   history=[1,2]。模型为脚本fixture、导航为小壳；不等同完整App、外部LLM或Electron。
+
+### 24.2 验证证据与复现条件
+
 - [x] 五PC尺寸宿主/frame无横向溢出，Tab焦点可见，console warn/error为空；1280×720子frame
   需要纵向滚动，操作按钮仍可到达，不声称所有按钮首屏可见。每条权威history usage保留。
+
 - [x] 完整后端最终 **2921 passed / 17 skipped / 3 failed / 2821.06s**，不是通过门禁。
   该run早于静态Schema缓存；缓存另有275pass/1skip与独立3pass证据，旧失败计数不改写。
+
 - [x] 独立诊断证明两个startup失败在0.4秒总期限内尚未进入worker；真实错误case改5秒并新增
   恰好一个实际进程且清理完整的断言，挂起case仍0.4秒、原错误码不放宽；限定4pass。
+
 - [x] HTTP失败是生产并发风险：普通静态read持registry约422ms，活跃RPC的100ms授权轮询
   误报WRITER_BUSY并fault，撤权事务尚未发生。修复worker与外层runtime在原deadline内可取消
   地重试忙锁，必须重新通过完整授权才执行；不扩大期限、不把忙当授权。新增四分支永久回归，
@@ -926,6 +1042,9 @@ P5完整奖励/可信校验/成长；其它slots/scopes及P6/P7全部门禁。�
   独立复审指出最后fresh授权返回时可能已过期/停止；worker/runtime/CapabilityOperation均补
   授权后最终检查，永久回归覆盖迟到与取消。复审实际staging四分支及限定10pass关闭P1。
   中间联合因该修复主动中止，不计通过；最终180pass为修复后重跑。
+
+### 24.3 当时环境与未完成边界
+
 - [ ] 后续仍为受控LLM账本与generic action/message/sidebar、官方三包实质拆包、完整奖励/
   可信校验/成长/回档、演练与统一导入导出、其它slots/scopes及PC/Electron最终门禁。
 
@@ -934,143 +1053,210 @@ P5完整奖励/可信校验/成长；其它slots/scopes及P6/P7全部门禁。�
 
 ## 25. 吸收并行主线与演出草稿组合（2026-10-07 14:39，合并待提交）
 
+隔离 feature 吸收窗口与背景/CG 主线，修复五文件事务和导出准入交叉问题；统一导入仍显式拒绝。
+
+### 25.1 阶段实现与修复
+
 - [x] 本轮叙事/简报/无奖励确认/第四模式/忙锁最终门禁已保存本地 **f61a728**。
+
 - [x] 仅隔离分支吸收main7ac6689的窗口控制和世界书背景/CG呈现；8处冲突已解除，
   主目录原两份WIP未触碰。不是把feature合并回main，也未push。
+
 - [x] 保留统一创建的真实storage/binding/roster预检，在initializer与匹配检查后、新建stage
   发布前初始化presentation；selected不能误入旧session_binding，restore不重新初始化图片。
-- [x] 发现并修复交叉问题：每轮presentation.runtime/frames进入现有overrides五文件事务；
-  plot_id/book_id/nodes/assets/baseline及未知扩展字段仍受保护，不扩大journal集合。
-  草稿完整36pass；合成selected真实冻结provider两transport2pass，帧随成功发布、静态绑定不变。
-- [x] 四个冲突fixture保留当前SessionManager/API，补演出替身，38pass。scene-media与内容8pass：
-  精确lease导出保留图片，纯frame URL投影按消费会话绑定、原图片可读；当前统一import显式
-  拒绝且无写入，不能冒充导入闭环通过。导入仍P3待办，旧用例不恢复内部旧ABI。
-- [x] Electron main保留sandbox/导航/随机凭据/可信文档IPC；preload七明确方法仅mainFrame暴露。
-  内存安全测试37pass（含事件准确解绑），窗口controller独立脚本通过；生产与Electron
-  main/preload构建通过，未据此声称原生窗口总验收完成。
-- [ ] 六组presentation/draft/selectedHTTP/creation/coordinator联合收尾；其早期一次失败是main
-  新export fixture缺lease，随后已按当前import门禁补足上面的8pass限定检查。独立组合复审在跑。
 
-剩余P0–P7按前述继续，尤其LLM账本/action/message/sidebar/三官方包、奖励/回档与统一import。
-
-- 后续组合六文件返回167pass/1旧export fixture失败，修正fixture后的scene/content8pass、
-  新selected合成断言2pass、最终前端六组149pass；不把旧失败联合改写成全通过。
 - 主main随后推进423c675（舞台流式阅读），包含ChatPanel/StageView/SceneManager/chat，
   未纳入本次固定7ac6689整合点；下一整合需要逐段保留selected凭据/草稿提交/推进门禁。
 
 - 独立整合复审关闭：presentation7项+selected双transport2项+Electron37项和window脚本
   通过。未验真实图片的selected创建、原生file://或完整回档，不扩写为这些门禁已通过。
 
+### 25.2 验证证据与复现条件
+
+- [x] 发现并修复交叉问题：每轮presentation.runtime/frames进入现有overrides五文件事务；
+  plot_id/book_id/nodes/assets/baseline及未知扩展字段仍受保护，不扩大journal集合。
+  草稿完整36pass；合成selected真实冻结provider两transport2pass，帧随成功发布、静态绑定不变。
+
+- [x] 四个冲突fixture保留当前SessionManager/API，补演出替身，38pass。scene-media与内容8pass：
+  精确lease导出保留图片，纯frame URL投影按消费会话绑定、原图片可读；当前统一import显式
+  拒绝且无写入，不能冒充导入闭环通过。导入仍P3待办，旧用例不恢复内部旧ABI。
+
+- [x] Electron main保留sandbox/导航/随机凭据/可信文档IPC；preload七明确方法仅mainFrame暴露。
+  内存安全测试37pass（含事件准确解绑），窗口controller独立脚本通过；生产与Electron
+  main/preload构建通过，未据此声称原生窗口总验收完成。
+
+- 后续组合六文件返回167pass/1旧export fixture失败，修正fixture后的scene/content8pass、
+  新selected合成断言2pass、最终前端六组149pass；不把旧失败联合改写成全通过。
+
+### 25.3 当时环境与未完成边界
+
+- [ ] 六组presentation/draft/selectedHTTP/creation/coordinator联合收尾；其早期一次失败是main
+  新export fixture缺lease，随后已按当前import门禁补足上面的8pass限定检查。独立组合复审在跑。
+
+剩余P0–P7按前述继续，尤其LLM账本/action/message/sidebar/三官方包、奖励/回档与统一import。
+
 ## 26. 舞台流式阅读与统一叙事组合（2026-10-07 14:52，未提交）
+
+继续吸收舞台流式阅读，合并正文完成标识和凭据门禁；完整组件组合、构建与浏览器补验当时未完成。
+
+### 26.1 阶段实现与修复
 
 - [x] 固定main7ac6689整合已保存本地 **3b9ddab**。开始仅隔离分支吸收main423c675，
   真实冲突限ChatPanel与chat；主目录不写回、不push，仍保留其WIP。
-- [x] legacy舞台meta/text_complete/done与锚定preview脚本合并；保持Hook注入只进提取dynamic
-  context，不将宿主提示拼进权威正文。新main对应fixture已改成明确这个契约，限定15pass。
+
 - [x] selected继续专用Bearer/exactOrigin/strict parser；_call已严格保证流式正文与模型final正文
   一致，文本256KiB上限。成功commit后发小text_complete{stream_id,text_bytes}确认原token，
   不把全部正文塞进一帧；HTTP每token按4096Unicode字符分块并逐块鉴权，64KiB frame/8MiB
   stream预算不扩大。onTextComplete构造canonical全文，仅有效done交付正式控制。
+
+### 26.2 验证证据与复现条件
+
+- [x] legacy舞台meta/text_complete/done与锚定preview脚本合并；保持Hook注入只进提取dynamic
+  context，不将宿主提示拼进权威正文。新main对应fixture已改成明确这个契约，限定15pass。
+
 - [x] parser39pass：200000UTF8bytes大正文、正文缺边界/重复/错长度/旧字段/marker后token
   拒绝，丢done仍未知；舞台reading11pass、旧SSE生命周期35pass。
+
+### 26.3 当时环境与未完成边界
+
 - [ ] 前端specialist负责ChatPanel generation/preview锚点与权威重读组合，保持selected全部
   推进/epoch/navigation/auth fences，不丢done猜成功。初步28pass，导航cleanup边界继续补测。
+
 - [ ] 真实HTTP/原剧情四组联合及独立传输复审在跑；新增大callback/failedCall2正文边界回归。
   生产构建、组件最终验证与必要浏览器补验待完成。P3/P4/P5与完整P0–P7未完成。
 
 ## 27. 舞台组合复审关闭与真实丢帧恢复（2026-10-07 15:43，已本地提交）
 
-- [x] 三组实际HTTP/provider/legacy舞台最终 **87 passed / 191.22s**；provider完整44pass。
-  新精确256KiB/上限+1/Call2失败/commit顺序五项后续 **5pass / 33.82s**。
-  旧四组48pass/2fail（逐字符夹具超时、旧Hook正文假设）保留为历史；参数化全文ID导致
-  fixture错误也保留，不冒充当前namedcase/单callback边界通过。
-- [x] 独立P2最大正文关闭：仅combat.trigger.extract的编码input封套768KiB，narrative仍
-  256KiB UTF8；普通input/output/capability仍256KiB、RPC仍1MiB。先finite/Unicode/编码
-  验证后独立正文/包Schema验证。真正262144bytes模型成功，上限+1拒绝且无保存。
-  独立4pass关闭；其它容量未放宽，不缓存授权或实例值。
-- [x] 前端六组162pass（早于最后scope修复），client39pass再覆盖精确max/max+1及8MiB
-  reasoning实际总流；组件最后30pass、reading13pass、typed check与生产/main-preload构建通过。
-  其它SSE生命周期35pass与SSRstage脚本通过（已同步当前JSON模块interop，不改依赖）。
+舞台组合补齐最大正文、流所有权与丢帧权威重读；真实产品组件配脚本模型完成阅读恢复，不等于完整原生验收。
+
+### 27.1 阶段实现与修复
+
 - [x] 独立两P2关闭，5项复核：matchingstream partial462→canonical966，exact→prefix→suffix
   映射保证第三页及完整余文，重复文本不跳末尾；真实effectcleanup按完整WeakMap流scope
   ownership，只关自己的旧流，不能取消新nav/conn/epoch/session流。未匹配恢复诊断移除
   生成/预览身份，保留错误日志，不能成为权威正文。
-- [x] 真实临时app/provider/脚本模型浏览器：正常preview第三页→commit/权威刷新保持位置。
-  待战斗后原阅读页被choicesDisabled误锁，已改为分页仅受无内容/编辑立绘限制；新行动/
-  选项仍严格门禁。修复后能读到末页，End只改阅读页，ROUND仍1。禁行动时文案为已读完。
+
 - [x] 全新丢帧fixture只交付462字符前缀，真实后端继续执行并commit，故意丢所有控制/done。
   实际UI从第三页3/4的临时预览，按matchingstreamId重读真正829字符，恢复为第三页3/6，
   全文余页可读；并非按轮数猜成功、无自动写重试。只读API确认历史轮1/真实streamId。
   这项传输故障是显式fixture，API/SQLite/provider与产品client/stage真实，模型仍脚本。
+
+### 27.2 验证证据与复现条件
+
+- [x] 三组实际HTTP/provider/legacy舞台最终 **87 passed / 191.22s**；provider完整44pass。
+  新精确256KiB/上限+1/Call2失败/commit顺序五项后续 **5pass / 33.82s**。
+  旧四组48pass/2fail（逐字符夹具超时、旧Hook正文假设）保留为历史；参数化全文ID导致
+  fixture错误也保留，不冒充当前namedcase/单callback边界通过。
+
+- [x] 独立P2最大正文关闭：仅combat.trigger.extract的编码input封套768KiB，narrative仍
+  256KiB UTF8；普通input/output/capability仍256KiB、RPC仍1MiB。先finite/Unicode/编码
+  验证后独立正文/包Schema验证。真正262144bytes模型成功，上限+1拒绝且无保存。
+  独立4pass关闭；其它容量未放宽，不缓存授权或实例值。
+
+- [x] 前端六组162pass（早于最后scope修复），client39pass再覆盖精确max/max+1及8MiB
+  reasoning实际总流；组件最后30pass、reading13pass、typed check与生产/main-preload构建通过。
+  其它SSE生命周期35pass与SSRstage脚本通过（已同步当前JSON模块interop，不改依赖）。
+
+- [x] 真实临时app/provider/脚本模型浏览器：正常preview第三页→commit/权威刷新保持位置。
+  待战斗后原阅读页被choicesDisabled误锁，已改为分页仅受无内容/编辑立绘限制；新行动/
+  选项仍严格门禁。修复后能读到末页，End只改阅读页，ROUND仍1。禁行动时文案为已读完。
+
 - [x] 修复后五PC DOM无横向溢出、第三页稳定、分页aria-disabled=false；最小视口截图正文
   存在纵向scroll可读，最大视口dialog实际rect完整位于内容区；console warn/error为空。
   没有宣称四主题、Electron/file://或三原生模式总验收。
-
-P3/P5与完整P0–P7仍未完成：受控LLM账本/generic action/message/sidebar，官方三包实质拆包，
-奖励/可信校验/成长/回档，演练/统一import-export与其它slots及最终原生验收继续保留。
 
 - 本轮阶段提交f61a728、窗口/演出整合3b9ddab、舞台组合c7f16b4、主线测试资料吸收
   02de4c4；feature工作区干净。最终前端七组176pass、最后构建通过。主main/f5ae3ca仍有
   两份原文档WIP，未触碰；没有合并回main或push。所有本轮临时服务已停止/到期，最新
   Cua验收tab已关闭，viewport恢复。native/真实LLM/完整P0–P7仍未完成。
 
+### 27.3 当时环境与未完成边界
+
+P3/P5与完整P0–P7仍未完成：受控LLM账本/generic action/message/sidebar，官方三包实质拆包，
+奖励/可信校验/成长/回档，演练/统一import-export与其它slots及最终原生验收继续保留。
+
 ## 28. 受控行动模型请求与持久账本（2026-10-07 17:24）
 
-### 2026-10-07 17:24：受控 Python 行动模型能力与请求账本
+受控 Python dispatch 接入持久模型请求账本，固定用途、预算和未知终态；真实供应商调用未验。
+
+### 28.1 阶段实现与修复
 
 - 实现提交 **48e40f0**，分支 feat/unified-combat-plugins。只接正式 Python dispatch；
   host scope固定用途/身份/冻结绑定/run/epoch/action/deadline，UI和纯叙事hooks仍无LLM权限。
+
 - 单次POST、无健康completion/retry/fallback/redirect，实际client URL/认证与固定adapter
   一起捕获。独立审查复现的旧凭证/新URL风险及client构造期间取消仍POST均已关闭；
   最后独立构造器seam取消/到期均0 POST，未扩大RPC期限。
+
 - SQLite先预留再外部IO；重复成功返回原结果，pending/failed/unknown不重发；重启pending
   记unknown。每action2次/run16次、保守256KiB单位预算、最多4在途，取消/失败不返还。
   有效usage可在迟到取消后保留，缺失usage为null；这不是货币预算或供应商计费上限。
   IO未结束时shutdown保留registry/writer。协议/SDK/文档同步，清理旧“LLM尚未接”口径。
+
+- 详细契约见 docs/design/plugins/controlled-llm.md。主main/dbeafef代码、真实存档/服务
+  和依赖junction未改；只同步用户忽略的task.md进度。不合并、不推送。
+
+- [x] 受控LLM账本与Python dispatch基础能力。
+
+### 28.2 验证证据与复现条件
+
 - 最终两新文件 **75 passed / 66.37s**，含真实Python worker行动一次调用和初始化拒绝、
   实际SQLite/租约/重启、预算、迟到取消、revoke→regrant、并发、45个MockTransport检查。
   核心六文件联合 **258 passed / 384.42s**；该run早于最后构造器3用例/初始化1用例，
   最新75pass覆盖这些最终增量。registry/HTTP/creation/narrativeHTTP/appCORS/backendReuse
   六文件 **296 passed / 294.59s**。初轮25pass/1重启夹具double-open失败已修且最新回归通过。
+
 - 四份Schema投影、SDK严格tsc、生产及Electron main/preload构建通过，只有既有Vite
   CJS/chunk提示。本轮没有重跑全量后端、浏览器/Electron运行或真实LLM，不能替代P7。
-- 详细契约见 docs/design/plugins/controlled-llm.md。主main/dbeafef代码、真实存档/服务
-  和依赖junction未改；只同步用户忽略的task.md进度。不合并、不推送。
-- [x] 受控LLM账本与Python dispatch基础能力。
+
+### 28.3 当时环境与未完成边界
+
 - [ ] 下一依赖仍为generic action/message/sidebar消费器与固定动态角色投影，随后官方
   narrative实质包；本阶段未开放叙事action能力，也未完成P3/P4/P5或完整P0–P7。
 
 ## 29. 会话三槽、动态角色与真实验收（2026-10-07 19:08）
 
-### 2026-10-07 19:08：会话action/message/sidebar与动态角色投影
+会话 action/message/sidebar 三槽与动态角色投影接入，旧完成 run 和新视觉 session 的证据分开；官方叙事包仍未实质拆出。
+
+### 29.1 阶段实现与修复
 
 - 实现提交 **59c9402**，隔离分支 feat/unified-combat-plugins。正式ChatView三槽消费冻结包，
   readonly discovery、独立session iframe/lease、scope commands和metadata epoch首次初始化。
   static发现与metadata open允许普通并发读，真正公共角色capture/private action用exclusive。
+
 - runtimeRoster只叠加会话覆盖到冻结身份/字段/初值，按id不按display name；角色与玩家明确
   分离。只dynamic prompt拿本轮draft投影，stable/extraction与原claim/restore输入未变。
+
 - optional session.messages真实native provider，类型必须冻结声明/namespace匹配，id跟stream；
   history、最终draft.prepare和下一轮同binding校验，随五文件整轮commit，错误不部分发布。
+
 - 前端三槽窗口共享12实例池、visible-only renderer、实际frame销毁且close ACK才释放；
   lost/unknown保留，确定未发送使用host-only对象身份证明，匹配真实恢复ACK释放占位。
   成功私有动作仅通知第一方权威重读，禁止写重试；replace目标仍明确blocked。
-- 独立审查关闭历史未知type、合法typed消息最终prepare缺binding、无界历史实例、未发送
-  微任务退出永久占位等问题；最终独立窄复核4pass。真实registry→runtime内部字段边界、
-  launcher双consumer单飞、舞台typed行污染和窄气泡等均有永久回归。
-- 最终前端五组 **151 passed**；后端消息/角色/draft/history/CORS五组 **113 passed**，
-  surface/contracts/packages/CORS四组 **297 passed**（含真实UI私有保存/暂停/恢复）。
-  四份投影、严格SDK tsc与生产/Electron main-preload构建通过。早期联合243/1fixture
-  缺新必填pluginMessages保留历史，fixture修复后限定1pass及最终相关组均通过。
+
 - 旧1.0.0真实同run261a910eb5ad4709a2e82d2518ad1723最终completed/rev7/user_accepted，
   显式宿主确认未奖励，下一真实剧情history[1,2]、pending=null；原根重启后仍保留。
   三可见槽3→隐藏记录2→内置侧栏1→退出0，滚动只挂可见消息。原工具栏一次恢复点击
   无可见变化未称通过，随后第一方权威恢复成功，不自动重发原写。
-- 新1.0.1独立视觉session仅第一轮：四主题×五PC20组合无横向溢出，frame背景/文本可读、
-  bubble480px、键盘focus跨frame返回宿主；成功run console warn/error为空。该证据不拼
-  进旧run结算。完整记录见docs/design/plugins/session-surfaces-browser-qa.md。
+
 - 两最终fixture退出后API复核0实例，服务正常停止/监听释放。原临时完整root保留；复制根
   因journal绝对根校验被拒且保留，未绕过，不声明迁移或统一import通过。无真LLM/真存档
   /用户服务访问，本轮未改main代码、未merge/push，node_modules junction未改。
+
+### 29.2 验证证据与复现条件
+
+- 独立审查关闭历史未知type、合法typed消息最终prepare缺binding、无界历史实例、未发送
+  微任务退出永久占位等问题；最终独立窄复核4pass。真实registry→runtime内部字段边界、
+  launcher双consumer单飞、舞台typed行污染和窄气泡等均有永久回归。
+
+- 最终前端五组 **151 passed**；后端消息/角色/draft/history/CORS五组 **113 passed**，
+  surface/contracts/packages/CORS四组 **297 passed**（含真实UI私有保存/暂停/恢复）。
+  四份投影、严格SDK tsc与生产/Electron main-preload构建通过。早期联合243/1fixture
+  缺新必填pluginMessages保留历史，fixture修复后限定1pass及最终相关组均通过。
+
+- 新1.0.1独立视觉session仅第一轮：四主题×五PC20组合无横向溢出，frame背景/文本可读、
+  bubble480px、键盘focus跨frame返回宿主；成功run console warn/error为空。该证据不拼
+  进旧run结算。完整记录见docs/design/plugins/session-surfaces-browser-qa.md。
 
 ### 下一依赖：官方narrative实质拆包前置（仍未实现）
 
@@ -1087,39 +1273,70 @@ P3/P5与完整P0–P7仍未完成：受控LLM账本/generic action/message/sideb
   可回档效果提交后才能等价迁出，不能只写私有snapshot冒充完整迁移。
 - plugins-src/与resources/default-plugins尚无真实三包/catalog发行产物。做好以上边界再
   实质narrative，随后sideview/tactical；最终奖励/成长/回档、演练/统一import-export、其它
-  scopes/trusted-ui/replace与P7仍属于同一完整任务。完整P0–P7保持未完成。
+  scopes/trusted-ui/replace与P7仍属于同一完整任务。
 
 ## 30. 冻结玩法资料与动作状态观察（2026-10-07 20:09）
+
+冻结角色玩法资料与动作观察账本落地，动态读要求真实独占 lease；观察摘要不构成规则验证，统一 epoch 回档仍未完成。
+
+### 30.1 阶段实现与修复
 
 - 实现提交 **c83ef67**，隔离分支 feat/unified-combat-plugins。公开角色 attributes/gameplay
   从同次YAML投影独立characterData，纳入冻结摘要，可选包characterDataSchema验证；
   无公开数据不硬映公共stats，不读正文/完整metadata，不给旧实验快照补读旁路。
+
 - characters.bound.read只读冻结数据；session.gameplay.read仅真实Python dispatch/propose，
   声明+授权后持有真实exclusive lease，读当前环境/选中条件/history/动态roster，active仅
   scene actor。初始化/恢复原ABI不变，纯hook/UI没有动态观察/公共写权限。
+
 - 动作准备事务insert-only观察账本绑定instance/epoch/run/request/binding/body/摘要，
   重复已完成动作先返回原收据不recapture，读返回分离副本；对应收据删除真实FK级联。
   独立审查两P2关闭：UTF8观察字节纳入原64MiB预算并在prepare回检；重哈希改字段来源
   仍拒绝。最后复核均关闭，无新增发现；没有把观察摘要当规则验证。
+
 - overlay条件输入/getter深拷贝、setter整段RLock；节点快照必含character_states，树和
   author恢复均替换，拒绝缺失/错误类型。统一run/epoch回档仍未完成。
+
 - 原SSE只在exclusive WRITER_BUSY按原期限/取消/鉴权等待；不传旧值、不重启写操作。
-- 角色资料21pass、helper最终55pass、真实HTTP→SessionManager→worker最终7pass、
-  状态快照5pass；helper/native最后联合 **62 passed /54.31s**覆盖最后两审查修复。
-  原runtime/HTTP/UI/provider/bindings/SSE七组 **333 passed /979.20s**（开始早于两修复）；
-  新SSE三分支3pass、原树/author回档21pass。早期native四处expect502夹具实际403
-  CAPABILITY_DENIED修正后通过，不降低生产授权。四投影/严格SDK tsc/生产及Electron
-  main-preload构建通过；一次frontend路径重复的投影命令失败，仓库根正确命令重跑通过。
+
 - 契约见docs/design/plugins/gameplay-context.md，相关旧文档口径同步。无本轮新增浏览器/
   Electron运行/真模型证据，真实存档/服务未改；主main/dbeafef两快照稳定、代码未改。
-  不合并、不推送，完整P0–P7保持未完成。
+  不合并、不推送。
 
 下一依赖仍在同一完整任务：从明确宿主配置创建唯一请求临时transport（无get_llm健康
 completion/fallback），独立规则验证及固定公共condition/history幂等结算/回档；之后官方
 narrative实质包/行动→结果→叙事衔接，再sideview/tactical、演练/import-export/其它槽与P7。
 非空effects门禁保持，不能只删拒绝检查；trusted-python执行授权不等于公共效果授权。
 
+### 30.2 验证证据与复现条件
+
+- 角色资料21pass、helper最终55pass、真实HTTP→SessionManager→worker最终7pass、
+  状态快照5pass；helper/native最后联合 **62 passed /54.31s**覆盖最后两审查修复。
+  原runtime/HTTP/UI/provider/bindings/SSE七组 **333 passed /979.20s**（开始早于两修复）；
+  新SSE三分支3pass、原树/author回档21pass。早期native四处expect502夹具实际403
+  CAPABILITY_DENIED修正后通过，不降低生产授权。四投影/严格SDK tsc/生产及Electron
+  main-preload构建通过；一次frontend路径重复的投影命令失败，仓库根正确命令重跑通过。
+
 ## 31. 临时模型transport、宿主随机收据与固定结算镜像（2026-10-07 20:29）
+
+临时模型 transport、固定结算镜像和宿主随机收据分为三个提交；随机、模型请求与镜像均有不同权限和恢复边界。
+
+### 31.1 阶段实现与修复
+
+- **1b55c91**：generic random.sample仅声明+授权的Python dispatch；真实pending action/
+  owner/CAS/epoch/binding/授权代际，跨thread承接host parent lease，不绕exclusive writer。
+  host secrets整数均匀采样，不内置d20/玩法公式。事务提交后交付，固定action/check唯一
+  键禁止改ID重掷；4/action、64/run、100k全局，proof与canonical action UTF8字节计入
+  原64MiB。取消/撤权/再授权期间rollback，提交后引擎失败保留，不自动重掷。
+
+- host-only completed证据重验原canonical action、done engine-dispatch、真实owner/摘要；
+  pending/error/重启故障动作不能变成规则验证，真实删除FK级联清理。宿主命令fingerprint
+  ownerId=null、owner另存，按现契约；不要误用旧推断的ownerId=instance算法。
+
+- 文档controlled-llm.md、random-receipts.md已同步；隔离feature代码已保存，主main/dbeafef
+  两快照稳定/代码未改，真实用户存档/服务未触碰，不merge/push。
+
+### 31.2 验证证据与复现条件
 
 - **b8e64a9**：现成cache继续固定真实client/adapter；无可用cache单次严格读取实际宿主
   配置，128KiB/UTF8/duplicate/nonfinite门禁，不用get_config容错默认/ENV，不构造legacy
@@ -1127,28 +1344,21 @@ narrative实质包/行动→结果→叙事衔接，再sideview/tactical、演�
   fallback，deadline/取消门禁同旧路径。云key/url任一非空才要求完整云配置；两空仅用
   完整显式local，默认cloud_model不单独选cloud。这个产品local形状P2已独立复核关闭。
   旧45+新43共 **88 passed**，含真实worker→MockTransport→durable回放；无真实供应商调用。
+
 - **1745dbd**：PreparedSettlement before/after固定有界bytes；检查baseline，publish解码
   fresh对象。准备回调保留dict或后续live overlay不能改固定镜像；file决定→SQL finalize→
   registered memory/recover顺序未变。全 **44 passed /234.29s**，独立审查无新增发现。
-- **1b55c91**：generic random.sample仅声明+授权的Python dispatch；真实pending action/
-  owner/CAS/epoch/binding/授权代际，跨thread承接host parent lease，不绕exclusive writer。
-  host secrets整数均匀采样，不内置d20/玩法公式。事务提交后交付，固定action/check唯一
-  键禁止改ID重掷；4/action、64/run、100k全局，proof与canonical action UTF8字节计入
-  原64MiB。取消/撤权/再授权期间rollback，提交后引擎失败保留，不自动重掷。
-- host-only completed证据重验原canonical action、done engine-dispatch、真实owner/摘要；
-  pending/error/重启故障动作不能变成规则验证，真实删除FK级联清理。宿主命令fingerprint
-  ownerId=null、owner另存，按现契约；不要误用旧推断的ownerId=instance算法。
+
 - random最终32/helper+8真实HTTP/worker+7既有gameplay native，联合 **47 passed /234.87s**，
   含exclusive parent跨thread、command replay/恢复不重掷、failed/reroll保留且不可验证、
   undeclared/4错phase、删除。独立2窄测覆盖exclusive与revoke/regrant。早期hash口径错误
   suite中止，首例修复1pass；首次native7pass/1错误propose测试路由404改用真实/result后
   最终8通过。历史失败不算最终通过，未放宽权限。
+
 - 原LLM请求账本/正式session HTTP/协议联合 **116 passed /139.25s**；四Schema投影、
   实际frontend依赖tsc严格SDK、production/Electron main-preload构建通过。root npx tsc
   曾命中非TypeScript包提示，改用实际frontend/node_modules/typescript/bin/tsc后通过。
   不改依赖junction，无本轮新增浏览器/原生运行/真模型验收。
-- 文档controlled-llm.md、random-receipts.md已同步；隔离feature代码已保存，主main/dbeafef
-  两快照稳定/代码未改，真实用户存档/服务未触碰，不merge/push，完整P0–P7未完成。
 
 ### 下一项：独立规则验证与公共条件/history效果（设计边界，尚未实现）
 
@@ -1169,41 +1379,55 @@ narrative实质包/行动→结果→叙事衔接，再sideview/tactical、演�
 
 ## 32. 独立规则校验与完整效果镜像证明（2026-10-07 21:12）
 
+独立规则校验器与效果镜像证明完成有限验证；报告尚未接公共提交，不能把只读校验当结算成功。
+
+### 32.1 阶段实现与修复
+
 - 实现提交 **a107902**，隔离feat/unified-combat-plugins。combat.validation声明精确
   trusted-python入口/Schema/rules/policy/kinds/maxEffects，combat.effects.validate为独立
   权限。browser engine搭native validator仍必须授权trusted-python；管理页显示声明政策/
   效果种类/上限，不把运行授权或官方来源当胜负验证。
-- content必填validationLock/ruleLocks，锁包/entry字节/规则JSON/政策/范围；frozen从精确
-  包和冻结adapters重建比对，源书改变不漂移。跨book同id qualified ruleRef保留独立，
-  result改ruleRef/actionRefs/evidence，旧direct ruleId仅拒绝测试保留，不增加兼容路径。
+
 - 新canonical gameplay action与receipt/观察同prepare事务保存并计入64MiB、FK级联；
   verifier输入必须done dispatch、body/hash/owner/完成revision、精确观察和每个random
   receipt匹配。未知/failed/pending/伪造输入在spawn前拒绝，无模型/重执行/重掷骰。
+
 - PluginHost.validation与新result-validator profile真实独立worker：只verifyResult/dispose，
   全部host capability（即便引擎已有grant）拒绝。768KiB输入、64KiB输出、4实例、60s上限；
   typed输出限定frozen actor/kind/count/current round，拒绝assurance；固定bytes report/input
   仅给host，不写public overlay/files/run completion。局部效果校验不升级整体胜负可信级。
+
+- 文档result-validation.md、architecture及相关protocol/bindings同步。main/dbeafef两次
+  稳定、代码未改；仅守hash同步忽略task.md。无真用户data/config/model/service触及，
+  未merge/push。
+
+### 32.2 验证证据与复现条件
+
+- content必填validationLock/ruleLocks，锁包/entry字节/规则JSON/政策/范围；frozen从精确
+  包和冻结adapters重建比对，源书改变不漂移。跨book同id qualified ruleRef保留独立，
+  result改ruleRef/actionRefs/evidence，旧direct ruleId仅拒绝测试保留，不增加兼容路径。
+
 - cleanup先撤实例能力、真实tree.closed后ACKlease；失败保留owner/租约，显式shutdown
   可重试。关闭后仍核cancel/deadline/generation/head/run；revoke→regrant不能复活报告。
   native初组 **21 passed /271.28s**，追加late/真实close/cleanup失败 **7 passed /80.42s**；
   初始两次binding request夹具签名错误修正为实际roster关键字，最终以上组通过。
+
 - effect_images为pure机械前置：detached apply conditions/history+固定history entry，有限
   proof存完整before/after/effects/entry canonical摘要、受影响actor原值与存在flags。
   reverse完整before后再forward完整after闭环，抓无关字段和选中actor内额外变更；
   缺失/空值严格分离，条件64/检定20/history1024/overlay8MiB/proof256KiB。**23 passed**，
   独立设计与实际静态审查无发现；不是文件事务或公共授权。
+
 - 静态新规则 **38 passed**；既有bindings/frozen/contracts/packages **446 passed**；新增
   action记录后的gameplay/random native **15 passed /122.12s**；worker/原结算HTTP
   **92 passed /120.17s**。前端授权相关 **43 passed**、四投影/严格SDK tsc/生产及Electron
   main-preload构建通过。未重跑全量后端、不等同native Electron/P7。
+
 - 新scripts/validator_admin_qa_package.py真实临时产品组件+Blueprint只读fixture，两包注册、
   API调用0/实例0，59046/51545监听释放。Browser/IAB/Chrome工具均不可用，无viewport/
   screenshot证据；修正fixture显式owner.close后新临时根正常清理。首次残留根
   C:\Users\areium\AppData\Local\Temp\ark-validator-admin-qa-5vztnub4删除被自动审批拒绝
   （blocked by policy），保留原目录，没有其它删除方式。docs/notes.md记录这条实际限制。
-- 文档result-validation.md、architecture及相关protocol/bindings同步。main/dbeafef两次
-  稳定、代码未改；仅守hash同步忽略task.md。无真用户data/config/model/service触及，
-  未merge/push，完整P0–P7保持未完成。
 
 ### 下一步必须真实接公共提交/确认/回档，不缩成只读报告成功
 
@@ -1225,46 +1449,62 @@ narrative实质包/行动→结果→叙事衔接，再sideview/tactical、演�
 
 ## 33. 真实公共效果确认与可恢复提交（2026-10-07 22:15）
 
+有限公共条件/history 效果经预览、确认和唯一文件决定提交，崩溃按固定镜像恢复；整场胜负、成长与回档仍未交付。
+
+### 33.1 阶段实现与修复
+
 - 实现 **5b8a354**，隔离feat/unified-combat-plugins。default/accept preview真实调用独立
   verifier，保存fixed input/report；精确proposal/generation/public snapshot重用一次结果，
   validfalse也缓存，corrupt不执行代码修复。报告含authorizationGeneration，regrant换digest。
+
 - preview显示canonical effects/frozen actor名ID/policy；确认intent/token/request必填并绑定
   verificationDigest，receipt必填verificationDigest/effectsDigest。assurance三enum协议保留，
   本阶段派生仅user_accepted + accept/accept-effects-validated/retreat-no-effects，不把
   条件/history验证升级整场胜负。缺新字段旧请求拒绝，无内部旧格式fallback。
+
 - 独立GET confirmation?decision=retreat只读权威提案摘要，完全不执行validator/null digest/
   empty effects，拒绝/失败后仍能退出不提交效果。before_request只给此GET单一decision
   accept|retreat白名单，duplicate/未知/其它参数与凭据仍拒绝；不是放宽全路由query门禁。
+
 - 中央typed integer域先Schema验证再int规范，preview/effectsDigest同list；frontend以固定
   ASCII keys+safe integer/UTF8/WebCrypto SHA256核effects，不猜任意JSON float proposal摘要。
   before/after两次decision预览及digest/effects/actor label/policy变化重新确认，写无自动retry。
-- 缓存最多32/run、100k全局；真实report、canonical actions、observations/random、settlement
-  companion UTF8bytes一并进原64MiB。SAVEPOINT在fileprepare之前模拟companion+finalRun+
-  receipt全部预算，token消费前再检；SQLite JSON1本地实测可用，不扩大RPC/会话容量。
+
 - RootStore nested transaction保留真实parent.exclusive，不降为共享或升级无独占parent。
   实际pipeline最初query被旧总栅栏400、随后嵌套scope423，都从真实HTTP定位并修正，
   新正例通过；没有降低Gameplay capture的真实lease要求。
+
 - Settlement.prepare只load精确报告与current input，不跑validator；baseline disk/live相符，
   pure镜像mechanical apply remove/add/check+固定history，仅overrides改变。strict companion
   绑report/proof/raw manifest/canonical before-after/receipt。唯一file committing决定后static
   证明→SQL finalize→registered memory，不重确认/校验/模型/随机。历史replay不覆盖新进度。
+
+- 独立review未见production P1/P2，但没有将静态审查当完整runtime通过。Browser仍只有
+  unavailable/fetch失败，一次复检后未启新服务，无viewport/screenshot/Electron运行证据，
+  不能计P7。旧5vztnub4临时根原样保留，本轮无删除尝试/新拒绝，不重复旁路清理。
+
+- 当前worktree clean，main/dbeafef两快照稳定/代码未改，守hash同步忽略task.md；无真实
+  用户data/config/model/service触及，不merge/push。AMH get_context本cwd返回empty未用记录；
+  sync/maintenance/candidates bounded观察未返回，未重复/改配置/提交或发布候选。
+
+### 33.2 验证证据与复现条件
+
+- 缓存最多32/run、100k全局；真实report、canonical actions、observations/random、settlement
+  companion UTF8bytes一并进原64MiB。SAVEPOINT在fileprepare之前模拟companion+finalRun+
+  receipt全部预算，token消费前再检；SQLite JSON1本地实测可用，不扩大RPC/会话容量。
+
 - 最终效果文件 **20 passed /181.20s**：实际HTTP/native/verifier/cache/token/submit，条件
   remove/add/check一起提交、文件/内存一致、无关字段保留、回放/独立退/expired/unknown/
   corrupt/regrant/int float/预算/query；真实os._exit73在file committed SQLprepared后重启
   固定恢复，另raw观察fault seam匹配fake aftermanifest+rehash后拒逆/正闭环语义篡改。
   该seam初版wrong-entry早失败的证据缺口已修、独立复读关闭，不将其冒充真实文件提交。
   最后真实delete FK清理追加在主正例，**1 passed /18.59s**（整20开始早于此增量）。
+
 - 结算旧/new初联合 **74 passed /237.14s**；后加恢复等分支 **6 passed /59.94s**，最后
   20覆盖这些最终逻辑。相关叙事/HTTP **68 passed /199.42s**；Schema78/pending25/生成器6
   /frontend140通过；四投影/严格SDK tsc/production及Electron main-preload构建通过。
   初旧联合66pass/2旧预览口径fixturefail已修，exact budget5/旧nonempty HTTP1窄测通过，
   没把旧失败/旧query代码中止run算通过。SDK oneOf→union修复有真正strict TS编译断言。
-- 独立review未见production P1/P2，但没有将静态审查当完整runtime通过。Browser仍只有
-  unavailable/fetch失败，一次复检后未启新服务，无viewport/screenshot/Electron运行证据，
-  不能计P7。旧5vztnub4临时根原样保留，本轮无删除尝试/新拒绝，不重复旁路清理。
-- 当前worktree clean，main/dbeafef两快照稳定/代码未改，守hash同步忽略task.md；无真实
-  用户data/config/model/service触及，不merge/push。AMH get_context本cwd返回empty未用记录；
-  sync/maintenance/candidates bounded观察未返回，未重复/改配置/提交或发布候选。
 
 ### 下一依赖：统一节点运行检查点与新epoch回档（完整任务保持）
 
@@ -1394,7 +1634,7 @@ narrative实质包/行动→结果→叙事衔接，再sideview/tactical、演�
 - 授权消费者专项：LLM/随机收据两文件 80 项通过；新增消费者文件 15 passed /105.62s，合计该专项 95 项。覆盖无关版本变更、根包/依赖 ABA、固定预览不重执行和真实 Python worker 随机调用。模型请求使用受控模拟，不是真 LLM 验收；初轮 14 个独占 lease 夹具错误修复后全量复跑通过，未放宽生产门禁。
 - 提交前最终前端重跑仍为 493/493，生产及 Electron main/preload 构建再次通过；构建有 Vite CJS 弃用与体积提示，不是运行错误。SDK 四投影与 staged diff --check 通过，80 个已提交文件均为 blob LF / 工作区 CRLF。共享 node_modules junction 和 tsc/vite 入口已核对保留。
 
-可复跑的最后联合命令（仓库根目录）：
+当时最后联合命令（原版本仓库根目录，不是当前入口）：
 
 ```powershell
 python -m pytest tests/test_plugin_version_authority_v1.py tests/test_plugin_version_uninstall_v1.py tests/test_plugin_session_ui_v1.py tests/test_plugin_browser_http_v1.py -q -o addopts= --disable-warnings --maxfail=3
@@ -1435,13 +1675,13 @@ node frontend/plugin-sdk/generate-protocol.mjs --check
 - Windows ZipInfo 路径归一化、保留路径大小写别名、排他子租约丢失、宽泛 ValueError 覆盖 PluginError 诊断均已修复；失败运行未计为通过。
 - 最终归档三文件、场景媒体、旧文件夹出口、HTTP 准入与统一创建联合：386 passed /173.22s。提交前 git diff --cached --check 通过；17 个已提交文件均为 blob LF / 工作区 CRLF。无本轮前端改动，未重复构建或借旧截图声称通过。
 
-可复跑的最终联合命令（version-installs 根目录）：
+当时最终联合命令（原 version-installs 根目录，不是当前入口）：
 
 ```powershell
 python -m pytest tests/test_session_archive_format.py tests/test_plugin_session_archive_structure_v1.py tests/test_plugin_session_archive_v1.py tests/test_scene_media.py tests/test_session_export_folders.py tests/test_session_http_access.py tests/test_unified_session_creation.py -q -o addopts= --disable-warnings --maxfail=3
 ```
 
-### 下一步与未验收范围
+### 当时续做建议与未验收范围
 
 - [ ] 引用式导入仍在任何持久写入前明确拒绝：需要目标机精确依赖/授权、原身份冲突策略、终态来源证据登记、本机新执行身份、会话/快照世界书双目标发布、持久引用/CAS 与崩溃恢复。
 - 缺失原请求输入的摘要只能验证形状和现有关联；归档自洽不证明源真实性或目标机权限。不能把此导出阶段勾选为 §35.3、A12 或 P0–P7 全部完成。

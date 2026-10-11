@@ -2,7 +2,9 @@
 
 后续架构与实施顺序以 [本地单机插件精简方案](local-plugin-minimal-plan.md) 为准；本文继续描述已实现的旧包管理基线，不代表三种官方玩法已完成独立拆包。
 
-状态：实现与真实 PC 浏览器验收通过。安装管理、脚本演练、世界书预检、正式会话和冻结存档已完成；验收修复与边界见 [2026-10-06 验收报告](../archive/combat-plugin-pc-qa-2026-10-06.md)。Electron 专有运行行为未覆盖。
+> 最近核对：2026-10-11（`7344cea` 的包管理、运行仓库、冻结绑定、正式会话路由、iframe 协议与现有用例的静态核对；未重跑浏览器、Electron 或真实模型）。
+
+历史状态（2026-10-06）：实现与真实 PC 浏览器验收通过。安装管理、脚本演练、世界书预检、正式会话和冻结存档已完成；验收修复与边界见 [2026-10-06 验收报告](../archive/combat-plugin-pc-qa-2026-10-06.md)。Electron 专有运行行为未覆盖。
 
 ## 目标与历史边界
 
@@ -10,7 +12,7 @@
 
 2026-09-27 的隔离脚本实验只证明 iframe、快照和代表性玩法可行，没有正式会话/经济结算保障。本次不把实验完成状态当作项目实现证据。
 
-## 已实现的包管理
+## 安装、启停与卸载
 
 ```text
 data/combat_modes/<id>/
@@ -68,7 +70,7 @@ python tools/combat_mode.py uninstall custom-mode
 
 可用 `--project-root <项目目录>` 指定隔离安装位置；导出不覆盖已有文件。应用内主页和管理顶栏提供“战斗模式”入口。
 
-## 已实现的独立演练
+## 启动独立演练与保存
 
 `examples/combat-modes/stance-duel/` 是可直接复制/压缩安装的独立玩法，不替换既有战术和横版引擎。组件 `RuntimeFrame` 在 `sandbox="allow-scripts"` iframe 中加载模块，宿主不 eval 插件。`ctx` 提供 root、input、snapshot、resources、save(snapshot)、complete(outcome,snapshot)；save/complete 返回的 Promise 只有宿主成功保存后才确认。
 
@@ -76,7 +78,7 @@ python tools/combat_mode.py uninstall custom-mode
 
 演练保存在 `data/combat_mode_runs/<run_id>/package.zip` 和 `run.json`。原子保存与 revision CAS 防止同进程多标签覆盖，冻结摘要在重新载入时核对。完成后相同结果重试返回同一状态，不同结果/后续写入拒绝。演练结果带 `verified:false, rewards:null`，不写剧情会话，不奖励经验或物品。此运行仓库服务于单进程本地 Flask，尚未提供多 worker/多进程写锁。
 
-## 已实现的世界书静态预检
+## 为世界书声明输入并预检
 
 绑定书内 `combat/modes/<mode_id>.json` 示例：
 
@@ -96,7 +98,7 @@ python tools/combat_mode.py uninstall custom-mode
 
 resources 为 `别名 → 书内相对文件路径`，拒绝越界/链接/资源覆盖。所有所选书的遭遇 ID 必须唯一；至少一本提供适配，其他书可只供背景知识。检查启用状态/剧情用途、接口 ID 与版本、必需输入、资源完整性、总大小和遭遇数量（最多 128）。响应失败时定位书籍与文件，成功时返回包摘要、绑定摘要和遭遇目录。不创建会话，不执行代码；正式会话创建时仍须重新校验并在事务内冻结，不能信任先前预检结果。
 
-## 正式会话契约
+## 创建正式会话、冻结内容与确认结果
 
 - 创建请求以插件 ID 作为 `combat_mode`，必须提交 `trust_combat_plugin:true` 与预检返回的 `combat_binding_digest`。创建时重新预检，摘要过期返回 409。会话发布前冻结 `combat_plugin/package.zip` 与 `binding.json`，后续不依赖安装目录或原书资源。
 - 会话 API 使用 `/api/sessions/<id>/combat-plugin`：GET 读取；POST `/start` 接收 `encounter_id`；PUT `/state` 接收 `runId/revision/snapshot/outcome?`；POST `/confirm` 接收 `runId/revision` 和 `accept:true` 或 `retreat:true`，二者互斥。写入与叙述互斥，使用 overlay 锁和 CAS。
@@ -105,15 +107,15 @@ resources 为 `别名 → 书内相对文件路径`，拒绝越界/链接/资源
 - 导出在 overlay 锁内校验冻结绑定和运行态；导入检查 manifest/session.json 模式一致性并重验冻结文件。损坏恢复会话保留可见且报告错误，不降级模式。
 - GET 叙述 SSE 与 POST 非流式回退都从冻结遭遇目录发出插件简报，不调用战术节点生成器；active/settling 阻止继续叙述。前端向导、恢复和手动入口均按插件模式路由。
 
-## 验证与剩余门禁
+## 验证证据与剩余门禁
 
 `tests/test_combat_mode_session_integration.py` 覆盖创建门禁、冻结后卸载、API隔离、CAS、用户确认、幂等、回档、保存失败、损坏存档、重启恢复、篡改导入及两条真实叙述路由（LLM输出为测试替身）。包管理/演练/预检另有对应测试；脚本协议测试与示例玩法测试另跑。可复制的适配文件见 `examples/worldbook-adapters/stance-duel.json`，使用步骤见示例 README。
 
 真实 PC 浏览器操作与具体 iframe 限制已于 2026-10-06 验收，报告记录逐项操作、修复及未覆盖边界。独立审查发现的合法包省略描述问题已通过统一目录摘要字段修复并复核。不能把审查、协议 stub、构建或 API 测试称为 Electron 运行或恶意代码安全验收；也不按 `Origin:null` 一刀切拦截 Electron 客户端。内置引擎保留宿主适配器身份，管理页可进入原完整演练，不声称可独立导出安装。
 
-### PC 交互验收范围（已执行，具体证据与边界见报告）
+### 2026-10-06 PC 浏览器验收范围
 
-仅使用隔离数据与本任务启动的服务，不重启用户正在运行的实例，不修改真实会话。
+该轮仅使用隔离数据与当时启动的服务，没有重启用户实例或修改真实会话。复验按[前端 PC 尺寸与窗口模式](../design/frontend-design-guidelines.md)执行；以下清单保留历史覆盖范围，不冒称当前版本已复验。
 
 - 文件夹发现与 ZIP 安装：显示名称/版本/诊断；重复 ID 不覆盖；启停、导出、归档路径反馈准确；坏包不阻止正常包显示。
 - 演练：授权前无 iframe；进攻/防御/蓄力/爆发可玩；保存后返回并恢复；结果后不能继续操作；错误与超时停止脚本；键盘可完成确认/取消。

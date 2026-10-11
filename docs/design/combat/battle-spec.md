@@ -6,8 +6,9 @@
 > 配套工具：`tools/validate_battle_spec.py`（校验）、`tools/simulate_battle.py`（试跑）、
 > `tools/balance_audit.py`（全局数值审计）；流程规范见 skill `combat-designer`。
 
-一场战斗 = **一个 JSON 文件** `data/worldbooks/books/<book_id>/combat/nodes/<node_id>.json`。它自带地图、敌人与
-数值覆盖，是**自包含**的：可以整份塞进世界书条目分发（见文末），也可以由程序生成。
+> 最近核对：2026-10-11（`7344cea` 的节点校验、地图、加载器、威胁模型与 CLI 源码；未执行模拟、内容入库或模型生成）。
+
+一场战斗由 **一个 JSON 节点文件** `data/worldbooks/books/<book_id>/combat/nodes/<node_id>.json` 描述，可由作者或程序生成，也可编码为世界书条目分发（见文末）。节点包含地图编排、敌人引用与数值覆盖；只有通过 `enemies_def`、`map.tile_defs` 内联所有需要的敌人与自定义格子定义时，战场编排才可自包含。仅引用敌人、外置地形或背景资源时，仍依赖完整世界书提供这些内容；节点本身也不携带玩家角色与职业卡组。
 
 ---
 
@@ -16,23 +17,25 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `schema_version` | int | 否 | 目前恒为 1 |
-| `node_id` | string | ✅ | 唯一 id；允许中英文/数字/`_`/`-`，≤64 字符；**与文件名一致**（`TEMPLATE_*` 除外） |
+| `node_id` | string | ✅ | 唯一 id；允许中英文/数字/`_`/`-`，≤64 字符；**与文件名一致**（作者命名约定；校验器不核对候选文件名） |
 | `name` | string | ✅ | 显示名（前端下拉、战前卡片、结算播报用） |
 | `summary` | string | 否 | 一句话处境，显示在战前卡片 |
 | `description` | string | 否 | 更长的 markdown 背景（设计者/LLM 备注） |
+| `worldbook_id` | string | 保存时需要 | 已安装且启用的所属书 ID；加载时由实际路径写入，不能借此越过会话绑定范围 |
+| `approaches` | array | 否 | 战前打法；影响检定、奖励倍率和战斗参数，见[战斗集成](combat-design.md#9-遭遇战与战斗触发) |
 | `bind` | object | 否 | 剧情节拍绑定：`{plot_id, chapter_id, beat_id}`；剧情文档里用 `[COMBAT:<node_id>]` 引用 |
 | `rules` | object | 否 | `{range_metric: "manhattan"\|"chebyshev", allow_corner_cut: bool}`，默认曼哈顿 + 禁止切角 |
 | `map` | object | ✅ | 战场（第 2 节） |
 | `waves` | array | ✅ | 波次（第 3 节）；至少 1 个敌人，否则开战会被拒绝 |
-| `enemies_def` | object | 否 | 内联敌人定义（`{名字: {combat_stats, ai_behavior, ai_skills, attributes...}}`），优先于全局敌人库；用于自包含分发 |
-| `conditions` | object | 否 | `{max_rounds: int, escape_enabled: bool}` |
+| `enemies_def` | object | 否 | 内联敌人定义（`{名字: {combat_stats, ai_behavior, ai_skills, attributes...}}`），优先于同名会话自定义敌人及绑定书敌人；可用于自包含战场编排 |
+| `conditions` | object | 否 | `{max_rounds: int, escape_enabled: bool}`；开战默认 0（不限回合）和 false（不可撤退） |
 | `rewards` | object | 否 | `{xp: int, items: [string], unlock: [string]}` |
 | `difficulty` | object | 否 | `{category, encounter_type, band, threat_budget, target_rounds, difficulty, apply_band_scaling}` |
-| `background` | string | 否 | 背景 id（`data/worldbooks/books/<book_id>/combat/backgrounds/<id>/`）；缺省用 default |
+| `background` | string | 否 | 书内背景 ID；实际选择还受会话覆盖与地点影响，缺资源时可回退程序化背景 |
 | `balance_version` | int | 否 | 目前为 1 |
 
 `difficulty.band` 取 `T0–T4`；`encounter_type` 取 `teaching | normal | elite | boss`；
-`category` 取 `story | test | event`。**这些不是装饰**：审计工具会用它们的参考区间
+`category` 取 `story | test | event`。**这些字段参与数值审计**：审计工具会用它们的参考区间
 判断你的编排是否与声称的难度一致。
 
 ---
@@ -75,7 +78,7 @@
 `data/worldbooks/books/<book_id>/combat/tiles/*.json` 追加（字段同上 + `tile_id`）。
 
 **地形设计要点**：墙用来切分战场与挡视线；掩体给防守支点；火场逼走位；高台奖励抢点。
-不要用墙把两个部署区完全隔开 —— 校验器会报 `玩家部署区与敌人部署区之间不存在通路`。
+不要用墙把两个部署区完全隔开。校验器给出 `玩家部署区与敌人部署区之间不存在通路` **警告**，不会阻止保存；作者仍须排除软锁。
 
 ---
 
@@ -92,15 +95,15 @@
 ]
 ```
 
-- `count` 1–12/波；波次 ≤6；敌人总数 ≤48。
+- 每项 `count` 为 1–12，且每波累计单位数 ≤12；波次 ≤6；敌人总数 ≤48。
 - `positions` 个数与 `count` 不一致时只警告（缺的会落到敌方部署区空格）；
   站位必须在地图内且不在阻挡格，否则报错。
 - `stats` 可覆盖 `hp/patk/matk/defense/resist/spd/hit/eva/max_ap`
   （外加 `ai_behavior`/`ai_skills`/`action_slots`/`threat_points`）。
-- 第 2 波及以后的入场格若被占，引擎会自动顺延到最近空格（不会卡死，也不会覆盖已有单位）。
+- 第 2 波及以后的入场格被占时尝试最近空格，不覆盖已有单位；无可落脚点时不能保证全部单位入场。开战加载也会跳过无法放置或无法加载的敌人；若所有波次均无可出场单位则拒绝开战。
 
-**敌人来源优先级**：`enemies_def` 内联 → 会话自定义敌人 → `data/worldbooks/books/<book_id>/enemies/*.md`。
-全局敌人条目只有叙事 `attributes` 而没有 `combat_stats` 时，战斗数值按属性派生。
+**敌人来源优先级**：`enemies_def` 内联 → 会话自定义敌人 → 当前会话绑定书的 `enemies/*.md`。
+绑定书敌人条目只有叙事 `attributes` 而没有 `combat_stats` 时，战斗数值按属性派生。
 
 ---
 
@@ -129,20 +132,23 @@
 | T3 | 10–16 | ×1.45 / ×1.3 |
 | T4 | 16–30 | ×1.75 / ×1.5 |
 
+阶段带缩放默认关闭；只有 `apply_band_scaling` 或书内默认开启时，倍率才改变敌人 HP/攻击。分层与威胁是审计估算，不代替实际 AI 技能、地形和队伍模拟。
+
 校验器把"实际威胁 vs `threat_budget`"和"声明阶段带 vs 实际威胁"作为**警告**输出
 （容差 25%）；`tools/balance_audit.py --strict` 可把它们升级为退出码。
 
 ---
 
-## 5. 校验规则（会阻止入库/开战的硬错误）
+## 5. 校验规则（保存门禁与开战检查）
 
 1. `node_id`/`name` 缺失，或 `node_id` 含非法字符；
 2. `map` 缺失、`rows/cols` 非正、超过 40×40 或 1200 格；
 3. `tiles` 维度与 `rows/cols` 不符、引用了未定义的 `tile_id`；
 4. `waves` 为空、波次 >6、`count` 越界（1–12）、总数 >48、完全没有敌人；
-5. 敌人名称既不在 `enemies_def` 也不在全局敌人库；
+5. 已有非空已知敌人集合时，名称既不在 `enemies_def` 也不在敌人库；空集合时此检查跳过，不能据结构通过认定引用有效；
 6. 站位越界 / 落在 `blocks_movement` 格；
-7. 节点没有任何可出场的敌人时开战被拒（`400 战斗节点「…」没有可出场的敌人`）。
+7. `conditions.max_rounds`、`rewards.xp` 为非整数或负数；
+8. 节点没有任何可出场的敌人时开战被拒（`400 战斗节点「…」没有可出场的敌人`）。
 
 **警告**（不阻断）：站位数与数量不符、同波次站位重复、未被声明部署区（按三分之一推导）、
 软锁（部署区之间无通路）、威胁与预算/阶段带明显不符、未知格子字段/未知状态效果。
@@ -151,19 +157,23 @@
 
 ## 6. 生成 → 校验 → 试跑 → 入库
 
+先指定含 `book.json` 的完整世界书文件夹；其 `id` 必须与文件夹名一致。`candidate.json` 必须是严格 JSON，本文 `jsonc` 示例中的注释要移除。CLI 不会自动安装或启用书；保存到运行库仍要求已安装、启用的书籍归属。
+
 ```bash
 python3 tools/validate_battle_spec.py candidate.json --book-folder PATH  # 结构+数值自洽
 python3 tools/simulate_battle.py --book-folder PATH --spec candidate.json --runs 30 \
-    --min-win-rate 0.6 --max-median-rounds 8 --max-hp-loss 0.6  # 好不好玩
-python3 tools/balance_audit.py                                 # 全局审计（含 XP 单调性）
+    --min-win-rate 0.6 --max-median-rounds 8 --max-hp-loss 0.6  # 固定策略下的指标，不等于真人体验
+python3 tools/balance_audit.py --book-folder PATH --strict      # 目标书审计（含 XP 单调性）
 ```
 
 `simulate_battle.py` 输出胜率 / 中位回合 / P90 / 首回合清场率 / 治疗溢出率 / 血损率 /
 每轮出牌与移动 AP；相同种子结果可复现，因此可作为**生成循环的判据**：
 
 ```
-LLM 产出候选 → validate（结构门禁）→ simulate（体验门禁）→ 人工/自动审阅 → 写入 nodes/
+LLM 产出候选 → validate（结构门禁）→ simulate（指标门禁）→ 人工/自动审阅 → 写入 nodes/
 ```
+
+`validate` 退出码 0 表示无硬错误，警告不影响退出码；1 表示存在错误。试跑的阈值参数不传时不设对应指标门禁，输出 `pass` 也不能证明好玩。固定种子、阵容、内容与代码版本共同决定可复现范围。威胁指标是估算，候选外置地形和书籍数值须确认被实际加载；开战不替代完整规格校验。校验器不是全字段严格 JSON Schema：若干数值用 `int(...)` 转换，未逐项校验全部扩展字段，作者仍应提供表中约定的类型与范围。
 
 调优优先级：**先改编排**（地形、站位、波次、数量），再动 `stats` 覆盖，最后才动
 全局敌人条目或带宽倍率。

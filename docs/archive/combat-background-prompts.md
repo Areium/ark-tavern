@@ -1,8 +1,16 @@
 # 战斗背景场景提示词方案
 
-> 2026-10-04 归档：保留历史构图与生成配方，不作为当前资源目录、平台参数或默认内容的依据。现行布局见 `data/README.md` 与 `tools/generate_combat_backgrounds.py`。
+保留背景构图、风格锚点、五种场景配方和三类生成/覆盖流程，供追溯当时的素材制作方法。原编写日期未注明；2026-10-04 已归档。平台尺寸、生成参数、UI 尺寸和资源路径均按原记录保留，不能作为当前平台可用性或默认预装内容的保证。
 
-为战斗界面设计 AI 文生图背景的统一规范。目标是：任何人生成（作者提前批量生成，或玩家自行生成）出来的图，放进战斗界面都"能用、好看、风格不打架"。
+> 最近整理：2026-10-11（原档案与专题导航静态核对；未重跑历史测试）。
+
+当前资源组织见[数据目录说明](../../data/README.md)，工具入口见[背景生成工具](../../tools/generate_combat_backgrounds.py)，布局约束见[战斗 UI 设计](../design/combat/combat-ui-design.md)。
+
+## 配方使用范围
+
+第 1 节解释 UI 为什么要求中央地面开阔，第 2–4 节提供提示词与配色配方，第 5 节记录当时平台参数，第 6 节保留作者、玩家与会话覆盖工作流。先理解构图条件，再参考配方；实际操作应以当前工具与数据说明为准。
+
+原方案目标是统一作者批量生成和玩家自行生成的背景构图与画风；实际可读性仍需把生成图片放入战斗界面检查。
 
 ## 1. 界面约束（构图要求的来源）
 
@@ -27,11 +35,11 @@
 
 ## 2. 基础提示词模板
 
-英文提示词效果普遍好于中文，统一用英文写。模板：
+原配方选择英文作为提示词语言；本文没有提供中英文效果对照实验。模板：
 
 ```
 Arknights style anime background art,
-{scene},                       ← 场景主体（1-2 句，见第 3 节配方）
+{scene},                       ← 场景主体（1-2 句，见第 4 节配方）
 {landmark} in the distance,    ← 远景地标（点明地点身份）
 {weather_or_atmosphere},       ← 天气/氛围（可选）
 slightly elevated camera angle looking down at an open empty {ground} ground plane in the center,
@@ -66,29 +74,29 @@ people, characters, text, watermark, logo, UI elements, bright sunny colors, clo
 
 ## 4. 场景配方示例
 
-可直接填入 `data/worldbooks/content/combat/backgrounds/<bg_id>/index.md` 的 `prompt` 字段。
+当时配方写入 `data/worldbooks/content/combat/backgrounds/<bg_id>/index.md` 的 `prompt` 字段。该路径保留历史含义，当前目录布局按上方数据说明查找。
 
-**荒野（default，已内置）**
+### 荒野（default，当时记录为已内置）
 ```
 Arknights style anime background art, desolate wilderness battlefield under overcast sky, cracked dry earth, scattered rocks and industrial debris in the distance, slightly elevated camera angle looking down at an open empty ground plane in the center, muted cold grey-blue palette with a faint amber horizon glow, dark atmospheric lighting, heavy vignette, no characters, no text, no UI, painterly matte painting quality, 16:9
 ```
 
-**矿区废墟（wasteland_ruins，已内置）**
+### 矿区废墟（wasteland_ruins，当时记录为已内置）
 ```
 Arknights style anime background art, abandoned mining ruins on the wasteland outside a nomadic city, collapsed concrete structures and rusted originium extraction machinery in the distance, dust haze, slightly elevated camera angle looking down at an open empty cracked-asphalt ground plane in the center, desaturated ochre and slate grey palette with dim orange warning lights, oppressive post-industrial atmosphere, heavy vignette, no characters, no text, no UI, painterly matte painting quality, 16:9
 ```
 
-**龙门街区夜景**
+### 龙门街区夜景
 ```
 Arknights style anime background art, rain-slicked downtown street of Lungmen at night, dense neon signs and towering skyscrapers in the distance, wet reflections, slightly elevated camera angle looking down at an open empty wet asphalt ground plane in the center, deep blue-black palette with neon teal and magenta accents, dark atmospheric lighting, heavy vignette, no characters, no text, no UI, painterly matte painting quality, 16:9
 ```
 
-**罗德岛甲板**
+### 罗德岛甲板
 ```
 Arknights style anime background art, open landing deck of the Rhodes Island landship, railings and signal lights at deck edges, vast overcast sky and distant moving city silhouettes in the distance, slightly elevated camera angle looking down at an open empty steel deck ground plane in the center, cool steel grey palette with faint blue hologram glow, dark atmospheric lighting, heavy vignette, no characters, no text, no UI, painterly matte painting quality, 16:9
 ```
 
-**雪原**
+### 雪原
 ```
 Arknights style anime background art, frozen tundra of Ursus under a blizzard, broken watchtowers and pine forest silhouettes in the distance, wind-blown snow haze, slightly elevated camera angle looking down at an open empty snow-covered ground plane in the center, pale desaturated blue-white palette with dim red emergency lights, dark atmospheric lighting, heavy vignette, no characters, no text, no UI, painterly matte painting quality, 16:9
 ```

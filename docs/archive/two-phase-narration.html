@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>两阶段叙述 — Arknights Tavern</title>
+  <title>两阶段叙述（历史讲解图） — Arknights Tavern</title>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
         rel="stylesheet" media="print" onload="this.media='all'">
@@ -113,12 +113,29 @@
       font: inherit; font-size: 11px; padding: 4px 10px; cursor: pointer;
     }
     #theme-toggle:hover { color: var(--text); }
+    .archive-guide { color: var(--text); background: var(--panel); border: 1px solid var(--panel-border); border-radius: 6px; padding: 16px 20px; margin: 32px 0 16px; line-height: 1.7; font-size: 14px; }
+    .archive-guide h1 { font-size: 20px; margin: 0 0 12px; }
+    .archive-guide h2 { font-size: 16px; margin: 16px 0 8px; }
+    .archive-guide p { margin: 8px 0; }
+    .archive-guide a { color: var(--frontend-stroke); }
+    .archive-guide .archive-meta { color: var(--text-muted); }
   </style>
 </head>
 <body>
   <button id="theme-toggle" type="button">切换主题</button>
   <div class="wrap">
-  <svg viewBox="0 0 1680 1040" role="img" aria-label="两阶段叙述节点图">
+  <section class="archive-guide" aria-label="历史讲解与阅读范围">
+    <h1>两阶段叙述：历史讲解图</h1>
+    <p class="archive-meta">原编写日期未注明；最近整理：2026-10-11（正文、图表与导航静态核对，未做浏览器渲染或交互复验）。</p>
+    <p>图中保留纯文本创作、独立标记提取、三级 JSON 修复和结果回注的旧讲解。舞台分页、text_complete/done 交接与当前失败处理以后续专题为准；旧修复路线不作为所有链路的通用容错承诺。</p>
+    <p>当前专题：<a href="../design/narrative/two-phase-narration.md">两阶段叙述</a>；模块归属：<a href="../architecture.md">架构总览</a>。下方 SVG 保留原布局、数值、旧路径和图例，作为历史展示。</p>
+    <h2>读图顺序</h2>
+    <p>先读第一阶段提示词与流式正文，再读第二阶段的本轮文本输入、动态任务和 JSON 解析，最后读产物回注与作者硬编码战斗标记。底部横条说明“先读正文、再取得控制”的体验目标，不是带时间刻度的延迟测量。</p>
+    <h2>历史指标与边界</h2>
+    <p>原图两处保留“关闭思考模式后空响应率 >40%→0”的样本观察，未注明具体模型、样本量、日期或复验条件。该观察不证明任意模型均适合较低推理预算；“轻量”“几乎无感”与平坦成本曲线均是当时方案判断，不能替代总调用耗时和完整账单实测。</p>
+  </section>
+
+  <svg viewBox="0 0 1680 1040" role="img" aria-label="两阶段叙述历史节点图">
     <defs>
       <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
         <path d="M 24 0 L 0 0 0 24" fill="none" stroke="var(--grid)" stroke-width="0.5" opacity="0.35"/>
@@ -310,7 +327,7 @@
 
     <!-- ===== Experience banner ===== -->
     <rect x="40" y="890" width="1600" height="110" rx="8" class="panel-box" stroke="var(--arrow-emphasis)" stroke-width="1.2"/>
-    <text x="68" y="918" class="t-primary" font-size="11" font-weight="700">体验对比 · 感知响应速度</text>
+    <text x="68" y="918" class="t-primary" font-size="11" font-weight="700">历史体验目标 · 感知响应速度</text>
 
     <text x="68" y="947" class="t-muted" font-size="8.5">单阶段</text>
     <rect x="140" y="937" width="700" height="14" rx="3" fill="var(--security-stroke)" opacity="0.75"/>

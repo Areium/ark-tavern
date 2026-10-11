@@ -1,10 +1,10 @@
 # 战斗系统设计（架构总纲 · 已对齐当前实现）
 
-> 本文是战斗系统的**架构与集成总纲**，内容已按当前代码校准（2026-08 审计）。
-> 数值公式与平衡参数详见 [`combat-numerical-design.md`](combat-numerical-design.md)；
-> 界面交互与布局详见 [`combat-ui-design.md`](combat-ui-design.md)；
-> 章节战斗化改造方案（战前简报/Approach 打法/敌人意图等）见 [`archive/combat-core-design.md`](../../archive/combat-core-design.md)（**已实现并归档**；其"7×7 网格明确不改"条款已作废）。
-> 代码权威源：`src/combat_engine/`、`src/combat_session.py`、`src/combat_data_loader.py`、`src/blueprints/combat.py`。
+本页供开发者查询网格战斗的职责、会话交接、运行规则、结算与恢复。编写内容用[战斗规格](battle-spec.md)，调数值用[数值参考](combat-numerical-design.md)，修改界面用[战斗 UI](combat-ui-design.md)。横版和可安装脚本玩法有独立契约，不能套用网格接口。
+
+> 最近核对：2026-10-11（主线 `7344cea` 的引擎、加载器、会话、结算、恢复与路由源码及相关用例；未运行战斗、浏览器或真实模型）。
+
+当前以已安装、启用并绑定的完整世界书提供内容，新检出项目不自带职业卡牌或剧情遭遇。历史章节战斗化方案见[归档](../../archive/combat-core-design.md)，其中固定 7×7 约束已经失效。
 
 ---
 
@@ -70,7 +70,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 - 移动：**1 个人 AP 可移动最多 `mobility // 2`（曼哈顿格）**；斜向一步记 2 格，绕地形按 Dijkstra 代价。
 - 出牌/移动都先经 `validate_card_play` / `validate_move` 预检（AP、回合、卡牌归属、职业限制、
   射程与合法目标）；拒绝时不消耗任何资源、不弃牌。
-- 战斗态不跨进程保存；升级收益与难度参数由 `data/worldbooks/books/<book_id>/combat/rules/{growth,difficulty}.json` 配置（按 mtime 热加载）。
+- 活动战斗由内存引擎执行；显式挂起通过 `combat_resume.py` 原子保存完整态并可跨重启恢复，见 §12。升级收益与难度参数由 `data/worldbooks/books/<book_id>/combat/rules/{growth,difficulty}.json` 配置（按 mtime 热加载）。
 
 ## 5. 命中 / 伤害 / 治疗
 
@@ -95,7 +95,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
   `rank`（R0–R3）、`upgrade_branch`（stable/burst/synergy/tactical）、`exhaust`（显式耗竭覆盖，
   null 表示按 tier：elite 用后进耗竭）、`power_tier`、`cv_budget`、`cv_estimated`、`balance_version`。
   `CardPool.play_card` 按 `Card.is_exhausted_on_play` 决定弃牌还是耗竭。
-- 共享手牌 6 张，每轮补满；每轮每角色保底至少 1 张可用牌。
+- 每轮重抽共享手牌，以 6 张为基础；角色保底补牌可能让手牌超过 6 张，有可用牌时尽量保证每个存活角色至少 1 张。
   **保底抽牌只从抽牌堆/弃牌堆检索，绝不从耗竭堆捞回精英卡**，也不会换掉其他存活角色的唯一手牌。
 - CardPool 三堆结构：抽牌堆 / 手牌 / 弃牌（+耗竭）。
 
@@ -145,15 +145,15 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
   读到的即为新值。
 - **结算 DTO**：每角色 `xp_gained`（含 `xp_base`/`xp_share`/`catchup_mult` 明细）、
   `level_before/after`、`xp_before/after`、`xp_needed`（进度条）、`level_ups`
-  （**v1 起为 `{level, specialization_point, node_unlocked}`，不再携带属性提升**）、
-  `attribute_changes`（v1 恒为空列表，属性只由剧情里程碑改变）、
+  （`{level, specialization_point, attribute_point, node_unlocked}`）、
+  `attribute_changes`（记录自动分配属性点造成的变更）、
   `specialization_points_*` / `nodes_unlocked_*`、`capped`（成长封顶）；
   奖励汇总含 XP/掉落/卡牌候选；无经验无奖励时给 `empty_message` 而不是空列表。
 - **幂等与兜底**：待结算记录内 `applied.characters` / `applied.inventory` 逐项标记，
   写回失败返回 500 并保留战斗与记录（前端可「重试结算」），重试不重复发放；
   `overrides.json` 采用临时文件 + `os.replace` 原子落盘。
-- **成长规则（v1）**：等级只发放专精点（每级 1 点），每 3 级解锁一个职业节点；
-  属性不再随等级自动提升；无硬等级上限（`MAX_LEVEL=None` 可改）；
+- **成长规则（v1）**：默认每级发放 1 属性点与 1 专精点，每逢等级为 3 的倍数解锁职业节点；
+  属性点默认自动加到最低未满属性并写回会话覆盖。`growth.json` 可调点数、上限及自动分配；关闭自动分配时保留待分配点数，不能因此推断已有手动分配 UI；无硬等级上限（`MAX_LEVEL=None` 可改）；
   遭遇 `rewards.unlock` 尚未接入（结算面板会提示）。
 
 ## 11. SSE 事件
@@ -161,17 +161,19 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 事件统一包装为 `{"type": "<事件名>", "data": {...}}`（`blueprints/combat.py`）。引擎发出的事件：
 
 `battle_start` / `round_start`（含 `round` 与 `intents`）/ `card_played` / `damage` / `heal` /
-`move` / `death` / `status`（状态效果）/ `cleanse`（净化）/ `wave_start`（新一波敌人入场）/
+`move` / `death` / `card_drawn` / `status`（状态效果）/ `cleanse`（净化）/ `wave_start`（新一波敌人入场）/
 `turn_end`（回合切换，无 round_end）/ `battle_end` / `error`
 
 状态快照由 `combat_session.py` 输出；`valid_moves` 恒为 `[]`（客户端计算）。
 
 ## 12. API（`src/blueprints/combat.py`）
 
-`/api/sessions/<id>/combat/start|action|state|complete|events|card-pick|abandon|settlement` 及战斗测试会话对应端点；
+`/api/sessions/<id>/combat/start|action|state|complete|events|card-pick|abandon|settlement|suspend|resume` 及战斗测试会话对应端点；
 `start` 支持 `approach_id`（打法），`settlement` 生成/读取待结算数据（幂等），
 `complete` 写回结算（角色成长/掉落/战斗历史）并清理战斗；
 战斗回写（HP/受伤/死亡）在 `combat_complete` 处理。
+
+`POST suspend` 保存完整引擎态、角色、手牌、牌堆、待入场波次与战斗 ID；`POST resume` 恢复。`snapshot()` 只供结算，不用于重建。挂起版本为 1，恢复仍按 `encounter_id` 读取当前节点地图与规则，不冻结内容；节点缺失时明确失败，不能把它当作不可变内容快照。会话与独立演练有各自保存路径。
 
 ## 13. 前端
 
@@ -179,7 +181,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 - 战前简报/打法卡片在 `ChatPanel.tsx`（`pendingBriefing` + `combat_briefing` SSE）与 `CombatView.tsx`（`approaches`）中渲染。
 - 格子/卡牌双模式尺寸、快捷键（**1–9 与 0 选牌**，共 10 个绑定，见 `combatConfig.ts` 的 `MAX_CARD_SHORTCUTS = 10`；F 结束回合、Esc 取消）详见 `combat-ui-design.md`。
 
-## 14. 路线图（现状）
+## 14. 能力与未接入项
 
 **已实现**：自由尺寸战场 + 地形（阻挡/掩体/高台/危险区，可扩展格子效果）+ 部署区生效 + Spine 覆盖 + 拖卡/点选操作、共享手牌 6 张、双 AP 池、d20 判定、
 消耗品、XP/物品奖励与升级、战斗结算画面（含奖励展示 + 战后自动叙述）、卡牌 JSON CRUD、
@@ -188,7 +190,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 虚弱/增幅/沉默/灼烧/嘲讽/闪避/致盲 + 净化/破甲）、战后卡牌 1 选 1、剧情分支投点接入战斗、
 节拍 `[COMBAT:enc_id]` 代码级解析、波次逐波触发、敌人 `ai_skills` 数据驱动。
 
-**已具备**（批次 2/3）：可视化节点编辑器（地图绘制/敌人编成/血量覆盖/节拍进度）、
+**内容工具**：可视化节点编辑器（地图绘制/敌人编成/血量覆盖/节拍进度）、
 节点随世界书分发、升级属性点成长、节点难度带与威胁预算审计、
 LLM 生成闭环（`docs/design/combat/battle-spec.md` + `tools/validate_battle_spec.py` +
 `tools/simulate_battle.py` + `tools/generate_battle_spec.py` + skill `combat-designer`）。
@@ -207,13 +209,13 @@ LLM 生成闭环（`docs/design/combat/battle-spec.md` + `tools/validate_battle_
 | 敌人行动 | 名义 `max_ap=3`，实际每轮 1 次 | **行动槽**：普通 1、精英/Boss 2；循环至槽满或 AP 耗尽 |
 | 保底抽牌 | 可从耗竭堆捞回精英卡 | **绝不取耗竭卡**，也不夺走他人唯一手牌 |
 | 卡表来源 | `card_data.py` 硬编码 + cards.json 双源 | **cards.json 单一真相源**（含 effects/ignore_def/cleanse 等全字段） |
-| 卡牌预算 | 无统一口径 | **24 CV/AP**（`combat_engine/cv.py`）；72 张卡中 63 张落在预算 ±20%、9 张有文档化例外、0 张无说明偏离（`perf_tests/cv_audit_report.md`） |
+| 卡牌预算 | 无统一口径 | **24 CV/AP**（`combat_engine/cv.py`）；2026-09-12 迁移报告记录 72 张、63 张预算 ±20%、9 张例外、0 张无说明偏离（`perf_tests/cv_audit_report.md`）；是当时内容审计，不是当前空书架卡表 |
 | 升级收益 | +1 最低未满属性 | **专精点 + 属性点**（各每级 1 点；属性点默认自动加到最低未满属性并写回会话覆盖，可改配置为手动分配；每 3 级解锁职业节点） |
 | 升级阈值 | `level × 100` | `180 + 40 × (level - 1)` |
 | 升级属性成长 | 无 | **属性点**（每级 1，自动分配到最低未满属性 → 战斗数值随之提升） |
 | 敌人 XP | 与遭遇基础 XP 全额叠加 | `遭遇 XP + 0.35 × 敌人 XP`，倍率钳制 0.75–1.20 |
 | 遭遇难度 | `difficulty` 自由整数 | `encounter_type`/`recommended_power_tier`/`threat_budget`/`target_rounds` + 威胁带重排 |
-| 战斗态持久化 | 字段级重建（无版本） | **不再持久化**：战斗态只在内存（`session.combat`），结算用 `CombatSession.snapshot()`；若将来要"战斗中恢复"，用「节点 spec + 命令流重放」 |
+| 战斗态持久化 | 字段级重建（无版本） | 活动引擎在内存；**显式挂起可持久恢复**，用 `suspend_snapshot()`；`snapshot()` 仅用于结算，恢复仍读取节点地图 |
 
 数值变更后，对目标完整世界书运行 `tools/balance_audit.py --book-folder PATH` 与
 `perf_tests/simulate_combat.py --book-folder PATH`，报告按需生成，不随空书架项目分发。

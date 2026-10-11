@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RAG 检索机制 — Arknights Tavern</title>
+  <title>RAG 检索机制（历史讲解图） — Arknights Tavern</title>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
         rel="stylesheet" media="print" onload="this.media='all'">
@@ -113,12 +113,29 @@
       font: inherit; font-size: 11px; padding: 4px 10px; cursor: pointer;
     }
     #theme-toggle:hover { color: var(--text); }
+    .archive-guide { color: var(--text); background: var(--panel); border: 1px solid var(--panel-border); border-radius: 6px; padding: 16px 20px; margin: 32px 0 16px; line-height: 1.7; font-size: 14px; }
+    .archive-guide h1 { font-size: 20px; margin: 0 0 12px; }
+    .archive-guide h2 { font-size: 16px; margin: 16px 0 8px; }
+    .archive-guide p { margin: 8px 0; }
+    .archive-guide a { color: var(--frontend-stroke); }
+    .archive-guide .archive-meta { color: var(--text-muted); }
   </style>
 </head>
 <body>
   <button id="theme-toggle" type="button">切换主题</button>
   <div class="wrap">
-  <svg viewBox="0 0 1680 980" role="img" aria-label="RAG 检索机制节点图">
+  <section class="archive-guide" aria-label="历史讲解与阅读范围">
+    <h1>RAG 检索机制：历史讲解图</h1>
+    <p class="archive-meta">原编写日期未注明；最近整理：2026-10-11（正文、图表与导航静态核对，未做浏览器渲染或交互复验）。</p>
+    <p>图中保留声明式 imports/BFS、关键词世界书、预取 Hook、wiki_query 与双层记忆的历史组织。节点作用域等后续机制应查阅当前专题；AI 依赖自动构建后来已移除。</p>
+    <p>当前专题：<a href="../design/narrative/rag-retrieval.md">知识注入</a>；模块归属：<a href="../architecture.md">架构总览</a>。下方 SVG 保留原布局、数值、旧路径和图例，作为历史展示。</p>
+    <h2>读图顺序</h2>
+    <p>从左侧知识源读到中间四条召回通道及记忆通道，再读右侧稳定/动态层组装和模型查询回路。虚线区分目录构建与按需调用；position-0 常驻条目与触发型条目的分层规则按原图保留。</p>
+    <h2>历史指标与边界</h2>
+    <p>原图以同知识集合展示约 39.8k→10.2k tokens（降低 74.4%）。未提供测量日期、模型、输入集合与完整计费条件，只能作原注入规模对照，不能解释为当前账单、耗时或语义召回质量改善。关键词匹配也不能保证绝无剧透；效果依赖作者配置、触发文本和后续注入规则。</p>
+  </section>
+
+  <svg viewBox="0 0 1680 980" role="img" aria-label="RAG 检索机制历史节点图">
     <defs>
       <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
         <path d="M 24 0 L 0 0 0 24" fill="none" stroke="var(--grid)" stroke-width="0.5" opacity="0.35"/>
@@ -330,7 +347,7 @@
 
     <!-- ===== Benchmark banner ===== -->
     <rect x="40" y="858" width="1600" height="92" rx="8" class="panel-box" stroke="var(--arrow-emphasis)" stroke-width="1.2"/>
-    <text x="68" y="890" class="t-primary" font-size="11" font-weight="700">效果基准 · 同知识集合</text>
+    <text x="68" y="890" class="t-primary" font-size="11" font-weight="700">历史规模对照 · 同知识集合</text>
     <text x="68" y="917" class="t-muted" font-size="8.5">全量注入</text>
     <rect x="140" y="906" width="560" height="15" rx="3" fill="var(--security-stroke)" opacity="0.75"/>
     <text x="712" y="918" class="t-muted" font-size="9">≈ 39.8k tokens</text>

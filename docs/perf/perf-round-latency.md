@@ -1,16 +1,26 @@
 # 一轮对话耗时分析与优化建议（实测报告）
 
-> **阅读提示**：§1–§3 是 2026-08 的**修复前**实测基线（约 20s+/轮、伪流式）；§5 是当轮修复结果，
-> **其中三项措施均已落地且至今有效**（真流式 `_open_stream_with_retry`、按调用类型思考档位
-> `narration_reasoning_effort`、embedding 首次失败后短路）。看现状请直接读 §5。
->
-> 测量时间：2026-08（perf_tests/bench_round_segments.py / bench_stream_verify.py / bench_effort_levels.py）
-> 线上配置：`deepseek-v4-flash` @ api.deepseek.com，`enable_thinking=true`，`reasoning_effort=medium`，
-> `auto_generate_choices=true (choice_count=3)`，`dialogue_bubble_mode=true`，`max_output_tokens=8192`，`word_limit=500`
+排查对话延迟时，先区分首个可见输出、正文结束、选项出现与后处理完成。本页先列当前仍能定位的优化措施，再保留 2026-08 基线、根因、候选方案与当轮修复结果；所有毫秒、秒数及成功率均为历史记录，不是当前性能承诺。
 
-> 当前实现已退休独立回忆摘要：不再执行 Call 3；下文 D 段保留为历史测量，当前基准脚本已移除该调用。
+> 最近核对：2026-10-11（`load_llm.py`、`llm_backend_manager.py`、`SceneManager.py`、`CharacterAgent.py`、`memory.py`、叙述路由与现有 benchmark 文件的静态核对；未调用 API 或重新测速）。
+> 原测量时间：2026-08；原工具：`bench_round_segments.py`、`bench_stream_verify.py`、`bench_effort_levels.py`。
+> 原线上配置：`deepseek-v4-flash` @ api.deepseek.com，`enable_thinking=true`，`reasoning_effort=medium`，`auto_generate_choices=true (choice_count=3)`，`dialogue_bubble_mode=true`，`max_output_tokens=8192`，`word_limit=500`。
+
+## 当前措施与阅读顺序
+
+| 已落地措施 | 当前源码依据 | 不能据此推断的结论 |
+|---|---|---|
+| 底层真流式 | `_open_stream_with_retry` 使用 httpx stream；连接/状态重试与 stream_options 降级保留。 | 不保证端点首字延迟；自由模式 `CharacterAgent.chat` 仍走非流式完整调用再回调。 |
+| 按调用用途设置思考档位 | `narration_reasoning_effort` 默认 none；叙述/变体/角色对话使用该档位，系统提取显式 `thinking="none"`。 | 不同服务商参数语义与模型质量不能用 2026-08 的 DeepSeek 小样本泛化。 |
+| 远端 embedding 失败短路 | `load_llm.py` 首次失败后不重复请求不可用端点；`memory.py` 可尝试本地 ONNX，再退到近期窗口。 | 短路远端不等于全部记忆关闭，也不保证所有向量记录成功写入。 |
+
+独立回忆摘要生成、注入、间隔与 SSE 已退休。下文 Call 3 / D 段仅指当时的回忆调用，当前基准脚本已移除它；节点摘要、剧情日志与角色向量记忆仍保留。按条件触发的偏离评估是另一调用，不能将“回忆 Call 3 删除”泛化为整轮最多两次调用。
+
+历史修复效果见[§5](#5-实施结果2026-08分支-perfround-latency-fix)；需要判断原问题与方案时读 §1–§3。重新测量应使用当前配置与脚本，并另记正文长度、样本量、工具轮次、重试及完成边界，不覆盖下列原始数据。
 
 ## 1. 一轮对话的时间去哪了（剧情模式实测）
+
+本节为 2026-08 修复前基线，流程与配置均取自当时记录。
 
 ```
 t=0            POST /api/sessions/<id>/narrate（SSE）
@@ -45,7 +55,7 @@ t=20.5 → ~26s  Call 2 标记提取（选项/摘要/节拍/环境）  均值 5.
 `load_llm.py` 中 `ApiLLM.chat`/`LocalLLM.chat` 的流式路径：
 
 ```python
-response = _post_with_retry(self.client, "/chat/completions", payload)  # ← 默认 stream=False！
+response = _post_with_retry(self.client, "/chat/completions", payload)  # ← 默认先缓冲响应体
 for line in response.iter_lines(): ...                                   # ← 在本地缓冲区上迭代
 ```
 
@@ -53,11 +63,11 @@ httpx 的 `Client.post()` 会**先读完整个响应体**再返回 Response；`i
 
 | 用法 | 首 chunk | 总时长 | chunk 到达分布 |
 |---|---|---|---|
-| `client.post()+iter_lines`（现状） | 7140 ms | 7140 ms | **一次性全部到达** |
+| `client.post()+iter_lines`（当时） | 7140 ms | 7140 ms | **一次性全部到达** |
 | `client.stream()`（正确） | 531 ms | — | 真流式 |
 
 后果：前端 SSE 链路（fetch + ReadableStream，本身是真流式）拿不到增量数据，
-**用户在整个 Call 1 期间（20+ s）一个字都看不到**，然后文本"啪"地整段出现。
+**当时用户在整个 Call 1 期间（20+ s）看不到正文**，然后文本"啪"地整段出现。
 前端已经在渲染 reasoning 流（ChatPanel onReasoning），但后端根本没把增量推过去。
 
 ### B. 叙述调用的思考量过大且不可真正关闭
@@ -70,7 +80,7 @@ httpx 的 `Client.post()` 会**先读完整个响应体**再返回 Response；`i
 | none | **750 ms** | **3.0 s** | 0 |
 | low | 2.6 s | 5.6 s | 130 |
 | 缺省（无参数） | 7.5 s | 10.9 s | 554 |
-| medium（现状） | 7~50 s | 7~52 s | 1.3k~4k+ |
+| medium（当时） | 7~50 s | 7~52 s | 1.3k~4k+ |
 
 ### C. Call 2 串行提取（+2~11 s，且选项按钮等它）
 
@@ -90,14 +100,18 @@ httpx 的 `Client.post()` 会**先读完整个响应体**再返回 Response；`i
 
 ## 3. 优化建议（按 ROI 排序）
 
-### P0-1 修复真流式（`client.stream()`）— 首字 20.5 s → ~0.7 s
+以下为 2026-08 当时提出的方案。P0 真流式、思考档位与 P2 embedding 短路的实施见 §5；单调用协议等候选不因列在此处而视为已落地。
+
+### P0-1 修复真流式（`client.stream()`）— 当时预期首字 20.5 s → ~0.7 s
 
 `ApiLLM.chat` / `LocalLLM.chat` 流式路径改用 `client.stream("POST", ...)` 上下文管理器：
+
 - 连接错误 / 429 / 5xx 仍可在拿到 status 后重试（保持 `_post_with_retry` 语义）；
 - 400/422 的 stream_options 降级重发逻辑保持；
 - 迭代中的 `ReadTimeout` 仍映射 `LLMTimeoutError`。
-收益：即使思考开着，reasoning 流 ~0.5-1 s 内可见（前端已有渲染）；
-正文按解码速度增量到达。感知体验质变，改动集中在 `load_llm.py` 一处。
+
+当时预期：即使思考开着，reasoning 流 ~0.5-1 s 内可见（前端已有渲染）；
+正文按解码速度增量到达。改动集中在 `load_llm.py` 的底层流式路径。
 
 ### P0-2 按调用类型显式设置思考档位 — 叙述 20.5 s → ~3-6 s
 
@@ -106,7 +120,7 @@ deepseek adapter 在 `enable_thinking=False` 时**显式发送 `reasoning_effort
 
 | 调用 | 建议档位 | 理由 |
 |---|---|---|
-| Call 1 叙述 | none（保守可 low） | 创作任务，思考收益低、方差成本极高 |
+| Call 1 叙述 | none（保守可 low） | 当时小样本中思考成本和方差较高；质量收益未独立量化 |
 | Call 2 提取 | none | 分类任务；none 下无截断重试（实测 4/4 一次成功） |
 | Call 3 回忆 | none/low | 摘要任务 |
 | 自由模式角色对话 | none/low | 同叙述 |
@@ -138,7 +152,7 @@ deepseek adapter 在 `enable_thinking=False` 时**显式发送 `reasoning_effort
 
 ### 预期效果（P0 两项落地后）
 
-| 指标 | 现状 | P0 后 |
+| 指标 | 当时修复前 | 当时预计 P0 后 |
 |---|---|---|
 | 首个可见输出 | 20.5–23.2 s | **~0.7–1 s** |
 | 叙述文本完成 | 20.5–23.2 s | ~3–6 s |
@@ -150,12 +164,12 @@ deepseek adapter 在 `enable_thinking=False` 时**显式发送 `reasoning_effort
 - `perf_tests/bench_round_segments.py` — 按线上配置分段计时（A–E）
 - `perf_tests/bench_stream_verify.py` — 伪流式假设验证（`results_stream_verify.json`）
 - `perf_tests/bench_effort_levels.py` — 思考档位对比（`results_effort_levels.json`）
-- 注意：`bench_ttft.py` 经伪流式路径测量，其 ttft_ms 实为总时长，历史数据无效。
+- 注意：当时 `bench_ttft.py` 经伪流式路径测量，其 ttft_ms 实为总时长；不能用该历史字段解释首 token 延迟。
 
 
 ## 5. 实施结果（2026-08，分支 perf/round-latency-fix）
 
-P0 两项 + P2 embed 短路已实施：
+以下记录 2026-08 分支 `perf/round-latency-fix` 的实施与测量，不是本次重新验收：
 
 1. **真流式**：`load_llm.py` 的 ApiLLM/LocalLLM 流式路径改为 `httpx client.stream()`
    （新增 `_open_stream_with_retry`，保留连接错误/429/5xx 重试与 400/422 stream_options 降级）。
@@ -166,7 +180,7 @@ P0 两项 + P2 embed 短路已实施：
    - DeepSeek adapter 在 `enable_thinking=True + reasoning_effort="none"` 时显式发送 `reasoning_effort=none`，从而真正关闭混合模型的缺省思考（此前 `enable_thinking=false` 时不发参数，模型仍缺省思考 ~550 tok）。
 3. **embedding 短路**：端点首次失败后不再重复发起注定失败的调用。
 
-实测（真实 DeepSeek API，`deepseek-v4-flash`，200~310 字叙述）：
+当轮实测使用真实 DeepSeek API、`deepseek-v4-flash`，正文 200~310 字；修复前基线正文为 553–566 字，不能把全表视为严格等长对照。原记录未给全表统一样本数，4/4 仅对应 §3 的提取观察：
 
 | 指标 | 修复前 | 修复后 |
 |---|---|---|
@@ -175,3 +189,7 @@ P0 两项 + P2 embed 短路已实施：
 | 标记提取（Call 2，none） | 3.9–8.0 s（medium） | **~1.2–2 s** |
 | 提取空响应/截断重试 | 8%~42%（推理预算耗尽） | 未观测到（全 stop） |
 | 自由模式 embedding 失败调用/轮 | 2 次网络请求 | 首次失败后 0 次 |
+
+历史未观测到截断不等于当前已删除重试：`extract_markers` 仍保留一次空响应/截断重试，并返回明确降级状态。调用与阅读完成契约见[两阶段叙述](../design/narrative/two-phase-narration.md)。
+
+源码入口：[底层 LLM](../../src/load_llm.py)、[调用配置](../../src/llm_backend_manager.py)、[提取](../../src/SceneManager.py)、[角色对话](../../src/CharacterAgent.py)、[记忆降级](../../src/memory.py)。

@@ -1,6 +1,10 @@
 # 世界书智能局部阅读
 
-> 已归档（2026-09-21）：该设计随「AI 自动构建依赖」功能一并移除，见 docs/proposals/worldbook-workbench-redesign.md §2.4。
+本页保留已移除的 AI 世界书依赖构建设计及历史测量。验证记录为 2026-09-16；2026-09-21 随工作台重构归档。旧模块、缓存、DTO 和脚本说明只用于追溯，不表示当前工作台仍有 AI 构建入口。
+
+> 最近整理：2026-10-11（原档案与专题导航静态核对；未重跑历史测试）。
+
+当前内容管理见[世界书库设计](../design/worldbook/worldbook-library.md)，注入行为见[知识注入](../design/narrative/rag-retrieval.md)；移除决策见[世界书工作台重构](../proposals/worldbook-workbench-redesign.md)。依赖功能与模型自动构建是两个概念，移除后者不能推导为前者已删除。
 
 依赖构建支持 `adaptive` 与 `full` 两种阅读模式。新建任务默认 `adaptive`；`full` 用于全文审计。任务创建后模式不可变，旧任务缺少该字段时按 `full` 读取。
 
@@ -18,9 +22,19 @@
 
 轮询 DTO 只返回聚合阅读报告：总字符、实际成功阅读字符、未读字符、完整或局部条目数、回退和补读情况。计划覆盖、实际覆盖、请求估算和 provider 上报的真实 usage 分开呈现。局部阅读成功只表示策略已结算，不表示模型读过全文，也不能单独建立全局 foundational 根。
 
-## 离线基准
+## 历史测量：全书静态估算与真实模型抽样
 
-运行：
+| 证据 | 读取范围 | 结论边界 |
+|---|---|---|
+| 离线渲染基准 | 262 条全书第一遍 | 估算输入降幅 30.75%；不含模型决定的补读和输出 |
+| golden / 混合 6 条抽样 | 真实模型调用 | 未证明总 token 或耗时下降；补读可能更贵 |
+| 可局部阅读的分层 6 条抽样 | 预先按选择器挑选 | 总 token 降 45.35%、耗时降 34.60%；弱关系不同，不证明语义等价 |
+
+下面保留运行条件、原始数字与反例。
+
+### 全书第一遍：离线渲染估算
+
+原运行入口：
 
 ```powershell
 python scripts/benchmark_worldbook_selective_reading.py `
@@ -31,8 +45,14 @@ python scripts/benchmark_worldbook_selective_reading.py `
 
 补读开销取决于模型回答，不能预先当成固定总成本。最坏情况下会读取全部剩余正文。局部阅读仍可能遗漏没有明确引用、且未落入所选范围的隐含语义关系；需要完整语义审计时选择 `full`。
 
+### golden 与混合样本：补读可能抵消收益
+
 终版真实模型抽样没有证明总 token 或耗时下降：golden 样本 adaptive 为 2 calls、7284 total tokens（输入 3797，对比 full 输入 4316，约省 12%，但输出增加）；6 条实际样本 adaptive 为 3 calls、30005 total tokens、60.28 秒，其中 Mon3tr 因模型要求更多本条上下文而补读，5 条关系与 full 相同。静态 30.75% 仅表示整本书第一遍的估算输入降幅，不能当作最终账单或端到端收益。
 
+### 可局部阅读的分层样本：收益与语义差异
+
 另一个预先定义的分层样本从实际书原顺序取前 6 个“本地选择器判定为可局部阅读”的角色条目，选择发生在查看模型返回之前。样本共 22287 字符：full 为 3 calls、29268 total tokens、48.41 秒；adaptive 为 2 calls、15996 total tokens、31.66 秒且没有补读，total tokens 减少 45.35%，耗时减少 34.60%。这只证明适合局部阅读的分层样本可以获益，不是 262 条全书实测；两种模式都没有 `requires`，但弱关系分布不同（full 为 6 `related` + 1 `unsure`，adaptive 为 7 `none`），因此不能声称语义等价。上述混合 6 条样本中 adaptive 补读后反而比 full 的 23104 total tokens 更贵，也必须与这个正例一起看。
+
+### 原真实模型验证入口与复现条件
 
 真实模型验证使用 `scripts/verify_worldbook_builder_llm.py --reading-mode adaptive|full`，并显式传入 `--book-path` 与 `--config`。脚本会沿用任务保存的模式验证缓存复用。

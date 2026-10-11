@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>战斗系统嵌入 — Arknights Tavern</title>
+  <title>战斗系统嵌入（历史讲解图） — Arknights Tavern</title>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
         rel="stylesheet" media="print" onload="this.media='all'">
@@ -113,12 +113,29 @@
       font: inherit; font-size: 11px; padding: 4px 10px; cursor: pointer;
     }
     #theme-toggle:hover { color: var(--text); }
+    .archive-guide { color: var(--text); background: var(--panel); border: 1px solid var(--panel-border); border-radius: 6px; padding: 16px 20px; margin: 32px 0 16px; line-height: 1.7; font-size: 14px; }
+    .archive-guide h1 { font-size: 20px; margin: 0 0 12px; }
+    .archive-guide h2 { font-size: 16px; margin: 16px 0 8px; }
+    .archive-guide p { margin: 8px 0; }
+    .archive-guide a { color: var(--frontend-stroke); }
+    .archive-guide .archive-meta { color: var(--text-muted); }
   </style>
 </head>
 <body>
   <button id="theme-toggle" type="button">切换主题</button>
   <div class="wrap">
-  <svg viewBox="0 0 1680 1000" role="img" aria-label="战斗系统嵌入节点图">
+  <section class="archive-guide" aria-label="历史讲解与阅读范围">
+    <h1>战斗系统嵌入：历史讲解图</h1>
+    <p class="archive-meta">原编写日期未注明；最近整理：2026-10-11（正文、图表与导航静态核对，未做浏览器渲染或交互复验）。</p>
+    <p>图中保留当时的剧情→遭遇选择→战斗引擎→结算写回链路，包含 7×7 demo、旧 data/combat/ 路径及 function call 骰子表述。它解释历史权责划分，不能替代当前地图、结算与回档契约。</p>
+    <p>当前专题：<a href="../design/combat/combat-design.md">战斗设计</a>；模块归属：<a href="../architecture.md">架构总览</a>。下方 SVG 保留原布局、数值、旧路径和图例，作为历史展示。</p>
+    <h2>读图顺序</h2>
+    <p>先读上半部“剧情系统—JSON 契约—战斗系统”的往返箭头，再读下半部触发、判定、状态三环节。模型选择遭遇和叙述结果；引擎计算命中、伤害与奖励。图中的“可回滚”描述设计意图，不独立证明故障恢复或所有公共数据一致性。</p>
+    <h2>历史指标与边界</h2>
+    <p>原图记录 14 个用例（12 个战斗场景与 2 个负例），三轮提示词迭代后召回从 75% 到 100%、误触发 0 次。未注明模型版本、样本原文与测量日期；这些结果只适用于该历史套件，不能外推到任意剧情或当前版本。</p>
+  </section>
+
+  <svg viewBox="0 0 1680 1000" role="img" aria-label="战斗系统嵌入历史节点图">
     <defs>
       <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
         <path d="M 24 0 L 0 0 0 24" fill="none" stroke="var(--grid)" stroke-width="0.5" opacity="0.35"/>
@@ -299,7 +316,7 @@
 
     <!-- ===== Benchmark banner ===== -->
     <rect x="40" y="890" width="1600" height="80" rx="8" class="panel-box" stroke="var(--arrow-emphasis)" stroke-width="1.2"/>
-    <text x="68" y="918" class="t-primary" font-size="11" font-weight="700">可靠性基准 · 战斗触发回归套件</text>
+    <text x="68" y="918" class="t-primary" font-size="11" font-weight="700">历史样本 · 战斗触发回归套件</text>
     <text x="68" y="942" class="t-muted" font-size="8.5">14 用例：12 个战斗场景 + 2 个「不该触发」负例 · 提示词迭代 3 轮</text>
     <text x="420" y="918" class="t-muted" font-size="8.5">迭代前</text>
     <rect x="500" y="908" width="300" height="14" rx="3" fill="var(--security-stroke)" opacity="0.75"/>

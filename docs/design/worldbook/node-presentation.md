@@ -1,10 +1,14 @@
 # 节点演出：背景与事件 CG
 
-核对日期：2026-10-07。运行态以当前代码为准。
+本页说明作者如何配置背景与事件 CG，以及画面在会话、历史和回档中的归属。当前只支持图片；音乐与视频是后续设计，不是可用动作。
+
+> 原核对日期：2026-10-07。最近核对：2026-10-11（主线 `7344cea` 的编辑器、scene_media、会话与用例静态核对；未重跑历史测试或浏览器验收）。
 
 ## 作者操作
 
-在世界书「节点图」双击剧情入口、章节或节拍，在节点详情的「演出」页签配置背景与 CG。原顶栏演出选择框与配置按钮已移除。
+在世界书「节点图」双击剧情入口、章节或节拍，进入节点详情的「演出」页签。配置并保存后，使用新会话验收；已有会话保留冻结配置。原顶栏演出选择框与配置按钮已移除。
+
+### 配置与保存
 
 - 「扩大查看」收起世界书封面和简介，画布占满主内容区；「还原查看」恢复。切书或离开节点图时复位。
 - 配置的 CG 显示在对应节点上方，以短直线连接；进入画面与各事件动作中的 CG 都参与展示，同一图片去重。缩略图跟随节点移动、缩放，适应视图计入图片范围。背景图片不作为 CG 缩略图展示。
@@ -16,6 +20,8 @@
 - 「应用到其他节点」一次替换多个目标的进入画面，保留目标事件，整批只记一次撤销。
 - 保存之前可撤销。保存冲突保留草稿，不能覆盖其他窗口已经保存的版本。
 
+### 画面持续与替换
+
 所有画面都持续到下一条明确画面指令。没有按节点结束、轮数或秒数自动恢复的路径。
 进入无配置节拍、推进对白、重新打开会话不重新应用上层背景。
 进入明确配置了画面的章节/节拍会切换；即使图片相同，也执行该指令的展示参数。
@@ -24,10 +30,18 @@
 
 节点的 scene_media 仅使用 background / events；旧 background_url / cg_url / cg_title 已删除。
 
-background 是一个画面：
-- kind: image；asset: 本书相对路径。
-- role: background / cg；fit: cover / contain。
-- position: 两个 0–100 百分比；portraits: show / hide。
+### 画面字段
+
+`background` 与 `set_visual.visual` 使用同一结构：
+
+| 字段 | 可用值与含义 |
+|---|---|
+| `kind` / `asset` | `image` / 本书相对图片路径 |
+| `role` / `fit` | `background` 或 `cg` / `cover` 或 `contain` |
+| `position` | 两个 0–100 百分比，指定焦点 |
+| `portraits` | `show` 或 `hide`，显示或隐藏立绘 |
+
+### 触发、条件与执行顺序
 
 事件字段为 id、可选 title、trigger、可选 conditions、repeat、priority、actions。
 trigger.kind 为 enter / choice / condition；choice_key 使用当前作者分支的 rule_key。
@@ -44,7 +58,9 @@ repeat 为 session / entry；entry 按实际配置节点计数，章节不随每
 同次触发先处理进入节点的画面（剧情→章节→节拍），再按 priority、事件 ID 排序执行事件；
 较大 priority 后执行、覆盖前面的画面。
 
-actions 当前只执行 set_visual，visual 使用上述画面结构。
+### 当前动作与后续通道
+
+`actions` 当前只执行 `set_visual`，`visual` 使用上述画面结构。
 数组和动作/资源种类判别字段保留未来同事件 BGM 与视频的扩展位置。
 当前不开放音乐/视频控件，保存未实现动作或 video 类型会明确拒绝。
 后续 BGM 应为独立通道，背景切换不隐含停音乐；
@@ -86,7 +102,7 @@ GET stage 是只读解析：round 查询读取冻结帧，不读取当前世界�
 
 ## 彼岸双生示例
 
-scripts/prepare_beyond_twin_presentation.py 从当前参考大纲和已有图片准备演出。
+[prepare_beyond_twin_presentation.py](../../../scripts/prepare_beyond_twin_presentation.py) 从参考大纲和已有图片准备演出。
 默认仅检查；--apply 先备份源 book.json、再次核对 SHA-256，再原子替换。
 只改节点图条目，保留其他条目、大纲、数值字段、有效布局及自由备注。
 过期节拍引用会被当前大纲替换，原图保留在完整备份中；工具重复运行结果不变。
@@ -99,6 +115,8 @@ scripts/prepare_beyond_twin_presentation.py 从当前参考大纲和已有图片
 
 ## 验证与边界
 
+以下是原 2026-10-07 核对记录的验证范围，本次没有重跑；不能据此宣布当前 Electron 或真实模型长流程通过。
+
 - tests/test_scene_media.py：持续背景、文件冻结、选项原子提交/失败重试、
   条件边沿、按节点重复、缺阵容角色、历史、回档后重访、CAS、非法路径和扩展动作拒绝。
 - tests/test_presentation_content.py：示例纯变换、幂等、有效布局及其他作者内容保留。
@@ -108,3 +126,5 @@ scripts/prepare_beyond_twin_presentation.py 从当前参考大纲和已有图片
 - 五组 PC 内容区尺寸检查编辑器/舞台、滚动边界和主要操作；未要求手机验收。
 - Electron 窗口/最大化/全屏切换及真实模型长流程需要另行验收，
   浏览器与构建结果不替代这两个门禁。
+
+实现入口：[scene_media](../../../src/scene_media.py)、[剧情图](../../../src/plot_graphs.py)、[会话 overlay](../../../src/session_overlay.py)、[演出用例](../../../tests/test_scene_media.py)。作者选项条件见[剧情规则](../narrative/story-rules.md)，候选载入见[按需载入](worldbook-on-demand.md)。

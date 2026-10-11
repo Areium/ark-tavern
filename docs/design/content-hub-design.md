@@ -1,97 +1,56 @@
 # 内容中心（Content Hub）整合设计
 
-> 历史设计记录：本文正文保留 2026-08 的旧内容包方案，不能作为当前操作说明。自 2026-09-28 起，新项目书架为空；书籍及资源仅放在 `data/worldbooks/books/<book_id>/`，导入酒馆 JSON/JSONL 会创建书文件夹。启动自动安装、`packs/`、`content/`、散装 JSON 和预装来源徽章均已移除。当前目录与导入流程见 `data/README.md`。
+本页保留 2026-08 内容中心与内容包的决策，并说明它们在当前界面中的归属。维护资产、卡牌或世界书入口时先看“当前入口”；旧自动安装、来源徽章和重装接口仅供理解历史，不能作为当前操作步骤。
 
-> 状态：已实施（2026-08） · 目标：整合「资产 / 索引」为统一的内容中心，世界书保留独立管理入口
-> 关联目标：内置方舟内容开箱即用 · 导入内容自由扩展 · 无重复入口 · 管理模式统一可解释
-> 后续变更（2026-09，世界书工作台重构）：内容中心不再有「世界书图谱」「索引」两个 Tab —— 前者取消，后者改名「本家索引」并搬进世界书工作台；内容中心只保留 **资产 / 卡牌 / 节点图**。见 `proposals/worldbook-workbench-redesign.md` §2.2。
-> 后续变更（2026-09，信息架构合并）：**内容中心一级入口已删除**（`components/ContentHub.tsx` 移除，主菜单与顶栏都不再有这一项）——资产与卡牌并入「角色」页的模块页签（角色库 / 玩家身份 / 资产 / 卡牌，页签状态 `characterTab`），节点图并入「世界书」工作台的「节点图」页签（挂 `components/combat/PlotGraphPage.tsx`，以当前选中的世界书为受控书）并替换掉旧的「节点视图」页签；跨世界书的统一检索迁到世界书工作台左侧书架上方。以下正文保留当时的实施记录，现状以文首这两条变更说明与代码为准。
+> 原方案实施时间：2026-08；后续入口与存储重构：2026-09。
+> 最近核对：2026-10-11（`HomeMenu.tsx`、`GameTopBar.tsx`、`CharacterManager.tsx`、`WorldBookManager.tsx`、世界书路由与 `data/README.md` 的静态核对；未重跑历史验收或操作用户数据）。
 
----
+## 当前入口与存储
 
-## 1. 背景沿革（为什么不再有「三个模块」）
+当前没有独立 `ContentHub.tsx`、内容中心或资源存档一级入口。资源按使用任务挂载：
 
-内容中心最初由「资产 / 索引」两个分立页面合并而来；早期并存的 **文档管理入口（前端 `DocumentManager.tsx`）已移除**——世界观语料改由 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包（`data/worldbooks/packs/arknights.json`），浏览与编辑统一走世界书模块。（后端 `src/document_manager.py` 与 `documents` blueprint 仍保留，继续承担文档 CRUD。）
-世界书**未并入**内容中心，仍是独立入口：其管理页负责书的 CRUD / 导入 / 条目编辑。依赖配置与索引一度挂在内容中心（「世界书图谱」「索引」两个 Tab），2026-09 起全部收回世界书工作台的五个页签（`条目` / `分类与载入` / `Prompt 预览` / `节点视图` / `本家索引`），内容中心不再有任何世界书相关 Tab。
-
-## 2. 统一管理模式
-
-### 2.1 单一入口：内容中心
-
-「资产 / 索引」合并为 **「内容中心」** 一项；**世界书保留独立入口**（世界书已工作台化，与内容中心不再重叠）。内容中心内部按 Tab 组织（当前共三个 Tab）：
-
-| Tab | 内容 | 来源组件 |
+| 任务 | 当前位置 | 实现入口 |
 |---|---|---|
-| 资产 | 图片资产上传 / 裁剪 / 默认图 / 按来源世界书筛选 | AssetManager |
-| 卡牌 | 角色卡牌与职业卡牌编辑、所属世界书 | CardManager |
-| 节点图 | 按设定集选择剧情，整页画布编辑节点图 | PlotGraphPage |
+| 管理角色、玩家身份、资产与卡牌 | 角色页模块页签；角色详情还提供该角色的数值、资产和专属卡牌 | [CharacterManager](../../frontend/src/components/CharacterManager.tsx)、[AssetManager](../../frontend/src/components/AssetManager.tsx)、[CardManager](../../frontend/src/components/CardManager.tsx) |
+| 编辑世界书、预览 Prompt、编辑剧情节点、查看会话条目 | 世界书工作台的条目 / Prompt 预览 / 节点图 / 会话条目页签 | [WorldBookManager](../../frontend/src/components/WorldBookManager.tsx)、[PlotGraphPage](../../frontend/src/components/combat/PlotGraphPage.tsx) |
+| 跨世界书检索 | 世界书工作台左侧书架上方 | 世界书工作台及 `GET /api/worldbook/search?q=` |
 
-世界书依赖与索引都不在内容中心：依赖关系与起点在 `分类与载入`，内置语料索引 / 依赖完整性 / 会话白名单在 `本家索引`（仍在内容中心的只有资产、卡牌与战斗节点图）。
+`characterTab` 保持角色模块的跨组件导航；世界书节点图使用当前选中的书作为受控书。旧“分类与载入”“节点视图”“本家索引”不能当成当前页签名称，依赖配置编辑 UI 尚未挂载。
 
-### 2.2 统一管理模式：内容包（Content Pack），不做内置/导入分层
+自 2026-09-28 起，新项目书架为空。书籍及所属资源统一在 `data/worldbooks/books/<book_id>/`；导入酒馆 JSON/JSONL 创建书文件夹。启动自动安装、`packs/`、`content/`、散装 JSON 和预装徽章已移除，用户仍管理自己的旧安装副本。当前目录与导入说明以[数据目录说明](../../data/README.md)为准。
 
-**核心决策（2026-08）：本家内容不做「内置只读层」，而是随程序分发一个整合包（Pack），与任何第三方内容在同一套管理规则下统一管理。**
+本页不定义会话恢复协议；不能将静态会话导出或参考归档据此解释为可导入恢复的存档。
 
-| 来源 | 含义 | 存储 | 管理规则 |
-|---|---|---|---|
-| **预装（preinstalled）** | 随程序分发的方舟整合包，首次启动自动安装 | 分发源：`data/worldbooks/packs/*.json`（git 跟踪）；安装副本：`data/worldbooks/<id>.json`（gitignored） | 与导入内容**完全相同**：可编辑、可停用、可删除；删除后可从分发源一键「重装」 |
-| **导入（imported）** | 用户导入/新建（第三方世界书、自制内容） | `data/worldbooks/*.json`（gitignored） | 完全可写 |
+## 历史决策：统一管理而非内置只读层（2026-08）
 
-要点：
+当时的目标是合并资产与索引的重复入口，保留世界书独立管理，并让方舟内容开箱即用、第三方内容可扩展。选择随程序分发可写的 Content Pack，与用户导入内容采用相同管理规则；不建立只能阅读的内置层，也不把程序固定在方舟 IP。
 
-1. **存储统一**：所有书都在 `data/worldbooks/`，同一份列表、同一套 CRUD、同一个启用/停用开关——管理模式只有一套，可解释。
-2. **开箱即用**：`WorldBookManager` 初始化时自动把 `data/worldbooks/packs/` 下的整合包复制到 `data/worldbooks/`（不存在才装），新用户零配置即有方舟世界书。
-3. **来源标识（徽章）**：预装 = 青（可「重装」还原），导入 = 紫。仅作来源说明，不影响任何操作权限。
-4. **程序 IP 中立**：用户可整体停用/卸载方舟整合包，导入自己的世界观内容，程序不绑定方舟。
-5. 文档侧（角色/剧情/索引）属于程序内置故事内容（`data/<category>/`）；**角色卡导入**（SillyTavern 角色卡 PNG/JSON → `data/worldbooks/content/characters/<slug>/` + 内嵌世界书）已实现，frontmatter 带 `source: imported` 来源标识。
+| 当时来源 | 分发与安装位置 | 当时管理行为 |
+|---|---|---|
+| `preinstalled` | 跟踪的 `data/worldbooks/packs/*.json` → 忽略的 `data/worldbooks/<id>.json` | 首次初始化时缺失才安装；可编辑、停用、删除，能从分发源重装。青色徽章只说明来源，不改变权限。 |
+| `imported` | 忽略的 `data/worldbooks/*.json` | 导入或新建，可写；紫色徽章只说明来源。 |
 
-### 2.3 启用/停用语义统一
+启用有三层含义：书级 `enabled`（默认 true，停用不参与 resolve）、条目级 `entry.enabled`、会话文档索引白名单。它们分别控制不同候选范围，不能互相替代。
 
-- **书级**：`WorldBook.enabled`（新增，默认 true）。停用的书不参与解析（resolve 跳过）。
-- **条目级**：`entry.enabled`（已有）。
-- **文档级**：会话索引白名单（已有）——启用哪些实体进入会话上下文。
+旧生成工具 `scripts/generate_builtin_worldbook.py` 从 `data/worldbooks/content/` 生成通用 `arknights.json`，并生成长夜临光、风雪过境、战斗功能测试三本剧情书；角色复制到剧情书，同时保留通用资料。旧解析回退顺序为会话绑定 → 全局默认书 → 已安装且启用的预装包。该回退和自动安装已删除，当前无绑定会话解析为空。
 
-### 2.4 开箱即用：方舟整合包
+当时的 SillyTavern PNG/JSON 角色卡导入写入 `data/worldbooks/content/characters/<slug>/`，可带内嵌世界书与 `source: imported` frontmatter。这是旧路径记录，当前书文件夹是实际来源，不能使用 frontmatter 来源标记定位运行资源。
 
-1. `scripts/generate_builtin_worldbook.py`：从 `data/worldbooks/content/` 生成通用资料库 `arknights.json`，并把长夜临光、风雪过境、战斗功能测试及其关联内容生成三本独立剧情书；角色会复制到剧情书，但仍保留在通用资料库。
-2. 首次启动自动安装 `data/worldbooks/packs/*.json` 中的全部预装书（source=preinstalled）。
-3. 解析回退链：**会话绑定 > 全局默认书 > 已启用的预装包（arknights）** —— 新用户零配置即有世界书生效。
+## 历史入口演变
 
-### 2.5 统一检索
+1. **早期合并**：资产 / 索引合为内容中心，世界书保留 CRUD、导入与条目编辑。前端 `DocumentManager.tsx` 删除，文档浏览编辑转向世界书；后端 `document_manager.py` 与 documents blueprint 继续承担文档 CRUD。
+2. **2026-09 工作台重构**：内容中心的世界书图谱取消，索引改为“本家索引”并迁回世界书。内容中心一度只保留资产、卡牌、节点图；工作台一度使用条目 / 分类与载入 / Prompt 预览 / 节点视图 / 本家索引五页签。
+3. **2026-09 信息架构合并**：内容中心一级入口删除，资产与卡牌迁入角色页；节点图迁入世界书，替换旧节点视图；跨书搜索迁到书架。之后的页签名称以首节当前清单为准。
 
-内容中心顶部全局搜索框：跨世界书书名/条目内容/条目触发词检索（后端新增 `GET /api/worldbook/search?q=`，文档侧复用现有 `/api/documents/search`）。
+历史设计范围与删除原因见[世界书工作台重构提案](../proposals/worldbook-workbench-redesign.md)。
 
-## 3. 接口变更
+## 历史接口与数据模型
 
-### 后端
+旧实现为 `GET /api/worldbook` 与 `GET /api/worldbook/<id>` 增加 `source`、`is_preinstalled`、`enabled`；`PUT`、`DELETE` 对所有来源书开放，复制用 `POST /api/worldbook/<id>/duplicate`，重装用 `POST /api/worldbook/<id>/reinstall`，搜索用 `GET /api/worldbook/search?q=`。resolve 跳过停用书，并使用上述预装回退。
 
-- `GET /api/worldbook`：列表项新增 `source`（preinstalled/imported）、`is_preinstalled`、`enabled`。
-- `GET /api/worldbook/<id>`：同上。
-- `PUT /api/worldbook/<id>`：所有书均可更新（含 `enabled` 开关）；无只读限制。
-- `DELETE /api/worldbook/<id>`：所有书均可删除（预装包删除后可用「重装」还原）。
-- `POST /api/worldbook/<id>/reinstall`：从分发源重装预装整合包（恢复出厂内容）。
-- `POST /api/worldbook/<id>/duplicate`：复制任意书为新导入书（做变体/备份）。
-- `GET /api/worldbook/search?q=`：跨书/条目检索。
-- `resolve`：回退到已安装且启用的预装包（`data/worldbooks/packs/` 分发源存在且 `data/worldbooks/` 中副本 enabled）。
+前端当时新增 `ContentHub.tsx`、`SourceBadge.tsx`，导航合并资产与索引，`useApi` 增加复制、搜索及 enabled 更新。这些是当时变更清单；重装、来源徽章与预装回退不属于当前接口承诺，现状查[世界书路由](../../src/blueprints/worldbook.py)。
 
-### 前端
-
-- `useApi`：`duplicateWorldbook`、`searchWorldbooks`、`updateWorldbook` 支持 enabled。
-- 新组件 `ContentHub.tsx`、`SourceBadge.tsx`。
-- `GameTopBar` / `HomeMenu`：资产与索引两项导航合并为「内容中心」；世界书保留独立导航入口。
-- 前端 `DocumentManager.tsx` 已删除（后端 `src/document_manager.py` 保留）；其「资产 / 卡牌」Tab 分别独立为 `AssetManager.tsx` / `CardManager.tsx`，
-  文档管理功能并入世界书整合包（见 §1 背景沿革）。
-
-## 4. 验收对照
-
-- [x] 新用户无需导入 → 方舟整合包自动安装，角色/剧情开箱即用
-- [x] 第三方世界书与预装包共存于同一列表，来源徽章清晰可辨；可停用/卸载/重装
-- [x] 无重复入口：内容中心单入口（资产 / 卡牌 / 节点图）+ 世界书依赖与索引收进世界书工作台页签
-- [x] 统一检索、书级启用/停用、复制、重装
-
-## 5. 数据模型（世界书存储格式）
-
-分发源：`data/worldbooks/packs/<id>.json`（git 跟踪）→ 首次启动安装副本：`data/worldbooks/<id>.json`（gitignored）：
+旧分发源与安装副本共同使用的模型示意如下；`entries` 省略完整条目字段，不能照此作为当前导入示例：
 
 ```json
 {
@@ -101,6 +60,10 @@
   "enabled": true,
   "source_format": "builtin",
   "budget_tokens": 0,
-  "entries": [ { "uid": "...", "name": "...", "content": "...", "trigger_keys": [...], ... } ]
+  "entries": []
 }
 ```
+
+## 历史验收范围
+
+2026-08 原记录将自动安装并开箱即用、预装与第三方共用列表、停用/卸载/重装、统一搜索与复制、内容中心单入口标为完成。该记录没有在本页列出逐项测试条件，本次也未重跑；它不能证明当前版本仍具备已删除的能力，亦不能作为当前 UI 或真实模型验收。
