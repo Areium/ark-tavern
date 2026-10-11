@@ -95,6 +95,32 @@ def test_first_turn_fills_root_with_llm_content(overlay):
     assert node["branches"][0]["child_id"].startswith("n_")
 
 
+def test_existing_tree_view_exposes_frozen_playback_and_restore_availability(overlay):
+    node = overlay.commit_tree_step(narrative="玩家看到的正文", title="历史场景", round_num=2)
+    node["ref_beat_id"] = "beat_intro_tension"  # The author cursor has already advanced.
+    node["state"]["presentation_frame"] = {"runtime": {}, "background": {}, "environment": {}, "scene_media": {
+        "round": 2, "beat_id": "beat_arrival", "chapter_idx": 1}}
+    overlay._save()
+    restored = SessionOverlay(overlay.session_id, "story")
+    before = json.dumps(restored._data, ensure_ascii=False, sort_keys=True)
+    view = restored.build_tree_state()["current_node"]
+    assert view["presentation"] == {"round": 2, "beat_id": "beat_arrival", "chapter_idx": 1}
+    assert view["content"] == "玩家看到的正文"
+    assert view["has_state"] is True
+    assert view["rollback_unavailable_reason"] == ""
+    assert json.dumps(restored._data, ensure_ascii=False, sort_keys=True) == before, "GET does not migrate or modify the save"
+
+    snapshot = restored.get_tree_node(node["id"])["state"]
+    snapshot["presentation_frame"]["scene_media"]["round"] = 1
+    assert restored.build_tree_state()["current_node"]["presentation"] is None
+    del snapshot["presentation_runtime"]
+    view = restored.build_tree_state()["current_node"]
+    assert view["has_state"] is True, "an incomplete save is still a visited scene"
+    assert view["rollback_unavailable_reason"], "do not offer a restore that backend validation will reject"
+    snapshot["presentation_frame"] = None
+    assert restored.build_tree_state()["current_node"]["presentation"] is None
+
+
 def test_branch_creates_new_llm_generated_node(overlay):
     """选择分支 → 生成一个由 LLM 现场内容填充的**新节点**（非既有节拍）。"""
     overlay.commit_tree_step(

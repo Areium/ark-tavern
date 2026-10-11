@@ -215,7 +215,7 @@ export function useApi() {
     // ── 剧情状态 & 节点回档 ──
     getStoryState: (sessionId: string) =>
       request<StoryStateDTO>(`/api/sessions/${sessionId}/story-state`),
-    rollbackNode: (sessionId: string, nodeId: string) =>
+    rollbackNode: (sessionId: string, nodeId: string, checkpointId?: string) =>
       request<{
         target_round: number;
         narration_count: number;
@@ -226,7 +226,7 @@ export function useApi() {
         story_state: StoryStateDTO;
       }>(`/api/sessions/${sessionId}/rollback-node`, {
         method: "POST",
-        body: JSON.stringify({ node_id: nodeId }),
+        body: JSON.stringify({ node_id: nodeId, checkpoint_id: checkpointId }),
       }),
 
     // ── 文档（剧情节点图编辑 plots/*.md 用；文档管理 UI 已并入世界书） ──

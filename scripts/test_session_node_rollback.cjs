@@ -52,5 +52,8 @@ const start=async api=>{const pending=rollbackStoryNode('s',node,api);settleConf
  resolve(result);await roundPending;assert.equal(store.getState().sessionNarrationCount.s,1);assert.equal(store.getState().sessionRollback.s,null);
  reset();const failedRound=rollbackChatRound('s',1,{rollbackSession:async()=>{throw Error('round denied');}});settleConfirmation(true);
  await assert.rejects(failedRound,/round denied/);assert.equal(store.getState().sessionRollback.s,null);
+ reset();const checkpointPending=rollbackStoryNode('s',{...node,id:'checkpoint:runtime-root:1',runtime_node_id:'runtime-root',checkpoint_id:'runtime-root:1'},{rollbackNode:async(s,id,checkpoint)=>{assert.equal(id,'runtime-root');assert.equal(checkpoint,'runtime-root:1');return result;}});
+ settleConfirmation(true);assert.equal(await checkpointPending,result);
+ reset();assert.equal(await rollbackStoryNode('s',{...node,round_end:4},{rollbackNode:async()=>{throw Error('future snapshot must not write');}}),null);
  console.log('Rollback cancellation, runtime IDs, session lock, duplicate prevention, stale responses, epoch reset, switching and failure release passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

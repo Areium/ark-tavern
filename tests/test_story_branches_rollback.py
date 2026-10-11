@@ -268,9 +268,13 @@ def test_story_api_endpoints(tmp_path, monkeypatch):
     # 3) 直接驱动 overlay 产生两个节点快照（绕过 LLM，只验证记录/回档链路）
     session = app._managers["session"].get_session(sid)
     ov = session.overlay
+    for _ in range(2):
+        session.add_narration("抵达关口", beat_id="beat_arrival", chapter_idx=1)
     ov.advance_beat()
     ov.add_condition("银灰", {"name": "轻伤", "modifier": -1, "applies_to": "all"})
     ov.record_node_snapshot(round_num=2)
+    for _ in range(2):
+        session.add_narration("进一步交谈", beat_id="beat_intro_tension", chapter_idx=1)
     ov.advance_beat()
     ov.add_condition("银灰", {"name": "重伤", "modifier": -3, "applies_to": "all"})
     ov.record_node_snapshot(round_num=4)

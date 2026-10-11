@@ -149,11 +149,13 @@ def test_rollback_restores_run_and_receipt_together(setup):
     app, client, _, _ = setup
     session = app._managers["session"].get_session(create(client).json["id"])
     base = f"/api/sessions/{session.id}/combat-plugin"
+    session.add_narration("战前")
     before = session.overlay.commit_tree_step(narrative="战前", round_num=1)
     run = client.post(base + "/start", json={"encounter_id": "enc_plugin"}).json["run"]
     confirmation = {"runId": run["runId"], "revision": 0, "retreat": True}
     receipt = client.post(base + "/confirm", json=confirmation)
     assert receipt.status_code == 200
+    session.add_narration("战后")
     completed = session.overlay.commit_tree_step(narrative="战后", round_num=2,
                                                  branch={"label": "战斗之后"})
     assert completed["id"] != before["id"]

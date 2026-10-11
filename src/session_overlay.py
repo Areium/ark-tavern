@@ -1190,6 +1190,20 @@ class SessionOverlay:
             if not isinstance(snapshot.get(key), dict):
                 raise ValueError(f"该节点缺少完整资源快照（{key}），无法安全回档")
 
+        frame = snapshot["presentation_frame"]
+        if frame:
+            for key in ("runtime", "scene_media", "background", "environment"):
+                if not isinstance(frame.get(key), dict):
+                    raise ValueError(f"该节点缺少完整演出快照（{key}），无法安全回档")
+            if frame["scene_media"].get("round") != snapshot.get("round_end"):
+                raise ValueError("该节点演出快照轮次不一致，无法安全回档")
+
+    def _validate_tree_restore(self, snapshot: dict) -> None:
+        """GET 可用性与实际回档共用校验，避免读取当前帧补全历史。"""
+        self.validate_resource_snapshot(snapshot)
+        if self._data.get("presentation") and not snapshot["presentation_frame"]:
+            raise ValueError("该节点缺少完整演出快照，无法安全回档")
+
     # ── 动态剧情树（LLM 生成的新节点，树状结构） ──
     #
     # 与「作者节拍骨架」不同：树上的节点不是剧情文件里写死的节拍，而是每一轮
@@ -1261,7 +1275,7 @@ class SessionOverlay:
             "state": None,
         }
         tree = {"version": 1, "root_id": "n_root", "current_id": "n_root",
-                "nodes": {"n_root": root}}
+                "nodes": {"n_root": root}, "checkpoints": {}}
         self._data["story_tree"] = tree
         self._save()
         logger.info("会话 %s: 剧情树已初始化（根节点来自剧情入口 %s）",
@@ -1277,6 +1291,52 @@ class SessionOverlay:
 
     def get_tree_node(self, node_id: str) -> dict | None:
         return self.get_story_tree().get("nodes", {}).get(node_id)
+
+    def get_tree_node_for_rollback(self, node_id: str, checkpoint_id: str | None = None) -> dict | None:
+        """精确读取冻结轮次；指定 checkpoint 时禁止退回 latest 或作者快照。"""
+        if checkpoint_id is None:
+            return self.get_tree_node(node_id)
+        if not isinstance(checkpoint_id, str) or not checkpoint_id.strip():
+            raise ValueError("checkpoint_id 必须是非空字符串")
+        if self.get_tree_node(node_id) is None:
+            raise ValueError(f"剧情树中不存在节点: {node_id}")
+        record = self.get_story_tree().get("checkpoints", {}).get(checkpoint_id)
+        if not isinstance(record, dict) or record.get("node_id") != node_id:
+            raise ValueError(f"未找到该节点的轮次快照: {checkpoint_id}")
+        node = record.get("node")
+        if not isinstance(node, dict) or node.get("id") != node_id:
+            raise ValueError(f"轮次快照与剧情节点不匹配: {checkpoint_id}")
+        return copy.deepcopy(node)
+
+    @staticmethod
+    def _tree_checkpoint_id(node: dict) -> str:
+        """同轮不同轨迹各有身份；未来 children 拓扑不改变已冻结场景的身份。"""
+        snapshot = {key: value for key, value in node.items() if key != "children"}
+        serialized = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        fingerprint = hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:24]
+        return f"{node['id']}:{(node.get('state') or {}).get('round_end')}:{fingerprint}"
+
+    @staticmethod
+    def _freeze_tree_checkpoint(tree: dict, node: dict, next_round: int) -> None:
+        """覆盖另一轮状态前只冻结该 raw node，已有冻结记录保持不变。"""
+        state = node.get("state")
+        if not isinstance(state, dict) or not state:
+            return
+        round_end = state.get("round_end")
+        if round_end is None or round_end == next_round:
+            return
+        checkpoint_id = SessionOverlay._tree_checkpoint_id(node)
+        checkpoints = tree.setdefault("checkpoints", {})
+        # 重走同一场景/轮次后仅保留当前轨迹，旧标识失效，不能借新聊天恢复旧资源。
+        for existing_id, record in list(checkpoints.items()):
+            if (existing_id != checkpoint_id and isinstance(record, dict)
+                    and record.get("node_id") == node["id"]
+                    and isinstance(record.get("node"), dict)
+                    and (record["node"].get("state") or {}).get("round_end") == round_end):
+                del checkpoints[existing_id]
+        checkpoints.setdefault(checkpoint_id, {
+            "node_id": node["id"], "node": copy.deepcopy(node),
+        })
 
     def get_current_tree_node(self) -> dict | None:
         tree = self.get_story_tree()
@@ -1414,6 +1474,7 @@ class SessionOverlay:
                             self.session_id, child_id, child["depth"], label)
             else:
                 # 复访：刷新内容
+                self._freeze_tree_checkpoint(tree, child, round_num)
                 if narrative:
                     child["content"] = narrative[:800]
                 if summary:
@@ -1433,6 +1494,7 @@ class SessionOverlay:
         else:
             # 同一节点内继续
             node = cur
+            self._freeze_tree_checkpoint(tree, node, round_num)
             if narrative:
                 node["content"] = narrative[:800]
             if summary:
@@ -1502,6 +1564,7 @@ class SessionOverlay:
                 parent["children"].append(child_id)
             logger.info("会话 %s: 剧情树新增战斗节点 %s（%s）",
                         self.session_id, child_id, combat_node_id)
+        self._freeze_tree_checkpoint(tree, child, round_num)
         child["state"] = self._tree_state_snapshot(round_num, child.get("state"))
         if (parent.get("state") or {}).get("lore_scope") is not None:
             child["state"]["lore_scope"] = copy.deepcopy(parent["state"]["lore_scope"])
@@ -1694,7 +1757,7 @@ class SessionOverlay:
         tree = self.get_story_tree()
         nodes = tree.get("nodes", {})
         if not nodes:
-            return {"has_tree": False, "nodes": [], "root_id": "", "current_id": "", "path": []}
+            return {"has_tree": False, "nodes": [], "checkpoints": [], "root_id": "", "current_id": "", "path": []}
 
         current_id = tree.get("current_id") or ""
         path: list[str] = []
@@ -1707,9 +1770,32 @@ class SessionOverlay:
         path.reverse()
 
         out = []
-        for nid, n in nodes.items():
+        checkpoint_views = []
+        records = [(nid, n, None) for nid, n in nodes.items()]
+        for checkpoint_id, record in tree.get("checkpoints", {}).items():
+            runtime_id = record.get("node_id") if isinstance(record, dict) else None
+            try:
+                frozen = self.get_tree_node_for_rollback(runtime_id, checkpoint_id)
+            except ValueError:
+                continue
+            records.append((runtime_id, frozen, checkpoint_id))
+        for nid, n, checkpoint_id in records:
             st = n.get("state") or {}
-            if nid == current_id:
+            # References may already have advanced; only the frozen frame identifies
+            # the authored beat actually played at this node's rollback point.
+            frame = st.get("presentation_frame")
+            media = frame.get("scene_media") if isinstance(frame, dict) else None
+            media = media if isinstance(media, dict) else {}
+            presentation = None
+            if media.get("round") == st.get("round_end") and media.get("beat_id") and media.get("chapter_idx"):
+                presentation = {key: media[key] for key in ("round", "beat_id", "chapter_idx")}
+            rollback_unavailable_reason = ""
+            if st:
+                try:
+                    self._validate_tree_restore(st)
+                except ValueError as error:
+                    rollback_unavailable_reason = str(error)
+            if checkpoint_id is None and nid == current_id:
                 state = "current"
             elif nid in path:
                 state = "path"
@@ -1718,8 +1804,8 @@ class SessionOverlay:
             branches = []
             for b in n.get("branches", []):
                 branches.append({**b, "taken": b.get("child_id") in (n.get("children") or [])})
-            out.append({
-                "id": nid,
+            view = {
+                "id": checkpoint_id or nid,
                 "parent_id": n.get("parent_id"),
                 "depth": int(n.get("depth", 0)),
                 "kind": n.get("kind") or ("plot" if n.get("parent_id") is None else "beat"),
@@ -1737,8 +1823,15 @@ class SessionOverlay:
                 "round_start": st.get("round_start"),
                 "round_end": st.get("round_end"),
                 "has_state": bool(st),
+                "snapshot_id": self._tree_checkpoint_id(n) if st else None,
+                "presentation": presentation,
+                "rollback_unavailable_reason": rollback_unavailable_reason,
                 "state": state,
-            })
+            }
+            if checkpoint_id is None:
+                out.append(view)
+            else:
+                checkpoint_views.append({**view, "runtime_node_id": nid, "checkpoint_id": checkpoint_id})
         # 按深度 + 创建顺序稳定排序，便于前端缩进渲染
         out.sort(key=lambda x: (x["depth"], x["id"]))
         current = next((x for x in out if x["id"] == current_id), None)
@@ -1748,10 +1841,11 @@ class SessionOverlay:
             "current_id": current_id,
             "path": path,
             "nodes": out,
+            "checkpoints": sorted(checkpoint_views, key=lambda x: (x["depth"], x["id"])),
             "current_node": current,
         }
 
-    def rollback_to_tree_node(self, node_id: str, lore_resolver_factory=None) -> dict:
+    def rollback_to_tree_node(self, node_id: str, lore_resolver_factory=None, *, checkpoint_id: str | None = None) -> dict:
         """回档到剧情树上的某个节点，恢复该节点时刻的全部状态。
 
         树本身保留（不删后续节点），因此回档后仍可重新走其它分支。
@@ -1763,13 +1857,23 @@ class SessionOverlay:
         """
         tree = self.get_story_tree()
         nodes = tree.get("nodes", {})
-        node = nodes.get(node_id)
+        node = self.get_tree_node_for_rollback(node_id, checkpoint_id)
         if node is None:
             raise ValueError(f"剧情树中不存在节点: {node_id}")
         st = node.get("state") or {}
         if not st:
             raise ValueError(f"节点尚无状态快照，无法回档: {node_id}")
-        self.validate_resource_snapshot(st)
+        self._validate_tree_restore(st)
+        if checkpoint_id is not None:
+            if node_id not in nodes:
+                raise ValueError(f"剧情树中不存在节点: {node_id}")
+            self._freeze_tree_checkpoint(tree, nodes[node_id], int(st.get("round_end") or 0))
+            restored_node = copy.deepcopy(node)
+            restored_node["children"] = list(dict.fromkeys(
+                list(node.get("children") or []) + list(nodes[node_id].get("children") or [])))
+            nodes[node_id] = restored_node
+            node = restored_node
+            st = node["state"]
 
         tree["current_id"] = node_id
         self._data["story_tree"] = tree
@@ -1828,6 +1932,7 @@ class SessionOverlay:
                     self.session_id, node_id, st.get("round_end", 0))
         return {
             "node_id": node_id,
+            **({"checkpoint_id": checkpoint_id} if checkpoint_id is not None else {}),
             "round_start": int(st.get("round_start") or 0),
             "round_end": int(st.get("round_end") or 0),
             "depth": int(node.get("depth", 0)),

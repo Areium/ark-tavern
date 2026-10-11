@@ -139,7 +139,8 @@ export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: Sess
             {castNames.slice(0, 4).map(name => <AvatarPlaceholder key={name} name={name} sessionId={sessionId} />)}
             {castNames.length > 4 && <span>+{castNames.length - 4}</span>}
           </span>}
-            {visits.get(node.id)?.some(visit => visit.has_state && visit.id !== state?.tree?.current_id) && <button type="button" className="session-graph-node-action"
+            {visits.get(node.id)?.some(visit => visit.has_state && !visit.rollback_unavailable_reason && (visit.round_end ?? 0) <= narrationCount
+              && !((visit.runtime_node_id || visit.id) === state?.tree?.current_id && visit.round_end === narrationCount)) && <button type="button" className="session-graph-node-action"
               aria-label={`查看并回档：${node.title}`} onPointerDown={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}
               onClick={event => { event.stopPropagation(); setDetailId(node.id); setRollbackError(""); }}>
               <AppIcon name="back" size={12} />回档
@@ -148,7 +149,7 @@ export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: Sess
         {(sending || streaming || loading) && <span className="session-graph-status" role="status">{sending || streaming ? "剧情生成中，完成后更新…" : "正在更新节点…"}</span>}
       </div>}
     {detailNode && <SessionNodeDetails key={`${sessionId}:${detailNode.id}`} node={detailNode} visits={visits.get(detailNode.id) ?? []}
-      currentId={state?.tree?.current_id} busy={loading || sending || streaming} rollingBack={rollingBack} error={rollbackError}
+      currentId={state?.tree?.current_id} currentRound={narrationCount} busy={loading || sending || streaming} rollingBack={rollingBack} error={rollbackError}
       onRollback={rollback} onClose={() => setDetailId(null)} />}
   </section>;
 }
