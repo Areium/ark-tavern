@@ -66,8 +66,6 @@ def run():
                 body = [SESSION]
             elif path == "/api/sessions/choices-qa":
                 body = SESSION
-            elif path.endswith("/memories"):
-                body = {"memories": [], "narration_count": 1}
             elif path.endswith("/characters"):
                 body = {"characters": [], "character_colors": {}}
             elif path.endswith("/config"):

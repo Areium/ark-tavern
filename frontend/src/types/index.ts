@@ -197,6 +197,7 @@ export interface StoryTreeNode {
   depth: number;
   title: string;
   summary: string;
+  content?: string;
   intent?: string;
   branch_label?: string;
   /** 节点种类：plot 剧情节点（入口 / 章节切换 / 偏离分支线起点）、beat 节拍节点、combat 战斗节点 */

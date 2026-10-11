@@ -55,8 +55,6 @@ def run(baseline=False):
                 body = {"theme": "dark", "skin": "default"}
             elif path.endswith("/messages"):
                 body = {"messages": []}
-            elif path.endswith("/memories"):
-                body = {"memories": [], "narration_count": 0}
             elif path.endswith("/loading-qa"):
                 body = SESSION
             else:

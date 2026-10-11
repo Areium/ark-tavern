@@ -64,8 +64,6 @@ def run(baseline=False):
             elif path.endswith("/worldbook-dependencies"):
                 body = {"entries": [], "effective_requires_edges": [], "effective_related_edges": [],
                         "suppressed_edges": [], "resolved_entry_uids": [], "book_name": "彼岸双生"}
-            elif path.endswith("/memories"):
-                body = {"memories": [], "narration_count": 0}
             elif path.endswith("/messages"):
                 body = {"messages": []}
             elif path.endswith("/stage"):
@@ -302,10 +300,10 @@ def run(baseline=False):
                 actual = page.evaluate("qaStore.getState().sessionBriefings['combat-a']?.name || null")
                 report[f"manual_start_{scenario}_response_ignored"] = actual == ("新简报" if scenario == "replaced" else None)
             page.evaluate("qaStore.getState().setCurrentView('home')")
-            before = page.evaluate("[qaStore.getState().envRefreshKey,qaStore.getState().memoryRefreshKey,qaStore.getState().statsRefreshKey,qaStore.getState().characterRefreshKey]")
+            before = page.evaluate("[qaStore.getState().envRefreshKey,qaStore.getState().statsRefreshKey,qaStore.getState().characterRefreshKey]")
             page.evaluate("qaStore.getState().setCurrentView('chat')")
             page.wait_for_timeout(150)
-            after = page.evaluate("[qaStore.getState().envRefreshKey,qaStore.getState().memoryRefreshKey,qaStore.getState().statsRefreshKey,qaStore.getState().characterRefreshKey]")
+            after = page.evaluate("[qaStore.getState().envRefreshKey,qaStore.getState().statsRefreshKey,qaStore.getState().characterRefreshKey]")
             report["returning_view_refreshes_background_changes"] = all(a > b for a, b in zip(after, before))
         report["no_page_errors"] = not errors
         report["no_unexpected_console_errors"] = not unexpected_console

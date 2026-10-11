@@ -73,7 +73,7 @@ Electron 主进程 ──窗口、后端生命周期、IPC── React 界面
 
 | 入口 | 职责 |
 |---|---|
-| [session_manager.py](../src/session_manager.py) | 会话创建、恢复、删除、历史、变体与初始化发布 |
+| [session_manager.py](../src/session_manager.py) | 会话创建、恢复、删除、叙述历史、变体与初始化发布 |
 | [session_overlay.py](../src/session_overlay.py) | 会话覆盖、剧情树节点状态、物品、任务、角色数值和插件数据 |
 | [character_stats.py](../src/character_stats.py) / [session_stats.py](../src/session_stats.py) | 数值字段与世界书、角色全局值、会话值的读取和合并 |
 | [story_rules.py](../src/story_rules.py) | 作者分支条件与效果、服务端重验、原子结算和重试凭据 |
@@ -118,7 +118,7 @@ Electron 主进程 ──窗口、后端生命周期、IPC── React 界面
 
 API 按业务域分组，完整注册列表由 [app.py](../src/app.py) 维护。查找路由时进入对应 [blueprints/](../src/blueprints/) 文件，不在本页重复维护逐个端点清单。
 
-- 交互与状态：会话、对话、场景、舞台、环境和回忆。
+- 交互与状态：会话、对话、场景、舞台、环境和轮次回退。
 - 内容：世界书、文档、索引、剧情、节点图、资产、卡牌和战斗节点。
 - 战斗：网格战斗、横版、模式管理与脚本插件。
 - 配置与基础能力：模型服务、Wiki 查询和状态检查。
@@ -140,7 +140,7 @@ React 界面通过 Zustand 保存页面和会话状态，通过 API 客户端获
 | [ChatView.tsx](../frontend/src/components/ChatView.tsx) / [ChatPanel.tsx](../frontend/src/components/ChatPanel.tsx) | 对话容器、流式正文、选项、变体、回滚与记录展示 |
 | [ScenePanel.tsx](../frontend/src/components/scene/ScenePanel.tsx) / [plugins/](../frontend/src/plugins/) | 场景面板注册、角色与游戏状态展示、面板隔离错误处理 |
 | [StageView.tsx](../frontend/src/components/stage/StageView.tsx) / [stageScript.ts](../frontend/src/utils/stageScript.ts) | 视觉小说式逐句阅读、说话人、背景、立绘与选项 |
-| [SessionStoryGraph.tsx](../frontend/src/components/story/SessionStoryGraph.tsx) / [sessionStoryGraph.ts](../frontend/src/utils/sessionStoryGraph.ts) | 会话剧情树、当前位置与节点布局 |
+| [SessionStoryGraph.tsx](../frontend/src/components/story/SessionStoryGraph.tsx) / [sessionStoryGraph.ts](../frontend/src/utils/sessionStoryGraph.ts) | 会话剧情树、当前位置、只读节点详情与运行时节点回档 |
 | [CombatView.tsx](../frontend/src/components/combat/CombatView.tsx) / [combat/](../frontend/src/components/combat/) | 网格、Spine 演出、手牌、战斗状态和事件播放 |
 | [sideview/](../frontend/src/features/sideview/) / [combatModes/](../frontend/src/features/combatModes/) | 横版模拟与当前 iframe 脚本玩法 |
 | [CreateSessionWizard.tsx](../frontend/src/components/session/CreateSessionWizard.tsx) / [SessionManagerView.tsx](../frontend/src/components/session/SessionManagerView.tsx) | 会话创建、世界书绑定、主控与阵容、会话管理 |
@@ -161,7 +161,9 @@ React 界面通过 Zustand 保存页面和会话状态，通过 API 客户端获
 
 ### 3.3 状态、流式输出与演出
 
-[appStore.ts](../frontend/src/stores/appStore.ts) 将消息、流式接收和发送状态按会话隔离，并通过刷新键通知相关组件重新读取状态。[useApi.ts](../frontend/src/hooks/useApi.ts) 提供 REST 与 GET/POST SSE 客户端。
+[appStore.ts](../frontend/src/stores/appStore.ts) 将消息、流式接收、发送和回档状态按会话隔离，并通过刷新键通知相关组件重新读取状态。[useApi.ts](../frontend/src/hooks/useApi.ts) 提供 REST 与 GET/POST SSE 客户端。
+
+剧情面板展示当前位置、作者节拍骨架与角色状态。会话节点图通过 [SessionNodeDetails.tsx](../frontend/src/components/story/SessionNodeDetails.tsx) 展示只读详情；[sessionNodeRollback.ts](../frontend/src/utils/sessionNodeRollback.ts) 使用真实运行时节点 ID 回档并锁定会话写操作，不修改世界书节点。独立回忆摘要已移除，剧情树节点摘要、剧情日志和角色向量记忆仍保留。
 
 舞台读取同一轮权威正文，保留阅读位置，等待场景图片时不阻塞正文。网格战斗从操作响应中的状态与事件驱动演出，SSE 也会传输事件；播放逻辑需要识别重复事件。阅读交接见[两阶段叙述](design/narrative/two-phase-narration.md)，战斗事件与动画见[战斗界面](design/combat/combat-ui-design.md)。
 

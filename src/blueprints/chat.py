@@ -11,7 +11,6 @@ from flask import Blueprint, jsonify, request
 from shared.helpers import (
     json_error,
     make_sse_response,
-    inject_memory_context,
     estimate_output_token_budget,
 )
 from hooks.base import HookContext
@@ -651,10 +650,9 @@ def register(app, managers):
                 )
                 is_first_turn = session.narration_count == 0
 
-                # 注入记忆上下文
-                context_with_memory = inject_memory_context(session, env_context)
+                narration_context = env_context
                 if hook_injection_text:
-                    context_with_memory = context_with_memory + "\n\n" + hook_injection_text
+                    narration_context += "\n\n" + hook_injection_text
 
                 # — 统一流式叙述生成（所有模式：纯文本 / 气泡 / 选项）—
                 # 叙述文本先流式显示：首字延迟 ≈ LLM 首个 token（TTFT），不再等完整响应。
@@ -671,7 +669,7 @@ def register(app, managers):
                 text_completed = False
                 phase2_status = "skipped"
                 for event_type, data in session.scene_manager.narrate_stream(
-                    player_info, context_with_memory,
+                    player_info, narration_context,
                     user_action=user_action, structured=False,
                     max_tokens=max_tokens,
                     word_limit=word_limit,
@@ -784,14 +782,6 @@ def register(app, managers):
                     if not session.overlay.get_node_history():
                         session.overlay.record_node_snapshot(session.narration_count)
                     _record_node_snapshot(session)
-                    interval = config.get("memory_interval", 5)
-                    if session.should_generate_memory(interval):
-                        memory = session.generate_memory()
-                        if memory:
-                            yield f"data: {json.dumps({'type': 'memory_event', 'data': {
-                                'memory': memory,
-                                'stream_id': stream_id
-                            }})}\n\n"
 
                 # 生成选项：优先使用提取结果，回退到默认选项；分支与作者预设合并
                 options = _build_choices(session, inline_choices)
@@ -868,16 +858,13 @@ def register(app, managers):
                     + "），请让本轮叙述朝该方向推进。"
                 )
 
-        # 注入记忆上下文
-        context_with_memory = inject_memory_context(session, env_context)
-
         # ── Hook: inter-round ──
         roll_events = []
         hook_ctx = HookContext(
             session=session,
             player_info=player_info,
             user_action=user_action,
-            env_context=context_with_memory,
+            env_context=env_context,
             stream_id="",
         )
         if hook_pipeline:
@@ -885,7 +872,7 @@ def register(app, managers):
                 roll_events = hook_pipeline.execute_before_narration(hook_ctx)
                 injection = hook_pipeline.collect_prompt_injections(hook_ctx)
                 if injection:
-                    context_with_memory = context_with_memory + "\n\n" + injection
+                    env_context = env_context + "\n\n" + injection
             except Exception:
                 logger.warning("Hook inter-round 执行异常", exc_info=True)
 
@@ -907,7 +894,7 @@ def register(app, managers):
             is_first_turn = session.narration_count == 0
 
             narrative, env_updates, usage = session.scene_manager.narrate(
-                player_info, context_with_memory,
+                player_info, env_context,
                 user_action=user_action,
                 structured=bubble_mode,
                 max_tokens=max_tokens,
@@ -998,11 +985,6 @@ def register(app, managers):
                 if not session.overlay.get_node_history():
                     session.overlay.record_node_snapshot(session.narration_count)
                 _record_node_snapshot(session)
-                interval = config.get("memory_interval", 5)
-                if session.should_generate_memory(interval):
-                    memory = session.generate_memory()
-                    if memory:
-                        response_extra["memory"] = memory
 
             options = _build_choices(session, inline_choices)
             branches = _build_branches(session, inline_branches)
@@ -1066,9 +1048,6 @@ def register(app, managers):
         prompt = data.get("prompt", "").strip()
         env_context = session.environment.build_context()
 
-        # 注入记忆上下文
-        context_with_memory = inject_memory_context(session, env_context)
-
         try:
             config = llm_backend.get_config()
             bubble_mode = config.get("dialogue_bubble_mode", False)
@@ -1085,7 +1064,7 @@ def register(app, managers):
             is_first_turn = session.narration_count == 0
 
             narrative, env_updates, usage = session.scene_manager.narrate(
-                player_info, context_with_memory,
+                player_info, env_context,
                 user_action=prompt,
                 structured=bubble_mode,
                 conversation_history=conversation_history,

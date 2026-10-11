@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useAppStore } from "../../stores/appStore";
-import type { PlotGraphDocDTO, StageDTO, StoryStateDTO } from "../../types";
-import { applySessionGraphPositions, sessionGraphDocument, sessionGraphProgress, sessionPositionKey, type SessionGraphPositions } from "../../utils/sessionStoryGraph";
+import type { PlotGraphDocDTO, StageDTO, StoryStateDTO, StoryTreeNode } from "../../types";
+import { applySessionGraphPositions, sessionGraphDocument, sessionGraphProgress, sessionNodeVisits, sessionPositionKey, type SessionGraphPositions } from "../../utils/sessionStoryGraph";
+import { rollbackStoryNode } from "../../utils/sessionNodeRollback";
+import SessionNodeDetails from "./SessionNodeDetails";
 import GraphCanvas, { type GraphCanvasApi } from "../combat/GraphCanvas";
 import { type ViewState } from "../combat/graphModel";
 import AvatarPlaceholder from "../chat/AvatarPlaceholder";
@@ -18,7 +20,7 @@ export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: Sess
   const session = useAppStore(s => s.sessions.find(item => item.id === sessionId));
   const narrationCount = useAppStore(s => s.sessionNarrationCount[sessionId] ?? session?.narration_count ?? 0);
   const streaming = useAppStore(s => s.sessionStreaming[sessionId] ?? false);
-  const sending = useAppStore(s => s.sessionSending[sessionId] ?? false);
+  const sending = useAppStore(s => !!s.sessionSending[sessionId] || !!s.sessionRollback[sessionId]);
   const booksKey = JSON.stringify(session?.worldbook_ids ?? []);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -27,6 +29,10 @@ export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: Sess
   const [positions, setPositions] = useState<{ key: string; values: SessionGraphPositions }>({ key: "", values: {} });
   const [view, setView] = useState<ViewState>({ x: 0, y: 0, zoom: 1 });
   const [selected, setSelected] = useState<{ kind: "node" | "edge"; id: string } | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [rollingBack, setRollingBack] = useState<string | null>(null);
+  const [rollbackError, setRollbackError] = useState("");
+  const rollbackPending = useRef(false);
   const canvasApi = useRef<GraphCanvasApi | null>(null);
   const initialized = useRef("");
   const state = snapshot?.sessionId === sessionId ? snapshot.state : null;
@@ -37,6 +43,29 @@ export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: Sess
   const doc = useMemo(() => graph ? applySessionGraphPositions(graph.doc, positions.key === layoutKey ? positions.values : {}) : null, [graph, positions, layoutKey]);
   const castNames = [...new Set(stage ? [stage.player?.name, ...stage.characters.map(character => character.name)].filter((name): name is string => !!name)
     : [session?.player_identity || "玩家", ...(session?.characters ?? [])])];
+  const detailNode = doc?.nodes.find(node => node.id === detailId);
+  const visits = useMemo(() => new Map(doc?.nodes.map(node => [node.id, state ? sessionNodeVisits(state, node, graph?.currentId) : []]) ?? []), [doc, state, graph?.currentId]);
+  useEffect(() => { setDetailId(null); setRollbackError(""); }, [sessionId]);
+
+  const rollback = async (node: StoryTreeNode) => {
+    if (rollbackPending.current || node.id === state?.tree?.current_id) return;
+    rollbackPending.current = true;
+    setRollingBack(node.id); setRollbackError("");
+    try {
+      const result = await rollbackStoryNode(sessionId, node, api);
+      if (!result) return;
+      const store = useAppStore.getState();
+      if (store.activeSessionId === sessionId) {
+        setSnapshot(previous => previous?.sessionId === sessionId ? { ...previous, state: result.story_state, stage: null, round: result.narration_count } : previous);
+        setDetailId(null);
+        setRetry(value => value + 1);
+      }
+    } catch (reason) {
+      if (useAppStore.getState().activeSessionId === sessionId) setRollbackError(reason instanceof Error ? reason.message : "回档失败");
+    } finally {
+      rollbackPending.current = false; setRollingBack(null);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -104,13 +133,22 @@ export default function SessionStoryGraph({ sessionId, onOpenLog, onExit }: Sess
       : <div className="session-graph-canvas">
         <GraphCanvas mode="session" doc={doc} view={view} onViewChange={setView} selected={selected} onSelect={setSelected}
           onDocChange={moveNodes} displays={graph!.displays} canvasApiRef={canvasApi}
-          onOpenNode={noop} onRequestDeleteNode={noop} onCreateCombat={noop} onAddBeat={noop} onAddCombatNode={noop}
+          onOpenNode={node => { setDetailId(node.id); setRollbackError(""); }} onRequestDeleteNode={noop} onCreateCombat={noop} onAddBeat={noop} onAddCombatNode={noop}
           onImportLayout={noop} onResetPositions={noop} availableBeats={[]} availableCombats={[]}
-          renderNodeOverlay={node => node.id === graph?.currentId ? <span className="session-graph-cast" aria-label={`当前节点角色：${castNames.join("、")}`}>
+          renderNodeOverlay={node => <>{node.id === graph?.currentId && <span className="session-graph-cast" aria-label={`当前节点角色：${castNames.join("、")}`}>
             {castNames.slice(0, 4).map(name => <AvatarPlaceholder key={name} name={name} sessionId={sessionId} />)}
             {castNames.length > 4 && <span>+{castNames.length - 4}</span>}
-          </span> : null} />
+          </span>}
+            {visits.get(node.id)?.some(visit => visit.has_state && visit.id !== state?.tree?.current_id) && <button type="button" className="session-graph-node-action"
+              aria-label={`查看并回档：${node.title}`} onPointerDown={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}
+              onClick={event => { event.stopPropagation(); setDetailId(node.id); setRollbackError(""); }}>
+              <AppIcon name="back" size={12} />回档
+            </button>}
+          </>} />
         {(sending || streaming || loading) && <span className="session-graph-status" role="status">{sending || streaming ? "剧情生成中，完成后更新…" : "正在更新节点…"}</span>}
       </div>}
+    {detailNode && <SessionNodeDetails key={`${sessionId}:${detailNode.id}`} node={detailNode} visits={visits.get(detailNode.id) ?? []}
+      currentId={state?.tree?.current_id} busy={loading || sending || streaming} rollingBack={rollingBack} error={rollbackError}
+      onRollback={rollback} onClose={() => setDetailId(null)} />}
   </section>;
 }

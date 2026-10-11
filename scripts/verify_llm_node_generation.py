@@ -67,13 +67,13 @@ def main() -> int:
     app.config.update(TESTING=True)
     client = app.test_client()
 
-    # 配置：沿用真实 llm_config，仅收索单轮篇幅/关掉回忆生成以聚焦节点验证
+    # 配置：沿用真实 llm_config，仅收索单轮篇幅以聚焦节点验证
     real_get_config = app._managers["llm_backend"].get_config
 
     def get_config():
         cfg = dict(real_get_config())
         cfg.update({
-            "memory_interval": 999, "word_limit": 300,
+            "word_limit": 300,
             "dialogue_bubble_mode": False, "narration_reasoning_effort": "none",
             "max_output_tokens": 4096, "auto_generate_choices": True,
             "choice_count": 3,

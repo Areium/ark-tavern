@@ -258,7 +258,7 @@ def test_real_narration_routes_emit_plugin_briefing(setup, streaming, monkeypatc
     session = app._managers["session"].get_session(create(client).json["id"])
     session._llm = object()
     monkeypatch.setattr(app._managers["llm_backend"], "get_config", lambda: {
-        "auto_generate_choices": False, "memory_interval": 999,
+        "auto_generate_choices": False,
     })
     scene = session.scene_manager
     monkeypatch.setattr(scene, "narrate", lambda *a, **k: ("守卫发起挑战。", {}, None))

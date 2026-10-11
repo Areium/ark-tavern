@@ -77,11 +77,11 @@ def flow(tmp_path, monkeypatch):
     app.config.update(TESTING=True)
     client = app.test_client()
 
-    # LLM 后端配置（不联网）：关闭回忆生成，其余与真实配置口径一致
+    # LLM 后端配置（不联网）：与真实配置口径一致
     app._managers["llm_backend"].get_config = lambda: {
         "auto_generate_choices": True, "choice_count": 2, "word_limit": 300,
         "dialogue_bubble_mode": False, "narration_reasoning_effort": "none",
-        "max_output_tokens": 4096, "memory_interval": 999,
+        "max_output_tokens": 4096,
     }
 
     res = client.post("/api/sessions", json={
@@ -289,3 +289,68 @@ def test_degraded_extraction_keeps_flow_alive(flow):
     assert t["nodes"]["n_root"]["state"]["round_end"] == 2, \
         "降级轮仍推进节点轮次区间"
     assert "narrative" in r, "降级不应导致 500，叙述照常返回"
+
+
+def test_fifth_round_keeps_history_usage_and_rollback_without_summary(flow):
+    """第五轮只做叙述/标记提取，旧摘要留在历史文件但不参与运行。"""
+    from unittest.mock import Mock
+
+    session, client, sid = flow["session"], flow["client"], flow["sid"]
+    session._llm = Mock()
+    session._llm.chat.side_effect = AssertionError("不应调用独立摘要 LLM")
+    path = session._narration_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    old_summaries = [{"id": "mem_old", "summary": "历史摘要", "round_end": 5}]
+    path.write_text(json.dumps({"memories": old_summaries, "last_memory_end": 5}), encoding="utf-8")
+    for round_num in range(1, 6):
+        flow["script_round"](f"第{round_num}轮正文", title="入口", summary="节点概要", branches=[])
+        result = flow["play"]("继续")
+        assert "memory" not in result
+    session._llm.chat.assert_not_called()
+    assert session.narration_count == 5
+    assert session.overlay.get_tree_node("n_root")["summary"] == "节点概要"
+    session.accumulate_usage({"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12})
+    session.update_narration(5, "第五轮修订正文")
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["memories"] == old_summaries
+    assert saved["last_memory_end"] == 5
+
+    # 重建存储部分，直接验证同一路径的加载与用量恢复。
+    reloaded = sm_mod.Session.__new__(sm_mod.Session)
+    reloaded.id, reloaded.mode = sid, "story"
+    reloaded._narration_history, reloaded.narration_count = [], 0
+    reloaded.total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    reloaded._load_narration_state()
+    assert reloaded.narration_count == 5
+    assert reloaded._narration_history[-1]["text"] == "第五轮修订正文"
+    assert reloaded.total_usage == saved["total_usage"]
+    assert not hasattr(reloaded, "_memories")
+    assert client.get(f"/api/sessions/{sid}/memories").status_code == 404
+    assert client.post(f"/api/sessions/{sid}/memories/regenerate").status_code == 404
+    rollback = client.post(f"/api/sessions/{sid}/rollback", json={"round": 3})
+    assert rollback.status_code == 200, rollback.get_json()
+    assert rollback.get_json() == {"target_round": 3, "narration_count": 3, "deleted_rounds": 2}
+    reloaded._load_narration_state()
+    assert [item["round"] for item in reloaded._narration_history] == [1, 2, 3]
+    assert reloaded.total_usage == {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12}
+    assert json.loads(path.read_text(encoding="utf-8"))["memories"] == old_summaries
+
+
+def test_config_discards_retired_summary_interval_on_save(tmp_path, monkeypatch):
+    import llm_backend_manager as backend
+    from types import SimpleNamespace
+
+    path = tmp_path / "llm_config.json"
+    path.write_text(json.dumps({"memory_interval": 5, "word_limit": 400}), encoding="utf-8")
+    monkeypatch.setattr(backend, "_CONFIG_PATH", path)
+    monkeypatch.setattr(backend, "ApiModelConfig", SimpleNamespace())
+    monkeypatch.setattr(backend, "ModelConfig", SimpleNamespace())
+    monkeypatch.setenv("API_KEY", "")
+    monkeypatch.setenv("BASE_URL", "")
+    manager = backend.LLMBackendManager.__new__(backend.LLMBackendManager)
+    assert "memory_interval" not in manager.get_config()
+    updated = manager.update_config({"memory_interval": 2, "word_limit": 600})
+    assert "memory_interval" not in updated
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert "memory_interval" not in persisted
+    assert persisted["word_limit"] == 600

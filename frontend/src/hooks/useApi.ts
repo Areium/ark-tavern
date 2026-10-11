@@ -202,24 +202,11 @@ export function useApi() {
         times: string[];
       }>("/api/environment/presets"),
 
-    getMemories: (sessionId: string) =>
-      request<{
-        memories: { id: string; title: string; summary: string; round_start: number; round_end: number; created_at: number }[];
-        narration_count: number;
-        last_memory_end: number;
-      }>(`/api/sessions/${sessionId}/memories`),
-    regenerateMemories: (sessionId: string) =>
-      request<{
-        memories: { id: string; title: string; summary: string; round_start: number; round_end: number; created_at: number }[];
-        narration_count: number;
-      }>(`/api/sessions/${sessionId}/memories/regenerate`, { method: "POST" }),
     rollbackSession: (sessionId: string, round: number) =>
       request<{
         target_round: number;
         narration_count: number;
         deleted_rounds: number;
-        deleted_memories: number;
-        memories: any[];
       }>(`/api/sessions/${sessionId}/rollback`, {
         method: "POST",
         body: JSON.stringify({ round }),
@@ -233,8 +220,6 @@ export function useApi() {
         target_round: number;
         narration_count: number;
         deleted_rounds: number;
-        deleted_memories: number;
-        memories: any[];
         node_id: string;
         round_range: [number, number];
         restored: any;
@@ -909,7 +894,6 @@ export function createSSE(
     onText?: (token: string) => void;
     onReasoning?: (token: string) => void;
     onSceneEvent?: (event: any) => void;
-    onMemoryEvent?: (event: any) => void;
     onChoice?: (options: string[], branches?: BranchChoice[]) => void;
     onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
     onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
@@ -1043,7 +1027,6 @@ function connectSSE(
     onText?: (token: string) => void;
     onReasoning?: (token: string) => void;
     onSceneEvent?: (event: any) => void;
-    onMemoryEvent?: (event: any) => void;
     onChoice?: (options: string[], branches?: BranchChoice[]) => void;
     onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
     onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
@@ -1157,9 +1140,6 @@ function connectSSE(
                 break;
               case "scene_event":
                 handlers.onSceneEvent?.(event.data);
-                break;
-              case "memory_event":
-                handlers.onMemoryEvent?.(event.data);
                 break;
               case "choice":
                 handlers.onChoice?.(event.data.options, event.data.branches);

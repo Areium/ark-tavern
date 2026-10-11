@@ -45,4 +45,38 @@
   gap: 12px; padding: 24px; text-align: center; overflow: auto; }
 .session-graph-empty h3 { font: 600 18px var(--chat-serif); color: var(--ng-title); }
 .session-graph-empty p { max-width: 48ch; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
-.session-story-panel-heading { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 8px; }
+.session-story-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.session-story-panel-heading .panel-title { margin: 0; white-space: nowrap; }
+.session-story-panel-tools { display: flex; align-items: center; gap: 4px; }
+.session-story-panel-heading button { min-height: 28px; padding: 4px 7px; font-size: 11px; }
+.session-story-panel-heading .session-story-refresh { width: 28px; padding: 0; border-color: transparent; background: transparent; color: var(--ng-muted); }
+.session-story-panel-heading button:disabled { opacity: .4; cursor: not-allowed; }
+.session-graph-node-action { display: inline-flex; align-items: center; gap: 4px; margin: 0 12px 10px;
+  padding: 4px 8px; border: 1px solid var(--chat-line-strong); border-radius: 5px; font-size: 11px;
+  color: var(--ng-body); background: var(--ng-card-bg); }
+.session-graph-node-action:hover { color: var(--chat-accent); border-color: var(--chat-accent); }
+.session-node-dialog { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(440px, 45vw); max-width: none;
+  height: 100dvh; max-height: none; padding: 0; border: 0; border-left: 1px solid var(--chat-line-strong);
+  color: var(--ng-body); background: var(--ng-drawer-bg); box-shadow: -12px 0 40px rgba(0,0,0,.2); }
+.session-node-dialog[open] { display: flex; flex-direction: column; }
+.session-node-dialog::backdrop { background: rgba(0,0,0,.25); }
+.session-node-heading { display: flex; align-items: center; gap: 12px; padding: 18px 20px;
+  border-bottom: 1px solid var(--chat-line); }
+.session-node-heading h2 { flex: 1; min-width: 0; margin: 0; font: 600 18px var(--chat-serif); color: var(--ng-title); overflow-wrap: anywhere; }
+.session-node-heading button { display: grid; place-items: center; width: 30px; height: 30px;
+  border-radius: 5px; color: var(--ng-muted); }
+.session-node-heading button:hover { background: var(--ng-card-bg); color: var(--ng-title); }
+.session-node-scroll { flex: 1; min-height: 0; overflow: auto; padding: 20px; overscroll-behavior: contain; }
+.session-node-section + .session-node-section { margin-top: 24px; }
+.session-node-section h3 { margin: 0 0 12px; font-size: 12px; color: var(--ng-muted); }
+.session-node-section p { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.8; }
+.session-node-visit { padding: 14px; border: 1px solid var(--chat-line); border-radius: 8px; background: var(--ng-card-bg); }
+.session-node-visit + .session-node-visit { margin-top: 10px; }
+.session-node-visit-heading { display: flex; align-items: baseline; gap: 12px; }
+.session-node-visit-heading h4 { flex: 1; margin: 0; font-size: 13px; color: var(--ng-title); overflow-wrap: anywhere; }
+.session-node-visit-heading span, .session-node-meta { font-size: 11px; color: var(--ng-muted); }
+.session-node-meta { margin-top: 6px; }
+.session-node-rollback { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 6px 10px; border: 1px solid; border-radius: 5px; font-size: 12px; }
+.session-node-dialog button:disabled { opacity: .4; cursor: not-allowed; }
+.session-node-dialog :focus-visible { outline: 2px solid var(--chat-accent); outline-offset: 3px; }
+.session-node-error { color: var(--color-danger, #e27171); font-size: 12px; }

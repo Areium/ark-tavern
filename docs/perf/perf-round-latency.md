@@ -8,6 +8,8 @@
 > 线上配置：`deepseek-v4-flash` @ api.deepseek.com，`enable_thinking=true`，`reasoning_effort=medium`，
 > `auto_generate_choices=true (choice_count=3)`，`dialogue_bubble_mode=true`，`max_output_tokens=8192`，`word_limit=500`
 
+> 当前实现已退休独立回忆摘要：不再执行 Call 3；下文 D 段保留为历史测量，当前基准脚本已移除该调用。
+
 ## 1. 一轮对话的时间去哪了（剧情模式实测）
 
 ```
@@ -33,7 +35,7 @@ t=20.5 → ~26s  Call 2 标记提取（选项/摘要/节拍/环境）  均值 5.
 | B'. Call 1 叙述（reasoning_effort=none，真流式） | **~3.0 s（首字 750 ms）** | 347 字；reasoning 0 |
 | C. Call 2 提取（thinking=medium） | 3.9–8.0 s（均值 5.3） | choices=3 + beat_state |
 | C'. Call 2 提取（effort=none） | 2.2–10.7 s（均值 5.9） | 全部一次成功，重试风险消失 |
-| D. 回忆生成 | ~2.5 s | 每 memory_interval 轮一次 |
+| D. 回忆生成 | ~2.5 s | 历史测量，当前已退休 |
 | E. embedding | 不可用（DeepSeek 无该端点） | 每次失败 ~125 ms，自由模式每轮 2 次 |
 
 ## 2. 根因（按感知延迟影响排序）
@@ -159,7 +161,7 @@ P0 两项 + P2 embed 短路已实施：
    （新增 `_open_stream_with_retry`，保留连接错误/429/5xx 重试与 400/422 stream_options 降级）。
 2. **按调用类型显式思考档位**：
    - 新增配置 `narration_reasoning_effort`（默认 `none`，设置页可选 none/low/medium/high），剧情叙述/变体/角色对话均透传该档位；
-   - 标记提取（Call 2）、回忆生成、文档摘要批处理固定 `thinking="none"`；
+   - 标记提取（Call 2）、文档摘要批处理固定 `thinking="none"`；
    - `ApiLLM.chat` 新增 `thinking` 参数，调用级覆盖实例默认；
    - DeepSeek adapter 在 `enable_thinking=True + reasoning_effort="none"` 时显式发送 `reasoning_effort=none`，从而真正关闭混合模型的缺省思考（此前 `enable_thinking=false` 时不发参数，模型仍缺省思考 ~550 tok）。
 3. **embedding 短路**：端点首次失败后不再重复发起注定失败的调用。

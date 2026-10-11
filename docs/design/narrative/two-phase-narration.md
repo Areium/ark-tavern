@@ -75,7 +75,7 @@
 
 - **结构化/气泡模式**：`SceneManager.parse_structured()` 把对话输出解析成 `DialogueSegment[]`，供气泡渲染路径使用。
 - **分支生成**：提取产物的 `branches` 携带 `target_beat_id`，把选项与后续节拍直接连起来（`_normalize_branches_field` 会按当前节点校验目标）。
-- **按调用类型思考档位**：叙述与角色对话走 `narration_reasoning_effort`，选项/回忆等分类任务始终关闭思考，见 `docs/perf/perf-round-latency.md`。
+- **按调用类型思考档位**：叙述与角色对话走 `narration_reasoning_effort`，选项等分类任务始终关闭思考，见 `docs/perf/perf-round-latency.md`。
 
 ## 相关文档
 

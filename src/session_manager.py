@@ -132,16 +132,14 @@ class Session:
         # 战斗系统
         self.combat = None  # CombatSession | None
 
-        # 回忆系统
+        # 叙述历史
         self.narration_count = 0
         self._narration_history: list[dict] = []   # 完整叙述历史 [{round, text, action}]
-        self._last_memory_end = 0
-        self._memories: list[dict] = []
 
         # Token 用量累计
         self.total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
-        self._load_memories()
+        self._load_narration_state()
         self.scene_manager._restoring_scope = True
         self._restore_scene()
         self.scene_manager._restoring_scope = False
@@ -235,26 +233,24 @@ class Session:
         # 统一落盘最终态（恢复过程会触发中间态持久化，需覆盖）
         self.scene_manager._persist_scene()
 
-    # ── 回忆系统 ──
+    # ── 叙述历史 ──
 
     @property
     def data_dir(self) -> Path:
         """会话数据目录（记忆存档、会话文档、会话级资源覆盖）。"""
         return _SESSIONS_DIR / self.mode / self.id
 
-    def _memories_path(self) -> Path:
+    def _narration_state_path(self) -> Path:
         return _SESSIONS_DIR / self.mode / self.id / "memories.json"
 
-    def _load_memories(self):
-        path = self._memories_path()
+    def _load_narration_state(self):
+        path = self._narration_state_path()
         if path.exists():
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                self._memories = data.get("memories", [])
                 self._narration_history = data.get("narration_history", [])
                 self.narration_count = data.get("narration_count", len(self._narration_history))
-                self._last_memory_end = data.get("last_memory_end", 0)
                 saved_usage = data.get("total_usage")
                 if saved_usage and isinstance(saved_usage, dict):
                     self.total_usage = {
@@ -263,19 +259,23 @@ class Session:
                         "total_tokens": saved_usage.get("total_tokens", 0),
                     }
             except Exception:
-                self._memories = []
+                logger.warning("加载会话叙述历史失败 %s", self.id, exc_info=True)
 
-    def _save_memories(self):
-        path = self._memories_path()
+    def _save_narration_state(self):
+        path = self._narration_state_path()
         path.parent.mkdir(parents=True, exist_ok=True)
+        # 保留历史文件中的既有内容；只更新仍在使用的叙述和用量字段。
+        data = {}
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        data.update({
+            "narration_history": self._narration_history,
+            "narration_count": self.narration_count,
+            "total_usage": self.total_usage,
+        })
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({
-                "memories": self._memories,
-                "narration_history": self._narration_history,
-                "narration_count": self.narration_count,
-                "last_memory_end": self._last_memory_end,
-                "total_usage": self.total_usage,
-            }, f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, indent=2)
             f.write("\n")
 
     def accumulate_usage(self, usage: dict | None):
@@ -285,9 +285,6 @@ class Session:
         for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
             if usage.get(k):
                 self.total_usage[k] = self.total_usage.get(k, 0) + usage[k]
-
-    def get_memories(self) -> list[dict]:
-        return list(self._memories)
 
     def add_narration(self, narrative: str, user_action: str = "",
                       dialogue_segments: list | None = None, *,
@@ -307,198 +304,24 @@ class Session:
         if dialogue_segments:
             entry["segments"] = dialogue_segments
         self._narration_history.append(entry)
-        self._save_memories()
+        self._save_narration_state()
 
     def update_narration(self, round_num: int, narrative: str):
         """更新指定轮次的叙述文本（用于前端切换变体时同步）。"""
         for h in self._narration_history:
             if h["round"] == round_num:
                 h["text"] = narrative[:1500] if narrative else ""
-                self._save_memories()
+                self._save_narration_state()
                 return
 
-    def should_generate_memory(self, interval: int) -> bool:
-        """检查是否应该生成回忆（总轮次达到 interval 的倍数时触发）。"""
-        if interval <= 0:
-            return False
-        return self.narration_count % interval == 0 and self.narration_count > self._last_memory_end
-
-    def generate_memory(self) -> dict | None:
-        """从最近未总结的叙述历史生成回忆摘要。保留原始历史不删除。"""
-        if not self._llm:
-            return None
-
-        recent = [h for h in self._narration_history
-                  if h["round"] > self._last_memory_end]
-        if not recent:
-            return None
-
-        lines = []
-        for h in recent:
-            if h["text"]:
-                lines.append(f"[第{h['round']}轮] {h['text']}")
-            if h["action"]:
-                lines.append(f"  → 玩家选择: {h['action']}")
-
-        history_text = "\n".join(lines)
-        prompt = (
-            "基于以下剧情对话记录，总结这段情节的进展。"
-            "输出 JSON 格式（不要输出其他内容）：\n"
-            '{"title": "简短的章节标题（不超过15字）", "summary": "情节摘要（不超过300字，包含关键对话和事件细节）"}\n\n'
-            f"剧情记录：\n---\n{history_text}\n---"
-        )
-
-        try:
-            _t0 = time.monotonic()
-            response = self._llm.chat([
-                {"role": "system", "content": (
-                    "<role>你是专业TRPG剧情编辑，负责记录详尽的剧情摘要。</role>\n"
-                    "<output_format>\n"
-                    '强制 JSON：{"title": "标题≤15字", "summary": "摘要≤300字，含关键情节转折、角色互动和重要事件"}\n'
-                    "只输出 JSON，不要其他内容。\n"
-                    "</output_format>"
-                )},
-                {"role": "user", "content": prompt},
-            ], stream=False, thinking="none")
-            logger.info("[TIMING] generate_memory LLM调用: %.0fms", (time.monotonic() - _t0) * 1000)
-            response_text = response.get("content", "") if isinstance(response, dict) else str(response)
-        except Exception as e:
-            logger.warning("生成回忆失败 (LLM 调用): %s", e)
-            return None
-
-        import re
-        match = re.search(r'\{[^{}]*"title"\s*:\s*"[^"]*"\s*,\s*"summary"\s*:\s*"[^"]*"\s*\}', response_text, re.DOTALL)
-        if not match:
-            match = re.search(r'\{.*"title".*"summary".*\}', response_text, re.DOTALL)
-
-        if match:
-            try:
-                result = json.loads(match.group())
-            except json.JSONDecodeError:
-                logger.warning("生成回忆失败 (JSON 解析): %s", response_text[:200])
-                return None
-        else:
-            logger.warning("生成回忆失败 (无 JSON): %s", response_text[:200])
-            return None
-
-        title = result.get("title", "").strip()
-        summary = result.get("summary", "").strip()
-        if not title or not summary:
-            return None
-
-        round_start = self._last_memory_end + 1
-        round_end = recent[-1]["round"]
-
-        memory = {
-            "id": f"mem_{len(self._memories) + 1}",
-            "title": title,
-            "summary": summary,
-            "round_start": round_start,
-            "round_end": round_end,
-            "created_at": time.time(),
-        }
-        self._memories.append(memory)
-        self._last_memory_end = round_end
-        self._save_memories()
-
-        logger.info("会话 %s: 生成回忆 #%d — %s (第%d-%d轮)",
-                     self.id, len(self._memories), title, round_start, round_end)
-        return memory
-
-    def regenerate_memories(self, interval: int) -> list[dict]:
-        """清除已有回忆，用当前间隔重新从完整历史生成。"""
-        if not self._llm or not self._narration_history:
-            return []
-
-        self._memories = []
-        self._last_memory_end = 0
-        new_memories = []
-
-        # 按 interval 分批生成
-        rounds = sorted(self._narration_history, key=lambda h: h["round"])
-        for i in range(0, len(rounds), interval):
-            batch = rounds[i:i + interval]
-            if not batch:
-                continue
-
-            lines = []
-            for h in batch:
-                if h["text"]:
-                    lines.append(f"[第{h['round']}轮] {h['text']}")
-                if h["action"]:
-                    lines.append(f"  → 玩家选择: {h['action']}")
-
-            history_text = "\n".join(lines)
-            prompt = (
-                "基于以下剧情对话记录，总结这段情节的进展。"
-                "输出 JSON 格式（不要输出其他内容）：\n"
-                '{"title": "简短的章节标题（不超过15字）", "summary": "情节摘要（不超过300字，包含关键对话和事件细节）"}\n\n'
-                f"剧情记录：\n---\n{history_text}\n---"
-            )
-
-            try:
-                response = self._llm.chat([
-                    {"role": "system", "content": "你是一个专业的剧情编辑，负责为TRPG游戏记录详尽的剧情摘要。需要包含关键情节转折、角色互动和重要事件。只输出JSON，不要有其他内容。"},
-                    {"role": "user", "content": prompt},
-                ], stream=False, thinking="none")
-                response_text = response.get("content", "") if isinstance(response, dict) else str(response)
-
-                import re
-                match = re.search(r'\{[^{}]*"title"\s*:\s*"[^"]*"\s*,\s*"summary"\s*:\s*"[^"]*"\s*\}', response_text, re.DOTALL)
-                if not match:
-                    match = re.search(r'\{.*"title".*"summary".*\}', response_text, re.DOTALL)
-
-                title = ""
-                summary = ""
-                if match:
-                    try:
-                        result = json.loads(match.group())
-                        title = result.get("title", "").strip()
-                        summary = result.get("summary", "").strip()
-                    except json.JSONDecodeError:
-                        pass
-
-                if not title or not summary:
-                    title = f"第{batch[0]['round']}-{batch[-1]['round']}轮"
-                    summary = history_text[:150]
-
-                round_start = batch[0]["round"]
-                round_end = batch[-1]["round"]
-                memory = {
-                    "id": f"mem_{len(new_memories) + 1}",
-                    "title": title,
-                    "summary": summary,
-                    "round_start": round_start,
-                    "round_end": round_end,
-                    "created_at": time.time(),
-                }
-                new_memories.append(memory)
-
-            except Exception as e:
-                logger.warning("重新生成回忆失败 (第%d-%d轮): %s",
-                               batch[0]["round"], batch[-1]["round"], e)
-                continue
-
-        self._memories = new_memories
-        if new_memories:
-            self._last_memory_end = new_memories[-1]["round_end"]
-        self._save_memories()
-
-        logger.info("会话 %s: 重新生成 %d 条回忆 (interval=%d)", self.id, len(new_memories), interval)
-        return new_memories
-
     def rollback_to_round(self, target_round: int, *, presentation_frame: dict | None = None) -> dict:
-        """回退到指定轮次，删除之后的叙述历史和回忆。
-
-        返回被删除的轮次范围和回忆数量，供前端确认。
-        """
+        """回退到指定轮次，删除之后的叙述历史并返回删除轮数。"""
         if target_round < 0:
             target_round = 0
         from scene_media import restore_presentation_round
         restore_presentation_round(self, target_round, frozen_frame=presentation_frame)
 
         old_history_len = len(self._narration_history)
-        old_memory_len = len(self._memories)
 
         # 删除 target_round 之后的叙述历史
         self._narration_history = [
@@ -506,20 +329,9 @@ class Session:
             if h["round"] <= target_round
         ]
 
-        # 删除覆盖范围在 target_round 之后的回忆
-        self._memories = [
-            m for m in self._memories
-            if m["round_end"] <= target_round
-        ]
-
-        # 更新计数器
         self.narration_count = target_round
-        if self._memories:
-            self._last_memory_end = self._memories[-1]["round_end"]
-        else:
-            self._last_memory_end = 0
 
-        self._save_memories()
+        self._save_narration_state()
 
         # 节点快照与已删除的轮次保持一致（封闭「回滚不动 overrides」缺口）
         try:
@@ -528,17 +340,14 @@ class Session:
             logger.warning("回滚后裁剪节点快照失败", exc_info=True)
 
         deleted_rounds = old_history_len - len(self._narration_history)
-        deleted_memories = old_memory_len - len(self._memories)
 
-        logger.info("会话 %s: 回退到第 %d 轮，删除 %d 轮历史 + %d 条回忆",
-                     self.id, target_round, deleted_rounds, deleted_memories)
+        logger.info("会话 %s: 回退到第 %d 轮，删除 %d 轮历史",
+                     self.id, target_round, deleted_rounds)
 
         return {
             "target_round": target_round,
             "narration_count": self.narration_count,
             "deleted_rounds": deleted_rounds,
-            "deleted_memories": deleted_memories,
-            "memories": self.get_memories(),
         }
 
     def rollback_to_node(self, node_id: str) -> dict:

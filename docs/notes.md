@@ -2,7 +2,7 @@
 
 本文记录 Ark Tavern 中容易误用的行为、环境差异和已知缺口，供开发与排查时查询。整体模块入口见[架构总览](architecture.md)，操作步骤见[使用教程](tutorial.md)；专题文档维护完整机制，本页保留诊断所需的重点与证据入口。
 
-本页按 2026-10-11 的主线 `a5e57e0` 做源码与用例核对。每条笔记记录最近核对日期和方式；日期表示事实复核时间，不是最后编辑时间，静态核对也不等于重新运行验收。历史测试、测速和界面验收保留原始记录日期与条件。新增或复核条目时写清现象、当前行为或限制、依据与验证范围；只改措辞时不刷新核对日期，已经解决且没有复用价值的过程日志留在 Git 历史中。
+本页按 2026-10-11 的主线 `7344cea` 做源码与用例核对。每条笔记记录最近核对日期和方式；日期表示事实复核时间，不是最后编辑时间，静态核对也不等于重新运行验收。历史测试、测速和界面验收保留原始记录日期与条件。新增或复核条目时写清现象、当前行为或限制、依据与验证范围；只改措辞时不刷新核对日期，已经解决且没有复用价值的过程日志留在 Git 历史中。
 
 ## 目录
 
@@ -26,7 +26,6 @@
 |---|---|
 | 玩家身份“个人资料”保存位置不可用 | 前端提供空世界书选项，后端保存身份要求非空且启用的所属书。使用路径是先建剧情书、身份存入该书、创建时绑定该书。见 [CharacterManager](../frontend/src/components/CharacterManager.tsx)、[身份 API](../src/blueprints/sessions.py)和[隔离用例](../tests/test_worldbook_folder_identity.py)。 |
 | 大厅与向导的角色候选规则未完全统一 | 向导合并绑定书角色、花名册与剧情阵容；大厅添加角色仍按来源书筛选，拆分剧情书可能缺候选。见 [SessionManagerView](../frontend/src/components/session/SessionManagerView.tsx) 与 [characterCatalog](../frontend/src/utils/characterCatalog.ts)。 |
-| 叙述变体更新接口不一致 | 前端提交 `round/narrative`，`narrate-update` 路由读取 `text` 并以单参数调用；`Session.update_narration` 需要轮次与正文。见 [useApi](../frontend/src/hooks/useApi.ts)、[chat 路由](../src/blueprints/chat.py)与[会话方法](../src/session_manager.py)。 |
 | 任务更新缺少任务 ID 校验 | 任务 PATCH 检查状态枚举，未验证目标任务 ID 是否有效。见 [environment 路由](../src/blueprints/environment.py)。 |
 | 全局依赖配置编辑入口未接入工作台 | `LoadTab` 及其子组件仍有源码引用，但未挂载到当前页签；配置草稿保存条不可达。大厅的会话依赖微调仍可用。见 [WorldBookManager](../frontend/src/components/WorldBookManager.tsx)、[LoadTab](../frontend/src/components/worldbook/tabs/LoadTab.tsx)。 |
 | 资产实体行上传不能直接设为默认图片 | 该入口上传到实体目录根部；默认头像、立绘和卡面分别从 `avatar/`、`skin/`、`card_face/` 选择。使用角色资源入口或对应子目录。见 [AssetManager](../frontend/src/components/AssetManager.tsx)。 |
@@ -125,6 +124,12 @@
 节点引用按所属书、剧情、章节与节拍识别，不能按显示名猜测。唯一节拍移动章节后可重新关联；删除或歧义引用需要明确处理。章节序号不是稳定身份，重排后需重新核对。关联修复保留图坐标、连线和演出配置，进入同一撤销栈；大纲节拍不伪装成原文段落。
 
 会话节点图复用作者布局，并补齐生成轨迹。头像定位本轮实际叙述节拍，不能仅看可能提前推进的 `ref_beat_id`。会话图允许查看、拖动和缩放，不开放作者编辑；坐标只保存在按会话、剧情与来源书隔离的本地布局中，不写回世界书或剧情进度。生成结束后再读取已提交树与轮次媒体，并成对提交结果，迟到请求不能覆盖新会话。
+
+“只读详情”限制的是作者内容编辑，节点回档仍会修改会话进度。历史卡片使用 `scene:<runtime_id>`，按真实 `parent_id` 连线，不能用推进后保存的参考节拍推断历史归属；当前节点可按本轮舞台定位与作者卡共用。回档提交真实运行时节点 ID，要求已有快照；请求期间按会话锁定续写、轮次回退、删消息与变体操作。返回结果校验所有权、消息版本、epoch 和轮次，迟到结果不写入新会话。资源刷新不触发会中止 SSE 的 `chatRefresh`。
+
+剧情面板只保留当前位置、作者骨架和角色状态。独立回忆摘要的生成、重生成、提示词注入、设置间隔和 SSE 刷新链已退休；`memories.json` 仍保存叙述历史、轮次与累计用量，历史摘要字段保留但不再读取或注入。剧情树节点摘要、剧情日志和角色向量记忆继续使用。`7344cea` 同时修正 `narrate-update` 的轮次与正文参数，旧接口不一致不再列为当前缺口。
+
+新增依据：[节点详情](../frontend/src/components/story/SessionNodeDetails.tsx)、[回档协调](../frontend/src/utils/sessionNodeRollback.ts)。验证入口：[回档锁脚本](../scripts/test_session_node_rollback.cjs)、[无独立摘要的确定性流程](../tests/test_story_tree_full_flow.py)；原提交中的浏览器与完整套件结果保留为当时记录，不等于本轮复跑。
 
 依据：[参考大纲](../src/story_outline.py)、[剧情流程](../src/combat_nodes.py)、[会话图](../frontend/src/components/story/SessionStoryGraph.tsx)。验证入口：[大纲用例](../tests/test_story_outline.py)、[引用详情](../tests/test_graph_node_details.py)、[共享图引用](../scripts/test_graph_references.cjs)、[会话图脚本](../scripts/test_session_graph_ui.cjs)。
 

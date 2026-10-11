@@ -1,0 +1,56 @@
+// Run: node scripts/test_session_node_rollback.cjs
+require('./test_session_graph_ui.cjs');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const root = path.resolve(__dirname,'..');
+const {useAppStore:store}=require(path.join(root,'frontend/src/stores/appStore.ts'));
+const {settleConfirmation}=require(path.join(root,'frontend/src/stores/confirmStore.ts'));
+const {rollbackStoryNode}=require(path.join(root,'frontend/src/utils/sessionNodeRollback.ts'));
+const {triggerNarrate,rollbackChatRound}=require(path.join(root,'frontend/src/components/ChatPanel.tsx'));
+const node={id:'runtime-root',title:'旧节点',round_end:1,has_state:true};
+const messages=[{role:'system',content:'初始信息'},{role:'narrator',content:'旧剧情',round:1},{role:'narrator',content:'新剧情',round:3}];
+const result={target_round:1,narration_count:1,story_state:{has_plot:true,roads:[]}};
+const reset=()=>store.setState({activeSessionId:'s',sessionMessages:{s:messages,other:[{content:'其它会话'}]},sessionNarrationCount:{s:3,other:8},sessionEpochs:{s:0},sessionAbortFns:{},sessionSending:{},sessionStreaming:{},sessionRollback:{},sessions:[{id:'s',mode:'story',narration_count:3,characters:[]}],chatMode:'story',chatLayout:'log'});
+const start=async api=>{const pending=rollbackStoryNode('s',node,api);settleConfirmation(true);await Promise.resolve();return {pending};};
+(async()=>{
+ reset();let calls=0;
+ const cancelled=rollbackStoryNode('s',node,{rollbackNode:async()=>{calls++;return result;}});settleConfirmation(false);
+ assert.equal(await cancelled,null);assert.equal(calls,0);
+ reset();let resolve;
+ let {pending}=await start({rollbackNode:async(s,id)=>{assert.equal(id,'runtime-root');calls++;return new Promise(r=>resolve=r);}});
+ assert.ok(store.getState().sessionRollback.s,'request owns a session-level lock');
+ triggerNarrate('s');assert.equal(store.getState().sessionNarrationCount.s,3,'lock prevents a new SSE before it mutates the round');
+ assert.equal(await rollbackStoryNode('s',node,{rollbackNode:async()=>{throw Error('duplicate');}}),null);
+ assert.equal(await rollbackChatRound('s',1,{rollbackSession:async()=>{throw Error('round request during node rollback');}}),undefined);
+ const refresh=store.getState().chatRefreshKey;
+ resolve(result);assert.equal(await pending,result);
+ assert.equal(store.getState().sessionNarrationCount.s,1);
+ const {createRequire}=require('node:module');const fromFrontend=createRequire(path.join(root,'frontend/package.json'));
+ const React=fromFrontend('react');const {renderToStaticMarkup}=fromFrontend('react-dom/server');
+ const Panel=require(path.join(root,'frontend/src/components/ChatPanel.tsx')).default;
+ const storeModule=require(path.join(root,'frontend/src/stores/appStore.ts'));
+ const originalStore=storeModule.useAppStore;
+ const loadedHook=selector=>selector?selector(store.getState()):store.getState();loadedHook.getState=store.getState;
+ storeModule.useAppStore=loadedHook;
+ try {assert.ok(renderToStaticMarkup(React.createElement(Panel,{stageOnly:false,onExitStageOnly(){},musicMuted:true,onToggleMusic(){}})).includes('ROUND 1'),'header uses rolled-back count instead of stale session-list metadata');}
+ finally {storeModule.useAppStore=originalStore;}
+ assert.equal(store.getState().sessionMessages.s.length,2);
+ assert.equal(store.getState().sessionRollback.s,null);assert.equal(store.getState().chatRefreshKey,refresh,'rollback never aborts an unrelated SSE through global history refresh');
+ reset();({pending}=await start({rollbackNode:()=>new Promise(r=>resolve=r)}));
+ const newer=[{content:'较新本地消息',round:4}];store.getState().setSessionMessages('s',newer);store.getState().setSessionNarrationCount('s',4);
+ resolve(result);assert.equal(await pending,null);assert.equal(store.getState().sessionMessages.s,newer);assert.equal(store.getState().sessionNarrationCount.s,4);assert.equal(store.getState().sessionRollback.s,null);
+ reset();({pending}=await start({rollbackNode:()=>new Promise(r=>resolve=r)}));
+ store.getState().clearSessionStream('s');resolve(result);assert.equal(await pending,null);assert.equal(store.getState().sessionMessages.s,undefined,'deleted/reset session is not resurrected');
+ reset();({pending}=await start({rollbackNode:()=>new Promise(r=>resolve=r)}));
+ store.setState({activeSessionId:'other'});resolve(result);assert.equal(await pending,result);assert.equal(store.getState().sessionNarrationCount.other,8);assert.equal(store.getState().sessionMessages.other[0].content,'其它会话');
+ reset();({pending}=await start({rollbackNode:async()=>{throw Error('server denied');}}));await assert.rejects(pending,/server denied/);assert.equal(store.getState().sessionRollback.s,null);
+ reset();const switched=rollbackStoryNode('s',node,{rollbackNode:async()=>{throw Error('wrong session');}});store.setState({activeSessionId:'other'});settleConfirmation(true);assert.equal(await switched,null);
+ reset();const roundPending=rollbackChatRound('s',1,{rollbackSession:()=>new Promise(r=>resolve=r)});settleConfirmation(true);await Promise.resolve();
+ assert.ok(store.getState().sessionRollback.s,'round rollback owns the same session lock');
+ assert.equal(await rollbackStoryNode('s',node,{rollbackNode:async()=>{throw Error('node request during round rollback');}}),null);
+ triggerNarrate('s');assert.equal(store.getState().sessionNarrationCount.s,3);
+ resolve(result);await roundPending;assert.equal(store.getState().sessionNarrationCount.s,1);assert.equal(store.getState().sessionRollback.s,null);
+ reset();const failedRound=rollbackChatRound('s',1,{rollbackSession:async()=>{throw Error('round denied');}});settleConfirmation(true);
+ await assert.rejects(failedRound,/round denied/);assert.equal(store.getState().sessionRollback.s,null);
+ console.log('Rollback cancellation, runtime IDs, session lock, duplicate prevention, stale responses, epoch reset, switching and failure release passed.');
+})().catch(error=>{console.error(error);process.exitCode=1;});
