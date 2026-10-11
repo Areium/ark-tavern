@@ -350,7 +350,7 @@ class Session:
             "deleted_rounds": deleted_rounds,
         }
 
-    def rollback_to_node(self, node_id: str) -> dict:
+    def rollback_to_node(self, node_id: str, checkpoint_id: str | None = None) -> dict:
         """回档到某个已记录的关键节点，并恢复该节点时的全部状态。
 
         优先按「剧情树节点」处理（LLM 生成的新节点，树上回档）：设置 current_id、
@@ -360,13 +360,15 @@ class Session:
         Raises:
             ValueError: 节点无快照或不在当前剧情结构中。
         """
-        tree_node = self.overlay.get_tree_node(node_id) if self.overlay else None
+        tree_node = self.overlay.get_tree_node_for_rollback(node_id, checkpoint_id) if self.overlay else None
         if tree_node is not None:
             st = tree_node.get("state") or {}
             if not st:
                 raise ValueError(f"节点尚无状态快照，无法回档: {node_id}")
-            self.overlay.validate_resource_snapshot(st)
+            self.overlay._validate_tree_restore(st)
             target_round = int(st.get("round_end") or 0)
+            if target_round > self.narration_count:
+                raise ValueError("该存档在当前进度之后，无法回档")
             base = self.rollback_to_round(target_round, presentation_frame=st["presentation_frame"])
 
             def _lore_resolver_factory():
@@ -382,13 +384,14 @@ class Session:
                     return None
 
             restored = self.overlay.rollback_to_tree_node(
-                node_id, lore_resolver_factory=_lore_resolver_factory)
+                node_id, lore_resolver_factory=_lore_resolver_factory, checkpoint_id=checkpoint_id)
             from story_rules import sync_scene_items
             sync_scene_items(self)
             self.reload_environment_from_overlay()
             return {
                 **base,
                 "node_id": node_id,
+                **({"checkpoint_id": checkpoint_id} if checkpoint_id is not None else {}),
                 "round_range": [st.get("round_start"), target_round],
                 "restored": restored,
                 "story_state": self.overlay.build_story_state(),

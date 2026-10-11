@@ -214,6 +214,13 @@ export interface StoryTreeNode {
   round_start?: number | null;
   round_end?: number | null;
   has_state: boolean;
+  /** Frozen identity of the beat played at round_end; author refs can point ahead. */
+  presentation?: { round: number; beat_id: string; chapter_idx: number } | null;
+  rollback_unavailable_reason?: string;
+  /** Exact saved round of a runtime node before it was overwritten. */
+  checkpoint_id?: string;
+  runtime_node_id?: string;
+  snapshot_id?: string;
   state: "current" | "path" | "visited";
 }
 
@@ -224,6 +231,7 @@ export interface StoryTreeDTO {
   current_id: string;
   path?: string[];
   nodes: StoryTreeNode[];
+  checkpoints?: StoryTreeNode[];
   current_node?: StoryTreeNode | null;
 }
 

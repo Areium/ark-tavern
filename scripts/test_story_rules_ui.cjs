@@ -257,7 +257,7 @@ function Fixture(){
  <header style={{padding:8,display:'flex',flexWrap:'wrap',gap:8,fontSize:14}}>
  <strong>API mock · 非真实 LLM</strong>
  <select aria-label="模拟剧情状态" defaultValue="normal" onChange={e=>fetch('/api/__fixture/graph-mode?mode='+e.target.value,{method:'POST'}).then(()=>state.triggerEnvRefresh())}>
- <option value="normal">正常节点</option><option value="rollback">模拟回档</option><option value="error">模拟加载失败</option><option value="empty">模拟空状态</option><option value="stage-error">模拟角色失败</option><option value="rollback-error">模拟回档失败</option></select>
+ <option value="normal">正常节点</option><option value="continuous">连续推进的历史节点</option><option value="incomplete">不完整的历史存档</option><option value="rollback">模拟回档</option><option value="error">模拟加载失败</option><option value="empty">模拟空状态</option><option value="stage-error">模拟角色失败</option><option value="rollback-error">模拟回档失败</option></select>
  <button onClick={()=>state.setSessionStreaming('fixture',!state.sessionStreaming.fixture)}>模拟生成状态</button>
  <select aria-label="测试布局" value={state.chatLayout} onChange={e=>state.setChatLayout(e.target.value)}><option value="chat">记录</option><option value="stage">舞台</option><option value="graph">节点图</option></select>
  <select aria-label="测试模式" value={state.sessions[0].combat_mode} onChange={e=>state.setSessions([{...session,combat_mode:e.target.value}])}><option>narrative</option><option>tactical</option><option>sideview</option></select>
@@ -291,6 +291,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`;
         if (url.pathname.endsWith('/rollback-node')) {
           let body = ''; for await (const chunk of req) body += chunk;
           if (JSON.parse(body).node_id !== 'root') { res.statusCode=400; res.end(JSON.stringify({error:'不是运行时节点 ID'})); return; }
+          if (graphMode === 'continuous' && JSON.parse(body).checkpoint_id !== 'root:1') { res.statusCode=400; res.end(JSON.stringify({error:'缺少精确轮次的 checkpoint ID'})); return; }
           if (graphMode === 'rollback-error') { res.statusCode=423; res.end(JSON.stringify({error:'模拟：战斗进行中，无法回档'})); return; }
           await new Promise(resolve=>setTimeout(resolve,600));
           graphMode = 'rollback';
@@ -333,15 +334,21 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`;
             {id:'tower',title:'钟楼回声',summary:'前往钟楼寻找线索。',state:'locked',choice_required:false},
             {id:'return',title:'归途',summary:'重逢的约定。',state:'locked',choice_required:false}]}
           ], tree:{has_tree:true,current_id:'bridge-scene',root_id:'root',path:['root','bridge-scene'],nodes:[
-            {id:'root',parent_id:null,title:'抵达雨中的旧城',kind:'plot',ref_chapter_id:'rain',ref_beat_id:'gate',depth:0,round_start:1,round_end:1,summary:'沿着灯光寻找同伴。',children:['bridge-scene','side'],branches,has_state:true},
-            {id:'bridge-scene',parent_id:'root',title:'桥头的约定',kind:'beat',ref_chapter_id:'rain',ref_beat_id:'bridge',depth:1,round_start:2,round_end:3,summary:'同伴终于在桥头会合。',children:[],branches:[],has_state:true},
+            {id:'root',parent_id:null,title:'抵达雨中的旧城',kind:'plot',ref_chapter_id:'rain',ref_beat_id:'bridge',depth:0,round_start:1,round_end:1,presentation:{round:1,chapter_idx:1,beat_id:'gate'},summary:'沿着灯光寻找同伴。',children:['bridge-scene','side'],branches,has_state:true},
+            {id:'bridge-scene',parent_id:'root',title:'桥头的约定',kind:'beat',ref_chapter_id:'rain',ref_beat_id:'market',depth:1,round_start:2,round_end:3,presentation:{round:3,chapter_idx:1,beat_id:'bridge'},summary:'同伴终于在桥头会合。',children:[],branches:[],has_state:true},
             {id:'side',parent_id:'root',title:'独自走进暗巷',kind:'beat',summary:'尚未走过的岔路。',children:[],branches:[],has_state:false}
           ]} };
+        if (data.tree && ['continuous','incomplete'].includes(graphMode)) {
+          const earlier={...data.tree.nodes[0],id:'checkpoint:root:1',runtime_node_id:'root',checkpoint_id:'root:1',state:'path',rollback_unavailable_reason:graphMode==='incomplete'?'missing presentation_runtime':''};
+          data.tree.nodes=[{...data.tree.nodes[1],id:'root',parent_id:null,depth:0,round_start:1,state:'current'}];
+          data.tree.current_id='root';data.tree.path=['root'];data.tree.checkpoints=[earlier];
+        }
         if (url.pathname.endsWith('/stage')) data.scene_media = { round:graphMode === 'rollback' ? 1 : 3, beat_id:graphMode === 'rollback' ? 'gate' : 'bridge', chapter_idx:1 };
         if ((url.pathname.endsWith('/story-state') || url.pathname.endsWith('/rollback-node')) && graphMode === 'rollback') { data.tree.current_id = 'root'; data.tree.path=['root']; }
         if (url.pathname.endsWith('/story-state') && graphMode === 'empty') data={has_plot:false,roads:[]};
         if ((url.pathname.endsWith('/story-state') || url.pathname.endsWith('/rollback-node')) && data.has_plot && !worldbookFlow) {
           worldbookFlow = {...sessionPlotFlow(data),worldbook_id:'fixture-book'};
+          Object.assign(worldbookFlow.chapters[0].beats[0],{content:'雨水顺着城门的石缝落下。你踏进旧城，远处灯火依次亮起，熟悉的脚步声从桥头传来。',must_keep:'作者必须保留的秘密',guidance:'作者叙事指引：隐藏线索'});
           worldbookDoc = sessionGraphDocument(data,worldbookFlow);
           worldbookDoc.nodes.find(node=>node.ref?.beat_id==='bridge').y=160;
           worldbookDoc.nodes.push({id:'author-note',type:'note',title:'世界书备注',content:'保存图位置沿用测试',x:552,y:360});

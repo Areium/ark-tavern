@@ -58,8 +58,18 @@
 .session-node-dialog { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(440px, 45vw); max-width: none;
   height: 100dvh; max-height: none; padding: 0; border: 0; border-left: 1px solid var(--chat-line-strong);
   color: var(--ng-body); background: var(--ng-drawer-bg); box-shadow: -12px 0 40px rgba(0,0,0,.2); }
-.session-node-dialog[open] { display: flex; flex-direction: column; }
-.session-node-dialog::backdrop { background: rgba(0,0,0,.25); }
+.session-node-dialog[open] { display: flex; flex-direction: column; animation: session-node-enter 220ms cubic-bezier(.2,.8,.2,1) both; }
+.session-node-dialog::backdrop { background: rgba(0,0,0,.25); animation: session-node-backdrop-enter 220ms ease-out both; }
+.session-node-dialog[open][data-closing] { animation: session-node-exit 160ms ease-in both; }
+.session-node-dialog[data-closing]::backdrop { animation: session-node-backdrop-exit 160ms ease-in both; }
+@keyframes session-node-enter { from { opacity: 0; transform: translateX(32px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes session-node-exit { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(24px); } }
+@keyframes session-node-backdrop-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes session-node-backdrop-exit { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .session-node-dialog[open], .session-node-dialog[open][data-closing],
+  .session-node-dialog::backdrop, .session-node-dialog[data-closing]::backdrop { animation: none; }
+}
 .session-node-heading { display: flex; align-items: center; gap: 12px; padding: 18px 20px;
   border-bottom: 1px solid var(--chat-line); }
 .session-node-heading h2 { flex: 1; min-width: 0; margin: 0; font: 600 18px var(--chat-serif); color: var(--ng-title); overflow-wrap: anywhere; }
@@ -67,16 +77,12 @@
   border-radius: 5px; color: var(--ng-muted); }
 .session-node-heading button:hover { background: var(--ng-card-bg); color: var(--ng-title); }
 .session-node-scroll { flex: 1; min-height: 0; overflow: auto; padding: 20px; overscroll-behavior: contain; }
-.session-node-section + .session-node-section { margin-top: 24px; }
-.session-node-section h3 { margin: 0 0 12px; font-size: 12px; color: var(--ng-muted); }
-.session-node-section p { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.8; }
-.session-node-visit { padding: 14px; border: 1px solid var(--chat-line); border-radius: 8px; background: var(--ng-card-bg); }
-.session-node-visit + .session-node-visit { margin-top: 10px; }
-.session-node-visit-heading { display: flex; align-items: baseline; gap: 12px; }
-.session-node-visit-heading h4 { flex: 1; margin: 0; font-size: 13px; color: var(--ng-title); overflow-wrap: anywhere; }
-.session-node-visit-heading span, .session-node-meta { font-size: 11px; color: var(--ng-muted); }
-.session-node-meta { margin-top: 6px; }
-.session-node-rollback { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 6px 10px; border: 1px solid; border-radius: 5px; font-size: 12px; }
+.session-node-section p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.9; }
+.session-node-meta { font-size: 11px; color: var(--ng-muted); }
+.session-node-actions { flex: none; max-height: 35dvh; overflow: auto; padding: 16px 20px; border-top: 1px solid var(--chat-line); }
+.session-node-restore { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.session-node-restore + .session-node-restore { margin-top: 10px; }
+.session-node-rollback { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid; border-radius: 5px; font-size: 12px; }
 .session-node-dialog button:disabled { opacity: .4; cursor: not-allowed; }
 .session-node-dialog :focus-visible { outline: 2px solid var(--chat-accent); outline-offset: 3px; }
 .session-node-error { color: var(--color-danger, #e27171); font-size: 12px; }

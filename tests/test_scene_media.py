@@ -93,8 +93,10 @@ def test_enter_cg_holds_across_empty_nodes_until_explicit_background(media):
     assert rolled.status_code == 200, rolled.json
     assert client.get(f"/api/sessions/{sid}/stage").json["background"] == cg["background"]
     revisited = client.post(f"/api/sessions/{sid}/rollback-node", json={"node_id": future_node})
-    assert revisited.status_code == 200, revisited.json
-    assert client.get(f"/api/sessions/{sid}/stage").json["background"] == office["background"]
+    assert revisited.status_code == 400, "retained future nodes cannot recreate truncated narration history"
+    assert client.get(f"/api/sessions/{sid}/stage").json["background"] == cg["background"]
+    replayed = play("beat_ch_2")
+    assert replayed["background"] == office["background"], "continuing the session plays its frozen book presentation again"
 
 
 def test_choice_atomicity_retry_condition_edge_and_rollback(media):

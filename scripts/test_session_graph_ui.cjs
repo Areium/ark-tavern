@@ -81,7 +81,7 @@ const visitState={...state,tree:{has_tree:true,root_id:'root',current_id:'v2',no
  scene('battle-visit',{kind:'combat',combat_node_id:'battle'})]}};
 assert.deepEqual(sessionNodeVisits(visitState,{id:'saved-author-id',type:'beat',ref:{chapter_idx:1,beat_id:'next'}}).map(n=>n.id),[],'post-advance refs never authorize author-card rollback');
 assert.deepEqual(sessionNodeVisits(visitState,{id:'scene:v1',type:'beat'}).map(n=>n.id),['v1']);
-assert.deepEqual(sessionNodeVisits(visitState,{id:'combat',type:'combat',ref:{node_id:'battle'}}).map(n=>n.id),[]);
+assert.deepEqual(sessionNodeVisits(visitState,{id:'combat',type:'combat',ref:{node_id:'battle'}}).map(n=>n.id),['battle-visit']);
 assert.deepEqual(sessionNodeVisits(visitState,{id:'entry',type:'plot'}).map(n=>n.id),[]);
 assert.deepEqual(sessionNodeVisits(visitState,{id:'future',type:'beat',ref:{chapter_idx:1,beat_id:'end'}}),[]);
 assert.deepEqual(sessionNodeVisits(visitState,{id:'note',type:'note'}),[]);
@@ -95,7 +95,33 @@ const contentFlow=sessionPlotFlow(state);
 contentFlow.chapters[0].beats[0].content='真正的作者正文';
 contentFlow.chapters[0].beats[0].must_keep='保留关键事实';
 assert.ok(sessionGraphDocument(state,contentFlow).nodes.find(n=>n.ref?.beat_id==='start').content.includes('真正的作者正文'));
-assert.ok(sessionGraphDocument(state,contentFlow,saved).nodes.find(n=>n.ref?.beat_id==='start').content.includes('保留关键事实'));
+contentFlow.chapters[0].beats[0].guidance='作者内部的叙事指引';
+const playerContent=sessionGraphDocument(state,contentFlow,saved).nodes.find(n=>n.ref?.beat_id==='start').content;
+assert.equal(playerContent,'真正的作者正文','player details exclude must_keep and guidance');
+
+const frozenState={...visitState,tree:{...visitState.tree,nodes:visitState.tree.nodes.map(n=>({...n}))}};
+Object.assign(frozenState.tree.nodes[1],{presentation:{round:2,chapter_idx:1,beat_id:'start'}});
+Object.assign(frozenState.tree.nodes[2],{presentation:{round:5,chapter_idx:1,beat_id:'next'}});
+Object.assign(frozenState.tree.nodes[3],{presentation:{round:9,chapter_idx:2,beat_id:'start'}});
+const historicalCard=doc.nodes.find(n=>n.ref?.beat_id==='start');
+assert.deepEqual(sessionNodeVisits(frozenState,historicalCard).map(n=>n.id),['v1'],'historical author card gets frozen pre-advance beat');
+const frozenGraph=sessionGraphProgress(frozenState,doc,{round:5,chapter_idx:1,beat_id:'next'});
+assert.ok(!frozenGraph.doc.nodes.some(n=>n.id==='scene:v1'),'anchored history shares the author card rather than an extra runtime card');
+assert.equal(frozenGraph.displays.get(historicalCard.id).progress,'done');
+assert.equal(sessionGraphProgress(frozenState,doc).currentId,doc.nodes.find(n=>n.ref?.beat_id==='next').id,'current frozen frame also works without stage fetch');
+frozenState.tree.nodes.push(scene('revisit',{parent_id:'v1',round_end:7,presentation:{round:7,chapter_idx:1,beat_id:'start'}}));
+assert.deepEqual(sessionNodeVisits(frozenState,historicalCard).map(n=>n.id),['v1','revisit'],'off-path revisits retain their own frozen snapshots');
+frozenState.tree.nodes[1].presentation.round=1;
+assert.deepEqual(sessionNodeVisits(frozenState,historicalCard).map(n=>n.id),['revisit'],'mismatched frozen frame is never a rollback association');
+assert.deepEqual(sessionNodeVisits(frozenState,doc.nodes.find(n=>n.ref?.beat_id==='end')),[]);
+const continuousState={...state,tree:{has_tree:true,current_id:'same-runtime',nodes:[scene('same-runtime',{snapshot_id:'same-runtime:5:unique',round_end:5,presentation:{round:5,chapter_idx:1,beat_id:'next'}})],checkpoints:[
+  scene('checkpoint:same-runtime:2',{runtime_node_id:'same-runtime',snapshot_id:'same-runtime:2:original',checkpoint_id:'same-runtime:2',round_start:1,round_end:2,presentation:{round:2,chapter_idx:1,beat_id:'start'}}),
+  scene('checkpoint:same-runtime:5',{runtime_node_id:'same-runtime',snapshot_id:'same-runtime:5:unique',checkpoint_id:'same-runtime:5',round_end:5,presentation:{round:5,chapter_idx:1,beat_id:'next'}})]}};
+assert.deepEqual(sessionNodeVisits(continuousState,historicalCard).map(n=>n.checkpoint_id),['same-runtime:2'],'continuous narration retains a precise earlier checkpoint on the same runtime node');
+assert.equal(sessionNodeVisits(continuousState,doc.nodes.find(n=>n.ref?.beat_id==='next')).length,1,'latest and frozen copies of the same round never duplicate actions');
+assert.equal(sessionGraphProgress(continuousState,doc).displays.get(historicalCard.id).progress,'done');
+continuousState.tree.checkpoints[0]=scene('same-runtime:2:replay',{snapshot_id:'same-runtime:2:replay',runtime_node_id:'same-runtime',checkpoint_id:'same-runtime:2:replay',round_end:2,presentation:{round:2,chapter_idx:1,beat_id:'start'}});
+assert.deepEqual(sessionNodeVisits(continuousState,historicalCard).map(n=>n.checkpoint_id),['same-runtime:2:replay'],'a replay uses the new exact snapshot ID rather than the superseded one');
 
 const React=fromFrontend('react');
 const {renderToStaticMarkup:render}=fromFrontend('react-dom/server');
@@ -115,11 +141,15 @@ assert.ok(editorMarkup.includes('ng-anchor'),'worldbook editor still exposes lin
 console.log('Shared worldbook layout, saved positions/edges, local overrides, arrival/rollback, combat, deep fallback and session/editor SSR passed.');
 
 const Details=require(src('components/story/SessionNodeDetails.tsx')).default;
-const detailProps={node:{id:'author',type:'beat',title:'节拍',content:'作者正文'},visits:visitState.tree.nodes.slice(1,3),currentId:'v2',busy:false,rollingBack:null,error:'',onClose:noop,onRollback:noop};
+const detailProps={node:{id:'author',type:'beat',title:'节拍',content:'作者正文'},visits:visitState.tree.nodes.slice(1,3).map(n=>({...n,intent:'不向玩家展示的创作意图',summary:'不重复展示的会话摘要'})),currentId:'v2',currentRound:5,busy:false,rollingBack:null,error:'',onClose:noop,onRollback:noop};
 const detailMarkup=render(React.createElement(Details,detailProps));
-assert.ok(detailMarkup.includes('作者正文')&&detailMarkup.includes('第 1–2 轮'));
+assert.ok(detailMarkup.includes('作者正文')&&detailMarkup.includes('第 2 轮'));
 assert.equal((detailMarkup.match(/回档到此节点/g)||[]).length,1,'current visit is not a rollback target');
 assert.ok(!detailMarkup.includes('<input')&&!detailMarkup.includes('<textarea')&&!detailMarkup.includes('保存'),'details never edit worldbook content');
+assert.ok(!detailMarkup.includes('不向玩家')&&!detailMarkup.includes('不重复展示')&&!detailMarkup.includes('会话记录'),'details present only content and player rollback controls');
+const unavailableMarkup=render(React.createElement(Details,{...detailProps,visits:[{...detailProps.visits[0],rollback_unavailable_reason:'missing resource snapshot'}]}));
+assert.ok(unavailableMarkup.includes('无法回档')&&!unavailableMarkup.includes('回档到此节点'),'incomplete saved state is visible but cannot be restored');
 assert.ok(render(React.createElement(Details,{...detailProps,busy:true})).includes('disabled=""'));
 assert.ok(!render(React.createElement(Details,{...detailProps,visits:[]})).includes('回档到此节点'));
+assert.ok(!render(React.createElement(Details,{...detailProps,currentRound:1})).includes('回档到此节点'),'future retained snapshots are read-only after rollback');
 console.log('Runtime visit matching, repeated visits, chapter isolation, read-only details and rollback availability passed.');

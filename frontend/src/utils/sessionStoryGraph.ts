@@ -5,11 +5,28 @@ import { importLayoutFromFlow, nodeIdentity, NODE_W, LAYOUT_H_GAP } from "../com
 export type SessionGraphPositions = Record<string, { x: number; y: number }>;
 export const sessionPositionKey = (node: PlotGraphNodeDTO) => node.id.startsWith("scene:") ? node.id : nodeIdentity(node);
 
-/** Runtime IDs are the only historical identity; author refs may already point ahead. */
+function matchesRecord(node: PlotGraphNodeDTO, record: StoryTreeNode) {
+  if (record.kind === "combat") return node.type === "combat" && !!record.combat_node_id && record.combat_node_id === node.ref?.node_id;
+  const cue = record.presentation;
+  return node.type === "beat" && !!cue?.beat_id && cue.round === record.round_end
+    && cue.beat_id === node.ref?.beat_id && cue.chapter_idx === node.ref?.chapter_idx;
+}
+
+/** Match historical author cards by frozen playback identity, never advancing refs. */
 export function sessionNodeVisits(state: StoryStateDTO, node: PlotGraphNodeDTO, currentDisplayId?: string): StoryTreeNode[] {
-  const records = state.tree?.has_tree ? state.tree.nodes : [];
-  if (node.id.startsWith("scene:")) return records.filter(record => `scene:${record.id}` === node.id);
-  return node.id === currentDisplayId ? records.filter(record => record.id === state.tree?.current_id) : [];
+  const records = sessionRecords(state);
+  if (node.id.startsWith("scene:")) return records.filter(record => `scene:${record.runtime_node_id || record.id}` === node.id);
+  return records.filter(record => matchesRecord(node, record) || (node.id === currentDisplayId && record.id === state.tree?.current_id));
+}
+
+function sessionRecords(state: StoryStateDTO): StoryTreeNode[] {
+  if (!state.tree?.has_tree) return [];
+  const seen = new Set<string>();
+  return [...state.tree.nodes, ...(state.tree.checkpoints ?? [])].filter(record => {
+    const key = record.snapshot_id || `${record.runtime_node_id || record.id}:${record.round_end ?? "pending"}`;
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  }).sort((a, b) => (a.round_end ?? 0) - (b.round_end ?? 0));
 }
 
 /** The same worldbook ordering/layout, including when only a session roadmap exists. */
@@ -29,8 +46,7 @@ export function sessionGraphDocument(state: StoryStateDTO, flow = sessionPlotFlo
   const withContent = (doc: PlotGraphDocDTO): PlotGraphDocDTO => ({ ...doc, nodes: doc.nodes.map(node => {
     const chapter = flow.chapters.find(item => item.idx === node.ref?.chapter_idx);
     const beat = chapter?.beats.find(item => item.id === node.ref?.beat_id);
-    const content = node.type === "beat" && beat ? [beat.content || beat.summary,
-      beat.must_keep && `必须保留\n${beat.must_keep}`, beat.guidance && `叙事指引\n${beat.guidance}`].filter(Boolean).join("\n\n")
+    const content = node.type === "beat" && beat ? beat.content || beat.summary
       : node.type === "chapter" ? chapter?.summary : node.type === "plot" ? flow.summary : undefined;
     return content ? { ...node, content } : node;
   }) });
@@ -82,6 +98,7 @@ export function sessionGraphProgress(state: StoryStateDTO, base: PlotGraphDocDTO
       current = doc.nodes.find(node => node.type === "beat" && node.ref?.beat_id === beatId && node.ref?.chapter_idx === chapterIdx);
     }
   }
+  if (!current && currentScene) current = doc.nodes.find(node => matchesRecord(node, currentScene));
   // A scene without an author anchor stays a normal shared card on the same canvas.
   if (doc.nodes.length <= 1 && doc.nodes.every(node => node.type === "plot") && tree) {
     const nodes: PlotGraphNodeDTO[] = [];
@@ -114,11 +131,11 @@ export function sessionGraphProgress(state: StoryStateDTO, base: PlotGraphDocDTO
       x: Math.max(40, ...doc.nodes.map(node => node.x + NODE_W + LAYOUT_H_GAP)), y: 200 };
     doc = { ...doc, nodes: [...doc.nodes, dynamic] }; current = dynamic;
   }
-  // Keep each historical scene on the canvas, including revisits and off-path branches.
-  // The current scene can share its round-bound author card; history never uses author refs.
+  // Place recorded visits on their authored beat; unanchored scenes retain their own
+  // cards. Repeated visits share a card and keep their individual runtime snapshots.
   if (tree && doc.nodes.some(node => !node.id.startsWith("scene:"))) {
     const displayIds = new Map(tree.nodes.map(record => [record.id,
-      record.id === currentScene?.id && current ? current.id : `scene:${record.id}`]));
+      record.id === currentScene?.id && current ? current.id : doc.nodes.find(node => matchesRecord(node, record))?.id ?? `scene:${record.id}`]));
     const baseY = Math.max(0, ...doc.nodes.map(node => node.y)) + 300;
     const nodes = [...doc.nodes];
     const nodeIds = new Set(nodes.map(node => node.id));
@@ -133,7 +150,9 @@ export function sessionGraphProgress(state: StoryStateDTO, base: PlotGraphDocDTO
     const edges = [...doc.edges];
     for (const record of tree.nodes) {
       if (!record.parent_id || record.parent_id === record.id || !displayIds.has(record.parent_id)) continue;
-      edges.push({ id: `scene-edge:${record.id}`, from: displayIds.get(record.parent_id)!, to: displayIds.get(record.id)! });
+      const from = displayIds.get(record.parent_id)!;
+      const to = displayIds.get(record.id)!;
+      if (from !== to && !edges.some(edge => edge.from === from && edge.to === to)) edges.push({ id: `scene-edge:${record.id}`, from, to });
     }
     doc = { ...doc, nodes, edges };
   }
@@ -151,6 +170,7 @@ export function sessionGraphProgress(state: StoryStateDTO, base: PlotGraphDocDTO
     } else if (node.type === "combat") {
       if (tree?.nodes.some(item => item.kind === "combat" && item.combat_node_id === node.ref?.node_id && item.has_state)) progress = "done";
     }
+    if (!node.id.startsWith("scene:") && sessionNodeVisits(state, node, current?.id).some(record => record.has_state)) progress = "done";
     if (node.id === current?.id) progress = "current";
     displays.set(node.id, { title: node.title, body: node.content, progress });
   }

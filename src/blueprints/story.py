@@ -183,8 +183,11 @@ def register(app, managers):
         if not node_id:
             return json_error("需要 node_id 参数")
 
+        checkpoint_id = data.get("checkpoint_id")
+        if checkpoint_id is not None and (not isinstance(checkpoint_id, str) or not checkpoint_id.strip()):
+            return json_error("checkpoint_id 必须是非空字符串")
         try:
-            result = session.rollback_to_node(node_id)
+            result = session.rollback_to_node(node_id, checkpoint_id=checkpoint_id)
         except ValueError as e:
             return json_error(str(e), 400)
         except Exception as e:

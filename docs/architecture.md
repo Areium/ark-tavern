@@ -163,7 +163,7 @@ React 界面通过 Zustand 保存页面和会话状态，通过 API 客户端获
 
 [appStore.ts](../frontend/src/stores/appStore.ts) 将消息、流式接收、发送和回档状态按会话隔离，并通过刷新键通知相关组件重新读取状态。[useApi.ts](../frontend/src/hooks/useApi.ts) 提供 REST 与 GET/POST SSE 客户端。
 
-剧情面板展示当前位置、作者节拍骨架与角色状态。会话节点图通过 [SessionNodeDetails.tsx](../frontend/src/components/story/SessionNodeDetails.tsx) 展示只读详情；[sessionNodeRollback.ts](../frontend/src/utils/sessionNodeRollback.ts) 使用真实运行时节点 ID 回档并锁定会话写操作，不修改世界书节点。独立回忆摘要已移除，剧情树节点摘要、剧情日志和角色向量记忆仍保留。
+剧情面板展示当前位置、作者节拍骨架与角色状态。会话节点图通过 [SessionNodeDetails.tsx](../frontend/src/components/story/SessionNodeDetails.tsx) 展示带展开/关闭动画的只读正文和回档操作，不展示创作指引；历史按冻结演出帧关联作者节拍，无可靠身份时保留独立运行节点卡片。[sessionNodeRollback.ts](../frontend/src/utils/sessionNodeRollback.ts) 使用真实运行时节点 ID 和可选 checkpoint ID 恢复精确轮次，并锁定会话写操作，不修改世界书节点。独立回忆摘要已移除，剧情树节点摘要、剧情日志和角色向量记忆仍保留。
 
 舞台读取同一轮权威正文，保留阅读位置，等待场景图片时不阻塞正文。网格战斗从操作响应中的状态与事件驱动演出，SSE 也会传输事件；播放逻辑需要识别重复事件。阅读交接见[两阶段叙述](design/narrative/two-phase-narration.md)，战斗事件与动画见[战斗界面](design/combat/combat-ui-design.md)。
 
