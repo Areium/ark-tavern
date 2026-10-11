@@ -240,14 +240,16 @@ async function serve() {
 import React, {useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import ChatPanel from '/src/components/ChatPanel.tsx';
+import {StoryOverviewPanel} from '/src/components/scene/OverviewPanels.tsx';
+import GlobalConfirmDialog from '/src/components/common/GlobalConfirmDialog.tsx';
 import CharacterDetailCard from '/src/components/CharacterDetailCard.tsx';
 import {useAppStore} from '/src/stores/appStore.ts';
 import '/src/style.css';
 import '/src/styles/chat.css';
 import '/src/styles/session-story-graph.css';
 const choices = ${JSON.stringify(choiceMessage)};
-const session = {id:'fixture', name:'前端测试', mode:'story', combat_mode:'narrative', player_identity:'玩家', characters:['同伴'], narration_count:1,worldbook_ids:['fixture-book']};
-useAppStore.setState({activeSessionId:'fixture', chatMode:'story', sessions:[session], chatLayout:'graph', currentView:'chat', sessionMessages:{fixture:[choices]}, sessionNarrationCount:{fixture:1}});
+const session = {id:'fixture', name:'前端测试', mode:'story', combat_mode:'narrative', player_identity:'玩家', characters:['同伴'], narration_count:3,worldbook_ids:['fixture-book']};
+useAppStore.setState({activeSessionId:'fixture', chatMode:'story', sessions:[session], chatLayout:'graph', currentView:'chat', sessionMessages:{fixture:[choices]}, sessionNarrationCount:{fixture:3}});
 function Fixture(){
  const state=useAppStore(); const [card,setCard]=useState(false); const [cardName,setCardName]=useState('');
  const reset=()=>{state.setSessionMessages('fixture',[choices]);state.setSessionNarrationCount('fixture',1);};
@@ -255,7 +257,7 @@ function Fixture(){
  <header style={{padding:8,display:'flex',flexWrap:'wrap',gap:8,fontSize:14}}>
  <strong>API mock · 非真实 LLM</strong>
  <select aria-label="模拟剧情状态" defaultValue="normal" onChange={e=>fetch('/api/__fixture/graph-mode?mode='+e.target.value,{method:'POST'}).then(()=>state.triggerEnvRefresh())}>
- <option value="normal">正常节点</option><option value="rollback">模拟回档</option><option value="error">模拟加载失败</option><option value="empty">模拟空状态</option><option value="stage-error">模拟角色失败</option></select>
+ <option value="normal">正常节点</option><option value="rollback">模拟回档</option><option value="error">模拟加载失败</option><option value="empty">模拟空状态</option><option value="stage-error">模拟角色失败</option><option value="rollback-error">模拟回档失败</option></select>
  <button onClick={()=>state.setSessionStreaming('fixture',!state.sessionStreaming.fixture)}>模拟生成状态</button>
  <select aria-label="测试布局" value={state.chatLayout} onChange={e=>state.setChatLayout(e.target.value)}><option value="chat">记录</option><option value="stage">舞台</option><option value="graph">节点图</option></select>
  <select aria-label="测试模式" value={state.sessions[0].combat_mode} onChange={e=>state.setSessions([{...session,combat_mode:e.target.value}])}><option>narrative</option><option>tactical</option><option>sideview</option></select>
@@ -267,7 +269,7 @@ function Fixture(){
  <label><input type="checkbox" checked={state.editBeforeSend} onChange={e=>state.setEditBeforeSend(e.target.checked)}/>编辑后发送</label>
  <output>数值刷新 {state.statsRefreshKey} / 物品刷新 {state.envRefreshKey} / 轮次 {state.sessionNarrationCount.fixture}</output>
  </header>
- <main style={{flex:1,minHeight:0}}><ChatPanel stageOnly={false} onExitStageOnly={()=>{}} musicMuted={true} onToggleMusic={()=>{}}/></main>
+ <main style={{flex:1,minHeight:0,display:'flex'}}><aside style={{width:330,flexShrink:0,padding:16,overflow:'auto'}}><StoryOverviewPanel/></aside><div style={{flex:1,minWidth:0,display:'flex',flexDirection:'column'}}><ChatPanel stageOnly={false} onExitStageOnly={()=>{}} musicMuted={true} onToggleMusic={()=>{}}/></div></main><GlobalConfirmDialog/>
  {card&&<CharacterDetailCard characterId={cardName||state.sessions[0].combat_mode} anchorRect={{right:8,left:8,top:80}} pinned={true} onTogglePin={()=>{}} onClose={()=>setCard(false)}/>}
  </div>;
 }
@@ -286,6 +288,13 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`;
         res.setHeader('Content-Type', 'application/json');
         if (url.pathname === '/api/__fixture/graph-mode') { graphMode = url.searchParams.get('mode'); res.end('{}'); return; }
         if (url.pathname.endsWith('/story-state') && graphMode === 'error') { res.statusCode = 503; res.end(JSON.stringify({error:'模拟：剧情节点加载失败'})); return; }
+        if (url.pathname.endsWith('/rollback-node')) {
+          let body = ''; for await (const chunk of req) body += chunk;
+          if (JSON.parse(body).node_id !== 'root') { res.statusCode=400; res.end(JSON.stringify({error:'不是运行时节点 ID'})); return; }
+          if (graphMode === 'rollback-error') { res.statusCode=423; res.end(JSON.stringify({error:'模拟：战斗进行中，无法回档'})); return; }
+          await new Promise(resolve=>setTimeout(resolve,600));
+          graphMode = 'rollback';
+        }
         if (url.pathname.endsWith('/stage') && graphMode === 'stage-error') { res.statusCode = 503; res.end(JSON.stringify({error:'模拟：场景角色加载失败'})); return; }
         if (url.pathname === '/api/__fixture/stats-refresh') {
           fixtureStats.filter(row => row.fields.length).forEach(row => { row.values.trust += 5; });
@@ -315,7 +324,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`;
         if (url.pathname.includes('/overrides/characters/')) data = /\/(tactical|sideview)$/.test(url.pathname) ? { progress: { level: 4, xp: 15 }, combat_stats: { hp: 120, patk: 30, matk: 20, heal: 0, def: 10, res: 5, spd: 7, hit: 95, eva: 3, max_ap: 6 } } : { progress: null, combat_stats: null };
         if (url.pathname.endsWith('/stage')) data = { session_id:'fixture', location:'雨夜入口', weather:'小雨', time:'夜晚', atmosphere:[],
           background:{url:null,source:'none',bg_id:''}, player:{name:'玩家',skin_url:null,avatar_url:null,color:null}, characters:[{name:'同伴',skin_url:null,avatar_url:null,color:null,active:true}], scene_media:null };
-        if (url.pathname.endsWith('/story-state')) data = { has_plot:true, plot_id:'fixture-plot', plot_name:'长夜归途', roads:[
+        if (url.pathname.endsWith('/story-state') || url.pathname.endsWith('/rollback-node')) data = { has_plot:true, plot_id:'fixture-plot', plot_name:'长夜归途', chapter:{idx:0,id:'rain',title:'雨中的约定',total:2}, roads:[
           {chapter_idx:0,id:'rain',kind:'main',title:'雨中的约定',state:'current',beats:[
             {id:'gate',title:'抵达旧城',summary:'长夜开始，灯火渐次亮起。',state:'done',choice_required:false},
             {id:'bridge',title:'桥头的约定',summary:'与同伴会合，寻找雨中的线索。',state:'current',choice_required:false},
@@ -324,14 +333,14 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`;
             {id:'tower',title:'钟楼回声',summary:'前往钟楼寻找线索。',state:'locked',choice_required:false},
             {id:'return',title:'归途',summary:'重逢的约定。',state:'locked',choice_required:false}]}
           ], tree:{has_tree:true,current_id:'bridge-scene',root_id:'root',path:['root','bridge-scene'],nodes:[
-            {id:'root',parent_id:null,title:'抵达雨中的旧城',kind:'plot',summary:'沿着灯光寻找同伴。',children:['bridge-scene','side'],branches,has_state:true},
-            {id:'bridge-scene',parent_id:'root',title:'桥头的约定',kind:'beat',summary:'同伴终于在桥头会合。',children:[],branches:[],has_state:true},
+            {id:'root',parent_id:null,title:'抵达雨中的旧城',kind:'plot',ref_chapter_id:'rain',ref_beat_id:'gate',depth:0,round_start:1,round_end:1,summary:'沿着灯光寻找同伴。',children:['bridge-scene','side'],branches,has_state:true},
+            {id:'bridge-scene',parent_id:'root',title:'桥头的约定',kind:'beat',ref_chapter_id:'rain',ref_beat_id:'bridge',depth:1,round_start:2,round_end:3,summary:'同伴终于在桥头会合。',children:[],branches:[],has_state:true},
             {id:'side',parent_id:'root',title:'独自走进暗巷',kind:'beat',summary:'尚未走过的岔路。',children:[],branches:[],has_state:false}
           ]} };
-        if (url.pathname.endsWith('/stage')) data.scene_media = { round:1, beat_id:graphMode === 'rollback' ? 'gate' : 'bridge', chapter_idx:1 };
-        if (url.pathname.endsWith('/story-state') && graphMode === 'rollback') { data.tree.current_id = 'root'; data.tree.path=['root']; }
+        if (url.pathname.endsWith('/stage')) data.scene_media = { round:graphMode === 'rollback' ? 1 : 3, beat_id:graphMode === 'rollback' ? 'gate' : 'bridge', chapter_idx:1 };
+        if ((url.pathname.endsWith('/story-state') || url.pathname.endsWith('/rollback-node')) && graphMode === 'rollback') { data.tree.current_id = 'root'; data.tree.path=['root']; }
         if (url.pathname.endsWith('/story-state') && graphMode === 'empty') data={has_plot:false,roads:[]};
-        if (url.pathname.endsWith('/story-state') && data.has_plot && !worldbookFlow) {
+        if ((url.pathname.endsWith('/story-state') || url.pathname.endsWith('/rollback-node')) && data.has_plot && !worldbookFlow) {
           worldbookFlow = {...sessionPlotFlow(data),worldbook_id:'fixture-book'};
           worldbookDoc = sessionGraphDocument(data,worldbookFlow);
           worldbookDoc.nodes.find(node=>node.ref?.beat_id==='bridge').y=160;
@@ -339,6 +348,10 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`;
         }
         if (url.pathname === '/api/combat/nodes/graph') data={book_id:'fixture-book',plots:worldbookFlow?[worldbookFlow]:[],nodes:[],meta:{}};
         if (url.pathname === '/api/plot-graphs/fixture-plot') data={plot_id:'fixture-plot',book_id:'fixture-book',graph:worldbookDoc};
+        if (url.pathname.endsWith('/rollback-node')) data={target_round:1,narration_count:1,node_id:'root',story_state:data};
+        if (url.pathname.endsWith('/history')) data={narration_count:graphMode === 'rollback'?1:3,messages:[]};
+        if (data.tree) data.tree.current_node=data.tree.nodes.find(node=>node.id===data.tree.current_id);
+        if (data.story_state?.tree) data.story_state.tree.current_node=data.story_state.tree.nodes.find(node=>node.id===data.story_state.tree.current_id);
         res.end(JSON.stringify(data));
       }); },
     }],

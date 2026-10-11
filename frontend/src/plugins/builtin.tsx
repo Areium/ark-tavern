@@ -9,7 +9,7 @@ registerScenePanel({
   component: SceneOverviewPanel,
 });
 registerScenePanel({
-  id: "story", title: "剧情", icon: "workflow", order: 40, modes: ["story"], hint: "剧情进度与旅途回忆",
+  id: "story", title: "剧情", icon: "workflow", order: 40, modes: ["story"], hint: "剧情进度与节点图",
   component: StoryOverviewPanel,
 });
 registerScenePanel({

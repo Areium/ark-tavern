@@ -1,5 +1,5 @@
 """
-Memories blueprint — 回忆系统：查看、重新生成、会话回退。
+会话回退 blueprint。
 """
 
 import logging
@@ -23,47 +23,10 @@ def _get_session(session_mgr, session_id):
 def register(app, managers):
     bp = Blueprint("memories", __name__)
     session_mgr = managers["session"]
-    llm_backend = managers["llm_backend"]
-
-    # ── 1. GET /api/sessions/<session_id>/memories ──
-    @bp.route("/api/sessions/<session_id>/memories", methods=["GET"])
-    def get_memories(session_id: str):
-        """获取会话的回忆列表。"""
-        session = _get_session(session_mgr, session_id)
-        if not session:
-            return json_error("会话不存在", 404)
-        return jsonify({
-            "memories": session.get_memories(),
-            "narration_count": session.narration_count,
-            "last_memory_end": session._last_memory_end,
-        })
-
-    # ── 2. POST /api/sessions/<session_id>/memories/regenerate ──
-    @bp.route("/api/sessions/<session_id>/memories/regenerate", methods=["POST"])
-    def regenerate_memories(session_id: str):
-        """清除已有回忆并按当前间隔重新生成。"""
-        session = _get_session(session_mgr, session_id)
-        if not session:
-            return json_error("会话不存在", 404)
-
-        if not session.get_llm():
-            return json_error("LLM 后端不可用，无法重新生成回忆", 503)
-
-        config = llm_backend.get_config()
-        interval = config.get("memory_interval", 5)
-        new_memories = session.regenerate_memories(interval)
-
-        return jsonify({
-            "memories": new_memories,
-            "narration_count": session.narration_count,
-            "interval_used": interval,
-        })
-
-    # ── 3. POST /api/sessions/<session_id>/rollback ──
     @bp.route("/api/sessions/<session_id>/rollback", methods=["POST"])
     @narration_guard(session_mgr)
     def rollback_session(session_id: str):
-        """回退会话到指定轮次，删除其后的历史和回忆。"""
+        """回退会话到指定轮次，删除其后的叙述历史。"""
         session = _get_session(session_mgr, session_id)
         if not session:
             return json_error("会话不存在", 404)

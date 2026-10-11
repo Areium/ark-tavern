@@ -34,6 +34,9 @@ import {
 import { createNodes } from "./nodeFactory";
 import { sceneAssetUrl, sceneCGPreviews, sceneMediaBadge } from "../../utils/sceneMedia";
 import { CG_W, CG_H, CG_GAP, CG_CONNECTOR, cgStripWidth, cgNodeBounds } from "./graphCG";
+import AppIcon, { type AppIconName } from "../AppIcon";
+
+const NODE_ICON: Record<PlotGraphNodeType, AppIconName> = { plot: "book", chapter: "folder", beat: "forward", combat: "combat", note: "file" };
 import { ImageOff } from "lucide-react";
 
 export interface GraphNodeDisplay {
@@ -378,7 +381,7 @@ export default function GraphCanvas(props: Props) {
         const prev = lastNodeClick.current;
         const isDouble = !!prev && prev.id === it.id && now - prev.t <= DBLCLICK_MS;
         lastNodeClick.current = isDouble ? null : { id: it.id, t: now };
-        if (isDouble && !sessionMode) {
+        if (isDouble) {
           const node = docRef.current.nodes.find((n) => n.id === it.id);
           if (node) { enterNodeEdit(node); return; }
         }
@@ -478,12 +481,11 @@ export default function GraphCanvas(props: Props) {
    * 自由节点内联编辑标题与备注，其余类型打开既有抽屉编辑器编辑其内容/属性。
    */
   const enterNodeEdit = (node: PlotGraphNodeDTO) => {
-    if (sessionMode) return;
     lastEditAt.current = performance.now();
     closeMenu();
     setEditingId(null);
     onSelect({ kind: "node", id: node.id });
-    if (node.type === "note") setEditingId(node.id);
+    if (!sessionMode && node.type === "note") setEditingId(node.id);
     else props.onOpenNode(node);
   };
 
@@ -670,7 +672,7 @@ export default function GraphCanvas(props: Props) {
             sessionMode={sessionMode}
             previewBookId={props.previewBookId}
             overlay={props.renderNodeOverlay?.(n)}
-            onSelect={() => onSelect({ kind: "node", id: n.id })}
+            onOpen={() => enterNodeEdit(n)}
             editing={!sessionMode && editingId === n.id}
             linkSource={linkPos != null}
             onPointerDown={onNodePointerDown}
@@ -727,7 +729,7 @@ export default function GraphCanvas(props: Props) {
             {Object.entries(NODE_META).map(([type, meta]) => (
               <span key={type} className="ng-legend-item">
                 <i className={"ng-legend-dot"} data-ng-type={type} />
-                {meta.icon} {meta.label}
+                <AppIcon name={NODE_ICON[type as PlotGraphNodeType]} size={12} /> {meta.label}
               </span>
             ))}
             <span className="ng-legend-item ng-legend-edge"><i className="ng-legend-line" />连线（箭头 = 流程方向）</span>
@@ -837,7 +839,7 @@ interface CardProps {
   linkSource: boolean;
   sessionMode: boolean;
   overlay?: ReactNode;
-  onSelect: () => void;
+  onOpen: () => void;
   onPointerDown: (e: React.PointerEvent, node: PlotGraphNodeDTO) => void;
   onAnchorDown: (e: React.PointerEvent, node: PlotGraphNodeDTO, side: "top" | "right" | "bottom" | "left") => void;
   onDoubleClick: (e: React.MouseEvent, node: PlotGraphNodeDTO) => void;
@@ -846,7 +848,7 @@ interface CardProps {
 }
 
 const GraphCard = memo(function GraphCard({
-  node, rect, display, selected, editing, linkSource, sessionMode, previewBookId, overlay, onSelect,
+  node, rect, display, selected, editing, linkSource, sessionMode, previewBookId, overlay, onOpen,
   onPointerDown, onAnchorDown, onDoubleClick, onEditCommit, onEditCancel,
 }: CardProps) {
   const meta = NODE_META[node.type as PlotGraphNodeType] ?? NODE_META.note;
@@ -882,10 +884,11 @@ const GraphCard = memo(function GraphCard({
       onDoubleClick={(e) => onDoubleClick(e, node)}
       onBlur={(e) => { if (editing && !e.currentTarget.contains(e.relatedTarget as Node)) submit(); }}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget && !editing) return;
         if (sessionMode && (e.key === "Enter" || e.key === " ")) {
           e.preventDefault();
           e.stopPropagation();
-          onSelect();
+          onOpen();
           return;
         }
         if (editing && e.key === "Escape") onEditCancel();
@@ -920,7 +923,7 @@ const GraphCard = memo(function GraphCard({
       ) : (
         <>
           <div className="ng-node-head">
-            <span className="ng-node-icon">{meta.icon}</span>
+            <span className="ng-node-icon"><AppIcon name={NODE_ICON[node.type as PlotGraphNodeType] || "file"} size={14} /></span>
             <span className="ng-node-title" title={display.title}>{display.title || node.title || meta.label}</span>
             {sceneMediaBadge(node.scene_media) && <span className="ng-media-badge" title={sceneMediaBadge(node.scene_media)}>{sceneMediaBadge(node.scene_media)}</span>}
           </div>

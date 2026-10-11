@@ -1,14 +1,14 @@
 /**
  * 场景面板插件注册表 —— 对话页左侧「场景面板」的每一个页签都是一个插件。
  *
- * 内置面板（角色 / 物品 / 环境 / 剧情 / 回忆 / 任务 / 数值 / 资源）与第三方面板走同一条
+ * 内置面板（场景 / 剧情 / 任务 / 资源）与第三方面板走同一条
  * 注册路径：`registerScenePanel({...})`。第三方开发者把一个 `.tsx` 放进
  * `src/plugins/custom/`（由 `plugins/index.ts` 自动加载）即可出现在面板栏里。
  *
  * 面板拿到的 `ScenePanelContext` 是与系统数据交互的正式接口：
  *  - `stats`：读写角色数值（世界书统一字段 × 角色全局值 × 会话值），写入会话层；
  *  - `data`：按命名空间读写本会话的插件数据（JSON 对象，随剧情树节点快照回档）；
- *  - `refresh`：系统事件的刷新键（环境 / 回忆 / 角色 / 数值 / 资源），变化即该重新拉取；
+ *  - `refresh`：系统事件的刷新键（环境 / 角色 / 数值 / 资源），变化即该重新拉取；
  *  - `api`：完整的 REST 客户端，需要时可直接调用。
  *
  * 数据接口对应的后端端点见 `src/blueprints/stage.py`；开发说明见 `plugins/README.md`。
@@ -27,7 +27,6 @@ export type ScenePanelMode = "story" | "free";
 
 export interface ScenePanelRefreshKeys {
   env: number;
-  memory: number;
   chat: number;
   character: number;
   stats: number;
@@ -61,7 +60,7 @@ export interface ScenePanelContext {
   stats: ScenePanelStatsApi;
   data: ScenePanelDataApi;
   /** 通知系统：数值 / 环境 / 角色有变化（内置面板会据此重新拉取） */
-  notify: (kind: "stats" | "env" | "character" | "memory" | "resource") => void;
+  notify: (kind: "stats" | "env" | "character" | "resource") => void;
 }
 
 export interface ScenePanelProps {

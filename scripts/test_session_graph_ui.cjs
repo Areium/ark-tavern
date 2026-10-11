@@ -13,7 +13,7 @@ for (const extension of ['.ts', '.tsx']) require.extensions[extension] = (module
   }).outputText, filename);
 };
 const src = file => path.join(root, 'frontend/src', file);
-const { sessionPlotFlow, sessionGraphDocument, sessionGraphProgress, applySessionGraphPositions, sessionPositionKey } = require(src('utils/sessionStoryGraph.ts'));
+const { sessionPlotFlow, sessionGraphDocument, sessionGraphProgress, applySessionGraphPositions, sessionPositionKey, sessionNodeVisits } = require(src('utils/sessionStoryGraph.ts'));
 const { importLayoutFromFlow, nodeIdentity } = require(src('components/combat/graphModel.ts'));
 const beat = (id, state = 'locked') => ({ id, title: id, summary: '节拍摘要', state, round_start: null, round_end: null });
 const scene = (id, extras = {}) => ({ id, parent_id: null, title: id, summary: '', children: [], branches: [], has_state: true, ...extras });
@@ -72,6 +72,31 @@ for(const required of [false,true]) {
  assert.equal(branchDoc.edges.some(e=>e.from===source&&e.to===next),!required,'shared optional/required exits remain correct');
 }
 
+// Saved graph IDs are author IDs; only matched runtime visits can be rolled back.
+const visitState={...state,tree:{has_tree:true,root_id:'root',current_id:'v2',nodes:[
+ scene('root',{kind:'plot'}),
+ scene('v1',{kind:'beat',ref_chapter_id:'main',ref_beat_id:'next',round_start:1,round_end:2}),
+ scene('v2',{kind:'beat',ref_chapter_id:'main',ref_beat_id:'next',round_end:5}),
+ scene('other-chapter',{kind:'beat',ref_chapter_id:'skipped',ref_beat_id:'next',round_end:9}),
+ scene('battle-visit',{kind:'combat',combat_node_id:'battle'})]}};
+assert.deepEqual(sessionNodeVisits(visitState,{id:'saved-author-id',type:'beat',ref:{chapter_idx:1,beat_id:'next'}}).map(n=>n.id),[],'post-advance refs never authorize author-card rollback');
+assert.deepEqual(sessionNodeVisits(visitState,{id:'scene:v1',type:'beat'}).map(n=>n.id),['v1']);
+assert.deepEqual(sessionNodeVisits(visitState,{id:'combat',type:'combat',ref:{node_id:'battle'}}).map(n=>n.id),[]);
+assert.deepEqual(sessionNodeVisits(visitState,{id:'entry',type:'plot'}).map(n=>n.id),[]);
+assert.deepEqual(sessionNodeVisits(visitState,{id:'future',type:'beat',ref:{chapter_idx:1,beat_id:'end'}}),[]);
+assert.deepEqual(sessionNodeVisits(visitState,{id:'note',type:'note'}),[]);
+
+const visitGraph=sessionGraphProgress(visitState,doc,{round:5,chapter_idx:1,beat_id:'next'});
+assert.ok(visitGraph.doc.nodes.some(n=>n.id==='scene:v1'));
+assert.ok(visitGraph.doc.nodes.some(n=>n.id==='scene:other-chapter'));
+assert.deepEqual(sessionNodeVisits(visitState,visitGraph.doc.nodes.find(n=>n.id===visitGraph.currentId),visitGraph.currentId).map(n=>n.id),['v2']);
+assert.ok(visitGraph.doc.edges.some(e=>e.from==='scene:root'&&e.to===visitGraph.currentId)===false,'only actual parent IDs create runtime edges');
+const contentFlow=sessionPlotFlow(state);
+contentFlow.chapters[0].beats[0].content='真正的作者正文';
+contentFlow.chapters[0].beats[0].must_keep='保留关键事实';
+assert.ok(sessionGraphDocument(state,contentFlow).nodes.find(n=>n.ref?.beat_id==='start').content.includes('真正的作者正文'));
+assert.ok(sessionGraphDocument(state,contentFlow,saved).nodes.find(n=>n.ref?.beat_id==='start').content.includes('保留关键事实'));
+
 const React=fromFrontend('react');
 const {renderToStaticMarkup:render}=fromFrontend('react-dom/server');
 const GraphCanvas=require(src('components/combat/GraphCanvas.tsx')).default;
@@ -88,3 +113,13 @@ assert.ok(sessionMarkup.includes('适应')&&sessionMarkup.includes('1:1'));
 const editorMarkup=render(React.createElement(GraphCanvas,props));
 assert.ok(editorMarkup.includes('ng-anchor'),'worldbook editor still exposes linking');
 console.log('Shared worldbook layout, saved positions/edges, local overrides, arrival/rollback, combat, deep fallback and session/editor SSR passed.');
+
+const Details=require(src('components/story/SessionNodeDetails.tsx')).default;
+const detailProps={node:{id:'author',type:'beat',title:'节拍',content:'作者正文'},visits:visitState.tree.nodes.slice(1,3),currentId:'v2',busy:false,rollingBack:null,error:'',onClose:noop,onRollback:noop};
+const detailMarkup=render(React.createElement(Details,detailProps));
+assert.ok(detailMarkup.includes('作者正文')&&detailMarkup.includes('第 1–2 轮'));
+assert.equal((detailMarkup.match(/回档到此节点/g)||[]).length,1,'current visit is not a rollback target');
+assert.ok(!detailMarkup.includes('<input')&&!detailMarkup.includes('<textarea')&&!detailMarkup.includes('保存'),'details never edit worldbook content');
+assert.ok(render(React.createElement(Details,{...detailProps,busy:true})).includes('disabled=""'));
+assert.ok(!render(React.createElement(Details,{...detailProps,visits:[]})).includes('回档到此节点'));
+console.log('Runtime visit matching, repeated visits, chapter isolation, read-only details and rollback availability passed.');

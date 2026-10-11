@@ -4,7 +4,6 @@
   A. 阶段0 消息构建（纯 Python，无 LLM）
   B. Call 1 流式叙述：首 reasoning token / 首 content token(TTFT) / 总时长
   C. Call 2 标记提取（choices=3, beat_state_active=True，剧情模式+自动选项的默认形态）
-  D. 回忆生成（generate_memory 同构 prompt）
   E. embedding 调用（自由模式每轮 2 次：query + add）
 """
 import json
@@ -143,33 +142,6 @@ def main():
         })
         print(json.dumps(ext_results[-1], ensure_ascii=False), flush=True)
     out["segments"]["C_extract_markers"] = ext_results
-
-    # ── D. 回忆生成（同构 prompt）──
-    history_text = "\n".join(
-        f"[第{i}轮] 阿米娅带来训练日程；临光谈及特锦赛传闻；瑕光修复了臂甲；"
-        f"博士与银灰讨论铁路蓝图；会客厅窗外大雪封城。 玩家选择: 追问细节"
-        for i in range(1, 6)
-    )
-    prompt = (
-        "基于以下剧情对话记录，总结这段情节的进展。"
-        "输出 JSON 格式（不要输出其他内容）：\n"
-        '{"title": "简短的章节标题（不超过15字）", "summary": "情节摘要（不超过300字，包含关键对话和事件细节）"}\n\n'
-        f"剧情记录：\n---\n{history_text}\n---"
-    )
-    t0 = time.monotonic()
-    resp = llm.chat([
-        {"role": "system", "content": (
-            "<role>你是专业TRPG剧情编辑，负责记录详尽的剧情摘要。</role>\n"
-            "<output_format>\n"
-            '强制 JSON：{"title": "标题≤15字", "summary": "摘要≤300字，含关键情节转折、角色互动和重要事件"}\n'
-            "只输出 JSON，不要其他内容。\n"
-            "</output_format>"
-        )},
-        {"role": "user", "content": prompt},
-    ], stream=False)
-    out["segments"]["D_generate_memory_ms"] = fmt_ms((time.monotonic() - t0) * 1000)
-    out["segments"]["D_generate_memory_usage"] = sanitize_usage(resp.get("usage") if isinstance(resp, dict) else None)
-    print(json.dumps({"D_generate_memory_ms": out["segments"]["D_generate_memory_ms"]}, ensure_ascii=False), flush=True)
 
     # ── E. embedding ──
     t0 = time.monotonic()

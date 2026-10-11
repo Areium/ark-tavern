@@ -1,16 +1,14 @@
 /**
- * 剧情进度面板 — 状态显示 + 关键节点回档。
+ * 剧情进度面板 — 当前位置与作者节拍骨架。
  *
  * - 状态显示：玩家当前处于剧情树（LLM 生成的节点结构）中的什么位置；
- * - 剧情树：以缩进展示生成出来的节点（可分叉、可多层），当前节点高亮；
- * - 回档：对经历过的树节点回档，恢复到该节点时的状态（树保留，其它分支仍可走）。
+ * - 节点详情与回档在会话节点图中操作。
  *
  * 仅在剧情模式且有剧情绑定时显示。
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
-import { confirmAction } from "../stores/confirmStore";
 import type { StoryStateDTO, StoryBeatNode } from "../types";
 import AppIcon from "./AppIcon";
 
@@ -22,7 +20,7 @@ const NODE_STYLE: Record<StoryBeatNode["state"], { dot: string; text: string }> 
 
 export default function StoryStatePanel() {
   const { activeSessionId, chatMode, chatRefreshKey, envRefreshKey, sceneSwitchKey, chatLayout, setChatLayout, sessions } = useAppStore();
-  const busy = useAppStore(s => !!s.sessionStreaming[activeSessionId || ""] || !!s.sessionSending[activeSessionId || ""]);
+  const busy = useAppStore(s => !!s.sessionStreaming[activeSessionId || ""] || !!s.sessionSending[activeSessionId || ""] || !!s.sessionRollback[activeSessionId || ""]);
   const requestId = useRef(0);
   const narrationCount = useAppStore(
     (s) => s.sessionNarrationCount[activeSessionId || ""] ?? 0
@@ -32,11 +30,8 @@ export default function StoryStatePanel() {
   const [state, setState] = useState<StoryStateDTO | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [rollingBack, setRollingBack] = useState<string | null>(null);
-  const [showRoadmap, setShowRoadmap] = useState(false);
+  const [showRoadmap, setShowRoadmap] = useState(true);
   const [showStates, setShowStates] = useState(false);
-  const [showTree, setShowTree] = useState(true);
-  const [showHistory, setShowHistory] = useState(true);
 
   const load = useCallback(async () => {
     const request = ++requestId.current;
@@ -64,46 +59,20 @@ export default function StoryStatePanel() {
     return () => { requestId.current++; };
   }, [load, narrationCount, chatRefreshKey, envRefreshKey, sceneSwitchKey]);
 
-  const handleRollback = useCallback(
-    async (nodeId: string, roundEnd: number, label: string) => {
-      if (!activeSessionId) return;
-      if (
-        !await confirmAction(
-          `回档到「${label}」？\n将恢复到该节点时的全部状态（第 ${roundEnd} 轮），之后的进度会被清除。`,
-          { title: "回退进度", confirmLabel: "回退到此节点" }
-        )
-      )
-        return;
-      setRollingBack(nodeId);
-      try {
-        const res = await api.rollbackNode(activeSessionId, nodeId);
-        const store = useAppStore.getState();
-        store.setSessionMessages(activeSessionId, (prev) =>
-          prev.filter((m) => !m.round || m.round <= res.target_round)
-        );
-        store.setSessionNarrationCount(activeSessionId, res.target_round);
-        store.triggerMemoryRefresh();
-        store.triggerEnvRefresh();
-        setState(res.story_state);
-      } catch (e: any) {
-        alert("回档失败: " + (e.message || "未知错误"));
-      } finally {
-        setRollingBack(null);
-      }
-    },
-    [activeSessionId, api]
-  );
-
   if (chatMode !== "story") return null;
   const header = (
     <div className="session-story-panel-heading">
       <h3 className="panel-title">剧情进度</h3>
+      <div className="session-story-panel-tools">
       {sessions.find(s => s.id === activeSessionId)?.mode === "story" && (
         <button type="button" aria-label={chatLayout === "graph" ? "切换回舞台" : "切换实时节点图"}
           aria-pressed={chatLayout === "graph"} onClick={() => setChatLayout(chatLayout === "graph" ? "stage" : "graph")}>
-          <AppIcon name="workflow" size={14} />{chatLayout === "graph" ? "回到舞台" : "节点图"}
+          <AppIcon name={chatLayout === "graph" ? "back" : "workflow"} size={14} />{chatLayout === "graph" ? "回到舞台" : "节点图"}
         </button>
       )}
+        <button type="button" className="session-story-refresh" aria-label="刷新剧情进度" title="刷新剧情进度"
+          disabled={busy || loading} onClick={load}><AppIcon name="refresh" size={14} className={loading ? "animate-spin" : ""} /></button>
+      </div>
     </div>
   );
 
@@ -144,17 +113,7 @@ export default function StoryStatePanel() {
   const doneInChapter = curBeats.filter((b) => b.state === "done").length;
   const chapterProgress = curBeats.length ? (doneInChapter / curBeats.length) * 100 : 0;
 
-  // node_id → 节拍摘要（供回档点显示可读名称）
-  const beatLabel: Record<string, string> = {};
-  for (const r of roads) {
-    for (const b of r.beats) beatLabel[b.id] = b.summary || b.id;
-  }
-
-  const history = state.node_history || [];
-  const tree = state.tree;
-  const treeNodes = tree?.has_tree ? tree.nodes : [];
-  const treeCurrent = tree?.current_node || null;
-  const onPath = new Set(tree?.path || []);
+  const treeCurrent = state.tree?.current_node || null;
   const charStates = state.character_states || {};
   const charNames = Object.keys(charStates).filter(
     (n) => (charStates[n]?.conditions || []).length > 0
@@ -162,17 +121,7 @@ export default function StoryStatePanel() {
 
   return (
     <div className="space-y-3">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between">
-        {header}
-        <button
-          onClick={load}
-          className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
-          title="刷新"
-        >
-          ⟳
-        </button>
-      </div>
+      {header}
 
       {/* ── 当前位置 ── */}
       <div className="rounded-lg border border-amber-600/30 bg-amber-500/5 px-3 py-2 space-y-1.5">
@@ -214,143 +163,15 @@ export default function StoryStatePanel() {
         )}
       </div>
 
-      {/* ── 剧情树（LLM 生成的节点结构，可分叉/多层） ── */}
-      {treeNodes.length > 0 && (
-        <div className="space-y-1">
-          <button
-            onClick={() => setShowTree((v) => !v)}
-            className="w-full flex items-center justify-between text-[11px] text-gray-500 hover:text-gray-300 transition-colors px-1"
-          >
-            <span>剧情树（{treeNodes.length} 节点）</span>
-            <span>{showTree ? "▲" : "▼"}</span>
-          </button>
-          {showTree &&
-            treeNodes.map((n) => {
-              const isCurrent = n.id === tree?.current_id;
-              const isOnPath = onPath.has(n.id);
-              return (
-                <div
-                  key={n.id}
-                  style={{ marginLeft: n.depth * 12 }}
-                  className={`flex items-center gap-2 rounded-md border px-2 py-1.5 ${
-                    isCurrent
-                      ? "border-amber-500/50 bg-amber-500/10"
-                      : isOnPath
-                      ? "border-gray-600/50"
-                      : "border-gray-700/40"
-                  }`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                      isCurrent
-                        ? "bg-amber-400 animate-pulse"
-                        : n.has_state
-                        ? "bg-emerald-500/70"
-                        : "bg-gray-600/70"
-                    }`}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div
-                      className={`text-[12px] truncate ${
-                        isCurrent ? "text-amber-200 font-medium" : "text-gray-300"
-                      }`}
-                    >
-                      {n.title || n.id}
-                      {n.kind && n.kind !== "beat" && (
-                        <span
-                          className={`ml-1 text-[10px] px-1 rounded ${
-                            n.kind === "combat"
-                              ? "bg-red-600/30 text-red-200"
-                              : n.deviation
-                              ? "bg-purple-600/30 text-purple-200"
-                              : "bg-sky-600/30 text-sky-200"
-                          }`}
-                        >
-                          {n.kind === "combat" ? "战斗" : n.deviation ? "偏离分支" : "剧情"}
-                        </span>
-                      )}
-                      {isCurrent && (
-                        <span className="ml-1 text-[10px] px-1 rounded bg-amber-600/40 text-amber-200">
-                          当前
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-gray-600 truncate">
-                      {n.branch_label && n.branch_label !== "开始"
-                        ? `分支「${n.branch_label}」`
-                        : "起点"}
-                      {n.has_state && n.round_start != null
-                        ? ` · 第 ${n.round_start}–${n.round_end} 轮`
-                        : ""}
-                      {n.ref_beat_id ? ` · ${n.ref_beat_id}` : ""}
-                    </div>
-                  </div>
-                  {n.has_state && !isCurrent && (
-                    <button
-                      onClick={() => handleRollback(n.id, n.round_end ?? 0, n.title || n.id)}
-                      disabled={rollingBack !== null}
-                      className="app-danger-button text-[11px] px-2 py-1 rounded bg-blue-600/20 text-blue-300
-                                 hover:bg-blue-600/40 transition-colors disabled:opacity-40 shrink-0"
-                    >
-                      {rollingBack === n.id ? "回档中..." : "回档"}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-        </div>
-      )}
-
-      {/* ── 关键节点回档（旧会话无剧情树时回退） ── */}
-      {treeNodes.length === 0 && (
-        <div className="space-y-1">
-          <button
-            onClick={() => setShowHistory((v) => !v)}
-            className="w-full flex items-center justify-between text-[11px] text-gray-500 hover:text-gray-300 transition-colors px-1"
-          >
-            <span>关键节点回档（{history.length}）</span>
-            <span>{showHistory ? "▲" : "▼"}</span>
-          </button>
-          {showHistory && history.length === 0 && (
-            <div className="text-[12px] text-gray-600 px-1">尚无已记录节点</div>
-          )}
-          {showHistory && history.map((n) => (
-          <div
-            key={`${n.node_id}-${n.round_end}`}
-            className="flex items-center gap-2 rounded-md border border-gray-700/40 px-2 py-1.5"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <div className="text-[12px] text-gray-300 truncate">
-                {beatLabel[n.node_id] || n.node_id}
-              </div>
-              <div className="text-[11px] text-gray-600">
-                第 {n.round_start}–{n.round_end} 轮
-              </div>
-            </div>
-            <button
-              onClick={() =>
-                handleRollback(n.node_id, n.round_end ?? 0, beatLabel[n.node_id] || n.node_id)
-              }
-              disabled={rollingBack !== null}
-              className="app-danger-button text-[11px] px-2 py-1 rounded bg-blue-600/20 text-blue-300
-                         hover:bg-blue-600/40 transition-colors disabled:opacity-40 shrink-0"
-            >
-              {rollingBack === n.node_id ? "回档中..." : "回档"}
-            </button>
-          </div>
-          ))}
-        </div>
-      )}
-
       {/* ── 作者节拍骨架（路线图，作为剧情树之外的参考） ── */}
       {roads.length > 0 && (
         <button
           onClick={() => setShowRoadmap((v) => !v)}
+          aria-expanded={showRoadmap}
           className="w-full flex items-center justify-between text-[11px] text-gray-500 hover:text-gray-300 transition-colors px-1"
         >
           <span>作者节拍骨架</span>
-          <span>{showRoadmap ? "▲" : "▼"}</span>
+          <AppIcon name={showRoadmap ? "expand" : "forward"} size={12} />
         </button>
       )}
       {showRoadmap && (
@@ -387,7 +208,7 @@ export default function StoryStatePanel() {
                           <span className={`w-1 h-1 rounded-full mt-1.5 shrink-0 ${st.dot}`} />
                           <span className={`text-[11px] leading-tight ${st.text}`}>
                             {b.summary || b.id}
-                            {b.has_combat && <span className="ml-1 text-red-400/80">⚔</span>}
+                            {b.has_combat && <AppIcon name="combat" size={12} className="ml-1 text-red-400/80" />}
                           </span>
                         </div>
                       );
@@ -405,10 +226,11 @@ export default function StoryStatePanel() {
         <div className="space-y-1 border-t border-gray-700/40 pt-2">
           <button
             onClick={() => setShowStates((v) => !v)}
+            aria-expanded={showStates}
             className="w-full flex items-center justify-between text-[11px] text-gray-500 hover:text-gray-300 transition-colors px-1"
           >
             <span>角色状态（{charNames.length}）</span>
-            <span>{showStates ? "▲" : "▼"}</span>
+            <AppIcon name={showStates ? "expand" : "forward"} size={12} />
           </button>
           {showStates &&
             charNames.map((name) => (

@@ -12,7 +12,6 @@
   "skin": "default",
   "auto_generate_choices": false,
   "choice_count": 3,
-  "memory_interval": 5,
   "edit_before_send": false,
   "dialogue_bubble_mode": false,
   "max_output_tokens": 16384,

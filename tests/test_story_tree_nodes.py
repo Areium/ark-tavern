@@ -278,7 +278,7 @@ def test_tree_grows_via_http_narrate(tmp_path, monkeypatch):
     app._managers["llm_backend"].get_config = lambda: {
         "auto_generate_choices": True, "choice_count": 2, "word_limit": 300,
         "dialogue_bubble_mode": False, "narration_reasoning_effort": "none",
-        "max_output_tokens": 4096, "memory_interval": 5,
+        "max_output_tokens": 4096,
     }
 
     res = client.post("/api/sessions", json={

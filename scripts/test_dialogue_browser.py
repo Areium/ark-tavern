@@ -33,8 +33,6 @@ def run():
                         "background": {"url": None}, "characters": [], "player": {"name": "博士", "skin_url": None}}
             elif path.endswith("/characters"):
                 body = {"characters": SESSION["characters"], "character_colors": {}}
-            elif path.endswith("/memories"):
-                body = {"memories": [], "narration_count": 1}
             elif path.endswith("/config"):
                 body = {"theme": "dark", "skin": "default"}
             else:

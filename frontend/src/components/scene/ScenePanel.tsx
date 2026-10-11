@@ -28,12 +28,12 @@ export default function ScenePanel() {
   const panels = useScenePanels();
   const {
     activeSessionId, sessions, chatMode, scenePanelOpen, setScenePanelOpen, scenePanelTab, setScenePanelTab,
-    envRefreshKey, memoryRefreshKey, chatRefreshKey, characterRefreshKey, statsRefreshKey, resourceVersion,
-    triggerStatsRefresh, triggerEnvRefresh, triggerCharacterRefresh, triggerMemoryRefresh, bumpResourceVersion,
+    envRefreshKey, chatRefreshKey, characterRefreshKey, statsRefreshKey, resourceVersion,
+    triggerStatsRefresh, triggerEnvRefresh, triggerCharacterRefresh, bumpResourceVersion,
   } = useAppStore();
 
   const visible = useMemo(() => visibleScenePanels(panels, chatMode), [panels, chatMode]);
-  const activeTab = resolveScenePanelTab(visible, ({ items: "characters", environment: "characters", stats: "characters", memory: "story" } as Record<string, string>)[scenePanelTab] || scenePanelTab);
+  const activeTab = resolveScenePanelTab(visible, ({ items: "characters", environment: "characters", stats: "characters" } as Record<string, string>)[scenePanelTab] || scenePanelTab);
   const active = visible.find((p) => p.id === activeTab) || null;
   const session = sessions.find((s) => s.id === activeSessionId) || null;
 
@@ -46,7 +46,7 @@ export default function ScenePanel() {
       chatMode,
       api,
       refresh: {
-        env: envRefreshKey, memory: memoryRefreshKey, chat: chatRefreshKey,
+        env: envRefreshKey, chat: chatRefreshKey,
         character: characterRefreshKey, stats: statsRefreshKey, resource: resourceVersion,
       },
       stats: {
@@ -71,13 +71,12 @@ export default function ScenePanel() {
         if (kind === "stats") triggerStatsRefresh();
         else if (kind === "env") triggerEnvRefresh();
         else if (kind === "character") triggerCharacterRefresh();
-        else if (kind === "memory") triggerMemoryRefresh();
         else if (kind === "resource") bumpResourceVersion();
       },
     };
-  }, [activeSessionId, session, chatMode, api, envRefreshKey, memoryRefreshKey, chatRefreshKey,
+  }, [activeSessionId, session, chatMode, api, envRefreshKey, chatRefreshKey,
     characterRefreshKey, statsRefreshKey, resourceVersion, triggerStatsRefresh, triggerEnvRefresh,
-    triggerCharacterRefresh, triggerMemoryRefresh, bumpResourceVersion]);
+    triggerCharacterRefresh, bumpResourceVersion]);
 
   const pick = (id: string) => {
     setScenePanelTab(id);

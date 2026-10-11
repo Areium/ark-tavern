@@ -121,9 +121,6 @@ interface AppState {
   envRefreshKey: number;
   triggerEnvRefresh: () => void;
 
-  // 回忆刷新触发器（SSE memory_event / 手动切换后 +1）
-  memoryRefreshKey: number;
-  triggerMemoryRefresh: () => void;
 
   // 聊天刷新触发器（回退后 +1，通知 ChatPanel 重新加载）
   chatRefreshKey: number;
@@ -191,6 +188,7 @@ interface AppState {
   sessionMessages: Record<string, ChatMessage[]>;
   sessionStreaming: Record<string, boolean>;
   sessionSending: Record<string, boolean>;
+  sessionRollback: Record<string, string | null>;
   sessionNarrationCount: Record<string, number>;
   sessionAbortFns: Record<string, (() => void) | null>;
   sessionEpochs: Record<string, number>;
@@ -198,6 +196,7 @@ interface AppState {
   setSessionMessages: (sessionId: string, updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => void;
   setSessionStreaming: (sessionId: string, streaming: boolean) => void;
   setSessionSending: (sessionId: string, sending: boolean) => void;
+  setSessionRollback: (sessionId: string, request: string | null) => void;
   setSessionNarrationCount: (sessionId: string, count: number) => void;
   setSessionAbortFn: (sessionId: string, fn: (() => void) | null) => void;
   clearSessionStream: (sessionId: string) => void;
@@ -265,9 +264,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   envRefreshKey: 0,
   triggerEnvRefresh: () => set((state) => ({ envRefreshKey: state.envRefreshKey + 1 })),
 
-  // 回忆刷新触发器
-  memoryRefreshKey: 0,
-  triggerMemoryRefresh: () => set((state) => ({ memoryRefreshKey: state.memoryRefreshKey + 1 })),
 
   // 聊天刷新触发器
   chatRefreshKey: 0,
@@ -373,6 +369,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sessionMessages: {},
   sessionStreaming: {},
   sessionSending: {},
+  sessionRollback: {},
   sessionNarrationCount: {},
   sessionAbortFns: {},
   sessionEpochs: {},
@@ -391,6 +388,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSessionSending: (sessionId, sending) => set((state) => ({
     sessionSending: { ...state.sessionSending, [sessionId]: sending },
   })),
+  setSessionRollback: (sessionId, request) => set((state) => ({
+    sessionRollback: { ...state.sessionRollback, [sessionId]: request },
+  })),
   setSessionNarrationCount: (sessionId, count) => set((state) => ({
     sessionNarrationCount: { ...state.sessionNarrationCount, [sessionId]: count },
   })),
@@ -399,10 +399,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   })),
   clearSessionStream: (sessionId) => {
     get().sessionAbortFns[sessionId]?.();
-    set(({ sessionMessages, sessionStreaming, sessionSending, sessionNarrationCount, sessionAbortFns, sessionBriefings, sessionAutoNarrate, sessionEpochs }) => {
+    set(({ sessionMessages, sessionStreaming, sessionSending, sessionRollback, sessionNarrationCount, sessionAbortFns, sessionBriefings, sessionAutoNarrate, sessionEpochs }) => {
       const { [sessionId]: _, ...restMessages } = sessionMessages;
       const { [sessionId]: __, ...restStreaming } = sessionStreaming;
       const { [sessionId]: ___, ...restSending } = sessionSending;
+      const { [sessionId]: removedRollback, ...restRollback } = sessionRollback;
       const { [sessionId]: ____, ...restNarration } = sessionNarrationCount;
       const { [sessionId]: _____, ...restAbort } = sessionAbortFns;
       const { [sessionId]: removedBriefing, ...restBriefings } = sessionBriefings;
@@ -411,6 +412,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sessionMessages: restMessages,
         sessionStreaming: restStreaming,
         sessionSending: restSending,
+        sessionRollback: restRollback,
         sessionNarrationCount: restNarration,
         sessionAbortFns: restAbort,
         sessionBriefings: restBriefings,

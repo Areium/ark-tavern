@@ -120,8 +120,6 @@ def run():
                     body = SESSION
                 elif path.endswith("/config"):
                     body = {"theme": "dark", "skin": "default"}
-                elif path.endswith("/memories"):
-                    body = {"memories": [], "narration_count": 1}
                 elif path.endswith("/characters"):
                     body = {"characters": ["妮可"], "character_colors": {"妮可": "#aabbcc"}}
                 else:

@@ -56,7 +56,6 @@ def stream_app(monkeypatch):
         get_llm=lambda: object(),
         accumulate_usage=Mock(),
         apply_environment_updates=Mock(),
-        should_generate_memory=lambda interval: False,
     )
 
     def add_narration(*args, **kwargs):
@@ -68,7 +67,6 @@ def stream_app(monkeypatch):
     for name in ("_resolve_branch", "_beat_combat_target", "_resolve_combat_scene", "_apply_combat_briefing", "_maybe_check_deviation"):
         monkeypatch.setattr(chat, name, Mock(return_value=None))
     monkeypatch.setattr(chat, "_build_lore_resolver", lambda *args: None)
-    monkeypatch.setattr(chat, "inject_memory_context", lambda session, context: context)
 
     config = {"dialogue_bubble_mode": False}
     hook = SimpleNamespace(
@@ -227,3 +225,16 @@ def test_actual_narration_builder_reiterates_readability_player_and_word_limit(m
     extractor = SceneManager._MARKER_EXTRACTOR_SYSTEM
     assert "<stage_readability>" not in extractor
     assert "不涉及创意写作" in extractor
+
+
+def test_fifth_streamed_round_has_no_summary_call_or_memory_event(stream_app):
+    app, session, scene, config, hook = stream_app
+    llm = Mock()
+    llm.chat.side_effect = AssertionError("不应调用独立摘要 LLM")
+    session._llm = llm
+    session.get_llm = lambda: llm
+    events = _events(app)
+    assert events[-1]["type"] == "done"
+    assert events[-1]["data"]["round"] == 5
+    assert not any(event["type"] == "memory_event" for event in events)
+    llm.chat.assert_not_called()

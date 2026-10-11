@@ -78,7 +78,7 @@ function harness(t, options = {}) {
     return fetched.promise;
   };
   const handlers = {};
-  for (const name of ["Meta", "TextComplete", "Text", "Reasoning", "SceneEvent", "MemoryEvent", "Choice",
+  for (const name of ["Meta", "TextComplete", "Text", "Reasoning", "SceneEvent", "Choice",
     "DialogueSegments", "TokenUsage", "CombatTrigger", "CombatBriefing", "AttributeRoll", "Error", "Done"]) {
     handlers[`on${name}`] = (...args) => {
       events.push([name, ...args]);
@@ -236,7 +236,7 @@ test("normal fragmented UTF-8 stream preserves event payloads and ordering", asy
   const stream = ": heartbeat\n\ndata: malformed\n\n" + event("text", { token: "你好" })
     + event("choice", { options: ["前进"], branches }) + event("combat_briefing", briefing)
     + event("text", { token: "！" }) + event("reasoning", { token: "思考" })
-    + event("scene_event", { location: "street" }) + event("memory_event", { id: "m1" })
+    + event("scene_event", { location: "street" })
     + event("dialogue_segments", { segments }) + event("token_usage", { usage })
     + event("combat_trigger", trigger) + event("attribute_roll", roll);
   // Byte-sized fragments exercise both partial SSE lines and partial UTF-8 code points.
@@ -248,7 +248,7 @@ test("normal fragmented UTF-8 stream preserves event payloads and ordering", asy
   }
   assert.deepEqual(h.events, [
     ["Text", "你好"], ["Choice", ["前进"], branches], ["CombatBriefing", briefing], ["Text", "！"],
-    ["Reasoning", "思考"], ["SceneEvent", { location: "street" }], ["MemoryEvent", { id: "m1" }],
+    ["Reasoning", "思考"], ["SceneEvent", { location: "street" }],
     ["DialogueSegments", segments], ["TokenUsage", usage], ["CombatTrigger", trigger], ["AttributeRoll", roll],
   ]);
   h.reads.at(-1).resolve(chunk(event("done")));

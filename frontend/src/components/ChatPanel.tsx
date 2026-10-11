@@ -65,7 +65,7 @@ interface ChatPanelProps {
 }
 
 export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onToggleMusic }: ChatPanelProps) {
-  const { activeSessionId, currentView, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, setCurrentView, setCombatContext, setPendingAutoNarrate, setPendingBriefing, chatFontSize, setChatFontSize, chatLayout } = useAppStore();
+  const { activeSessionId, currentView, chatMode, sessions, setSessions, triggerEnvRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, setCurrentView, setCombatContext, setPendingAutoNarrate, setPendingBriefing, chatFontSize, setChatFontSize, chatLayout } = useAppStore();
   const pendingBriefing = useAppStore(s => s.sessionBriefings[activeSessionId || ""] ?? null);
   const pendingAutoNarrate = useAppStore(s => s.sessionAutoNarrate[activeSessionId || ""] ?? null);
   const stageMode = chatLayout === "stage";
@@ -129,8 +129,8 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
   const messages = useAppStore(s => s.sessionMessages[activeSessionId || ""] ?? EMPTY_MSGS);
   const streaming = useAppStore(s => s.sessionStreaming[activeSessionId || ""] ?? false);
-  const sending = useAppStore(s => s.sessionSending[activeSessionId || ""] ?? false);
-  const narrationCount = useAppStore(s => s.sessionNarrationCount[activeSessionId || ""] ?? 0);
+  const sending = useAppStore(s => !!s.sessionSending[activeSessionId || ""] || !!s.sessionRollback[activeSessionId || ""]);
+  const narrationCount = useAppStore(s => s.sessionNarrationCount[activeSessionId || ""] ?? s.sessions.find(session => session.id === activeSessionId)?.narration_count ?? 0);
   const [input, setInput] = useState("");
   const [draftBranch, setDraftBranch] = useState<BranchChoice | undefined>();
   const [choiceError, setChoiceError] = useState("");
@@ -310,7 +310,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
     return unsub;
   }, [activeSessionId, sessions]);
 
-  // ── External rollback (from MemoryPanel) ──
+  // ── External history refresh ──
 
   useEffect(() => {
     if (!activeSessionId || chatRefreshKey === 0) return;
@@ -343,22 +343,12 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
   const handleRollback = useCallback(async (targetRound: number) => {
     if (!activeSessionId) return;
-    if (!await confirmAction(`回退到第 ${targetRound} 轮？\n之后的对话记录和回忆将被删除。`, { title: "回退进度", confirmLabel: "回退到此轮" })) return;
-
     try {
-      useAppStore.getState().sessionAbortFns[activeSessionId]?.();
-      const source = useAppStore.getState().sessionMessages[activeSessionId];
-      await api.rollbackSession(activeSessionId, targetRound);
-      if (useAppStore.getState().sessionMessages[activeSessionId] !== source || useAppStore.getState().sessionAbortFns[activeSessionId]) return;
-      useAppStore.getState().setSessionMessages(activeSessionId, (prev) =>
-        messagesAfterRollback(prev, targetRound)
-      );
-      useAppStore.getState().setSessionNarrationCount(activeSessionId, targetRound);
-      triggerMemoryRefresh();
+      await rollbackChatRound(activeSessionId, targetRound, api);
     } catch (err: any) {
       alert("回退失败: " + (err.message || "未知错误"));
     }
-  }, [activeSessionId, api, triggerMemoryRefresh]);
+  }, [activeSessionId, api]);
 
   // ── Edit user message ──
 
@@ -379,7 +369,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
     const targetRound = targetMsg?.round;
     if (targetRound == null) return;
     const current = useAppStore.getState();
-    if (current.sessionSending[activeSessionId] || current.sessionStreaming[activeSessionId]) return;
+    if (current.sessionSending[activeSessionId] || current.sessionStreaming[activeSessionId] || current.sessionRollback[activeSessionId]) return;
     const edited = editText.trim();
     if (!edited) {
       cancelEdit();
@@ -399,7 +389,6 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
         await api.rollbackSession(activeSessionId, rollbackTo);
         if (!ownsEdit()) return;
         useAppStore.getState().setSessionNarrationCount(activeSessionId, rollbackTo);
-        triggerMemoryRefresh();
       }
 
       useAppStore.getState().setSessionMessages(activeSessionId, (prev) => {
@@ -424,7 +413,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
         if (!state.sessionAbortFns[activeSessionId] && !state.sessionStreaming[activeSessionId]) state.setSessionSending(activeSessionId, false);
       }
     }
-  }, [editingIdx, editText, activeSessionId, messages, api, triggerMemoryRefresh, cancelEdit, choiceLocked]);
+  }, [editingIdx, editText, activeSessionId, messages, api, cancelEdit, choiceLocked]);
 
   // ── Send ──
 
@@ -463,7 +452,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
         useAppStore.getState().setSessionStreaming(sid, false);
       }
     },
-    [activeSessionId, chatMode, api, triggerEnvRefresh, triggerMemoryRefresh]
+    [activeSessionId, chatMode, api, triggerEnvRefresh]
   );
 
   // 战前简报：选择打法
@@ -595,12 +584,12 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   // ── Variant switching & regeneration ──
 
   const syncVariantToBackend = useCallback((round: number | undefined, narrative: string) => {
-    if (!activeSessionId || round == null) return;
+    if (!activeSessionId || round == null || useAppStore.getState().sessionRollback[activeSessionId]) return;
     api.narrateUpdate(activeSessionId, round, narrative).catch(() => {});
   }, [activeSessionId, api]);
 
   const handleVariantPrev = useCallback((idx: number) => {
-    if (!activeSessionId) return;
+    if (!activeSessionId || useAppStore.getState().sessionRollback[activeSessionId]) return;
     const sid = activeSessionId;
     useAppStore.getState().setSessionMessages(sid, (prev) => {
       const msg = prev[idx];
@@ -614,7 +603,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   }, [activeSessionId, syncVariantToBackend]);
 
   const handleVariantNext = useCallback((idx: number) => {
-    if (!activeSessionId) return;
+    if (!activeSessionId || useAppStore.getState().sessionRollback[activeSessionId]) return;
     const sid = activeSessionId;
     useAppStore.getState().setSessionMessages(sid, (prev) => {
       const msg = prev[idx];
@@ -642,7 +631,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   }, []);
 
   const handleRegenerateSubmit = useCallback(async () => {
-    if (!activeSessionId || regeneratingRound == null || choiceLocked) return;
+    if (!activeSessionId || regeneratingRound == null || choiceLocked || useAppStore.getState().sessionRollback[activeSessionId]) return;
     const sid = activeSessionId;
     const round = regeneratingRound;
     const prompt = regenerationPrompt.trim();
@@ -683,11 +672,12 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
   // ── Single message deletion ──
 
   const handleDeleteMessage = useCallback(async (idx: number) => {
-    if (!activeSessionId) return;
+    if (!activeSessionId || useAppStore.getState().sessionRollback[activeSessionId]) return;
     const sid = activeSessionId;
     const target = useAppStore.getState().sessionMessages[sid]?.[idx];
     if (!target) return;
     if (!await confirmAction("确定从当前消息列表删除这条消息？此操作不可撤销。", { title: "删除消息", confirmLabel: "删除消息" })) return;
+    if (useAppStore.getState().sessionRollback[sid] || useAppStore.getState().activeSessionId !== sid) return;
     useAppStore.getState().setSessionMessages(sid, (prev) => {
       // The list may refresh while awaiting confirmation; never delete a different message by index.
       const targetIndex = prev.indexOf(target);
@@ -820,7 +810,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
       {activeSession && (
         <div className="chat-head">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="chat-head-round">ROUND {Math.max(activeSession.narration_count ?? 0, narrationCount)}</span>
+            <span className="chat-head-round">ROUND {narrationCount}</span>
             {activeSession.in_combat && (
               <span className="text-[11px] text-orange-400 font-medium animate-pulse">⚔ 战斗中</span>
             )}
@@ -903,7 +893,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                 }}
                 className="chat-head-tool"
                 title={choiceLocked ? "请先完成战斗选项" : activeSession.combat_mode === "sideview" ? "进入横版动作关卡" : "手动触发战斗"}
-                disabled={choiceLocked}
+                disabled={choiceLocked || sending}
               >
                 <AppIcon name="combat" size={15} />
               </button>
@@ -1029,6 +1019,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                       const prevRound = [...prevMsgs].reverse().find((m) => m.round != null)?.round;
                       if (prevRound != null) handleRollback(prevRound);
                     }}
+                    disabled={sending}
                     title="回退到上一轮"
                   >
                     ↩ 回退到此处
@@ -1098,7 +1089,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                                 handleRegeneratePrompt(msg.round ?? 0);
                               }
                             }}
-                            disabled={choiceLocked}
+                            disabled={choiceLocked || sending}
                             className="text-xs px-1.5 py-0.5 rounded text-gray-500 hover:text-gray-300 disabled:opacity-30 transition-colors"
                             title={(msg.variantIndex ?? 0) < msg.variants!.length - 1 ? "下一个版本" : "重新生成"}
                           >
@@ -1128,7 +1119,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                           <div className="flex gap-1.5">
                             <button
                               onClick={handleRegenerateSubmit}
-                              disabled={choiceLocked}
+                              disabled={choiceLocked || sending}
                               className="text-xs px-2 py-0.5 rounded bg-amber-700/30 text-amber-300 hover:bg-amber-700/50 disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               重新生成
@@ -1156,7 +1147,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                       {!streaming && (
                         <button
                           onClick={() => handleDeleteMessage(i)}
-                          disabled={choiceLocked}
+                          disabled={choiceLocked || sending}
                           className="app-danger-button absolute -top-2 -left-2 w-5 h-5 rounded-full bg-gray-600
                             text-gray-300 hover:bg-red-500 text-[11px] leading-5
                             opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity disabled:hidden inline-flex items-center justify-center"
@@ -1171,7 +1162,7 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
                       {msg.role === "user" && chatMode === "story" && !streaming && msg.round != null && (
                         <button
                           onClick={() => startEdit(i, msg.content)}
-                          disabled={choiceLocked}
+                          disabled={choiceLocked || sending}
                           className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-gray-600
                             text-gray-300 hover:bg-gray-500 text-[11px] leading-5
                             opacity-0 group-hover:opacity-100 transition-opacity disabled:hidden"
@@ -1390,6 +1381,33 @@ export default function ChatPanel({ stageOnly, onExitStageOnly, musicMuted, onTo
 
 // ── SSE narrate helper ──
 
+/** Round and node rollback must share the same per-session mutation lock. */
+export async function rollbackChatRound(sessionId: string, targetRound: number, api: Pick<ReturnType<typeof useApi>, "rollbackSession">) {
+  const isBusy = () => {
+    const store = useAppStore.getState();
+    return store.activeSessionId !== sessionId || store.sessionSending[sessionId] || store.sessionStreaming[sessionId] || !!store.sessionRollback[sessionId];
+  };
+  if (isBusy() || !await confirmAction(`回退到第 ${targetRound} 轮？\n之后的对话记录将被删除。`, { title: "回退进度", confirmLabel: "回退到此轮" }) || isBusy()) return;
+  const source = useAppStore.getState();
+  const messages = source.sessionMessages[sessionId];
+  const epoch = source.sessionEpochs[sessionId];
+  const owner = `${sessionId}:${Date.now()}:${Math.random()}`;
+  source.setSessionRollback(sessionId, owner);
+  try {
+    const result = await api.rollbackSession(sessionId, targetRound);
+    const store = useAppStore.getState();
+    if (store.sessionRollback[sessionId] !== owner || store.sessionMessages[sessionId] !== messages || store.sessionEpochs[sessionId] !== epoch || store.sessionAbortFns[sessionId]) return;
+    store.setSessionMessages(sessionId, previous => messagesAfterRollback(previous, result.target_round));
+    store.setSessionNarrationCount(sessionId, result.narration_count);
+    if (store.activeSessionId === sessionId) {
+      store.triggerEnvRefresh(); store.triggerCharacterRefresh(); store.triggerStatsRefresh();
+    }
+  } finally {
+    const store = useAppStore.getState();
+    if (store.sessionRollback[sessionId] === owner) store.setSessionRollback(sessionId, null);
+  }
+}
+
 export function messagesAfterRollback(messages: ChatMessage[], round: number): ChatMessage[] {
   const drafts = new Set(messages.filter(m => m.role === "narrator" && m.generationPhase && m.generationPhase !== "complete").map(m => m.generationId));
   return messages.filter(m => !(m.generationId && drafts.has(m.generationId)) && (m.round == null || m.round <= round))
@@ -1411,6 +1429,7 @@ export function triggerNarrate(
   action?: string,
   branchId?: string,
 ) {
+  if (useAppStore.getState().sessionRollback[sessionId]) return;
   editRequests.delete(sessionId);
   // Abort previous SSE for the SAME session only
   const prevAbort = useAppStore.getState().sessionAbortFns[sessionId];
@@ -1494,7 +1513,6 @@ export function triggerNarrate(
         updateNarration({ content: accumulated, previewContent: accumulated });
       },
       onSceneEvent: () => { if (isCurrentStream() && isVisibleSession(sessionId)) useAppStore.getState().triggerEnvRefresh(); },
-      onMemoryEvent: () => { if (isCurrentStream() && isVisibleSession(sessionId)) useAppStore.getState().triggerMemoryRefresh(); },
       onChoice: (options: string[], branches?: BranchChoice[]) => {
         if (!isCurrentStream()) return;
         useAppStore.getState().setSessionMessages(sessionId, (prev) => [

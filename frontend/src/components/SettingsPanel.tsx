@@ -54,7 +54,6 @@ export default function SettingsPanel() {
     narration_reasoning_effort: "none",
     auto_generate_choices: false,
     choice_count: 3,
-    memory_interval: 5,
     max_output_tokens: 16384,
     word_limit: 500,
     edit_before_send: false,
@@ -123,7 +122,6 @@ export default function SettingsPanel() {
         narration_reasoning_effort: data.narration_reasoning_effort || "none",
         auto_generate_choices: data.auto_generate_choices || false,
         choice_count: data.choice_count || 3,
-        memory_interval: data.memory_interval || 5,
         max_output_tokens: data.max_output_tokens ?? 16384,
         word_limit: data.word_limit ?? 500,
         edit_before_send: data.edit_before_send ?? false,
@@ -155,7 +153,6 @@ export default function SettingsPanel() {
         narration_reasoning_effort: config.narration_reasoning_effort,
         auto_generate_choices: config.auto_generate_choices,
         choice_count: config.choice_count,
-        memory_interval: config.memory_interval,
         max_output_tokens: config.max_output_tokens,
         word_limit: config.word_limit,
         edit_before_send: config.edit_before_send,
@@ -607,7 +604,7 @@ export default function SettingsPanel() {
                         <option value="high">高（深度）</option>
                       </select>
                     </div>
-                    <p className="text-xs text-gray-500 ml-6">作用于剧情叙述与角色对话；选项/回忆等分类任务始终关闭思考。</p>
+                    <p className="text-xs text-gray-500 ml-6">作用于剧情叙述与角色对话；选项等分类任务始终关闭思考。</p>
                 </div>
               )}
               <button
@@ -688,26 +685,6 @@ export default function SettingsPanel() {
                   <span className="text-xs text-gray-500">（1-5）</span>
                 </div>
               )}
-              <div className="flex items-center gap-2 mt-2">
-                <label className="text-xs text-gray-500 shrink-0">回忆间隔</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={config.memory_interval}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      memory_interval: Math.max(1, Math.min(20, parseInt(e.target.value) || 5)),
-                    })
-                  }
-                  className="input text-sm w-20 text-center"
-                />
-                <span className="text-xs text-gray-500">轮（1-20）</span>
-              </div>
-              <p className="text-xs text-gray-600 mt-1">
-                每隔这么多轮对话自动生成一次剧情回忆
-              </p>
               <div className="flex items-center gap-2 mt-2">
                 <label className="text-xs text-gray-500 shrink-0">输出上限</label>
                 <input

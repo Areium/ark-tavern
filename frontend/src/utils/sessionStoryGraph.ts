@@ -1,9 +1,16 @@
-import type { PlotFlowDTO, PlotGraphDocDTO, PlotGraphNodeDTO, StageDTO, StoryStateDTO } from "../types";
+import type { PlotFlowDTO, PlotGraphDocDTO, PlotGraphNodeDTO, StageDTO, StoryStateDTO, StoryTreeNode } from "../types";
 import type { GraphNodeDisplay } from "../components/combat/GraphCanvas";
 import { importLayoutFromFlow, nodeIdentity, NODE_W, LAYOUT_H_GAP } from "../components/combat/graphModel";
 
 export type SessionGraphPositions = Record<string, { x: number; y: number }>;
 export const sessionPositionKey = (node: PlotGraphNodeDTO) => node.id.startsWith("scene:") ? node.id : nodeIdentity(node);
+
+/** Runtime IDs are the only historical identity; author refs may already point ahead. */
+export function sessionNodeVisits(state: StoryStateDTO, node: PlotGraphNodeDTO, currentDisplayId?: string): StoryTreeNode[] {
+  const records = state.tree?.has_tree ? state.tree.nodes : [];
+  if (node.id.startsWith("scene:")) return records.filter(record => `scene:${record.id}` === node.id);
+  return node.id === currentDisplayId ? records.filter(record => record.id === state.tree?.current_id) : [];
+}
 
 /** The same worldbook ordering/layout, including when only a session roadmap exists. */
 export function sessionPlotFlow(state: StoryStateDTO): PlotFlowDTO {
@@ -19,7 +26,15 @@ export function sessionPlotFlow(state: StoryStateDTO): PlotFlowDTO {
 /** Keep saved positions/edges, completing missing authored nodes with the shared importer. */
 export function sessionGraphDocument(state: StoryStateDTO, flow = sessionPlotFlow(state), saved?: PlotGraphDocDTO | null): PlotGraphDocDTO {
   const generated = importLayoutFromFlow(flow, new Map());
-  if (!saved?.nodes.length) return generated;
+  const withContent = (doc: PlotGraphDocDTO): PlotGraphDocDTO => ({ ...doc, nodes: doc.nodes.map(node => {
+    const chapter = flow.chapters.find(item => item.idx === node.ref?.chapter_idx);
+    const beat = chapter?.beats.find(item => item.id === node.ref?.beat_id);
+    const content = node.type === "beat" && beat ? [beat.content || beat.summary,
+      beat.must_keep && `必须保留\n${beat.must_keep}`, beat.guidance && `叙事指引\n${beat.guidance}`].filter(Boolean).join("\n\n")
+      : node.type === "chapter" ? chapter?.summary : node.type === "plot" ? flow.summary : undefined;
+    return content ? { ...node, content } : node;
+  }) });
+  if (!saved?.nodes.length) return withContent(generated);
   const nodes = saved.nodes.map(node => ({ ...node }));
   const byIdentity = new Map(nodes.map(node => [nodeIdentity(node), node]));
   const mapped = new Map<string, string>();
@@ -37,7 +52,7 @@ export function sessionGraphDocument(state: StoryStateDTO, flow = sessionPlotFlo
     const from = mapped.get(edge.from)!; const to = mapped.get(edge.to)!;
     if ((added.has(from) || added.has(to)) && !edges.some(e => e.from === from && e.to === to)) edges.push({ ...edge, id: `session:${edge.id}`, from, to });
   }
-  return { ...saved, nodes, edges };
+  return withContent({ ...saved, nodes, edges });
 }
 
 export function applySessionGraphPositions(doc: PlotGraphDocDTO, positions: SessionGraphPositions): PlotGraphDocDTO {
@@ -86,7 +101,7 @@ export function sessionGraphProgress(state: StoryStateDTO, base: PlotGraphDocDTO
         placed.add(item.id);
         const record = records.get(item.id)!;
         nodes.push({ id: `scene:${record.id}`, type: record.kind || "beat", title: record.title || record.id,
-          content: record.summary, x: 40 + item.depth * (NODE_W + LAYOUT_H_GAP), y: 200 + lane++ * 160 });
+          content: record.content || record.summary, x: 40 + item.depth * (NODE_W + LAYOUT_H_GAP), y: 200 + lane++ * 160 });
         for (const id of [...(children.get(item.id) ?? [])].reverse()) stack.push({ id, depth: item.depth + 1 });
       }
     }
@@ -95,9 +110,32 @@ export function sessionGraphProgress(state: StoryStateDTO, base: PlotGraphDocDTO
     current = doc.nodes.find(node => node.id === `scene:${tree.current_id}`);
   } else if (!current && currentScene) {
     const dynamic: PlotGraphNodeDTO = { id: `scene:${currentScene.id}`, type: currentScene.kind || "beat",
-      title: currentScene.title || "当前场景", content: currentScene.summary,
+      title: currentScene.title || "当前场景", content: currentScene.content || currentScene.summary,
       x: Math.max(40, ...doc.nodes.map(node => node.x + NODE_W + LAYOUT_H_GAP)), y: 200 };
     doc = { ...doc, nodes: [...doc.nodes, dynamic] }; current = dynamic;
+  }
+  // Keep each historical scene on the canvas, including revisits and off-path branches.
+  // The current scene can share its round-bound author card; history never uses author refs.
+  if (tree && doc.nodes.some(node => !node.id.startsWith("scene:"))) {
+    const displayIds = new Map(tree.nodes.map(record => [record.id,
+      record.id === currentScene?.id && current ? current.id : `scene:${record.id}`]));
+    const baseY = Math.max(0, ...doc.nodes.map(node => node.y)) + 300;
+    const nodes = [...doc.nodes];
+    const nodeIds = new Set(nodes.map(node => node.id));
+    let lane = 0;
+    for (const record of tree.nodes) {
+      const id = displayIds.get(record.id)!;
+      if (nodeIds.has(id)) continue;
+      nodeIds.add(id);
+      nodes.push({ id, type: record.kind || "beat", title: record.title || record.id,
+        content: record.content || record.summary, x: 40 + (record.depth ?? 0) * (NODE_W + LAYOUT_H_GAP), y: baseY + lane++ * 170 });
+    }
+    const edges = [...doc.edges];
+    for (const record of tree.nodes) {
+      if (!record.parent_id || record.parent_id === record.id || !displayIds.has(record.parent_id)) continue;
+      edges.push({ id: `scene-edge:${record.id}`, from: displayIds.get(record.parent_id)!, to: displayIds.get(record.id)! });
+    }
+    doc = { ...doc, nodes, edges };
   }
   const runtimeById = new Map(tree?.nodes.map(node => [`scene:${node.id}`, node]) ?? []);
   for (const node of doc.nodes) {

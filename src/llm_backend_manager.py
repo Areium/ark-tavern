@@ -45,11 +45,10 @@ _DEFAULT_CONFIG = {
     "reasoning_effort": "medium",
     # 叙述/角色对话的思考档位（按调用覆盖全局 enable_thinking）。
     # 默认 none：实测混合模型（deepseek-v4-flash）缺省思考 ~550 tok、medium 1.3k~4k tok，
-    # 是叙述延迟主因；分类/提取/回忆生成固定走 none（见各调用点）。
+    # 是叙述延迟主因；分类/提取固定走 none（见各调用点）。
     "narration_reasoning_effort": "none",
     "auto_generate_choices": False,
     "choice_count": 3,
-    "memory_interval": 5,
     "edit_before_send": False,
     "dialogue_bubble_mode": False,
     "max_output_tokens": 16384,
@@ -152,6 +151,7 @@ class LLMBackendManager:
         """从 JSON 配置文件加载配置并同步到运行时。"""
         stored = _read_config_file()
         merged = {**_DEFAULT_CONFIG, **stored}
+        merged.pop("memory_interval", None)
 
         # 同步到 os.environ 和 ApiModelConfig 类属性（类属性在 import 时求值，需显式覆盖）
         if "api_key" in merged:
@@ -496,6 +496,7 @@ class LLMBackendManager:
         """返回当前有效配置。"""
         stored = _read_config_file()
         merged = {**_DEFAULT_CONFIG, **stored}
+        merged.pop("memory_interval", None)
         return {
             "api_key": merged.get("api_key", ""),
             "base_url": merged.get("base_url", ""),
@@ -510,7 +511,6 @@ class LLMBackendManager:
             "narration_reasoning_effort": merged.get("narration_reasoning_effort", "none"),
             "auto_generate_choices": merged.get("auto_generate_choices", False),
             "choice_count": merged.get("choice_count", 3),
-            "memory_interval": merged.get("memory_interval", 5),
             "edit_before_send": merged.get("edit_before_send", False),
             "dialogue_bubble_mode": merged.get("dialogue_bubble_mode", False),
             "max_output_tokens": merged.get("max_output_tokens", 16384),
@@ -525,6 +525,7 @@ class LLMBackendManager:
         # 读取已有配置，合并更新
         stored = _read_config_file()
         merged = {**_DEFAULT_CONFIG, **stored}
+        merged.pop("memory_interval", None)
 
         if "api_key" in data:
             merged["api_key"] = data["api_key"]
@@ -545,8 +546,6 @@ class LLMBackendManager:
             merged["auto_generate_choices"] = bool(data["auto_generate_choices"])
         if "choice_count" in data:
             merged["choice_count"] = max(1, min(5, int(data["choice_count"])))
-        if "memory_interval" in data:
-            merged["memory_interval"] = max(1, min(20, int(data["memory_interval"])))
         if "edit_before_send" in data:
             merged["edit_before_send"] = bool(data["edit_before_send"])
         if "dialogue_bubble_mode" in data:

@@ -1729,6 +1729,7 @@ class SessionOverlay:
                 "deviation": n.get("deviation"),
                 "title": n.get("title", ""),
                 "summary": n.get("summary", ""),
+                "content": n.get("content", ""),
                 "intent": n.get("intent", ""),
                 "branch_label": n.get("branch_label", ""),
                 "children": list(n.get("children", [])),

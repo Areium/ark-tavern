@@ -36,8 +36,6 @@ def run():
                 body = {"books": []}
             elif path.endswith("/config"):
                 body = {"theme": "dark", "skin": "default"}
-            elif path.endswith("/memories"):
-                body = {"memories": [], "narration_count": 0}
             elif path.endswith("/messages"):
                 body = {"messages": []}
             else:

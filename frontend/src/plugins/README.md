@@ -1,6 +1,6 @@
 # 场景面板插件
 
-对话页左侧的「场景面板」是插件化的：每个页签（角色 / 物品 / 环境 / 剧情 / 回忆 / 任务 / 数值 / 资源）
+对话页左侧的「场景面板」是插件化的：每个页签（场景 / 剧情 / 任务 / 资源）
 都通过同一个注册表 `registerScenePanel()` 挂上去。想给会话加一个自己的数据面板，只需要在本目录
 （`src/plugins/custom/`）放一个 `.tsx` 文件，`plugins/index.ts` 会用 `import.meta.glob` 自动加载它。
 
@@ -35,12 +35,12 @@ registerScenePanel({ id: "my-plugin", title: "我的面板", icon: "star", order
 | `sessionId` / `session` | 当前会话 id 与摘要（阵容 `roster`、场景角色 `characters`、`player_identity`、环境等） |
 | `chatMode` | `story` / `free` |
 | `api` | 完整 REST 客户端（`hooks/useApi.ts`） |
-| `refresh` | 系统刷新键：`env` / `memory` / `chat` / `character` / `stats` / `resource`，任一变化就该重新拉取 |
+| `refresh` | 系统刷新键：`env` / `chat` / `character` / `stats` / `resource`，任一变化就该重新拉取 |
 | `stats.list()` | 阵容全部角色的合并数值（世界书字段默认 → 角色全局值 → 会话值），附每个键的来源 |
 | `stats.set(name, values, replace?)` | 写会话数值；`null` 删键；字段内的值按类型校验，字段外自由填写 |
 | `stats.reset(name)` | 清空会话值，回到角色全局值 |
 | `data.get(ns)` / `data.set(ns, obj, replace?)` / `data.remove(ns)` | 本会话的插件数据，按命名空间隔离（`[a-z][a-z0-9_-]{0,39}`，单个命名空间 ≤ 64 KB） |
-| `notify(kind)` | 主动通知系统某类数据变了（`stats` / `env` / `character` / `memory` / `resource`） |
+| `notify(kind)` | 主动通知系统某类数据变了（`stats` / `env` / `character` / `resource`） |
 
 会话数值与插件数据都存在会话覆盖层 `overrides.json`（`character_stats` / `plugin_data`），
 **随剧情树节点快照一起回档**，也随会话存档导出。

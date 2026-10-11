@@ -28,18 +28,6 @@ def make_sse_response(generator_func):
     )
 
 
-def inject_memory_context(session, env_context: str) -> str:
-    """注入最近回忆上下文到环境描述中，帮助 LLM 保持剧情连贯。"""
-    recent_memories = session.get_memories()[-3:]
-    if not recent_memories:
-        return env_context
-
-    lines = ["\n【剧情回顾】"]
-    for m in recent_memories:
-        lines.append(f"- 第{m['round_start']}-{m['round_end']}轮：{m['summary']}")
-    return env_context + "\n".join(lines)
-
-
 def estimate_output_token_budget(word_limit: int, structured: bool = False) -> int:
     """根据期望中文字数估算本轮输出的 token 预算。
 

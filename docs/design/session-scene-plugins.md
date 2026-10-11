@@ -63,7 +63,7 @@ frontmatter，它的数值同样进块。默认值、面板与分支判定保持
 registerScenePanel({ id, title, icon, order?, modes?, hint?, component })
 ```
 
-内置面板在 `plugins/builtin.tsx` 用同一个函数登记：场景页内切换角色、物品、环境，剧情页内切换进度与回忆，
+内置面板在 `plugins/builtin.tsx` 用同一个函数登记：场景页内切换角色、物品、环境，剧情页查看节点图，
 任务、资源和自定义笔记保留各自入口。会话叙事数值移到角色详情的战斗数值区域下方编辑；它仍按上文三层口径
 进入叙事提示词，不会自动改动派生战斗数值。已离场但保留会话数值的角色仍列在角色子栏，可打开详情清除记录。
 第三方文件放 `plugins/custom/*.tsx`，由 `plugins/index.ts` 的
@@ -72,7 +72,7 @@ registerScenePanel({ id, title, icon, order?, modes?, hint?, component })
 | 字段 | 作用 |
 | --- | --- |
 | `sessionId` / `session` / `chatMode` / `api` | 会话与完整 REST 客户端 |
-| `refresh.{env,memory,chat,character,stats,resource}` | 系统刷新键，任一变化就重新拉取 |
+| `refresh.{env,chat,character,stats,resource}` | 系统刷新键，任一变化就重新拉取 |
 | `stats.list()` / `stats.set(name, values, replace?)` / `stats.reset(name)` | 会话数值；写入自动触发 `refresh.stats` |
 | `data.get(ns)` / `data.set(ns, obj, replace?)` / `data.remove(ns)` | 插件数据 |
 | `notify(kind)` | 主动通知系统某类数据变了 |

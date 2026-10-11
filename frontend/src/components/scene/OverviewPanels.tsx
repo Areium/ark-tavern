@@ -3,7 +3,6 @@ import CharacterPanel from "../CharacterPanel";
 import ItemPanel from "../ItemPanel";
 import EnvironmentPanel from "../EnvironmentPanel";
 import StoryStatePanel from "../StoryStatePanel";
-import MemoryPanel from "../MemoryPanel";
 
 export function SceneOverviewPanel({ ctx }: ScenePanelProps) {
   return <div className="scene-overview">
@@ -16,6 +15,5 @@ export function SceneOverviewPanel({ ctx }: ScenePanelProps) {
 export function StoryOverviewPanel() {
   return <div className="scene-overview">
     <section className="scene-overview-section" aria-label="剧情进度"><StoryStatePanel /></section>
-    <section className="scene-overview-section" aria-label="回忆"><MemoryPanel /></section>
   </div>;
 }
