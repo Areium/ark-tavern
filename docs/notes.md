@@ -136,7 +136,7 @@
 
 新增依据：[节点详情](../frontend/src/components/story/SessionNodeDetails.tsx)、[回档协调](../frontend/src/utils/sessionNodeRollback.ts)。验证入口：[回档锁脚本](../scripts/test_session_node_rollback.cjs)、[无独立摘要的确定性流程](../tests/test_story_tree_full_flow.py)；原提交中的浏览器与完整套件结果保留为当时记录，不等于本轮复跑。
 
-`0abfee7` 的精确轮次依据见[checkpoint 用例](../tests/test_story_tree_checkpoint_rounds.py)。本次同步核对提交与源码，新增定向执行结果单独记录，不沿用原提交的浏览器或完整套件结果。
+`0abfee7` 的精确轮次依据见[checkpoint 用例](../tests/test_story_tree_checkpoint_rounds.py)。本次同步核对提交与源码，并执行相关定向用例和前端脚本；范围与结果见[本轮核对记录](README.md#本轮核对记录)，不沿用原提交的浏览器或完整套件结果。
 
 依据：[参考大纲](../src/story_outline.py)、[剧情流程](../src/combat_nodes.py)、[会话图](../frontend/src/components/story/SessionStoryGraph.tsx)。验证入口：[大纲用例](../tests/test_story_outline.py)、[引用详情](../tests/test_graph_node_details.py)、[共享图引用](../scripts/test_graph_references.cjs)、[会话图脚本](../scripts/test_session_graph_ui.cjs)。
 

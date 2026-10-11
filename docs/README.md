@@ -70,3 +70,28 @@
 | 历史讲解图（HTML） | [两阶段叙述](archive/two-phase-narration.html)、[RAG 检索](archive/rag-retrieval.html)、[战斗嵌入](archive/combat-embedding.html) |
 
 `images/` 保留教程截图，是否属于当前界面由正文及相邻图注说明。`verification/` 中的 JSON 是历史验证数据，不是写作说明或当前运行结果；本轮保留其原始内容，不因文档整理重生成数据或截图。
+
+## 本轮核对记录
+
+2026-10-11 完成原有 42 份文档的优化，并增加本索引；其中 39 篇 Markdown、3 篇历史 HTML。本次检查范围如下，结果不并入历史验收数量。
+
+| 检查 | 结果与边界 |
+|---|---|
+| 文档与信息保留 | 各专题及档案经过新旧对照，重要纠正另做独立只读审查；历史日期、测试条件、阶段失败和未完成范围保留。 |
+| Markdown 渲染与引用 | 使用项目 `MarkdownRenderer`、`react-markdown` 与 `remark-gfm` 静态渲染全部 40 篇 Markdown，检查相对文件/标题引用、围栏、UTF-8、CRLF 和 Git 格式差异；通过。这不代表浏览器视觉验收。 |
+| 历史 HTML | 三篇本地导航检查通过，原脚本与外部资源保持一致，SVG 几何保留；未运行浏览器交互或截图验收。 |
+| 定向后端检查 | 节点作用域、Prompt 预览、战斗成长/表现、剧情规则、精确轮次 checkpoint、作用域回档及场景媒体 8 个测试文件共 116 passed；使用内存对象/临时夹具，未调用真实模型。 |
+| 前端定向脚本 | 战斗表现、会话图、节点回档协调与剧情规则 UI 脚本通过；包含纯逻辑、SSR 与合成接口检查，不代替真实浏览器或 Electron。 |
+| 工作区保全 | 与最新主线比较只有文档变化，截图和原始 JSON 未改，真实用户存档未操作；主工作区已有删除保留。 |
+
+后端复验命令：
+
+```powershell
+python -X utf8 -m pytest -o addopts='' `
+  tests/test_node_lore_scope.py tests/test_worldbook_prompt_preview.py `
+  tests/test_combat_growth_balance.py tests/test_combat_presentation.py `
+  tests/test_story_rules.py tests/test_story_tree_checkpoint_rounds.py `
+  tests/test_node_scope_rollback.py tests/test_scene_media.py -q --tb=short
+```
+
+本次未跑完整项目套件、完整构建、真实模型、真实用户存档、HTML 浏览器或原生 Electron 验收。各历史记录中“通过”的含义仍限于原日期和条件。
