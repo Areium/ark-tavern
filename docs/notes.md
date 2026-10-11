@@ -1,485 +1,351 @@
-# 项目工程笔记（notes）
+# 项目工程笔记
 
-只记**本项目内、可复现、下次会再撞上**的细节：踩过的坑、口径约定、环境差异、已知未修项。
-通用的工程经验、跨项目的方法论**不**放这里；需要长期影响 AI 行为的规则走 `AGENTS.md`
-或 `.agents/skills/`，设计目标态走对应的 `docs/*.md` 设计文档。
+本文记录 Ark Tavern 中容易误用的行为、环境差异和已知缺口，供开发与排查时查询。整体模块入口见[架构总览](architecture.md)，操作步骤见[使用教程](tutorial.md)；专题文档维护完整机制，本页保留诊断所需的重点与证据入口。
 
-新增条目请写明：现象 → 根因 → 现状口径 → 证据（文件/用例），并在条目首行标注核对日期与相关提交（如有）。
+本页按 2026-10-11 的主线 `a5e57e0` 做源码与用例核对。每条笔记记录最近核对日期和方式；日期表示事实复核时间，不是最后编辑时间，静态核对也不等于重新运行验收。历史测试、测速和界面验收保留原始记录日期与条件。新增或复核条目时写清现象、当前行为或限制、依据与验证范围；只改措辞时不刷新核对日期，已经解决且没有复用价值的过程日志留在 Git 历史中。
 
-### 2026-10-08：本地插件设计收敛与任务记录
+## 目录
 
-- 后续范围纠正：用户要求第三方作者能在酒馆桌面上开发完整游戏；进一步明确不需要大型引擎原生嵌入。精简仅延后多提供者仲裁，保留完整游戏内容区、命名区域替换和公开 SDK/模板。以独立小游戏验收开发通道；核心独立调用与桌面游戏体验并存，原生插件信任策略见下条最终确认。
+- [一、已知问题与实施边界](#一已知问题与实施边界)
+- [二、会话、叙事与回档](#二会话叙事与回档)
+- [三、世界书、资源与持久化](#三世界书资源与持久化)
+- [四、前端呈现与窗口](#四前端呈现与窗口)
+- [五、测试与本机环境](#五测试与本机环境)
+- [六、战斗与演出](#六战斗与演出)
+- [七、历史证据的使用范围](#七历史证据的使用范围)
 
-- 执行与信任规则已由用户确认：受信任的 Python 原生插件通过独立子进程运行，网页界面保持隔离，宿主统一管理存档/回档/结算。安装者承担原生代码信任风险，正式取消“必须阻止恶意插件修改系统文件”的要求；保留包路径校验、接口鉴权和数据一致性，不把子进程或 SDK 当作 OS 沙箱，也不保证恶意原生代码无法读取本机凭据。仅设计确认，尚未实施。
+## 一、已知问题与实施边界
 
-- 核对基线：main/dbeafef 与插件隔离分支 feat/plugin-version-installs/696298e。插件分支尚未整体合并；已有测试只对应原阶段。
-- 原 task.md 同时维护平台目标与大量阶段日志，首页状态落后于末尾；新队列转为本地单机的安装、运行、公共结算、剧情回档和卸载。回档/结算是用户明确要求的首轮功能。
-- 现行目标见 [精简方案](proposals/local-plugin-minimal-plan.md)；原始任务字节完整归档于 [历史计划](archive/unified-plugin-plan-before-local-2026-10-08.md)，SHA-256 为 9b229e2b04672831d2b676e408807b7db82fa0e58ae076a7bf568f0765c41b70。归档中的“现行”“下一步”仅代表当时口径。
-- task.md 是 ignored 本地队列，不能把同步它声称为 Git 提交。设计文档可评审，设计完成不等于存储、运行或界面隔离已实现。
-- 用户明确允许插件决定游戏数值与结果，因此独立玩法 validator/随机证据/效果镜像不再是结算门槛；仍须可靠保存与防重复提交。系统权限最终采用上述安装者信任模型，原 Python worker 可在接入契约、进程管理及故障处理验收后复用；不以已有实现或旧测试冒充新方案完成。
-- 根工作区 task.md 作为唯一当前队列；version-installs 的 ignored task.md 改为指向根队列，避免两份状态再次漂移。原检查点工作区中的旧任务记录仅作历史。
+以下问题仍能从当前源码定位。它们是排查线索，不能因早期测试通过、报告移除或教程更新就视为已经修复。
 
----
+### 1.1 当前缺口
 
-## 前端视觉
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
 
-### 舞台流式分页与阅读位置交接（核对于 2026-10-07）
+| 问题 | 当前表现与定位 |
+|---|---|
+| 玩家身份“个人资料”保存位置不可用 | 前端提供空世界书选项，后端保存身份要求非空且启用的所属书。使用路径是先建剧情书、身份存入该书、创建时绑定该书。见 [CharacterManager](../frontend/src/components/CharacterManager.tsx)、[身份 API](../src/blueprints/sessions.py)和[隔离用例](../tests/test_worldbook_folder_identity.py)。 |
+| 大厅与向导的角色候选规则未完全统一 | 向导合并绑定书角色、花名册与剧情阵容；大厅添加角色仍按来源书筛选，拆分剧情书可能缺候选。见 [SessionManagerView](../frontend/src/components/session/SessionManagerView.tsx) 与 [characterCatalog](../frontend/src/utils/characterCatalog.ts)。 |
+| 叙述变体更新接口不一致 | 前端提交 `round/narrative`，`narrate-update` 路由读取 `text` 并以单参数调用；`Session.update_narration` 需要轮次与正文。见 [useApi](../frontend/src/hooks/useApi.ts)、[chat 路由](../src/blueprints/chat.py)与[会话方法](../src/session_manager.py)。 |
+| 任务更新缺少任务 ID 校验 | 任务 PATCH 检查状态枚举，未验证目标任务 ID 是否有效。见 [environment 路由](../src/blueprints/environment.py)。 |
+| 全局依赖配置编辑入口未接入工作台 | `LoadTab` 及其子组件仍有源码引用，但未挂载到当前页签；配置草稿保存条不可达。大厅的会话依赖微调仍可用。见 [WorldBookManager](../frontend/src/components/WorldBookManager.tsx)、[LoadTab](../frontend/src/components/worldbook/tabs/LoadTab.tsx)。 |
+| 资产实体行上传不能直接设为默认图片 | 该入口上传到实体目录根部；默认头像、立绘和卡面分别从 `avatar/`、`skin/`、`card_face/` 选择。使用角色资源入口或对应子目录。见 [AssetManager](../frontend/src/components/AssetManager.tsx)。 |
 
-- **现象/根因**：舞台把网络接收、二阶段、演出快照和背景下载归为同一个等待状态；流式转正式脚本时换键并重置第一页。短台词与“她说”等归属旁白也分别占页。
-- **现状**：稳定 140 grapheme 预览分页，新增页不抢页；正文完成后继续阅读并等待二阶段。成功完成按预览页首字映射正式页，已展示文字不重复打字；映射不确定时保留纯文本。场景及图片加载不阻塞阅读。请求身份、变体和回档播放修订隔离游标，失败稿不占正式轮次；刷新后中断状态可恢复输入。
-- **契约**：叙述 SSE 先 `text_complete` 返回归一化/hook 后权威正文，再成功 `done` 返回实际轮次和二阶段状态；错误或无完成事件的 EOF 不能视为成功。战前简报在成功完成后才开放。开发中同时更新前后端，已有进程须重新启动后采用新契约。
-- **消息归属**：发送的用户输入与本次叙述绑定同一请求身份，成功后共同采用服务端轮次；失败输入不作为正式历史编辑。恢复输入依据当前实际脚本的失败状态，旧失败稿不能解锁新回复。编辑回滚期间锁定发送，按每会话编辑 token 和消息快照接收结果，迟到的回滚不能取消新请求或释放新编辑的锁。
-- **提示词**：纯文本发言段以明确角色名和说话动词引出，完整连续发言一组「」。真实已配置模型的初版抽样仍拆分发言；补充输出格式和末尾重申后，最终样本完整呈现妮可的回答并明确姓名。一次样本不能保证所有模型或所有上下文都遵守；没有增加台词最低字数或第三次正文改写调用。
-- **证据**：`tests/test_stage_stream_contract.py` 覆盖实际 Flask SSE 路由、权威正文、hook/JSON、二阶段状态、错误终态及实际提示词 builder；`stageReading.test.mjs` 与 `test_session_isolation.cjs` 覆盖锚点、Unicode、重复句、变体、取消、恢复和回档；SSE 生命周期 35 项通过。完整离线回归 931 passed / 4 skipped，前端与 Electron 构建通过。
-- **界面验收**：`scripts/test_stage_stream_browser.py` 用真实 HTTP SSE 和显式合成模型/API，检查五组固定 PC 视口与默认深/浅色、PRTS、酒馆皮肤，覆盖 Ctrl/End、接收/整理/正式交接、日志及会话往返、资源失败、断线、取消、重试和 JSON 归一化，页面无 JS 错误。`scripts/test_stage_window_modes.cjs` 运行独立 Electron 窗口、真实生产 preload 与窗口控制器，验证五预设、最大化/全屏/还原及阅读位置；当前屏幕下 1920×1080、2560×1440 原生窗口按产品规则适配至 1892×1064，浏览器仍按五组精确逻辑视口验证。它不启动生产 Python 进程，不写真实会话，也不证明发行包的 file:// 链路。
-- **复现**：为隔离 Vite 使用独立 `cacheDir`，端口 5197、代理 5001；流式浏览器脚本自行占用 5001，并拒绝替换现有监听。窗口脚本使用已有 Playwright 包，必要时设置 `PLAYWRIGHT_MODULE`；先完成前端构建以生成生产 preload。截图及 JSON/JUnit 报告在 `.tmp/stage-stream-qa/` 和 `.tmp/stage-window-qa/`，不入库。
-- **用户手动复核**：重启应用后，在真实会话发送消息；停在预览中间页等待生成结束，确认同一段内容和头像接续；回看短回应、连续发言与重要动作，确认人物语气及停顿自然。自动化和模型抽样不等同于用户对自身故事的阅读体验验收。
-
-### 世界书节点图扩大查看与演出详情（核对于 2026-10-07）
-
-- **现象/根因**：世界书简介占用图形纵向空间；独立演出入口与节点详情分离，已配置 CG 只有徽标。扩大或调整窗口后，若裁剪范围只依赖平移/缩放，刚露出的区域可能不重新渲染节点。
-- **现状**：扩大查看收起简介，切书/切页签复位；双击节点的「演出」页签沿用图文档草稿、撤销与保存。CG 预览来自当前书内图片，背景不展示，重复资源去重；图片和短连线跟随节点，fit/culling 计入预览边界。ResizeObserver 同步视口尺寸；详情抽屉内 Delete/Backspace 不删除图形，左右键切页签不抢焦点。
-- **证据**：`scripts/test_graph_references.cjs` 检查去重、非法路径、书籍隔离与适应视图边界；`scripts/test_graph_details_browser.py` 在隔离 Vite 与拦截 API 下检查五组 PC 视口、四主题、展开/还原、键盘、保存与撤销、移动与切书。浏览器控制台无错误，不写真实世界书。相关演出/图文档后端测试通过；Electron 原生窗口、最大化/全屏切换和真实图片内容未在此夹具中验收。
-
-### 会话删除入口的浅色配色（核对于 2026-10-06）
-
-- **现象/根因**：公共 `.app-danger-button` 固定深红底色，与浅色主题对 `text-red-300` 的文字覆盖叠加，形成深底红字。
-- **现状**：单个与批量删除会话入口使用 `.session-delete-button`，去掉冲突的颜色工具类；仅为默认浅色、酒馆手札定义轻底色与清晰红字，深色/PRTS、通用确认提交按钮和战斗按钮不受影响。
-- **证据**：`node scripts/test_session_delete_colors.cjs` 覆盖两处接线、普通/悬停纯色配色与文字对比度（最低 5.47:1）、焦点和主题范围。加 `--serve` 可在 `127.0.0.1:5198/__qa__/session-delete-colors.html` 打开真实组件、模拟 API 的验收页，所有 API 写入被拦截。桌面浏览器 1280×720 验证了四主题计算样式、浅色/酒馆视觉、键盘焦点、单个/批量确认取消与禁用状态；控制台无错误。未执行真实删除、Electron 运行验收或全量后端测试。
-
-## 战斗模式插件
-
-### PC 验收与会话创建模式（核对于 2026-10-06）
-
-- **现象/根因**：新建自由会话后仍显示剧情模式；创建回调先更新 store，再通过旧 `sessions` 闭包查找新 ID，因此未设置聊天模式。创建路径应直接使用创建响应的 `session.mode`；恢复/进入已有会话仍使用各自的真实会话对象。
-- **现状**：插件会话的列表/详情/主页恢复信息区分内置引擎，不能默认落入纯剧情或战术回合/手牌展示。管理页使用组件内四主题变量；实际插件运行页标注 `.bg-combat-bg`，阻止外壳皮肤穿透战斗。
-- **环境口径**：PC 验收使用真实 React/Flask 和完全隔离的目录；模型输出为显式离线替身。网络断开/非 JSON 服务错误、CAS 冲突均停止运行并保留最近成功快照。浏览器下载事件未回传及 Electron 运行未覆盖要单列，不能用构建代替。
-- **证据**：`docs/archive/combat-plugin-pc-qa-2026-10-06.md`，`SessionManagerView.handleCreated`、`HomeMenu`、`CombatModesView` 与 `combatModes.css`；全回归 910 passed/4 skipped，示例及协议测试通过，浏览器四主题与双 PC 视口验收。
-
-## 世界书
-
-### 节点演出资源与会话冻结（核对于 2026-10-07）
-
-- **根因**：旧图面板上传未传书 ID，资源 URL 的书籍参数又被媒体校验拒绝；API 分类名与书内目录也不一致（combat_backgrounds 对应 combat/backgrounds）。旧 CG 为弹窗、历史回读当前图，不能满足持续背景和回档。
-- **现状**：图使用书内相对 asset，列表/上传提供 asset_path；预览限定当前书。创建会话后冻结配置并复制图片到 presentation-assets，存档存文件引用、读取时绑定当前会话 ID。节点进入、作者选项、条件变化只更新活跃画面，未配置节点保持上一背景。
-- **边界**：BGM/video 仅保留动作与资源种类的扩展位置，未实现动作明确拒绝。条件在创建、选择结算与每轮叙述结算采样，不捕获轮间瞬时变化。缺完整演出帧的旧会话/节点不自动补建；选择结算后使用节点回档。记忆文件与演出 overlay 不构成跨文件断电事务。
-- **测试环境**：用彼岸双生完整副本与新测试会话，真实 Flask/React 处理保存、选择、历史和回档；叙述为明确离线脚本。测试替身只在不测演出的 Session fixture 禁用初始化，真实流程测试不跳过。战斗节点两项旧夹具改为内联敌人，避免依赖用户安装内容。
-- **证据**：统一回归 916 passed / 4 skipped；生产构建与舞台、图引用、作者选项、会话隔离脚本通过。五组 PC 编辑器/舞台、批量保存、上传、CG持续/替换、失败重试、节点回档与重入实测。图面板正文高度最小约510px，页头/保存常驻。截图与日志在 .impeccable/review/story-media-cues-2026-10-07/；机制与验收边界见 design/worldbook/node-presentation.md。Electron窗口模式和真实模型长流程未验收。
-
-### 书架首次打开的加载性能（核对于 2026-09-29）
-
-- **根因**：`GET /api/worldbook` 在返回摘要前逐本遍历资源目录，对每个文件反复检查整条祖先路径；校验后又重复解析 `book.json`，最后同步重建全量 Wiki 索引。条目页还请求了一份没有消费方的 scope-preview。
-- **现状**：资源校验改为逐层 `scandir`，每项一次不跟随链接的 stat；仍逐次检查整棵目录、大小/数量/路径/重复 JSON 键，并拒绝符号链接和 Windows junction，不以过期缓存跳过外部资源校验。`load()` 复用校验返回的 JSON。书架继续失效内容可见性等缓存，但 Wiki 只标脏，下次实际读取时重建；显式 Wiki 刷新仍立即执行。条目页不再请求未使用的范围预览，Prompt 预览仍在打开对应页签时请求；分组行用索引生成，避免逐条查找序号和逐组扫描所有条目。
-- **一致性**：Wiki 索引在锁内构建完成后按快照发布，不清空正在被读取的目录；失败保留旧快照并在下一次读取重试。已持有的 scoped Wiki 也标脏，预取、目录 API 和统计统一读取快照。若另一线程正在建索引，失效调用仍需等待同一把锁；本项不承诺此并发情形无等待，也不改已注入会话的缓存文本。
-- **基准**：同机同数据（5 本书、349 条目），独立 Flask test client 进程各测 5 次，书架中位耗时 **1321.46 → 103.32 ms（-92.2%）**；首本详情 **54.38 → 53.66 ms**。这是接口处理耗时，不是浏览器整页加载时间；实际内容规模、磁盘和并发会影响结果。
-- **复现**：`python scripts/bench_worldbook_loading.py --project-root <含现有 data/worldbooks/books 的项目目录> --code-root <待测版本工作树> --runs 5`。脚本不启动完整 App、不调用 LLM、不写书籍或会话；比较版本必须分开运行。
-- **验证**：全量 `tests/` 加统一入口的两组离线 perf 测试 **813 passed / 4 skipped**（空地图参数集 1、符号链接权限 3）；生产构建及 shelf/scope/library 前端脚本通过。Chrome 隔离 mock 验收覆盖 254 条目、搜索/展开、自动保存后切书回读、首次失败恢复与 390px 浅色布局，无页面横向溢出。核心回归为 `tests/test_worldbook_loading_performance.py`、`tests/test_wiki_lazy_refresh.py`；未重启用户正在运行的后端，生效需重启。
-
-## 会话
-
-### 剧情舞台选项与固定对话区（核对于 2026-10-04）
-
-- **根因**：选项曾放在 `.stage-dialog-wrap` 的普通文档流里，叠加对白结束后才挂载的输入框，导致选项出现时底部对话框上移。
-- **现状**：`StageView` 使用独立中央选项区和底部对话区；选项超高仅自身滚动，对话框定高、长对白内部滚动。`ChatPanel` 在播放/等待时保留输入区布局，但隐藏并禁用输入控件，普通舞台和纯舞台均不因选项出现而移动对话框。
-- **内容边界**：`StoryChoices` 只显示行动正文和必要的禁选原因，不显示来源、意图分类、条件/效果摘要；分支 ID、禁选判定和发送流程不变。完整规则仍由节点详情的 `BranchRuleSummary` 展示。已删除底部流式选项覆盖样式、选项标题和来源标签样式。
-- **快捷键**：舞台或对白获得焦点时，`End` 一次跳过本轮全部对白并显示选项（无选项则显示自由输入），不自动选择或发送；`Ctrl` 仍为逐句/长按快进。输入控件、组合键、输入法合成、长按重复事件、生成/战斗锁定、绘图/CG 与立绘调整时不触发 End。跳过状态随脚本游标保存，让末句全文与选项同时显示，避免游标变化后的打字机 effect 重置；回看上一句、新一轮和新变体恢复正常播放。
-- **验证**：`node scripts/test_stage_ui.cjs`、`node scripts/test_story_rules_ui.cjs`；后者的 SSE 夹具须显式设置 `activeSessionId` / `currentView: 'chat'`，匹配当前仅刷新可见会话的契约。`python scripts/test_stage_choices_browser.py` 配合独立 Vite `:5178`（启动方式见脚本）拦截所有 API，覆盖 1440×960、1366×768、1280×720、选项出现前后坐标一致、纯舞台、长选项滚动、焦点、分支 ID、先编辑再发送、自由输入及控制台。截图在 `.impeccable/review/stage-choices/`；不涉及真实存档、LLM 或后端全量回归。
-- **End 回归**：同一浏览器脚本另覆盖普通/纯舞台、多句/单句/无选项、末句逐帧不回退、重复按键、回看/新轮/变体重置、组合键/输入法保护、Ctrl 短按/长按、输入框光标、生成/战斗锁定和立绘调整；断言快进不新增叙述请求或轮次。
-
-### 头像失败恢复与异步会话隔离（核对于 2026-10-04）
-
-- **现象与根因**：快速退出加载中的战斗剧情会话再打开另一会话，后台 SSE 会把战前简报写进全局单槽，导致另一会话弹窗、输入锁甚至跳转战斗；打法返回与战后续写也没有完整的来源隔离。头像组件在会话图片失败后改请求不带会话的全书资源，且资源更新不会清除失败状态；角色列表请求迟到也能把旧阵容画到新会话。
-- **现状口径**：消息、简报、自动续写按 session ID 保存。后台叙述仍继续，但只能写自己的数据；简报弹窗、最小化入口和输入锁只属于当前会话。检定结果绑定具体简报，延迟开战/恢复请求校验导航代次，切走再切回也不自动抢占页面。替换流、删除会话、SSE close/done/error 后，旧事件不得复活缓存或再次派发。
-- **头像边界**：图片地址包含会话与资源版本，失败只对该地址显示首字占位；版本/会话变化后重试，不向未绑定的世界书兜底。服务器负责会话覆盖与绑定书的解析。现场只读检查中，彼岸双生第 2～4 个会话的四名角色头像均返回 200；第 1 个会话未绑定世界书，404 是资源范围结果，未自动修改其存档或添加兼容旁路。
-- **验证入口**：`node scripts/test_session_isolation.cjs` 覆盖来源、后台触发、替换流及删除；`node scripts/test_sse_lifecycle.cjs` 覆盖 34 项流终止/分片/延迟读取；`python scripts/test_session_isolation_browser.py` 使用独立 Vite `:5193`（`npm exec vite -- --config vite.config.shot.ts --host 127.0.0.1 --port 5193 --strictPort`），所有 API 为合成响应，不写真实存档或调用 LLM。覆盖头像失败刷新、旧简报/检定/绕行/开战/错误迟到、最小化、返回原会话续写、导航往返、恢复请求、旧阵容与初始加载取消；截图为 1440×960 / 390×844。
-- **验收边界**：完整离线 Python 回归 829 passed / 4 skipped；前端构建、现有舞台/主控/剧情树逻辑脚本与上述定向测试单独验收。没有重启正在运行的后端，也没有自动绑定旧存档的世界书。
-- **审查补充回归**：手动开战返回的打法列表也校验请求代次、会话清理代次、简报身份与导航代次；头像 A→B→A 重新尝试；隐藏页面回到原会话时补拉后台更新。浏览器脚本覆盖这三条，不能仅凭 SSE 路径通过就认定手动入口也安全。
-
-### 大厅与新建向导的目录加载（核对于 2026-09-28）
-
-- 原先大厅和向导各请求一次剧情、世界书、角色目录，向导的模式页还被三个请求一起阻塞。现在 `useSessionCatalog` 由大厅持有，向导复用数据和进行中的请求；StrictMode effect 重放也不重复请求。离开大厅后不保留全局缓存，重新进入会重新取目录。
-- 模式页立即可选；依赖目录的步骤在加载或任一请求失败时不能继续。失败明确指出目录类型，重试不清掉表单；关闭后重开才重置。没有直接移除后端文件夹安全校验、外部文件变化检测或 Wiki 刷新，首次目录读取仍可能耗时。本项不代表「创建并进入」的真实数据初始化耗时已优化。
-- 创建客户端已统一发送 `manual_entry_uids_by_book`，不再发送服务端不使用的旧 `manual_entry_uids`。单本书 scope-preview 自身的 `manual_entry_uids` 仍是有效接口，不能混删。
-- 证据：`scripts/test_session_loading_browser.py`（:5185、API 全拦截）覆盖目录请求复用、冷加载、三类失败重试、表单重置及创建载荷；每个请求合成延迟 600ms 时，热打开模式页从约 906ms 降为 66ms，非真实内容库性能基准。`scripts/test_session_main_control_ui.cjs` 与主控/多书 pytest 保留契约覆盖。
-- 大厅首卡 hover 的上描边裁切由列表自身 `overflow-y-auto` 且无顶部内边距造成；列表增加 `pt-2`，不调整搜索框层级。上述浏览器脚本同时检查 1440/390 宽度、深浅主题及 PRTS/酒馆皮肤下的搜索后首卡边距。
-
-### 会话完整节点图（核对于 2026-10-04）
-
-- **全图与位置**：会话复用世界书 `GraphCanvas`、`importLayoutFromFlow` 的主线横排与分支排序，不再分成路线/会话轨迹两个区块。按会话绑定书查找剧情，跨书引用以 `flow.worldbook_id` 确定归属书并读取其已保存图；保留保存位置、自由节点和作者连线，补齐缺少的结构节点。未来节点置灰。无作者结构的会话使用同一画布显示生成树，战斗专用作者图须保留未来战斗引用。
-- **头像口径**：头像代表主控及场景角色共同的位置。`tree.current_id` 验证当前场景存在，`stage?round=N` 的轮次媒体定位实际叙述节拍；不按可能已提前推进的 `ref_beat_id` 或章节数组顺序推断抵达。实际战斗定位战斗引用；无可靠节拍锚点时补当前场景卡，舞台查询失败且当前树节点/轮次未变时保留已加载媒体定位。
-- **连线与交互**：共享布局中可选作者分支保留顺序出口，必选分支移除默认出口。会话模式仅允许节点拖动、画布平移/缩放/适应和选择，封锁编辑内容、增删节点、连接/重连菜单。拖动坐标按会话/剧情/来源书隔离存于本地，引用节点用稳定身份匹配，不写回世界书或剧情进度。图下方不显示详情、选项或行动输入；顶部保留定位、对话记录和返回舞台。
-- **刷新边界**：`ChatPanel.triggerNarrate` 在请求开始就增加轮次，图须在 `sessionStreaming` / `sessionSending` 结束后读取已提交状态，剧情与轮次舞台结果成对提交；回档、场景与角色变化同样刷新，失效请求不得覆盖新会话。
-- **验证入口**：`node scripts/test_session_graph_ui.cjs` 覆盖世界书同布局、已保存图/连线、补齐全图、本地坐标、未来/本轮定位、回档、战斗专用图、必选/可选出口、12,000 节点深链及会话/编辑器 SSR；`node scripts/test_graph_references.cjs` 覆盖共享引用与布局。`node scripts/test_story_rules_ui.cjs --serve` 启动独立 API 模拟页面 `:5191` 用于桌面拖动、缩放、刷新位置和记录模式验收；自动浏览器脚本仅维护，本次不运行。
-- **验收边界**：桌面浏览器验收使用模拟会话，覆盖全图、定位、回档、场景加载失败、生成中、剧情加载失败、空状态及记录输入恢复；不验证真实 LLM、真实回档写入或万级节点浏览器性能。为避免触发 `ChatPanel` 的首次自动续写，不要在全新浏览器来源打开用户真实剧情会话做验收。后端新增的 `choice_required` 投影需要后端进程载入新代码，未获保存工作确认前不重启正在运行的服务。
-
-### 新建向导：选中剧情即自动选中世界书与该书全部角色（2026-09-27，`feat/plot-autoselect-roster` / `feat/worldbook-roster-autoselect`）
-
-- **现象**：剧情书与角色卡的来源书不同，向导曾漏掉角色和开场阵容。
-  frontmatter 的 `worldbook_id` 可能仍是拆分前的来源书（`arknights`），与剧情绑定书不同。
-  按角色卡来源书筛选候选会漏掉该剧情书的角色；只读取 `initial_characters` 也会漏掉书内花名册。
-- **现状口径**：
-  - **书内角色花名册的唯一来源是条目**：新增 `WorldBook.character_ids()`（启用且非系统条目的
-    `character_id`，去重保序），随 `/api/worldbook` 摘要返回 `character_ids`。角色的
-    `worldbook_id` 是「角色卡来源书」，拆分剧情书里它与绑定书不同，不能当书内名单用。
-  - 剧情 frontmatter 新增可选字段 `player_identity`（默认主控），`worldbook_id` 也由 `/api/plots`
-    一并返回。选中剧情即自动绑定这本书（书未安装时保留玩家当前选择）；主控取 `player_identity`，
-    缺省回退开场角色首位；**该书的角色花名册 + 剧情开场角色整批入队**并标「自动预选」。
-    规则只有一份实现：`utils/characterCatalog.ts` 的 `resolvePlotDefaults` /
-    `resolveLineupDefaults`（`scripts/test_session_main_control_ui.cjs` C 段钉住）。
-  - **候选 = 已绑定世界书的角色 + 各书花名册 + 剧情自带阵容**（`selectableCatalogItems`）；
-    未绑定任何书时仍只有自建角色 + 剧情阵容。
-  - **自动选中只吃「剧情声明的那本书」的花名册**（`resolveLineupDefaults` 的 `rosterBookIds`）：
-    手动再加一本可能是几百角色的大书时只扩候选，不静默把阵容塞满；要一并选上走队友区的显式按钮
-    「按绑定世界书全选角色」（`selectAllBookCharacters`）。
-  - **开场角色口径统一**到 `session_overlay.plot_initial_characters`：只读取
-    `initial_characters`；显式空数组表示没有开场角色。服务端开场加载与 `/api/plots` 共用这一份口径。
-    2026-09-28 起重载只恢复已保存的阵容，不再把空 NPC 列表回填开场人物；物品恢复独立于 NPC。
-- **向导边界**：「主控与阵容」这一步只选角色；候选范围按当前 v3 规则解析。创建接口按书提交
-  `manual_entry_uids_by_book` / `expected_draft_hashes`，不再接受首本书的单数参数。
-- **命名创建只报 token**：该步不再渲染整块 `WorldBookScopePreview`，只列每本书的「估算 token」——
-  「候选规模减少 0 token（0%）」这种无信息量的行不再出现；候选条目明细在世界书工作台看。
-- **已知边界**：会话大厅的「添加角色 / 换主控」候选仍是**按角色卡来源书**过滤
-  （`SessionManagerView.tsx` 的 `candidateItems`），绑定拆分剧情书的会话里同样列不出该剧情的角色；
-  本次只改新建向导。要一并统一时，两处都调 `characterCatalog.selectableCatalogItems`。
-- **证据**：`src/world_book.py`（`character_ids` / `_summary`）、`src/blueprints/sessions.py`
-  （`/api/plots`）、`src/session_overlay.py`（`plot_initial_characters`）、
-  `src/session_manager.py::_restore_scene`、
-  `frontend/src/utils/characterCatalog.ts`、`frontend/src/components/session/CreateSessionWizard.tsx`、
-  `scripts/test_session_main_control_ui.cjs`（C 段）、
-  `tests/test_worldbook_system_layer.py`（花名册与摘要）、`tests/test_data_layout.py`。
-
-### 多本世界书绑定口径（核对于 2026-09-28）
-
-- **现状口径**：`worldbook_ids` 按选择顺序保存所有剧情书，`worldbook_scopes` 按书 ID 保存各书会话快照；不再写入或读取单数存储字段。依赖和条目覆盖接口以 `book_id` 选择具体书，省略时操作按顺序派生的首本书。全局默认书不再回落，未绑定书的会话不注入世界书。
-- **创建接口**：`manual_entry_uids_by_book` / `expected_draft_hashes` 分别按书提交手动条目与预览指纹。统一角色数值字段仍沿用首本书的 `stat_fields`；跨书字段合并尚未设计。
-- **证据**：`src/session_overlay.py`、`src/world_book.py`、`src/blueprints/sessions.py`、`tests/test_session_worldbook_multibind.py`。
-
-### 主控角色与「角色入队」是同一次选择（2026-09-23，`feat/session-main-control`）
-
-- **口径**：会话**阵容 = 主控角色（玩家身份）+ 队友**。`SceneManager.get_roster()` 是服务端口径
-  （主控在前、按名去重，`Session.to_dict()["roster"]` 与候选范围的 roster 都用它）；
-  `get_scene_characters()` 只有队友 —— 主控由玩家自己扮演，模型不替玩家说话；对应 pytest
-  钉住「玩家身份不得出现在场景角色里」。
-  同一角色只出现一次：主控经 `identity` 声明、队友经 `roster_character_ids` 入队，两边都不重复。
-- **创建契约**：`POST /api/sessions` 的 `identity` **显式传空 = 明确没选主控 → 400**
-  （前端向导也先拦一次）；**完全不传**该字段才回落通用称谓「玩家」，只服务不使用新流程的调用方
-  （集成脚本 / 老用例）。见 `tests/test_session_main_control.py`。
-- **预览与创建必须同口径**：候选范围的 roster 取 `get_roster()`，因此向导的 `scope-preview`
-  必须传**含主控的完整阵容**（`useRosterScopePreview(bookId, lineup, …)`），否则创建时的
-  `expected_draft_hashes` 校验会判「预览已过期」并 400；自建主控与世界书主控都由独立 pytest 覆盖。
-- **换主控要重算范围**：`SessionManager.set_player_identity` → `SceneManager.set_player_identity`
-  → 按新阵容 refresh。会话依赖面板（`blueprints/sessions.py` 的 `_get_managed` 与四个 PATCH）
-  也一律用 `get_roster()`；用 `get_scene_characters()` 会让面板第一次打开就把主控从快照里刷掉。
-- **来源只能看 frontmatter `worldbook_id`**：空/缺字段 = 自建，非空 = 世界书（空白串不归一，
-  与 `tests/test_document_worldbook_source.py` 一致）。`/api/characters` 已带 `name` / `summary` /
-  `worldbook_id`，前端不再为「玩家身份」另开一个接口（`/api/player-identities` 仍服务于
-  角色页的身份管理与标记，但**不再**决定谁能当主控）。
-- **已知边界**：战斗编成（`shared/helpers.build_character_metas`）仍只按**场景角色**组队，
-  主控不进战斗队伍；本次改动没动战斗侧。
-
-### 历史剧情验收的证据边界（核对于 2026-10-04）
-
-- 旧灰桥候选、验收报告与结果 JSON 已删除，其测试和验收脚本此前已移除；Git 历史可追溯，但历史 xfail、真实模型轮数和战斗模拟不能作为当前回归覆盖。
-- 历史问题包括开场上下文混入后续章节、任务未随叙述自动完成、末节缺明确终态、非法任务 ID 被接受、叙述变体保存失败、真实模型节拍停滞。当前没有重新验收整条真实模型路径，不把删除报告当作修复。
-- 静态核对仍见两处契约缺口：`blueprints/chat.py` 的 `narrate-update` 读取 `text` 并调用单参数，而前端发送 `round/narrative`、`Session.update_narration` 需要两参数；`blueprints/environment.py` 的任务 PATCH 只检查状态枚举，未检查任务 ID。本次仅保留待办，不修改功能。
-- 空阵容重载回填路径已移除；`tests/test_story_rules_http.py::test_restore_scene_without_npcs_keeps_inventory_without_llm_probe` 覆盖空 NPC 不补角色、不探测模型，并保留场景物品。分支回档当前证据见 `tests/test_story_rules_http.py` 与 `tests/test_story_tree_full_flow.py`。
-- 已删除体验路线图中的遗物/士气/指挥官、位移/陷阱卡、删卡/强化卡是未承诺实施的备选方向；若重启设计，须按当前书内数据结构重新评估，不沿用旧共享目录定位。
-
-## 对话页
-
-### 说话人归属：证据优先，不跨旁白猜测（核对于 2026-09-28）
-
-- 旧前端回退解析按引号前最近的角色名字归属，会把「临光对瑕光说」错认成瑕光；短旁白后还会继承上一位角色。现在只采纳已知角色的明确署名或受限发言谓语，支持前置/后置署名与 `「」` / `“”`，仅标点相连的台词可连续继承。提及、注视、复杂或否定句不猜测角色。
-- 结构化片段中显式 `speaker: null` / 空值保留未知；只有紧邻台词且完全缺失字段时才延续上一位。旁白及非法片段清掉继承链。舞台不再用消息角色覆盖结构化片段的未知说话人，与气泡显示一致。没有修改存档或服务端协议。
-- 证据：`frontend/src/utils/dialogueParser.test.mjs`、`scripts/test_stage_ui.cjs`、`scripts/test_dialogue_browser.py`（1440/390 宽度，API 全拦截，气泡/舞台未知说话人与明确署名一致）。这是保守的规则修复，不是通用自然语言理解：复杂倒装、未登记别名、模型明确写错但格式合法的 speaker 仍需内容侧修正；不声称所有对话都能正确归属。
-
-### 角色数值的字段解析：会话绑定书优先，不是角色自己的书（2026-09-23，`feat/session-stage-panels`）
-
-- **口径（2026-09-28 更新）**：会话里某角色用哪套统一字段，取**会话绑定顺序中的首本世界书**（`stat_fields`）。
-  首书没有字段或无法加载时不回退另一套 schema；仅未绑定书的会话可以使用角色来源书字段。
-  `session_stats.resolve_session_character_stats` 统一面板、提示词和剧情规则的读值；角色页全局数值仍看角色来源书。
-  两处不一致时以会话为准——
-  `tests/test_character_stats_api.py::test_session_stats_merge_and_bound_book_fields` 钉住。
-- **值的三层**：字段默认 → frontmatter `stats` → `overrides.json.character_stats`。显式定义的默认值（含 0 / false）
-  同样进入 `<character_stats>`，主控和队友读同一接口。叙事战斗模式的角色详情 `progress` / `combat_stats` 为 null，
-  不再展示战术 Lv1 / XP0 / HP 等兜底；战术与横版保留内部派生值。
-- **快照完整性**：`character_stats` / `plugin_data`、场景物品及效果凭据随节点回档。目标缺少当前资源快照字段时，
-  在剪裁历史之前明确拒绝；不把缺键解释为空库存或保留未来数值，不自动迁移旧节点。
-
-### 舞台模式只演「最新一段」，完整记录靠同一份 DOM 换外观（2026-09-23）
-
-- 舞台（`StageView`）不复制消息流：`ChatPanel` 里那个消息列表在舞台模式下用 `hidden` / `stage-log-overlay` 两个类
-  切换外观，「记录」按钮打开的是同一份 DOM。`bottomRef.scrollIntoView` 在 `display:none` 下是空操作，打开抽屉时再滚到底。
-- 脚本键 `index:round:variantIndex:s|d` 一变就从第一步重来：切变体、回档、新一轮都会重置游标；流式中键带 `:s`，
-  只有实时文本一步，不做逐步推进。
-- 截图脚本（`scripts/shot_chat_ui.py`）靠**预置 localStorage `ark_chat_story_<sid>`** 让 `ChatPanel` 走缓存路径、
-  不触发首轮叙述，因此不会调用模型；后端会话的 `narration_count` 仍是 0，页头 ROUND 取本地与后端的较大值。
-
-### `plugins/index.ts` 的 `import.meta.glob` 不能被 CJS 断言脚本 require（2026-09-23）
-
-- **现象**：`node scripts/test_stage_ui.cjs` require 到 `components/ChatView.tsx` → `plugins/index.ts` 时报
-  `exports is not defined in ES module scope`。
-- **根因**：`ts.transpileModule` 转成 CJS 后 `import.meta` 仍在，Node 判定该文件是 ESM 再去当 ES 模块加载。
-- **现状口径**：断言脚本在转译钩子里对该文件路径直接 `module.exports = { CUSTOM_PANEL_MODULES: [] }` 顶替，
-  内置面板改为显式 `require("plugins/builtin.tsx")` 登记。新写脚本照抄；不要为迁就钩子把 glob 从 `index.ts` 挪走。
-
-## 前端主题
-
-### 自带固定色板的区块必须成对写浅色覆盖（2026-09-27，`361c669`）
-
-- **口径**：`frontend/src/style.css` 里默认（深色）色板写在基类上，浅色覆盖写成 `html.light <选择器>`
-  紧跟在基类之后；皮肤 `html.skin-tavern` / `html.skin-prts` 各有自己的色板，三者互斥——
-  `App.tsx` 只在 `skin === "default" && theme === "light"` 时挂 `html.light`，皮肤激活时不挂浅色。
-- **踩坑**：只写深色色板、漏了 `html.light` 的区块（会话大厅的 `session-hero`、`session-practice-panel`）
-  在浅色模式下原样保留深色底，成了浅色页面上的一条黑带。覆盖时注意两点：带
-  `background-clip: text` 的渐变字、带 `background-size: cover` 的壁纸槽位要用 `background-image`
-  长手覆盖，别用 `background` 简写（简写会把 size / position / clip 一并重置）。
-- **验证**：参照 `scripts/shot_roles_ui.py`，用 playwright 逐个切 `<html>` class 后截图，并用
-  `getComputedStyle` 取 `.session-hero` 的 background-image / 边框色 / 投影做对照。
-
-## 测试
-
-### 前端 `.bin` 命令入口或包文件缺失（2026-09-28，基线 `f27090e`）
-
-- **现象**：`frontend/node_modules` 存在，`typescript` / `vite` 包也在，但
-  `frontend/node_modules/.bin` 不存在，`npm run dev` / `npm run build` 因找不到 `vite` / `tsc` 失败。
-  补齐 `.bin` 后，构建又发现 `@alloc/quick-lru` 缺失；随后一次 `npm ci` 虽退出 0，解包时却有大量
-  `TAR_ENTRY_ERROR ENOENT`，TypeScript 的 `lib.dom.d.ts` 等文件仍缺失。
-- **根因与边界**：`.bin` 中的命令入口由 npm 根据已安装包生成，不能只凭 `node_modules` 目录存在
-  或 `npm ls --depth=0` 成功判断入口完整。本次未找到删除 `.bin` 的确切命令；另外，
-  `frontend/node_modules` 被 Git 忽略，新 worktree 不会自动带入依赖。测试或其他操作若删除了整棵
-  `node_modules`，包文件也已经缺失，单独重建 `.bin` 无法恢复它们。排查中 `npm cache verify`
-  曾报缺少缓存文件，但当时有并行校验，不能据此判定缓存损坏；安装结果仍须由文件检查和构建验证。
-- **恢复口径（Windows）**：先确认当前 `frontend/node_modules` 是否为目录联接，以及
-  `node_modules/typescript/bin/tsc`、`node_modules/vite/bin/vite.js` 是否仍在。若包文件在、仅入口缺失，
-  在**实际依赖目录**执行 `npm rebuild --ignore-scripts --bin-links`，然后检查
-  `node_modules/.bin/tsc.cmd` 和 `node_modules/.bin/vite.cmd` 并分别运行 `--version`。这一步会重建
-  已安装包的命令入口，不必重新下载所有依赖。若整棵目录或包文件缺失，在该 worktree 内按锁文件
-  完整安装一次，或复用已经核对版本且 `.bin` 完整的依赖目录；若安装时出现
-  `TAR_ENTRY_ERROR` 且包文件仍缺失，可改用新的缓存目录重装（本机验证命令：
-  `npm ci --cache "$env:TEMP\ark-tavern-npm-cache-20260928" --maxsockets=1`；后续另选空目录）
-  并以构建为准。不要只复制空的 `.bin`，也不要在指向主工作区的目录联接上运行会先清理
-  `node_modules` 的 `npm ci`。测试结束后按上述两种情况恢复，并验证命令入口再进行构建验收。
-- **证据**：主工作区的 `node_modules` 包目录存在而 `.bin` 缺失；执行上述 `npm rebuild` 后
-  `.bin` 恢复，`vite.cmd --version` 输出 `vite/5.4.21`，`tsc.cmd --version` 输出 `5.9.3`；
-  但构建继续发现缺包，说明入口检查不能代替完整构建。改用独立新缓存完整安装后，
-  `.bin`、`@alloc/quick-lru`、TypeScript 声明文件齐全，`npm run build` 通过。
-
-### 无浏览器 SSR 脚本的转译钩子必须传 `fileName`（2026-09-22，`feat/roles-ui-polish`）
-
-- **现象**：`node scripts/test_role_worldbook_nav_ui.cjs` 自 `d328ce0`（引入 `utils/worldbookGrouping.ts`）起一直
-  失败：`ReferenceError: T is not defined`，栈指向 `worldbookGrouping.ts:35`；看起来像分组逻辑坏了。
-- **根因**：钩子调用 `ts.transpileModule(source, { compilerOptions: { jsx: ReactJSX, … } })` 没传 `fileName`，
-  TypeScript 只能把源码当 `.tsx` 解析；`.ts` 里的泛型箭头函数 `<T>(items) => …` 被读成 JSX 元素 `<T>`，
-  产物变成 `exports.groupByWorldbook = (0, jsx_runtime_1.jsxs)(T, …`，运行到这一行就抛未定义。
-- **现状口径**：该脚本的钩子已传 `fileName: filename`。`test_worldbook_library_ui.cjs` /
-  `test_worldbook_scope_ui.cjs` 的钩子写法相同，只是暂未 require 到含泛型箭头函数的 `.ts` 才没炸；
-  新写 SSR 脚本请照抄带 `fileName` 的版本，`.ts` 里也不要为了迁就钩子改写成 `<T,>`。
-- **证据**：不传 `fileName` 转译 `worldbookGrouping.ts` 第 35 行即得上述 `jsxs(T, …)` 产物；主工作区在
-  `d466817` 上跑原脚本同样失败，与本分支的 UI 改动无关。
-
-### 截图服务与开发服务使用独立 Vite 缓存（核对于 2026-09-28）
-
-- `frontend/vite.config.shot.ts` 使用 `node_modules/.vite-shot`，与主开发服务的依赖预构建缓存分开；两种插件配置共用缓存会导致正在运行的页面重载。
-- 多个 worktree 若共用 `frontend/node_modules`，也会共用 `.vite-shot`。并行截图服务应各用独立的 `cacheDir`；若端口被占用，连同端口一并调整。
-
-### 世界书条目工作台持久化口径（2026-09-22，`feat/worldbook-entry-refresh`）
-
-- **顺序**：未显式保存 `entry_order` 时使用既有注入排序；首次拖动后写入完整 UID 排列，新增、摘录、
-  lore-binding 首次补条目时同步追加。实际收集仍先分稳定层与动态层，再按显式顺序排列；UI 禁止跨层拖动。
-- **自动保存**：条目、简介与排序共用按书串行队列、generation/CAS 和 sessionStorage 待办镜像。
-  页面卸载不销毁协调器；旧响应不覆盖新草稿；空正文的新条目可切书后找回；删除在旧创建请求结束后继续执行，
-  失败保持墓碑并提供重试。导出前必须排空当前书待办，失败时不导出旧内容冒充最新稿。
-- **配置版本**：条目、元信息、排序、删除成功后重取完整详情。节点配置草稿只在普通 revision 推进时保留；
-  真正的并发配置变化继续按旧 revision 冲突，撤销后采用最新服务端基线。删除条目会从未保存草稿清掉失效边与起点。
-- **隐藏字段**：既有条目更新只提交界面可编辑字段，服务端合并旧值；`secondary_keys` 中含逗号的单项、
-  `excerpt_source` 与 `raw` 不因只改正文而变化。
-- **token 展示**：中日韩统一表意文字 U+4E00–U+9FFF 每个计 1；其余按 Unicode code point 数除以 4
-  向下取整。该数仅供展示，不覆写 `budget_tokens`。
-- **证据**：`tests/test_worldbook_entry_refresh.py` 覆盖元信息导出回读、完整排列与实际收集顺序、
-  过期 revision 不落盘、隐藏字段部分更新；三个 `scripts/test_worldbook_*_ui.cjs` 覆盖工作台页签与真实组件 SSR。
-
-### 条目文件夹与触发互斥组是两套概念（2026-09-27，`f59b9a8`）
-
-- **现象**：条目原有 `group` / `group_weight` 字段用于酒馆触发互斥；直接把它用作管理界面的文件夹会改变解析规则。
-- **现状口径**：书级 `entry_groups` 保存文件夹名称，`entry_group_map` 保存条目 UID 到文件夹 ID 的归属，`entry_layout` 保存文件夹与未分组条目的共同顶层顺序；组内条目再缩进。新建空分组放在列表顶部，文件夹可与未分组条目混排；未显式保存 `entry_layout` 时按“未分组条目在前、文件夹在后”显示。移动条目、移动或删除文件夹时，界面把布局、归属和完整 `entry_order` 一次提交；Prompt 的稳定层与动态层分别依新顺序注入，跨层文件夹不会成为单个连续块。纯元数据客户端可不传布局和排序。删除文件夹只解绑条目，删除条目与系统节点时清理映射。
-- **证据**：`tests/test_worldbook_entry_groups.py` 验证持久化、CAS、复制、导入导出、原子排序与分层注入；`tests/test_plot_graphs.py` 和 `tests/test_story_outline.py` 覆盖系统条目删除与清理。
-
-### 条目摘录与角色资源副本（2026-09-27）
-
-- 从资料库多选摘录仍走 `POST /api/worldbook/<id>/excerpt` 的整批原子接口。带有效 `character_id` 的角色条目会把 `index.md` 与默认头像、立绘、卡面快照写入目标书的 `character_profiles` / `character_media`；角色条目改用目标书专属的 `<角色ID>__wb_<书ID>`，同时在角色目录生成可供现有互动与战斗链路读取的独立副本。来源目录不改动，保存书失败会删除本次新建的角色目录。
-- 书内资源随酒馆 JSON 扩展导出、导入和整书复制；导入/复制时重新生成目标书专属角色 ID 与角色目录。会话中的形象解析顺序为会话覆盖 → 按绑定顺序查书内快照 → 全局角色目录；没有角色资料或图片时摘录结果会带可见警告。每张图片上限 20 MB，整书图片总量上限 80 MB，单份角色资料上限 2 MB、整书角色资料总量上限 16 MB；只快照当前默认图片，不打包同目录的其它造型变体。
-- `tests/test_worldbook_character_media.py` 覆盖资源副本、导出导入、保存失败回滚、绑定顺序和舞台取图。
-
-### 本机跑测试的等价命令（2026-09-19）
-
-本机（Windows + conda python）**没有可用的 bash**：`bash scripts/run_tests.sh` 里的 `bash` 实际落到
-WSL，而本机未安装 WSL。等价做法：
+### 1.2 当前能力与目标分开
+
+> 最近核对：2026-10-11（主线源码、提案与 Git 忽略规则）。
+
+主线的可安装战斗模式仍是隔离 iframe 脚本玩法：后端管理包、冻结输入与资源、保存快照并确认结果，不执行任意插件服务端代码。用户确认的“受信任 Python 原生插件 + 隔离界面 + 宿主管理存档”是[本地插件方案](proposals/local-plugin-minimal-plan.md)的后续目标，不能用隔离分支的测试证明主线已经接入。
+
+该目标信任安装者选择的原生代码，允许独立子进程执行，保留路径校验、接口鉴权与数据一致性要求；子进程和 SDK 不构成 OS 沙箱，也不承诺阻止原生代码访问当前用户有权访问的文件、网络或凭据。游戏数值由插件决定不等于可以丢弃保存、回档或幂等要求。
+
+`task.md` 是被忽略的本地队列，不是版本库文档。继续实施前应核对约定的权威副本、分支和源码；更新它不能当作 Git 提交。原统一插件阶段计划留在[历史记录](archive/unified-plugin-plan-before-local-2026-10-08.md)，其中“现行”“下一步”仅代表当时状态。
+
+## 二、会话、叙事与回档
+
+会话中的角色、候选范围、正文、数值和媒体有不同的权威来源。排查时先确定正在处理的是哪份状态，再判断请求或快照是否属于当前会话。
+
+### 2.1 主控、阵容与目录
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+- **阵容包含主控与队友，场景 NPC 只有队友。** `get_roster()` 主控在前并去重；`get_scene_characters()` 不包含主控，模型不能替玩家发言。网格战斗编成也使用阵容，已有资料的主控可以单独参战。
+- 创建 API 的 `identity` 显式为空时返回 400；省略时才使用中性称谓“玩家”。GUI 必须选择主控，不能据 API 的省略行为推断空书架能直接完成向导。
+- 角色 API 的 `worldbook_id` 来自实际所属的启用书目录。旧 frontmatter 来源标记可能过时，不能据此定位运行资源；显示名也不能代替角色目录 ID。
+- 剧情默认阵容由剧情声明书的花名册与开场角色产生。手动再绑定一本书只扩候选，不自动将该书全部角色入队；需要批量入队时使用显式全选操作。
+- `initial_characters` 显式为空表示没有开场 NPC。重载恢复已保存阵容，不重新补入开场人物；空 NPC 阵容仍须恢复物品。
+- 使用候选预览或创建指纹时，两者须采用包含主控的同一完整阵容。换主控与修改依赖后也按阵容重算范围，不能用 NPC 列表替代。
+
+目录请求由大厅持有的 `useSessionCatalog` 与向导复用。模式页不必等待全部目录；依赖目录的步骤在加载失败时不能继续，重试保留表单，关闭重开才重置。离开大厅后不保留全局目录缓存。
+
+依据：[SceneManager](../src/SceneManager.py)、[角色目录规则](../frontend/src/utils/characterCatalog.ts)、[目录加载](../frontend/src/hooks/useSessionCatalog.ts)。验证入口：[主控用例](../tests/test_session_main_control.py)、[空 NPC 恢复](../tests/test_story_rules_http.py)、[主控战斗恢复](../tests/test_combat_resume.py)、[目录浏览器夹具](../scripts/test_session_loading_browser.py)。
+
+### 2.2 会话隔离与迟到请求
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+消息、流式状态、战前简报和战后续写按会话保存。后台叙述可以继续，但只能写所属会话；弹窗、最小化入口、输入锁和导航只影响当前会话。
+
+替换流、删除会话或收到 close/done/error 后，旧事件不能复活缓存或再次派发。打法、检定、手动开战与恢复请求需要校验会话、简报和导航身份；切走再切回不能让迟到结果自动抢占页面。编辑回滚按会话编辑 token 与消息快照接收结果，旧回滚不能取消新请求或释放新的编辑锁。
+
+头像失败只对当前会话与资源版本的图片地址显示占位。版本、角色或会话变化后重新尝试，不改请求到未绑定的全书资源；资源来源由服务端解析。后台更新在重新进入会话时补读。
+
+依据：[ChatPanel](../frontend/src/components/ChatPanel.tsx)、[appStore](../frontend/src/stores/appStore.ts)、[头像占位](../frontend/src/components/chat/AvatarPlaceholder.tsx)。验证入口：[会话隔离](../scripts/test_session_isolation.cjs)、[SSE 生命周期](../scripts/test_sse_lifecycle.cjs)、[模拟 API 浏览器检查](../scripts/test_session_isolation_browser.py)。
+
+### 2.3 流式正文与舞台阅读
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+正文接收、二阶段处理、正式脚本和图片下载不是同一个完成状态。
+
+- `text_complete` 返回归一化和 hook 处理后的权威正文；成功 `done` 返回实际轮次及二阶段状态。错误终态或没有完成事件的 EOF 不能当作成功。
+- 流式预览按最多 140 个 Unicode grapheme 分页，已形成的页边界固定，末页可增长；新页只增加页数，不抢当前阅读位置。
+- 预览转正式脚本时，以当前页首字的原文偏移映射正式页，并接续正文、头像与已展示文字。无法确定映射时保留纯文本，不猜测跳页。场景或图片加载失败不隐藏正文。
+- 用户输入与叙述绑定同一请求身份，成功后采用服务端轮次。失败输入不作为正式历史编辑，失败稿不占正式轮次；旧失败稿不能解锁新回复。刷新后的中断稿可恢复输入。
+- 舞台记录抽屉复用消息流 DOM；`display:none` 下滚动到底无效，打开抽屉后再滚动。不要用“换键一律回第一页”或“流式只有一步”描述现有阅读机制。
+
+正文与失败交接的完整约定见[两阶段叙述](design/narrative/two-phase-narration.md)。验证入口：[流式 Flask 用例](../tests/test_stage_stream_contract.py)、[阅读位置用例](../frontend/src/utils/stageReading.test.mjs)、[舞台脚本](../scripts/test_stage_ui.cjs)。
+
+### 2.4 说话人归属与快捷键
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+回退解析只采纳已知角色的明确署名或受限发言谓语，不按最近出现的角色名猜测。结构化片段显式 `speaker: null` 或空值保留未知；仅在紧邻台词且完全缺字段时允许继承。实质旁白、非法片段、复杂或否定句中断继承链，舞台不能用消息角色覆盖未知说话人。
+
+舞台的中央选项区与底部对话区分开，选项过高只滚动选项，对话区保持布局。行动列表保留正文与必要的禁选原因；完整条件和效果在节点详情展示，不放进每个选项。
+
+`End` 在接收或整理期间跳到当前已收到的末页，正式完成后可跳到选项或输入；它不自动选择、发送或增加轮次。`Ctrl` 用于逐句或长按快进。输入控件、输入法合成、组合键、重复 End、绘图与立绘调整等场景有独立保护，不能用全局键盘监听绕过它们。
+
+依据：[dialogueParser](../frontend/src/utils/dialogueParser.ts)、[StageView](../frontend/src/components/stage/StageView.tsx)、[StoryChoices](../frontend/src/components/story/StoryChoices.tsx)。验证入口：[解析用例](../frontend/src/utils/dialogueParser.test.mjs)、[选项浏览器夹具](../scripts/test_stage_choices_browser.py)、[台词浏览器夹具](../scripts/test_dialogue_browser.py)。这些规则不等于通用自然语言理解，未登记别名或模型明确写错的 speaker 仍需内容侧处理。
+
+### 2.5 数值、作者规则与回档
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+会话数值字段采用绑定顺序中的首本世界书。首书没有字段或加载失败时，不改用另一套书的 schema；只有未绑定书的会话才可用角色来源书字段。值按字段默认、角色 frontmatter `stats`、会话覆盖合并，显式 0 与 false 也参与提示词。
+
+面板、提示词与剧情规则通过 `session_stats` 读取同一结果。全局角色页仍使用角色所属书字段；与会话不同不能据此覆盖会话定义。字段定义并未随大纲或演出冻结，中途改首书字段会影响面板和下一次条件重验。纯叙事角色详情不生成战术 Lv1、XP0 或 HP 兜底。
+
+作者分支的条件和效果由服务端校验，模型建议不能提升为作者权限。条件、物品 ID、角色字段与落点的完整格式见[剧情规则](design/narrative/story-rules.md)；手工图连线不执行数值或物品规则。
+
+服务端先在一次 `overrides.json` 原子替换中提交效果、落点与凭据，再生成叙述。生成失败保留待叙述选择，同 ID 重试不重复消耗或奖励；已完成旧 ID 返回冲突。叙述、HTTP 数值或物品修改及节点回档互斥。这个单文件提交不代表正文、记忆和所有媒体形成跨文件断电事务。
+
+资源随剧情节点与历史快照回档。回档先验证目标和快照完整性，再剪历史；缺键不能被解释为空库存或保留未来数值，不自动迁移旧节点。已结算效果后，只剪正文的轮次回退不能恢复资源，接口会要求使用节点回档。
+
+数值入口在场景角色详情的 `CharacterSessionStats`，需要显式“保存数值”；旧独立 `CharacterStatsPanel` 未注册为内置页签。依据：[数值读取](../src/session_stats.py)、[规则结算](../src/story_rules.py)、[快照](../src/session_overlay.py)、[角色详情数值](../frontend/src/components/scene/CharacterSessionStats.tsx)。验证入口：[数值 API](../tests/test_character_stats_api.py)、[规则 HTTP 流程](../tests/test_story_rules_http.py)、[会话数值](../tests/test_session_stats.py)。
+
+### 2.6 参考大纲与节点图
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+没有正文节拍骨架的剧情，优先使用书内参考大纲，再回落启发式切幕，生成会话自己的节拍骨架。启发式一幕一节拍默认 `min_rounds=3`，LLM 大纲节拍默认 2；生成接口即使 HTTP 200 也可能回落，调用方必须查看 `outline.source` 与 `generation.error`。偏离分支只写会话副本，不回写世界书。
+
+确定性分叉需要作者 `target_beat_id` 与 `choice_required`，完成标记或超时不能替玩家做必要选择。固定战斗节点不应因同一节拍又生成第二个遭遇。
+
+节点引用按所属书、剧情、章节与节拍识别，不能按显示名猜测。唯一节拍移动章节后可重新关联；删除或歧义引用需要明确处理。章节序号不是稳定身份，重排后需重新核对。关联修复保留图坐标、连线和演出配置，进入同一撤销栈；大纲节拍不伪装成原文段落。
+
+会话节点图复用作者布局，并补齐生成轨迹。头像定位本轮实际叙述节拍，不能仅看可能提前推进的 `ref_beat_id`。会话图允许查看、拖动和缩放，不开放作者编辑；坐标只保存在按会话、剧情与来源书隔离的本地布局中，不写回世界书或剧情进度。生成结束后再读取已提交树与轮次媒体，并成对提交结果，迟到请求不能覆盖新会话。
+
+依据：[参考大纲](../src/story_outline.py)、[剧情流程](../src/combat_nodes.py)、[会话图](../frontend/src/components/story/SessionStoryGraph.tsx)。验证入口：[大纲用例](../tests/test_story_outline.py)、[引用详情](../tests/test_graph_node_details.py)、[共享图引用](../scripts/test_graph_references.cjs)、[会话图脚本](../scripts/test_session_graph_ui.cjs)。
+
+## 三、世界书、资源与持久化
+
+书籍正文、载入规则、会话范围和媒体快照是不同数据。共享目录、全局默认书与旧安装包的历史描述不能用来推断当前读取路径。
+
+### 3.1 安装与资源来源
+
+> 最近核对：2026-10-11（源码与用例）；本次另执行资源来源测试，4 项通过。
+
+当前以 `data/worldbooks/books/<book_id>/` 为安装和分享单位，`book.json` 与该书角色、剧情、战斗、音频资源放在同一文件夹。新检出仓库不附带用户安装书；放入完整文件夹后刷新发现，不覆盖已有同 ID 书。酒馆 JSON/JSONL 或角色卡导入创建独立书文件夹，原文件没有独立资源时不会自动补出图片或关卡。
+
+运行时按会话绑定书顺序解析同名资源。角色目录 ID、实际来源书和资源 URL 随解析与恢复快照传递，头像、卡面、Spine 图集与贴图都不能用显示名重新全局查找。形象解析为会话覆盖、绑定书快照、绑定书内角色文件，不向旧共享全局目录回落。
+
+世界书文件夹与会话 ZIP 是不同导出物。导入会话 ZIP 时，随档资源形成独立会话资源世界书并放在该会话绑定列表首位，不覆盖原书或写回旧共享目录。`.arkwb`、旧内部散装书 JSON、`inbox/` 和旧迁移脚本不属于当前导入流程。
+
+完整规则见 [data/README](../data/README.md)。依据：[路径定义](../src/data_paths.py)、[资源解析](../src/worldbook_content.py)、[会话导入导出](../src/session_export.py)。验证入口：[文档来源](../tests/test_document_worldbook_source.py)、[演练资源](../tests/test_tactical_practice.py)、[会话文件夹存档](../tests/test_session_export_folders.py)。
+
+### 3.2 多书范围与条目分层
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+内部世界书采用 schema v3 与 selective 载入；SillyTavern 格式是外部互通输入，导入后归一化。会话用 `worldbook_ids` 保存书顺序，用 `worldbook_scopes` 保存各书快照。首书按顺序派生，相关接口的 `book_id` 省略时操作首书；没有全局默认书回落。
+
+会话创建参数中的 `manual_entry_uids_by_book` 与 `expected_draft_hashes` 按书提交。单书 scope-preview 的 `manual_entry_uids` 仍有效，不能因名字相近一起删掉。载入规则与候选快照不等于书正文冻结，正文仍实时读取。
+
+系统层先于稳定与动态分层判定：`plot_graph`、`lore_bindings`、`story_outline` 不进入候选、Prompt 顺序或 dropped 列表，不计注入条数和 token；带触发词的战斗条目可以注入。Python 与前端的系统类型和围栏集合须同步。全书持久化顺序仍保存所有 UID，实际注入再分稳定、动态两层排序。
+
+分类与文件夹只组织条目。文件夹使用 `entry_groups`、`entry_group_map` 和 `entry_layout`，不能复用酒馆触发互斥的 `group/group_weight`。删除文件夹只解绑条目；移动布局、归属和顺序一次提交。跨层文件夹不会让其条目成为连续注入块。
+
+完整规则见[按需载入](design/worldbook/worldbook-on-demand.md)与[节点作用域](design/worldbook/node-scoped-worldbook-loading.md)。验证入口：[多书会话](../tests/test_session_worldbook_multibind.py)、[系统层](../tests/test_worldbook_system_layer.py)、[文件夹与排序](../tests/test_worldbook_entry_groups.py)。
+
+### 3.3 草稿、自动保存与导出
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+条目、简介和排序使用按书串行队列、generation/CAS 与 sessionStorage 待办镜像。离开页面不销毁协调器，旧响应不能覆盖新草稿；空正文的新条目可切书后找回，失败删除保留墓碑与重试入口。导出前必须排空当前书待办，失败时不能导出旧内容冒充最新稿。
+
+节点配置草稿遇普通 revision 推进时可以保留；真正的并发配置变更仍按旧 revision 冲突，撤销后采用最新服务端基线。删除条目时清除草稿中的失效边与起点。更新既有条目只提交可编辑字段，服务端合并隐藏字段，不能因改正文丢掉 `raw`、`excerpt_source` 或含逗号的单个 secondary key。
+
+token 数是展示估算：U+4E00–U+9FFF 中日韩统一表意文字按每字 1，其余按 Unicode code point 数除以 4 向下取整，不覆写 `budget_tokens`。Prompt 预览也不是当前对话或下一次请求，不能当作模型实际收到条目的证据。
+
+机制归属：[条目工作台方案中的实现记录](proposals/worldbook-entry-refresh.md)、[工作台中的保存协调器](../frontend/src/components/WorldBookManager.tsx)。验证入口：[条目刷新](../tests/test_worldbook_entry_refresh.py)、[工作台脚本](../scripts/test_worldbook_shelf_ui.cjs)。
+
+### 3.4 摘录、封面与资源副本
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+资料库摘录走整批校验与保存。可复制角色 profile 时生成目标书专属角色 ID，并在目标书 `characters/` 中保存独立副本；没有 profile 时保留原角色引用并给出警告。来源目录不改动，保存失败删除本次新建目录，不能留下半批副本。
+
+角色快照只复制当前默认头像、立绘和卡面，不打包所有造型。资源校验上限为单图 20 MB、整书图片 80 MB、单份角色资料 2 MB、整书角色资料 16 MB。导入与整书复制会重新生成目标书专属身份，资源与正文一起维护。
+
+封面从本地选择后压缩为 `data:image/...;base64` 存入 `cover_image`，不是外链。当前压缩长边最多 512，目标最多 160 KB，优先 WebP，回退白底 JPEG；参数与解码回退由 `CoverPicker` 维护，不在别处复制另一套默认值。
+
+完整用途与摘录规则见[资料库](design/worldbook/worldbook-library.md)。依据：[角色资源校验](../src/worldbook_media.py)、[CoverPicker](../frontend/src/components/worldbook/CoverPicker.tsx)。验证入口：[角色媒体](../tests/test_worldbook_character_media.py)、[封面与分层脚本](../scripts/test_worldbook_layer_ui.cjs)。
+
+### 3.5 演出冻结与采样时机
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+图配置使用书内相对资源引用，列表与上传限制在当前书。新会话冻结画面配置，并将图片复制到 `presentation-assets`；历史和回档读取保存的演出帧，而不是之后编辑的世界书节点图。节点未配置新画面时沿用上一背景，CG 是持续画面，不是每个标签页弹窗一次。
+
+图坐标与手工连线不决定触发时机。运行时以剧情引用与本轮实际节拍确定演出，避免节拍提前推进导致画面抢先。条件在创建、作者选择结算与叙述结算时采样，不捕获轮间瞬时变化。
+
+BGM/video 仅保留扩展位置，当前未实现的动作明确拒绝。缺完整媒体或资源快照的旧会话、节点不自动补建；回档先验证再恢复。记忆文件与演出 overlay 不构成跨文件断电事务。
+
+完整规则见[节点演出](design/worldbook/node-presentation.md)。验证入口：[演出用例](../tests/test_scene_media.py)、[引用详情](../tests/test_graph_node_details.py)、[图详情浏览器夹具](../scripts/test_graph_details_browser.py)。
+
+### 3.6 书架扫描与 Wiki 失效
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+书架校验逐层扫描资源，每项不跟随链接地读取属性；仍检查整棵目录的路径、数量、大小、重复 JSON 键，并拒绝符号链接和 Windows junction。性能优化不以过期缓存跳过外部资源验证，加载复用校验得到的 JSON。
+
+书架变化将 Wiki 标脏，实际读取时重建，显式刷新仍立即执行。索引在锁内建成后按快照发布，失败保留旧快照并允许下次重试；已持有的 scoped Wiki 也失效。另一线程正在重建时，失效调用可能等待同一把锁，本机制不承诺无等待，也不重写已注入会话的缓存文本。
+
+依据：[文件夹校验](../src/worldbook_folder_store.py)、[Wiki 缓存](../src/wiki_manager.py)。验证入口：[加载用例](../tests/test_worldbook_loading_performance.py)、[Wiki 延迟刷新](../tests/test_wiki_lazy_refresh.py)。接口历史测速的条件见第七节，不是浏览器整页加载保证。
+
+## 四、前端呈现与窗口
+
+前端细节在固定 PC 内容区和现有主题体系中维护。设计要求见[前端规范](design/frontend-design-guidelines.md)，本节保留容易在实现或验证时误判的行为。
+
+### 4.1 主题、颜色与导航
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+默认皮肤的浅色样式使用 `html.light`；PRTS、Tavern 与默认明暗互斥。固定色板区块需要对应浅色覆盖。覆盖渐变字或壁纸时，优先改 `background-image` 等具体属性，`background` 简写会重置 size、position、clip。
+
+会话删除入口用独立 `.session-delete-button` 处理默认浅色与酒馆配色，不能据这一修复扩大修改通用危险按钮或战斗按钮。颜色工具类覆盖从生成源更新，规则见根 [AGENTS](../AGENTS.md)。
+
+顶栏标签脚沿用标签与底部衔接带的颜色映射；反向圆角圆心位于外侧上角。导航两端预留 12px 标签脚空间，保持可伸缩布局与 `overflow: visible`，不能恢复会把伪元素纳入滚动范围的 `overflow-x-auto`。
+
+依据：[App](../frontend/src/App.tsx)、[全局样式](../frontend/src/style.css)、[GameTopBar](../frontend/src/components/GameTopBar.tsx)。验证入口：[删除配色脚本](../scripts/test_session_delete_colors.cjs)。对比度和历史浏览器结果只适用于记录的控件与主题，不是全站无障碍验收。
+
+### 4.2 节点编辑器视口与输入
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+扩大查看收起书简介，切书或切页签复位。视口尺寸由 ResizeObserver 同步，fit 与裁剪计算包含 CG 预览边界，不能只在平移或缩放变化时重算。图片预览限定当前书、去重，预览和短连线随节点移动。
+
+节点详情中的演出配置使用同一份图草稿、撤销与保存。抽屉输入 Delete/Backspace 不能删除图形，左右键切页签不能抢输入焦点。CG 预览不是背景预览，编辑器显示也不证明会话冻结资源已经更新。
+
+依据：[PlotGraphPage](../frontend/src/components/combat/PlotGraphPage.tsx)。验证入口：[共享引用检查](../scripts/test_graph_references.cjs)、[图详情浏览器夹具](../scripts/test_graph_details_browser.py)。
+
+### 4.3 内容区尺寸与原生窗口
+
+> 最近核对：2026-10-11（源码与控制器模拟检查）；本次未做原生窗口验收。
+
+五组预设表示逻辑像素的内容区，清单由 [windowSettings](../frontend/src/shared/windowSettings.ts) 维护。普通窗口使用 `setContentSize`，窗口全屏为原生最大化，全屏使用 `setFullScreen`；选择预设回到普通窗口，自由拖动不吸附。
+
+设置页将预设与显示模式放在同一个下拉框，选择后立即应用，自定义尺寸显示“自定义”。普通窗口应用预设后，即使按比例适配，`presetId` 仍保留该预设；最大化、全屏或非预设自定义尺寸时为 null。`width/height` 是实际内容尺寸，`fitted` 与状态文案必须反映适配结果，不能仅显示所选预设数字。
+
+Windows 缩放下，定位和内容区设置的先后会影响舍入。应先定位目标工作区，再设置内容尺寸，首次显示也归一尺寸；退出最大化或全屏后重取目标屏幕工作区。适配不等于修改开发视口矩阵，也不能因当前屏幕较小就禁用大尺寸选项。
+
+依据：[窗口控制器](../frontend/electron/windowControls.ts)、[WindowSettings](../frontend/src/components/WindowSettings.tsx)。验证入口：[控制器用例](../scripts/test_window_controls.cjs)、[原生窗口夹具](../scripts/test_window_controls_electron.cjs)。旧记录未证明多屏切换或所有页面已完成五尺寸验收。
+
+## 五、测试与本机环境
+
+测试入口、依赖完整性、SSR 和浏览器提供不同证据。排查环境失败时不要把缺包、转译钩子或资源缺失写成产品行为回归。
+
+### 5.1 Python 入口与 CLI 编码
+
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
+
+统一入口为 [run_tests.sh](../scripts/run_tests.sh)，分别执行 `tests/` 与两组无外部依赖的 perf 用例。本机没有可用 bash 时，可在仓库根目录分两次执行：
 
 ```powershell
-python -m pytest tests/ perf_tests/test_combat_runtime_v1.py `
-  perf_tests/test_settlement_v1.py
+python -X utf8 -m pytest tests/
+python -X utf8 -m pytest perf_tests/test_combat_runtime_v1.py perf_tests/test_settlement_v1.py
 ```
 
-### CLI 夹具必须自己钉死 UTF-8（2026-09-19，`f6ea4e7`）
+这两次测试都通过才能等同于该脚本的成功结果；不包含额外真实模型、浏览器或 Electron 验收。
 
-- **现象**：`tests/test_combat_growth_balance.py` 里 4 个用例在 `PYTHONIOENCODING=utf-8` 的 shell 下
-  报 `_readerthread UnicodeDecodeError: 'gbk' codec`，看起来像工具坏了。
-- **根因**：工具 CLI 输出中文；子进程按环境变量写 UTF-8，而父进程 `subprocess.run(text=True)` 按 locale
-  （Windows 是 GBK）解码 → 读线程抛错。夹具受**外部环境变量**影响，不在工具本身。
-- **现状口径**：`_run()` 统一 `encoding="utf-8", errors="replace"` 并给子进程注入 `PYTHONIOENCODING=utf-8`；
-  `balance_audit` 也走同一个 `_run()`，不再自己拼 `subprocess.run`。
-- 新增 CLI 用例请复用 `_run()`，不要另写 `text=True` 而不指定 `encoding`。
+CLI 输出与父进程解码必须约定一致。`tests/test_combat_growth_balance.py` 的 `_run()` 为子进程设置 `PYTHONIOENCODING=utf-8`，父进程显式指定 `encoding="utf-8"`；仅设置 shell 环境变量不能改变父进程按 locale 解码的默认行为。新增相同 CLI 用例复用该助手，不能把读线程解码错误当作战斗工具失败。
 
-### 本地已安装书的数据不能作为固定测试基线（核对于 2026-09-28）
+### 5.2 前端命令入口与缺包
 
-- `data/worldbooks/` 被 Git 忽略，安装数量、条目与策略版本会因本机状态变化。相关用例应使用临时夹具，或按实际候选对、保存前状态计算期望值；不要写死某本书的条数、批次数或 v3 开关。
+> 最近核对：2026-09-28（依赖恢复记录）；2026-10-11 整理，未重新执行安装与恢复。
 
-### SSR 断言不能靠修改 Zustand store 驱动画面（核对于 2026-09-28）
+新 worktree 不包含被忽略的 `frontend/node_modules`。发现 `vite` 或 `tsc` 不可用时，先区分“包文件在、仅缺 .bin”和“包文件也缺失”。
 
-- `scripts/test_*_ui.cjs` 通过 `react-dom/server` 渲染时，React 读取 Zustand 的服务端初始快照。即使 `useAppStore.setState()` 后 `getState()` 已变化，SSR markup 仍可能是初始界面。
-- 状态迁移可直接断言 `getState()`，静态组件接线可检查源码或与状态无关的 markup；需要验证切页、交互与可见状态时用浏览器。`scripts/test_worldbook_review_ui.cjs` 需可解析的 Playwright 模块（可通过 `PLAYWRIGHT_MODULE` 指定），不能把模块缺失误判为产品回归。
+仅入口缺失时，在实际依赖目录执行：
 
-## 世界书前端
+```powershell
+npm rebuild --ignore-scripts --bin-links
+```
 
-### 世界书条目的稳定层、动态层与系统层（核对于 2026-09-28）
+随后检查 `node_modules/.bin/tsc.cmd`、`vite.cmd` 及各自版本。若包文件缺失，按锁文件完整安装，再检查 TypeScript 声明、Vite 与相关包文件，最后构建。出现 `TAR_ENTRY_ERROR` 即使 npm 退出 0，也不能据此认定依赖完整；需要换缓存重装时选择新的任务缓存目录。
 
-- 系统条目由 `src/world_book.py:is_system_entry()` 判定，前端 `frontend/src/utils/worldbookLayer.ts` 保持同口径。先判系统层，再按位置区分稳定层与动态层；`plot_graph`、`lore_bindings`、`story_outline` 属系统层，带关键词的 `combat_node` 仍可注入。
-- 系统层不进 Prompt 的 `order` 或 `dropped`，不进会话候选或会话条目列表，也不计入可注入条数与估算 token。`book_entry_stats()` 是后端统计口径，前端 `bookEntryStats()` 与之对齐。
-- 条目页按稳定、动态、系统展示；系统条目不可单独拖动，但所在文件夹可移动。持久化的 `entry_order` 仍是全书 UID 排列，实际注入时再按稳定层与动态层分区。
-- Python 与 TypeScript 各有 `SYSTEM_ENTRY_TYPES` / `SYSTEM_ENTRY_FENCES`，改动任一侧都要同步另一侧。验证见 `tests/test_worldbook_system_layer.py` 和 `scripts/test_worldbook_layer_ui.cjs`。
+先确认目录是否为联接，不在指向主工作区的 `node_modules` 上运行会先清理目录的 `npm ci`。测试若删除依赖，结束前按实际缺失程度恢复入口与包文件。不要只复制空 .bin，也不要把 `npm ls` 成功等同于构建成功。
 
-### 世界书封面是内嵌 data URL，不是图片地址（2026-09-22，`feat/worldbook-frontend-polish`）
+### 5.3 SSR 转译、状态与自定义面板
 
-- **口径**：封面一律**从本地文件选**（`CoverPicker` → `<input type="file" accept="image/*">`），
-  压缩后以 `data:image/...;base64` 写入书的 `cover_image`。收图片地址的老写法已移除。
-- **为什么**：封面要跟着书走。外链在导出 JSON 里只留一个 URL，换机器 / 断网 / 图床挂掉封面就没了；
-  内嵌让 `cover_image` 成为书自身的一部分 —— 后端本来就把它写进
-  `export_st()` 的项目扩展命名空间（`extensions.arknights_tavern.cover_image`），
-  导入时按同名字段读回（`WorldBookManager.import_book`），因此「导出 → 导入」原样还原，
-  不需要额外资源目录约定。
-- **压缩参数**（`frontend/src/components/worldbook/CoverPicker.tsx`，导出为常量便于断言）：
-  长边 ≤ `COVER_MAX_EDGE = 512`，优先 WebP、回退 JPEG（白底铺平，JPEG 没有 alpha），
-  质量按 `[0.86, 0.74, 0.62, 0.5, 0.4]` 逐档下调直到 ≤ `COVER_MAX_BYTES = 160 KB`。
-  `createImageBitmap` 不可用时回落 `<img>` 解码；解码失败给的是人话文案，不是 `NotSupportedError`。
-- **证据**：`scripts/test_worldbook_layer_ui.cjs`（文件选择而非地址输入、压缩参数量级、
-  摘要文案）；`tests/test_worldbook_entry_refresh.py` 覆盖 `cover_image` 的导出回读。
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
 
-## 数据布局
+TypeScript 转译钩子需要传 `fileName: filename`。否则 `.ts` 泛型箭头可能被当作 TSX，运行产物出现 `T is not defined`，并不说明分组函数有错。参考 [test_role_worldbook_nav_ui](../scripts/test_role_worldbook_nav_ui.cjs) 与 [test_stage_ui](../scripts/test_stage_ui.cjs) 的实际钩子；其他脚本需逐个核对，不能声称全部已补齐。
 
-### 历史：世界书内容与运行时书文件分层（2026-09-22，`feat/worldbook-data-layout`）
+CJS 钩子不能直接 require 含 `import.meta.glob` 的插件入口。当前舞台脚本为该入口提供空自定义模块集合，再显式加载内置注册；它只能证明所加载面板，不覆盖 Vite 的自动发现。不要为迁就测试改动产品的模块发现机制。
 
-- **现象**：旧布局把随程序分发的角色、剧情、战斗、音频等内容散放在 `data/` 根目录，
-  同时把用户书和设置放在 `data/worldbooks/`，路径职责不清且打包、迁移容易漏项。
-- **当时的布局记录**：此处关于共享内容目录和预装包的描述记录 2026-09-22 的旧布局，已不代表当前流程。
-  当前 `data/worldbooks/books/` 仅保存用户本地书籍；项目不再分发共享 `content/` 或 `packs/`，
-  新检出后需由用户导入书籍或复制完整书文件夹。`categories.yaml` 仍位于 `data/` 根目录。
-- **证据**：`tests/test_data_layout.py` 覆盖 Document/Wiki 与内容 API、素材 URL、临时候选剧情、
-  战斗节点提示刷新、背景引用和生成器临时输出。
+SSR 使用 Zustand 的服务端初始快照，`setState()` 后 `getState()` 变化不保证 markup 随之变化。状态迁移可断言 store，静态结构可检查 SSR；页面切换、可见状态和交互要用浏览器。
 
-### 资源来源以实际书文件夹为准（核对于 2026-09-29）
+### 5.4 浏览器夹具、缓存与本地资源
 
-- `worldbook_content` 按绑定顺序解析 `books/<book_id>/`；`DocumentInfo.worldbook_id` 来自实际文件夹。卡片 frontmatter 可能保留拆分前的来源标记，不能据此定位运行时资源。
-- 战斗单位的 `character_id` 是角色目录 ID，`name` 只是显示名；单位的 `worldbook_id` 必须来自本次解析路径。头像、立绘、卡面、裁剪和 Spine 不能用显示名重新全局搜索。
-- 证据：`tests/test_document_worldbook_source.py`、`tests/test_tactical_practice.py`，后者覆盖旧来源标记、目录 ID 与显示名不同、跨书同名与挂起恢复。
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
 
-### 资产页实体行上传的图片无法直接设为默认形象（核对于 2026-09-28）
+截图配置使用独立 Vite 缓存；共用依赖目录的 worktree 仍可能共用 `.vite-shot`。并行服务应显式区分 `cacheDir` 和端口，不以启动另一个服务扰动正在运行的页面。
 
-- 实体行的“+”把图片上传到实体目录根部（`AssetManager.tsx:handleImageUpload`），而资产页仅对 `avatar/`、`skin/` 子目录的图片提供“设为默认头像/立绘”操作（`AssetManager.tsx`）。需用支持子目录的角色资源入口上传，或把图片放入对应目录后再设默认值。
+依赖 Playwright 的脚本可以按其入口使用 `PLAYWRIGHT_MODULE`；模块不可解析是环境缺失，不是产品失败。选择 API 全拦截夹具或临时书籍与会话，真实剧情首次载入可能自动调用模型，不能随手打开用户存档当作无写入预览。
 
-## 剧情节点生成
+截图脚本会预置 `ark_chat_story_<sid>` 消息缓存以避开首次叙述；这只证明合成内容的呈现。被忽略的书架、Spine 和背景不会自动出现在隔离检出，缺资源时的回退表现不能当作真实模型图片验收。用例应使用临时夹具，不写死本机书数量、条目数或策略版本。
 
-### 护栏式剧情使用参考大纲补齐节拍骨架（核对于 2026-09-28）
+依据：[截图配置](../frontend/vite.config.shot.ts)、[对话截图入口](../scripts/shot_chat_ui.py)、[世界书浏览器夹具](../scripts/test_worldbook_review_ui.cjs)。测试、SSR、合成 API 浏览器、真实 Flask、真实模型与原生 Electron 分别报告；历史窄屏截图不是当前 PC 验收要求。
 
-- 没有 `## 章节 N` / `#### beat_` 骨架的剧情，创建会话时用书内 `story_outline_<plot_id>` 系统条目优先、启发式切幕兜底，生成会话自己的节拍骨架。`<current_node>` 提供当前节拍、`must_keep` 和后续候选；玩家选择有 `target_beat_id` 的分支时，叙述前跳到落点。
-- 启发式一幕一节拍默认 `min_rounds=3`，LLM 大纲节拍默认 2，防止模型每轮都标记完成导致过快推进。LLM 大纲解析失败时接口可返回 200 并回落启发式；调用方必须查看 `outline.source` 和 `generation.error`，不能只按 HTTP 状态判断成功。
-- 战术模式只接受绑定当前剧情或世界书的现成战斗节点；其它节点引用按 `combat_scene` 现场生成。生成测试须把节点目录指向临时路径。
-- 偏离分支只写入会话的 `story_outline` 副本，不回写世界书。通用行为验证见 `tests/test_story_outline.py`。
+## 六、战斗与演出
 
-### 节点图演出图片按剧情引用触发（2026-09-27）
+网格、横版与脚本玩法各有状态和演出来源，不能把某一模式的测试结果当作所有玩法的恢复或结算保证。
 
-- 在世界书「节点图」选剧情入口、有效章节或节拍节点，再点「演出配置」选择本书图片或上传图片。背景按节拍 → 章节 → 剧情入口继承；CG 只挂有效节拍，进入该节拍的叙述时自动展示，可关闭并从舞台工具栏重看。配置随整张图保存，画布坐标与连线不决定触发时机。
-- 图条目的 `scene_media` 只接受本站 `/api/assets/` 图片 URL，服务端按会话绑定书和 `plot_id` 读取图；已有会话也会读到之后保存的新配置。会话资源背景覆盖仍优先于图配置，图配置再优先于地点/default 背景。
-- 叙述历史保存生成该轮时的 `beat_id` 与一基章节号。舞台按叙述轮次解析演出，避免 `beat_complete` 已推进到下一节拍造成图片提前；旧历史没有节拍元数据时不自动触发 CG。CG 在同一浏览器标签页中每次进入一个节拍自动弹出一次，回看按钮仍可手动重看。
+### 6.1 网格演练与身份
 
-### 节点图从参考大纲生成布局（核对于 2026-09-28）
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
 
-- `combat_nodes.plot_flows(book_mgr=...)` 对没有正文节拍骨架的剧情，按书内大纲、启发式大纲的顺序回落；两者都无法切章时保持 `chapters=[]`。返回的 `source` 区分正文骨架与参考大纲，战斗引用合并大纲声明及节点文件中的 `bind`。
-- 双击引用节点打开实际节点详情，展示大纲正文、必留内容、叙事指引、推进约束及分支落点；点击「打开剧情原文」才进入文档编辑器。大纲节拍不伪装成原文 `#### beat_id` 段。LLM 分析接口即使返回 200 也可能回落启发式，界面须查看 `outline.source` / `generation.error`。
-- 唯一节拍 ID 移动章节后仍能解析详情，并可「更新移动引用」后保存；真正删除或歧义引用需在详情明确重新关联，不按名称猜测。关联修改保留坐标、连线和演出配置，进入同一撤销栈。章节引用仍以序号为锚，大纲重排章节时应核对并重新关联；不能从旧序号推断原章节身份。不同世界书的同名剧情草稿分别缓存，避免串书。
-- 新生成布局按大纲 `branches[].target_beat_id` 连接作者分支；连线和节点详情展示声明的选项与意图。手工布局连线只是编辑器结构，不执行物品或数值条件。背景/CG 仍按保存的剧情、章节、节拍引用进入舞台，修复移动引用前不会自动改写运行时资源。
-- 验证：`tests/test_graph_node_details.py`、`tests/test_plot_graphs.py`、`tests/test_scene_media.py`、`tests/test_character_stats_api.py`（历史轮次的舞台图片）及 `node scripts/test_graph_references.cjs`。`python scripts/test_graph_details_browser.py` 使用独立 Vite `:5188`（`GRAPH_DETAILS_URL` 可覆盖），全拦截 API，覆盖详情、失效引用、撤销/保存、同名剧情跨书缓存和 1440×960 / 390×844；不是对用户本地书或在线服务的写入验收。
+空书架的网格演练使用 `data/tactical_practice/` 显式训练内容，不自动安装世界书或向剧情会话注入示例。选择一本书后，节点和角色限定在该书，切书清掉旧选择；缺角色与同显示名歧义明确报错。
 
-### 剧情数值与物品效果（task.md 6–7，2026-09-28）
+会话编成用包含主控的阵容。单位保存角色目录 ID 与实际来源书，结算按 ID 写回；Spine 目录、骨架、图集、贴图与缓存键携带来源，恢复时不能跨书复用同名形象。内联敌人优先于会话自定义与书内敌人文件，模拟器和生产加载不能采用不同来源顺序。
 
-- 大纲 `branches[].conditions/effects` 由 `story_rules.py` 校验与结算：条件为 AND，可检查场景物品在场/不在场、已声明角色字段的 eq/ne/gt/gte/lt/lte；效果可获得/消耗物品、set/add 字段。字段外键、非法类型和非有限数拒绝，数值增减按书内范围截断。`actor: player` 指主控，其他角色必须在阵容中。物品是唯一 ID 的共同场景资源，不是堆叠背包；支持绑定书的物品文档和启用的 `category_id=items` 条目 UID。
-- 仅当前节拍的作者分支有规则权限；模型不能伪装作者、提供效果或直接跳到受限落点。同名模型复述保留作者规则，传了错误 ID 不回退标签，自由输入同名选项也重验。界面显示条件/效果/不可选原因；历史节点上的资格是记录时状态，不是当前可选承诺。
-- 会话角色详情挂载 `CharacterSessionStats`，可见书内默认值和剧情变化；未定义时显示空状态，不造数值。显式保存仅修改会话值；按会话/角色 keyed 挂载，避免草稿串号。原独立 `CharacterStatsPanel` 未重新注册，不把不存在的侧栏页签作为入口。
-- 服务端在叙述前以一次 `overrides.json` 原子替换提交效果、落点和执行凭据，失败恢复内存；LLM 生成是下一阶段，不和磁盘事务混为一体。生成失败保留待叙述选择，重试同 ID 不重复扣物品/加数值。已完成旧 ID 返回 409。叙述（含整个 SSE）与 HTTP 数值/物品修改、节点回档互斥。
-- 场景物品列表、物品覆盖、数值及执行凭据随树节点和节点历史回档，同步内存场景物品。只剪叙述历史的「轮次回退」不能精确恢复资源：已结算效果时返回 409，明确要求使用节点图回档，避免看似回退但资源未还原。
-- 回档在剪历史之前检查目标仍存在、资源快照完整；缺少字段的旧节点明确拒绝，不猜测原库存，也不自动迁移。LLM 失败后直接点「继续」同样接续已结算选择，保留选择前的父节点快照。重载空 NPC 阵容不会跳过物品，也不再回填开场角色。
-- `scripts/prepare_beyond_twin_story_rules.py <明确的book.json路径>` 默认 dry-run；`--output <新文件>` 生成候选，`--apply` 才备份、重查 SHA-256 并原子替换。保持原分支与媒体，新增病中日志布尔字段、玩偶获得/安抚、终端调查与回忆路线；基础路线无物品门槛。应用前须保存世界书编辑并停止写入。已有会话保留自己的大纲副本，不自动迁移存档；代码部署需要批准后重启在线服务。
-- 本轮未覆盖用户本地书或重启服务。证据：`tests/test_story_rules.py`、`tests/test_story_rules_http.py`（真实 Flask、脚本化模型、SSE/POST/回档）、`tests/test_session_stats.py`、`tests/test_character_stats_api.py`、`tests/test_beyond_twin_story_rules_content.py`；前端与内容候选验证不等于真实 LLM 验收。
+依据：[演练与网格 API](../src/blueprints/combat.py)、[战斗内容加载](../src/combat_data_loader.py)。验证入口：[演练用例](../tests/test_tactical_practice.py)、[恢复用例](../tests/test_combat_resume.py)、[资源纯逻辑](../frontend/src/utils/gridCombatResources.test.mjs)、[演练浏览器夹具](../scripts/test_tactical_practice_browser.py)。
 
-## 历史内容记录：灰灯渡口（2026-09-26）
+### 6.2 状态、事件与播放顺序
 
-- 旧共享内容与分发包已从项目移除；本机当前书架不含灰灯渡口。若需恢复，应从项目外副本整理为 `data/worldbooks/books/<book_id>/` 下的完整书文件夹。
-- 确定性选路需结构化大纲 `branches[].target_beat_id`。本书一章一节拍，分叉 `choice_required=true`；模型完成标记和超时均不能替玩家选择，也不能通过模型生成的其它落点跳过分叉。回档需保留树分支的 `target_beat_id`。
-- 固定战斗节拍使用 `min_rounds=1`，声明了节点就不再现场生成第二个节点。合流用三轮，结局只用一个尾声节拍，避免互斥结局顺序串播。
-- 模拟器曾忽略内联敌人造成空场假胜；2026-09-29 生产 `CombatSession` 也已统一读取节点 `enemies_def`，优先级为内联定义 → 会话自定义 → 书内敌人文件。战前绕行缺结构化结算，结局事实仍受模型一致性限制。
-- 不要把接口脚本化验收、180 场策略模拟、13 轮真实模型绕行线当成同一种验证。
-- 旧开发记录已删除；关键节拍完成判据、模型编造主控台词、完整人工战斗及取证路线真实模型验收仍无最终证明，需有内容书后重新验证。
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
 
-## 网格战斗演练（核对于 2026-09-29）
+动作和结束回合返回 `{state, events}`，HTTP 批次与 SSE 共享事件 `presentation_id`。命令响应负责播放，SSE 是重复传输渠道，不是第二套时钟。先登记批次 ID，逐事件演出和投影血量，最后采用权威快照；提前替换最终状态会使死亡单位在演出前消失。
 
-- **现象与根因**：演练只读取已安装世界书节点，空书架无法开始；角色候选误用叙事 `combat.json` 目录。会话开战只取 NPC，漏主控；单位显示名被当作资源键，且媒体查询丢失书籍范围。
-- **现状**：`/api/combat/practice` 默认提供 `data/tactical_practice/` 的显式基础演练（训练员、职业牌组、自包含节点）；不安装世界书，也不向剧情会话注入示例。选择世界书后，节点和角色限定在该书，切书清空旧选择；参战角色不再依赖叙事卡文件。不存在的角色不再静默跳过，同显示名阵容明确拒绝，避免卡牌归属歧义。
-- **角色身份**：会话使用 `get_roster()`（有资料的主控 + 队友），文档按绑定书加载；`character_id`、实际来源书与媒体 URL 随单位和恢复快照保存，结算按角色 ID 写回。Spine 的目录、骨架、图集和贴图均携带来源书，缓存键包含来源，不复用其他书的同名形象。
-- **验证入口**：`tests/test_tactical_practice.py`、`tests/test_combat_resume.py`；`node --test src/utils/gridCombatResources.test.mjs src/utils/spineVariants.test.mjs`（frontend 下）；`scripts/test_tactical_practice_browser.py`（先用 `npm exec vite -- --config vite.config.shot.ts --host 127.0.0.1 --port 5192 --strictPort` 启动独立前端）。浏览器用临时书籍和真实 Flask 战斗路由，不写用户存档；覆盖 1440/390px 入口、开战与结束回合、切书、空书、失败重试。没有覆盖用户正在运行的旧进程或全部真实 Spine 动画。
-- **关卡门禁**：`tools/validate_battle_spec.py` 校验通过；`tools/simulate_battle.py --book-folder data/tactical_practice --node enc_builtin_training --runs 30 --min-win-rate 0.9 --max-median-rounds 5 --max-hp-loss 0.2` 为 100% 胜率、中位 4 回合、首回合清场 0%、血损约 1%，实际威胁 2.0 与预算一致。
+动作开始递增状态版本，避免先发 GET 覆盖播放投影。移动范围由服务端计算，切角色后需验证响应仍属于当前选择。响应不确定时不能盲目重发动作；同步状态与恢复不等于再次执行结算。护盾事件值是新增量，灼烧值是每回合伤害，持续时间另有字段，最终状态仍是权威来源。
 
-## 横版战斗
+依据：[CombatView](../frontend/src/components/combat/CombatView.tsx)、[演出逻辑](../frontend/src/components/combat/combatPresentation.ts)、[战斗会话](../src/combat_session.py)。验证入口：[表现脚本](../scripts/test_combat_presentation.cjs)、[事件 API 用例](../tests/test_combat_presentation.py)。历史差距见[卡牌表现 QA](card-combat-presentation-qa.md)，不能据此宣称当前所有卡牌已有专属演出。
 
-### 横版关卡与表现层（核对于 2026-09-28）
+### 6.3 横版与脚本玩法
 
-- 厚度不超过 32 px 的薄平台默认单向（`oneWay` 可覆盖）；巡逻区间只约束闲逛，追击受平台边缘与墙限制。改地形或敌人行为后运行 `simulation.test.mjs` 的通关策略用例。
-- Pixi 7 的 `Graphics.arc()` 会从上一段路径末点连线，每段弧线先 `moveTo` 起点。未启用 `preserveDrawingBuffer` 时，不能用 `drawImage` 读回 WebGL 画布判断是否渲染；用截图像素检查。
-- Spine 模型在被 Git 忽略的角色资源目录，隔离 worktree 里缺模型时只看到回退表现；真实模型验收需指向具备资源的环境。
+> 最近核对：2026-10-11（源码与现有用例的静态核对）。
 
-## 卡牌战斗事件播放（2026-09-27）
+横版薄平台默认单向，阈值与作者 `oneWay` 覆盖由 `level.ts` 维护；巡逻区间只限制闲逛，追击仍受墙和平台边缘约束。改地形或敌人行为时检查模拟通关策略。
 
-- 四个 action/end-turn 接口统一返回 `{state, events}`。事件的 `data.presentation_id` 在进入 SSE 队列时生成，HTTP 批次共享该 ID。
-- 前端先标记整批 ID，再播放事件和投影血量，最后采用权威快照。不要在收到 HTTP 响应时直接替换最终状态，否则死亡角色先消失。旧接口 SSE 分批消费要跨批保存攻击分组。
-- 选中角色的可移动范围由服务器计算；切换角色必须请求该角色并核对响应仍属于当前选择。动作开始递增版本，防止更早发出的 GET 覆盖播放投影。
-- 护盾 status.value 是新增量；burn.value 是每回合伤害，duration 才是持续时间。净化清理负面状态，最终快照仍是权威来源。
-- 定向检查 `node scripts/test_combat_presentation.cjs` 与 `tests/test_combat_presentation.py`。完整验收和未解决的窄屏/专属演出差距见 [第一轮验收](card-combat-presentation-qa.md)。
+Pixi 7 的 `Graphics.arc()` 会连接上一段末点，每段弧线先 `moveTo` 起点。未启用 `preserveDrawingBuffer` 时，不能仅用 `drawImage` 回读 WebGL 判断是否渲染，需检查实际截图像素。
 
-## 历史：Ark Tavern 通用化与可选内容包（2026-09-27）
+脚本会话恢复使用冻结版本，不换成安装目录里的新包。网络断开、非 JSON 错误或版本冲突时停止运行并保留最近成功快照；客户端结果需用户确认，不发数值奖励。创建后界面模式直接采用创建响应的 `session.mode`，不能通过旧 sessions 闭包查新 ID。
 
-以下记录描述 2026-09-27 当时的实现与验证；共享分发源、内容归属清单及内容包已移除，不是当前操作流程。
+专题：[横版设计](design/combat/sideview-combat.md)、[当前脚本模式](proposals/combat-mode-plugins.md)。验证入口：[横版模拟](../frontend/src/features/sideview/simulation.test.mjs)、[脚本 PC 历史验收](archive/combat-plugin-pc-qa-2026-10-06.md)。合成模型的 PC 验收不证明 Electron 专有运行、浏览器下载回传或真实模型。
 
-- 启动时不安装或刷新任何离线世界书包。会话未显式绑定剧情世界书时不注入书内容；新会话主控称谓为「玩家」，环境为空。已有本地安装副本保留给用户管理，不自动删除。
-- 历史实现曾以 `content_manifest.json` 标记共享分发资源归属，并支持显式安装内容包；当前没有这套内容分发与安装流程。
-- 历史记录中的 Spine 变体映射文件曾随共享内容分发；当前资源按用户的完整世界书文件夹管理。
-### 可复制的完整世界书（2026-09-28）
+## 七、历史证据的使用范围
 
-- 已安装书以 `data/worldbooks/books/<id>/book.json` 为元数据，`characters/`、`plots/`、`combat/`、`audio/` 等资源目录直接放在同一本书的文件夹内。复制文件夹即完整分享；放入 `books/` 后刷新书架发现。会话按绑定书顺序解析同名资源，无绑定时不读取书内资源。
-- 应用内导入酒馆 JSON/JSONL 或含世界书的角色卡会新建 `books/<id>/book.json`；原文件只有条目时，不会凭空获得独立图片、音乐、剧情和战斗资源。酒馆 JSON 导出仍用于外部互通。
-- 旧版散装书 JSON、`inbox/` 和 `.arkwb` 不再参与导入；旧迁移脚本已下线。整理旧文件时先备份并核对完整书文件夹，不覆盖同 ID 的现有书。
-- 会话 ZIP 与世界书文件夹是不同的导出物。导入会话 ZIP 时，随档案保存的角色与背景快照会变成一册独立的会话资源世界书，并排在该会话绑定列表首位；不会写回旧共享目录或覆盖现有书籍。
-- 历史记录：2026-09-28 本机旧 `arknights.json` 缺 `schema_version=3`；当时临时目录内验证了「备份并修复」后迁移，254 条条目保持一致且留下 `.bak`。当前请以书文件夹为安装单位。
+> 最近整理：2026-10-11；下表保留原始记录日期，本次未重新执行历史验收。
 
-### 顶栏标签脚与滚动边界（2026-10-06）
+本节只保留仍有比较或排查价值的历史条件，避免把累计通过数量、旧机器状态和路线实验写成当前保证。
 
-- `GameTopBar` 的反向圆角以外侧上角为圆心，标签、标签脚和底部衔接带沿用同一 `bg-gray-800` 皮肤映射。圆心放在下角会使弧线方向反转，底部无法平滑舒展。
-- 导航两端预留 12px 标签脚空间，使用可伸缩的横向布局和 `overflow: visible`。不要在标签列表上恢复 `overflow-x-auto`：最右侧「设置」的伪元素会被计入滚动范围，并挤出横向滚动条。
-- 桌面浏览器验收覆盖 1280px 与 Electron 最小宽度 1000px、全部六个导航入口、默认深浅色及两种皮肤；标签均完整显示，无横向或纵向溢出，键盘焦点可见。
+| 历史记录 | 原始记录日期 | 条件与可用范围 |
+|---|---|---|
+| 书架加载测速 | 2026-09-29 | 同机 5 本书、349 条目，独立 Flask test client 各测 5 次；书架中位耗时从 1321.46 降到 103.32 ms，详情从 54.38 到 53.66 ms。仅为当时接口处理耗时，不是浏览器整页、磁盘或并发性能保证。复现入口为 [bench_worldbook_loading](../scripts/bench_worldbook_loading.py)，比较版本分进程运行。 |
+| 舞台流与窗口验收 | 2026-10-06～2026-10-07 | 合成模型/API 浏览器覆盖固定逻辑视口；独立 Electron 夹具使用生产 preload 和窗口控制器，但没有启动生产 Python，也不证明发行包的 file:// 链路。结果目录位于被忽略的 `.tmp/`，不是仓库长期交付物。入口见 [流式浏览器](../scripts/test_stage_stream_browser.py)、[舞台窗口](../scripts/test_stage_window_modes.cjs)。 |
+| 灰灯渡口与旧剧情路线 | 2026-09-26（内容记录）；2026-10-04（边界复核） | 本文不附带内容书，恢复需要完整外部副本。脚本化路径、策略模拟、真实模型单条路线与完整人工战斗不是同一种证据；必要选择、主控台词、末节终态及不同路线的真实模型体验没有统一最终证明。删除旧报告不等于解决历史问题。 |
+| 演出图片与脚本玩法 | 2026-10-06～2026-10-07 | 真实 React/Flask 搭配离线模型证明对应入口与状态流程；不证明任意模型一致性、用户真实图片、Electron 发行包或完整第三方生态。对应专题与历史报告保留原验收范围。 |
 
-### 固定窗口尺寸与显示模式（2026-10-06，当日晚更新）
-
-- 设置提供五组内容区逻辑像素预设，清单见 `frontend/src/shared/windowSettings.ts` 与前端设计规范。窗口模式使用 `setContentSize`，窗口全屏对应原生最大化，全屏对应 `setFullScreen`；选择预设会恢复普通窗口，自由拖动不会吸附到预设。
-- 尺寸预设与「窗口全屏」「全屏」合并在设置页的同一个下拉框中（显示模式没有独立按钮行，也不再有单独的「窗口」按钮）；普通窗口 + 自定义尺寸时下拉框显示「自定义」。
-- `WindowState.fitted` 标记所选预设是否因屏幕可用空间不足被按比例适配：`presetId` 保留所选预设，`width/height` 永远是系统实际内容区尺寸，适配时状态行显式标注「超出屏幕可用空间，已按比例适配」。2K 物理屏 + 125% 缩放（逻辑工作区 2048×1104）下 1080p/2K 预设都会触发适配，不允许下拉框声称一个与实际窗口不符的尺寸。
-- Windows 显示缩放下，先 `setContentSize` 再 `setPosition` 会重新舍入客户区（本机 1280×720 曾变成 1282×721）。先在目标工作区定位、最后设置内容区尺寸；首次显示前也归一默认尺寸。恢复最大化/全屏后重新取得目标屏幕工作区；超出空间的预设按原比例适配，并保留所选预设。不得因缩放后的逻辑工作区较小而禁用 1080p/2K 选项。
-- `node scripts/test_window_controls.cjs` 覆盖预设、模式、串行切换、IPC 来源/参数、屏幕适配（含 fitted 标记）、尺寸事件和清理。`node scripts/test_window_controls_electron.cjs` 使用临时用户目录、真实 preload/IPC 与原生窗口，不启动或修改后端；验证五个预设均可应用、较大尺寸适配后保留选择且 fitted 与实际尺寸一致、内容区与 CSS 视口一致、三种模式和自定义尺寸。
-- 设置选择后立即切换，无额外应用按钮。五组固定视口仍用于开发和布局验收；原生适配后的实际运行尺寸不会改变开发矩阵。未声称其他页面已经补做完整五尺寸验收，也未实测多屏切换。
+旧共享内容、预装包、散装书迁移成功数字和具体本机存档状态不再是操作依据。设计原因、完整历史方案与目标队列各回到所属文档；需要重新验收时按当前书文件夹、接口和临时数据重新建立条件。
