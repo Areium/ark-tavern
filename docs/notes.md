@@ -240,6 +240,12 @@ BGM/video 仅保留扩展位置，当前未实现的动作明确拒绝。缺完�
 
 节点详情中的演出配置使用同一份图草稿、撤销与保存。抽屉输入 Delete/Backspace 不能删除图形，左右键切页签不能抢输入焦点。CG 预览不是背景预览，编辑器显示也不证明会话冻结资源已经更新。
 
+“剧情节点”入口与画布空白处右键菜单可创建蓝色节拍节点：填写章节、标题和正文后，立即保存底层剧情内容及完整画布草稿。正文含章节骨架时更新所属书的 `plots/<plot_id>/index.md` 和对应剧情条目；否则更新或新建书内参考大纲条目，空白剧情从第一章开始。自由节点仍用于备注。
+
+创建请求同时校验剧情源与图文档修订。正文剧情条目与文件已经不同步时拒绝覆盖，需先核对并同步两处内容；保存失败会恢复本次改动的文件与缓存。图形的撤销、移除只修改画布，不删除已保存的底层节拍。节拍详情的“编辑剧情节点”直接编辑该节拍标题和正文，保留其他作者规则。
+
+创建与重载的验证入口：[作者接口用例](../tests/test_plot_graph_authoring.py)、[浏览器临时书联调](../scripts/test_story_node_authoring_browser.py)。浏览器联调使用真实 Flask 存取与流程解析，覆盖五组桌面尺寸；不代表 Electron 显示模式或真实模型推进已验收。
+
 依据：[PlotGraphPage](../frontend/src/components/combat/PlotGraphPage.tsx)。验证入口：[共享引用检查](../scripts/test_graph_references.cjs)、[图详情浏览器夹具](../scripts/test_graph_details_browser.py)。
 
 ### 4.3 内容区尺寸与原生窗口

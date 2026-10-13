@@ -74,6 +74,7 @@ interface Props {
   edgeDescriptions?: Map<string, string>;
   onOpenNode: (node: PlotGraphNodeDTO) => void;
   onRequestDeleteNode: (id: string) => void;
+  onCreateStory?: (wx: number, wy: number) => void;
   onCreateCombat: (wx: number, wy: number) => void;
   onAddBeat: (beat: AvailableBeat, wx: number, wy: number) => void;
   onAddCombatNode: (item: AvailableCombat, wx: number, wy: number) => void;
@@ -755,6 +756,7 @@ export default function GraphCanvas(props: Props) {
                       {props.analyzing ? "LLM 分析中…" : "LLM 分析剧情结构"}
                     </button>
                   )}
+                  {props.onCreateStory && <button className="ng-empty-btn" disabled={props.analyzing} onClick={() => props.onCreateStory?.(0, 0)}>新建剧情节点</button>}
                   <button className="ng-empty-btn" disabled={props.analyzing} onClick={() => createNoteAt(0, 0)}>新建自由节点</button>
                 </div>
               </>
@@ -771,8 +773,9 @@ export default function GraphCanvas(props: Props) {
         }} onPointerDown={(e) => e.stopPropagation()}>
           {menu.kind === "blank" && (
             <>
-              <button className="ng-menu-item" onClick={() => { createNoteAt(menu.wx, menu.wy); closeMenu(); }}>✎ 新建自由节点</button>
-              <button className="ng-menu-item" onClick={() => { props.onCreateCombat(menu.wx, menu.wy); closeMenu(); }}>⚔ 新建战斗节点…</button>
+              {props.onCreateStory && <button className="ng-menu-item" onClick={() => { props.onCreateStory?.(menu.wx, menu.wy); closeMenu(); }}><AppIcon name="forward" size={13} /> 新建剧情节点</button>}
+              <button className="ng-menu-item" onClick={() => { createNoteAt(menu.wx, menu.wy); closeMenu(); }}><AppIcon name="plus" size={13} /> 新建自由节点</button>
+              <button className="ng-menu-item" onClick={() => { props.onCreateCombat(menu.wx, menu.wy); closeMenu(); }}><AppIcon name="combat" size={13} /> 新建战斗节点…</button>
               <div className="ng-menu-sep" />
               <p className="ng-menu-head">添加剧情节拍（未上图）</p>
               <div className="ng-menu-list">

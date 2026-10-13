@@ -35,6 +35,8 @@ import type {
 import BattleNodeForm from "./BattleNodeForm";
 import ConfirmDialog from "../common/ConfirmDialog";
 import StoryBeatEditor from "./StoryBeatEditor";
+import StoryNodeForm, { type StoryNodeInput } from "./StoryNodeForm";
+import AppIcon from "../AppIcon";
 import GraphNodeDetails from "./GraphNodeDetails";
 import { resolveGraphReference, repairGraphReferences, graphEdgeDescription } from "./graphReferences";
 import GraphCanvas, { type AvailableBeat, type AvailableCombat, type GraphCanvasApi, type GraphNodeDisplay } from "./GraphCanvas";
@@ -66,6 +68,7 @@ type Drawer =
   | { kind: "detail"; nodeId: string }
   | { kind: "battle"; nodeId: string }
   | { kind: "story"; plotId: string; beatId: string | null }
+  | { kind: "beat"; beatId: string }
   | null;
 
 /** 抽屉进出场动画时长（ms），须与 style.css 的 .ng-drawer transition 一致 */
@@ -107,6 +110,11 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId, exp
   const [resizing, setResizing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [combatModal, setCombatModal] = useState<{ wx: number; wy: number; id: string; name: string; error: string } | null>(null);
+  const [storyPosition, setStoryPosition] = useState<{ x: number; y: number } | null>(null);
+  const contextRef = useRef(""); contextRef.current = `${bookId}:${plotId}`;
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { setStoryPosition(null); }, [bookId, plotId]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<{ status: "idle" | "saving" | "saved" | "error"; text: string }>({ status: "idle", text: "" });
@@ -386,6 +394,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId, exp
   // ── 快捷键：撤销/重做/保存/删除 ──
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (storyPosition) return;
       const t = e.target as HTMLElement;
       const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
       const mod = e.ctrlKey || e.metaKey;
@@ -406,7 +415,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId, exp
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [save, undo, redo, selected, doc, commit, drawer, closeDrawer]);
+  }, [save, undo, redo, selected, doc, commit, drawer, closeDrawer, storyPosition]);
 
   // ── 视图持久化（防抖 300ms） ──
   const onViewChange = useCallback((v: ViewState) => {
@@ -515,6 +524,35 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId, exp
       showNotice("err", errText(e, "添加战斗节点失败"));
     }
   }, [doc, commit, overview, showNotice]);
+
+  const createStoryNode = useCallback(async (input: StoryNodeInput) => {
+    const key = graphCacheKey(plotId), cache = caches.current.get(key);
+    if (!cache || !storyPosition) throw new Error("请重新打开节点图");
+    if (cache.saving) throw new Error("节点图正在保存，请稍后重试");
+    const submitted = cache.doc;
+    cache.saving = true;
+    try {
+      const result = await api.createPlotBeat(plotId, bookId, {
+        ...input, position: storyPosition, graph: { ...submitted, _revision: cache.revision },
+      });
+      const latest = cache.doc;
+      const next = latest === submitted ? result.graph : {
+        ...latest, nodes: [...latest.nodes, result.node], _revision: result.graph._revision,
+      };
+      cache.doc = cache.hist.commit(latest, next);
+      cache.revision = result.graph._revision;
+      cache.dirty = latest !== submitted;
+      if (!mounted.current || contextRef.current !== key) return;
+      setDoc(cache.doc); setVersion(value => value + 1);
+      setSelected({ kind: "node", id: result.node.id });
+      setStoryPosition(null);
+      setSavedGraphs(previous => new Set(previous).add(plotId));
+      setSaveState({ status: "saved", text: cache.dirty ? "剧情节点已保存，画布仍有未保存修改" : "已保存到世界书" });
+      showNotice("ok", "已创建剧情节点并同步到世界书");
+      await loadOverview(bookId);
+      if (mounted.current && contextRef.current === key) openDrawer({ kind: "detail", nodeId: result.node.id });
+    } finally { cache.saving = false; }
+  }, [api, bookId, plotId, storyPosition, loadOverview, openDrawer, showNotice]);
 
   /** 在视口中心新建自由节点（顶栏入口） */
   const addNoteAtCenter = useCallback(async () => {
@@ -648,8 +686,10 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId, exp
 
   const editNode = useCallback((node: PlotGraphNodeDTO) => {
     if (node.type === "combat" && node.ref?.node_id) openDrawer({ kind: "battle", nodeId: node.ref.node_id });
-    else if (plotId) {
-      const beatId = currentPlot?.source === "outline" ? null : (node.ref?.beat_id ?? null);
+    else if (node.type === "beat" && node.ref?.beat_id) {
+      openDrawer({ kind: "beat", beatId: node.ref.beat_id });
+    } else if (plotId) {
+      const beatId = node.ref?.beat_id ?? null;
       openDrawer({ kind: "story", plotId, beatId });
     }
   }, [plotId, currentPlot, openDrawer]);
@@ -739,19 +779,28 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId, exp
         >↪ 重做</button>
         <span className="w-px h-4 bg-gray-700" />
         <button
-          className="text-[12px] px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 disabled:opacity-30"
+          className="inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 disabled:opacity-30"
+          disabled={!doc}
+          onClick={() => {
+            const center = canvasApi.current?.centerWorld();
+            if (center) setStoryPosition({ x: center.x - 96, y: center.y - 32 });
+          }}
+          title="新建剧情节点并同步到世界书"
+        ><AppIcon name="forward" size={13} /> 剧情节点</button>
+        <button
+          className="inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 disabled:opacity-30"
           disabled={!doc}
           onClick={addNoteAtCenter}
           title="在视口中心新建自由节点"
-        >✎ 自由节点</button>
+        ><AppIcon name="plus" size={13} /> 自由节点</button>
         <button
           className="text-[12px] px-2 py-1 rounded bg-amber-700/30 border border-amber-600/50 hover:bg-amber-700/50 disabled:opacity-40"
           disabled={!doc}
           onClick={() => { const c = canvasApi.current?.centerWorld(); if (c) setCombatModal({ wx: c.x, wy: c.y, id: "", name: "", error: "" }); }}
           title="新建战斗节点并加入节点图"
-        >＋ 战斗节点</button>
+        ><AppIcon name="combat" size={13} /> 战斗节点</button>
         <button
-          className="text-[12px] px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 disabled:opacity-30"
+          className="inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 disabled:opacity-30"
           disabled={!doc || doc.nodes.length === 0}
           onClick={resetPositions}
           title="重置节点位置：把全部节点坐标恢复为剧情结构的默认布局（保留节点与连线，可 Ctrl+Z 撤销）"
@@ -862,6 +911,7 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId, exp
             previewBookId={bookId}
             onOpenNode={openNode}
             onRequestDeleteNode={setConfirmDelete}
+            onCreateStory={(wx, wy) => setStoryPosition({ x: wx - 96, y: wy - 32 })}
             onCreateCombat={(wx, wy) => setCombatModal({ wx, wy, id: "", name: "", error: "" })}
             onAddBeat={addBeatNode}
             onAddCombatNode={addCombatGraphNode}
@@ -932,6 +982,10 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId, exp
                   }}
                   onClose={closeDrawer}
                 />
+              ) : drawer.kind === "beat" ? (
+                <StoryNodeForm key={`${bookId}:${plotId}:${drawer.beatId}`}
+                  bookId={bookId} plotId={plotId} beatId={drawer.beatId}
+                  onChanged={() => { void loadOverview(bookId); }} onClose={closeDrawer} />
               ) : (
                 <StoryBeatEditor
                   key={`story-${drawer.plotId}`}
@@ -963,6 +1017,13 @@ export default function PlotGraphPage({ sessionId, bookId: controlledBookId, exp
           </ConfirmDialog>
         );
       })()}
+
+      {storyPosition && <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+        <div role="dialog" aria-modal="true" aria-label="新建剧情节点" className="w-full max-w-xl max-h-full overflow-y-auto bg-gray-900 border border-gray-700 rounded-xl">
+          <StoryNodeForm key={`${bookId}:${plotId}`} bookId={bookId} plotId={plotId}
+            onCreate={createStoryNode} onClose={() => setStoryPosition(null)} />
+        </div>
+      </div>}
 
       {/* ── 新建战斗节点弹窗 ── */}
       {combatModal && (

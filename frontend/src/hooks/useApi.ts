@@ -741,6 +741,22 @@ export function useApi() {
       request<{ plot_id: string; book_id: string; graph: import("../types").PlotGraphDocDTO | null }>(
         `/api/plot-graphs/${encodeURIComponent(plotId)}?book_id=${encodeURIComponent(bookId)}`),
 
+    getPlotAuthoring: (plotId: string, bookId: string) =>
+      request<import("../types").PlotAuthoringDTO>(
+        `/api/plot-graphs/${encodeURIComponent(plotId)}/authoring?book_id=${encodeURIComponent(bookId)}`),
+
+    createPlotBeat: (plotId: string, bookId: string, input: {
+      graph: import("../types").PlotGraphDocDTO; source_revision: string;
+      chapter_idx: number | null; title: string; content: string; position: { x: number; y: number };
+    }) => request<{ graph: import("../types").PlotGraphDocDTO; node: import("../types").PlotGraphNodeDTO; authoring: import("../types").PlotAuthoringDTO }>(
+      `/api/plot-graphs/${encodeURIComponent(plotId)}/beats`,
+      { method: "POST", body: JSON.stringify({ book_id: bookId, ...input }) }),
+
+    updatePlotBeat: (plotId: string, bookId: string, beatId: string, input: { source_revision: string; title: string; content: string }) =>
+      request<{ authoring: import("../types").PlotAuthoringDTO }>(
+        `/api/plot-graphs/${encodeURIComponent(plotId)}/beats/${encodeURIComponent(beatId)}`,
+        { method: "PATCH", body: JSON.stringify({ book_id: bookId, ...input }) }),
+
     getSceneMediaOptions: (plotId: string, bookId: string) =>
       request<{ choices: Record<string, { rule_key: string; label: string }[]> }>(
         `/api/plot-graphs/${encodeURIComponent(plotId)}/media-options?book_id=${encodeURIComponent(bookId)}`),

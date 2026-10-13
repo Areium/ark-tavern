@@ -69,7 +69,7 @@ export default function GraphNodeDetails({ node, plot, overview, onRelink, onClo
       </details>}
     </div>
     <footer className="ng-media-footer"><span>查看详情不会推进剧情</span><div className="ng-media-targets">
-      {!unavailable && node.type !== "note" && <button onClick={onEdit}>{node.type === "combat" ? "编辑战斗内容" : "打开剧情原文"}</button>}
+      {!unavailable && node.type !== "note" && <button onClick={onEdit}>{node.type === "combat" ? "编辑战斗内容" : node.type === "beat" ? "编辑剧情节点" : "打开剧情原文"}</button>}
     </div></footer>
   </section>}
   </div></div>;

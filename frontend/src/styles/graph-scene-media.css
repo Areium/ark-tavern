@@ -28,7 +28,7 @@
   cursor:not-allowed
 }
 
-.ng-media-panel :is(button,input):focus-visible,.ng-media-entry:focus-visible,.ng-media-upload:focus-within {
+.ng-media-panel :is(button,input,textarea,select):focus-visible,.ng-media-entry:focus-visible,.ng-media-upload:focus-within {
   outline:2px solid var(--ng-beat);
   outline-offset:3px
 }
@@ -159,7 +159,7 @@
   margin:10px 0 16px
 }
 
-.ng-media-field input {
+.ng-media-field input,.ng-media-field textarea {
   width:100%;
   min-width:0;
   color:var(--ng-title);
@@ -170,10 +170,10 @@
   caret-color:var(--ng-beat)
 }
 
-.ng-media-field input::placeholder {
+.ng-media-field input::placeholder,.ng-media-field textarea::placeholder {
   color:var(--ng-muted)
 }
-.ng-media-field input:disabled {
+.ng-media-field input:disabled,.ng-media-field textarea:disabled {
   opacity:.55
 }
 

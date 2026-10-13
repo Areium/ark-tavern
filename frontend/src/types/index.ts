@@ -1611,3 +1611,10 @@ export interface StageDTO {
   characters: StageCharacterDTO[];
   player: { name: string; skin_url: string | null; avatar_url: string | null; color: string | null };
 }
+
+/** Authoritative story source used when creating and editing graph beat references. */
+export interface PlotAuthoringDTO {
+  source: "narrative" | "outline";
+  source_revision: string;
+  chapters: { idx: number; title: string; beats: { id: string; title: string; content: string }[] }[];
+}

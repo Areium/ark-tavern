@@ -32,6 +32,41 @@ def register(app, managers):
     book_mgr = managers["worldbook"]
     bp = Blueprint("plot_graphs", __name__)
 
+    def authoring_response(plot_id, beat_id=None, read=False):
+        from plot_graph_authoring import AuthoringError, load_authoring, write_beat
+        from story_outline import OutlineError
+        data = request.get_json(silent=True) if not read else {}
+        if not read and not isinstance(data, dict):
+            return json_error("请求必须为 JSON 对象", 400)
+        book_id = request.args.get("book_id") if read else data.get("book_id")
+        if not isinstance(book_id, str) or not book_id:
+            return json_error("缺少 book_id", 400)
+        try:
+            result = (load_authoring(book_mgr, book_id, plot_id) if read
+                      else write_beat(book_mgr, book_id, plot_id, data, beat_id=beat_id))
+            return jsonify(result)
+        except GraphConflictError as exc:
+            return json_error(str(exc), 409)
+        except AuthoringError as exc:
+            return json_error(str(exc), exc.status)
+        except (GraphError, OutlineError, ValueError, TypeError) as exc:
+            return json_error(str(exc), 400)
+        except Exception:
+            logger.exception("剧情节拍保存失败: %s/%s", book_id, plot_id)
+            return json_error("剧情节拍保存失败", 500)
+
+    @bp.route("/api/plot-graphs/<path:plot_id>/authoring", methods=["GET"])
+    def get_authoring(plot_id):
+        return authoring_response(plot_id, read=True)
+
+    @bp.route("/api/plot-graphs/<path:plot_id>/beats", methods=["POST"])
+    def create_beat(plot_id):
+        return authoring_response(plot_id)
+
+    @bp.route("/api/plot-graphs/<path:plot_id>/beats/<beat_id>", methods=["PATCH"])
+    def patch_beat(plot_id, beat_id):
+        return authoring_response(plot_id, beat_id=beat_id)
+
     @bp.route("/api/plot-graphs/<path:plot_id>/media-options", methods=["GET"])
     def media_options(plot_id):
         from story_outline import load_outline, outline_to_beats, heuristic_outline
